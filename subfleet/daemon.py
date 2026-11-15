@@ -32,6 +32,7 @@ import stat
 import subprocess
 import sys
 import threading
+import tempfile
 import time
 import weakref
 from uuid import uuid4
@@ -48,7 +49,7 @@ from . import __version__
 from . import capacity, dependencies, descriptors, disk, folders, host_push, ids, lanes_transfer, machine, procs, protocol, ramp, render, route_check, scheduler
 from . import daemon_log, refusals, resource_leases, task_holds
 from .actions import demand_verdict
-from . import attempt_tmp
+from . import attempt_tmp, worktree_add
 from .attempt_tmp import AttemptTemp, env_value, probe_tmpdir_rows
 from .conversations.store import canonical_native, native_any_case
 from .conversations.peers import peer_token
@@ -921,6 +922,10 @@ class Daemon:
         # C-6.8: job id -> consecutive transient workspace failures. In memory on
         # purpose: a restart forgives the count, and the events keep the record.
         self._workspace_deferrals: dict[str, int] = {}
+        # F3: retain the group across admission passes until a verified empty census.
+        # A restart loses this map; the marker is still checked (C-5.5).
+        self._worktree_adds: dict[str, tuple[int, procs.ProcessIdentity | None]] = {}
+        self._worktree_add_children: dict[str, subprocess.Popen] = {}
         self._reset_admission_state()
         # C-5.10: worker key -> consecutive failures, and the earliest next try.
         self._worker_failures: dict[str, int] = {}
@@ -6356,51 +6361,41 @@ class Daemon:
         if job["sandbox"] == "workspace-write" and not job["in_place"] and not job.get("worktree"):
             workdir = str(self.root / "worktrees" / job["job_id"])
             jobdir = self.root / "jobs" / job["job_id"]
-            copy = (jobdir / uncommitted.DIRECTORY).is_dir()
-            if Path(workdir).exists() and (not (Path(workdir) / ".git").is_file()
-                                           or git_head(workdir, timeout_s=cap) is None
-                                           or (copy and not uncommitted.applied(jobdir, workdir))):
-                # A `worktree add` killed at its cap can leave a directory that is
-                # not a worktree. `.git` is checked first because git run in a
-                # bare directory answers for whatever repository encloses it.
-                # A daemon stopped between the cut and the end of the copy leaves
-                # a worktree without the caller's changes, which would be
-                # reviewed as complete (#221 review r2, P3-1): its copy has no
-                # marker. Nothing has run here (the job has no attempt), so it is
-                # rebuilt rather than handed to a provider. A lock on it, whoever took it, stops that (C-6.20):
-                # git would refuse to add it again, so the job fails with the files still there.
-                if self._tree_locked(job, workdir, cap):
-                    raise AdapterError("the job's worktree needs cutting again and a lock stands on its registration",
-                                       fix="run git worktree unlock on it, then submit again", reason="worktree-locked")
-                self._discard_worktree(job["workdir"], workdir, cap, self._recorded_common(job))
-            if not Path(workdir).exists():
-                common = self._recorded_common(job)
-                # A removal stopped before its registration went, or a tree someone deleted, leaves
-                # a registration with no tree, and git refuses to add one. A lock still stops the add.
-                discard_registration(job["workdir"], workdir, timeout=cap, common=common)
+            try:
+                copy = stat.S_ISDIR(os.stat(jobdir / uncommitted.DIRECTORY).st_mode)
+            except FileNotFoundError:
+                copy = False
+            except OSError as exc:
+                worktree_add.check_transient(exc, "the job's kept copy could not be read")
+                raise
+            self._require_add_empty(job)
+            common, _ = self._tree_registration(job, workdir, cap)
+            if not worktree_add.container_ok(self.root):
+                self._unproven_worktree(job, "the worktrees folder resolves elsewhere")
+            if os.path.lexists(workdir):
+                _, unfinished = worktree_add.finished(workdir, common, job["workdir_head"], timeout_s=cap)
                 try:
-                    # `backslashreplace`: git's messages can quote a file name that is
-                    # not UTF-8, which a strict read raised as `UnicodeDecodeError`
-                    # out of the admission pass on every try (review of cda4c161, N1).
-                    result = subprocess.run([*self._tree_git(job, common, cap), "worktree", "add", "--detach", workdir, job["workdir_head"]],
-                                            capture_output=True, text=True, errors="backslashreplace",
-                                            env=_git_env(None),
-                                            timeout=self.policy["caps"]["worktree_add_timeout_s"])
-                except (OSError, subprocess.SubprocessError):
+                    copied = not copy or uncommitted.applied(jobdir, workdir, strict=True)
+                except OSError as exc:
+                    worktree_add.check_transient(exc, "the job's applied-copy marker could not be read")
+                    copied = False
+                if unfinished is not None or not copied:
+                    self._discard_worktree(job["workdir"], workdir, cap, common)
+            if not os.path.lexists(workdir):
+                # F1: a missing path can still have an index holding someone's work.
+                self._discard_worktree(job["workdir"], workdir, cap, common)
+                try:
+                    result = self._add_worktree(job, workdir, common, cap)
+                except (OSError, subprocess.SubprocessError, SalvageError):
+                    # A holder or an uncertain census prevents even cleanup of the path.
+                    self._require_add_empty(job)
                     self._discard_worktree(job["workdir"], workdir, cap, common)
                     raise
                 if result.returncode:
                     self._discard_worktree(job["workdir"], workdir, cap, common)
-                    # A git killed by a signal did not finish, as a timed-out one did not.
                     killed = _failure("worktree", result) if result.returncode < 0 else None
                     if killed:
                         raise SalvageError(f"could not allocate worktree: {killed}", transient=True)
-                    # What it printed can be the repository's own: a `post-checkout`
-                    # hook's stderr, or a smudge filter's. It goes to daemon.log only,
-                    # scrubbed whole; the job's records say how git ended (C-25.7;
-                    # review r6 of #181, P1). Its words still say whether to wait (C-6.8).
-                    self.log.warning("job %s: %s", job["job_id"], refusals.scrubbed_line(
-                        f"git worktree add exited {result.returncode}: {result.stderr}"))
                     if _transient_git(result.stderr):
                         raise SalvageError(f"could not allocate worktree: git worktree add exited {result.returncode}; "
                                            "daemon.log has its output", transient=True)
@@ -6519,7 +6514,15 @@ class Daemon:
             given = self.store.one("SELECT data_json FROM events WHERE job_id=? AND +kind='job.worktree_given_back' "
                                    "ORDER BY event_id DESC LIMIT 1", (job["job_id"],))
             common = json.loads(given["data_json"]).get("common_dir") if given else None
-        return common if common is not None and os.path.isdir(common) else None
+        if common is not None:
+            try:
+                return common if stat.S_ISDIR(os.stat(common).st_mode) else None
+            except FileNotFoundError:
+                return None
+            except OSError as exc:
+                worktree_add.check_transient(exc, "the recorded repository could not be read")
+                raise
+        return None
 
     def _tree_git(self, job: dict, common: str | None, cap: float) -> list[str]:
         """C-6.20: the git that cuts a job's tree: in the caller's checkout while it belongs to
@@ -6527,8 +6530,10 @@ class Daemon:
         settings (sparse patterns) on; else in that repository's common directory, `common`.
 
         A job can wait for hours with no tree, and a session's isolated checkout can go
-        meanwhile. A job with no record still needs its checkout. A checkout that does not
-        answer in time is taken as it stands: `worktree add` then reports what is wrong (C-6.8).
+        meanwhile. A job with no record still needs its checkout. A transient failure
+        reading the checkout's repository waits under C-6.8; it cannot establish which
+        repository owns the checkout. A permanent lookup failure takes the checkout as
+        it stands, so `worktree add` reports what is wrong.
 
         The common directory is named, never discovered. Git discovers no bare repository under
         `safe.bareRepository=explicit`, and `--git-dir` alone still enters a submodule's
@@ -6538,9 +6543,18 @@ class Daemon:
         if common is None:
             return checkout
         try:
-            if os.path.isdir(job["workdir"]) and git_common_dir(job["workdir"], timeout_s=cap) == common:
+            source_exists = stat.S_ISDIR(os.stat(job["workdir"]).st_mode)
+        except (FileNotFoundError, NotADirectoryError):
+            source_exists = False
+        except OSError as exc:
+            worktree_add.check_transient(exc, "the caller's checkout could not be read")
+            source_exists = False
+        try:
+            if source_exists and git_common_dir(job["workdir"], timeout_s=cap) == common:
                 return checkout
-        except SalvageError:
+        except SalvageError as exc:
+            if exc.transient:
+                raise
             return checkout
         return ["git", "-C", common, f"--git-dir={common}", f"--work-tree={common}"]
 
@@ -6553,18 +6567,29 @@ class Daemon:
         The record comes first, because what the tree holds can be missing or name somewhere
         else. For a job older than the record: the tree's gitfile, believed only if the
         repository it names registers this tree; then the caller's checkout."""
-        common = self._recorded_common(job)
-        if common is None:
-            admin = gitfile_admin(Path(tree))[0]
-            if admin is not None:
-                found = registration_of(admin.parent.parent, tree)
-                if found is not None:
-                    return str(admin.parent.parent), found
-            try:
-                common = git_common_dir(job["workdir"], timeout_s=cap) if os.path.isdir(job["workdir"]) else None
-            except SalvageError:
-                return None, None
-        return (common, registration_of(common, tree)) if common else (None, None)
+        try:
+            common = self._recorded_common(job)
+            if common is None:
+                admin = gitfile_admin(Path(tree), strict=True)[0]
+                if admin is not None:
+                    found = registration_of(admin.parent.parent, tree, strict=True)
+                    if found is not None:
+                        return str(admin.parent.parent), found
+                try:
+                    try:
+                        source_exists = stat.S_ISDIR(os.stat(job["workdir"]).st_mode)
+                    except (FileNotFoundError, NotADirectoryError):
+                        source_exists = False
+                    common = git_common_dir(job["workdir"], timeout_s=cap) if source_exists else None
+                except SalvageError as exc:
+                    if exc.transient:
+                        raise
+                    return None, None
+            return (common, registration_of(common, tree, strict=True)) if common else (None, None)
+
+        except OSError as exc:
+            worktree_add.check_transient(exc, "the repository's worktrees could not be read")
+            raise
 
     def _tree_locked(self, job: dict, tree: str, cap: float) -> bool:
         """C-6.20: whether a lock stands on the tree's registration, as far as can be read. A lock
@@ -6575,22 +6600,151 @@ class Daemon:
             return False
         return admin is not None and os.path.lexists(admin / "locked")
 
-    @staticmethod
-    def _discard_worktree(repository: str, workdir: str, cap: float, common: str | None = None) -> None:
-        """Best effort: a failure here is reported by the add that follows it.
+    def _add_census(self, job: dict) -> procs.Containment:
+        """A fresh census on every pass and add generation; never cache by directory identity."""
+        tracked = self.__dict__.setdefault("_worktree_adds", {})
+        group, known = tracked.get(job["job_id"], (None, None))
+        children = self.__dict__.setdefault("_worktree_add_children", {})
+        child = children.get(job["job_id"])
+        live_child = False
+        if child is not None:
+            try:
+                if child.poll() is None:
+                    live_child = True
+                else:
+                    children.pop(job["job_id"], None)
+            except OSError as exc:
+                raise SalvageError("worktree add leader could not be reaped", transient=True) from exc
+        try:
+            census = procs.containment(group, None, None, worktree_add.marker(job["job_id"]),
+                                       root=str(self.root),
+                                       recorded_identities={group: known} if known is not None else {})
+        except (procs.InspectionError, OSError) as exc:
+            raise SalvageError("worktree add census unavailable", transient=True) from exc
+        if live_child:
+            census = dataclasses.replace(census, group_pids=census.group_pids | {child.pid})
+        # Containment's ordinary empty predicate assumes errors imply unverifiable.
+        # Treat errors explicitly as well, including synthetic/incomplete censuses.
+        if census.verified_empty and not census.errors:
+            tracked.pop(job["job_id"], None)
+        return census
 
-        `.git` goes first, so a removal cut short (a reboot, a kill) leaves no tree a later
-        look reuses: its check reads `.git`, never the files (`_workspace`). Never through a
-        link, which would take the `.git` of the tree it names. Only this path's
-        registration is removed, from the common directory `common` when it is known, else
-        from the repository `repository` is in. A repository-wide `git worktree prune` would
-        also drop every other registration whose tree is missing at that moment (d635: never
-        run a repository-wide prune)."""
-        if not os.path.islink(workdir):
-            with contextlib.suppress(OSError):
-                os.unlink(os.path.join(workdir, ".git"))
-        shutil.rmtree(workdir, ignore_errors=True)
-        discard_registration(repository, workdir, timeout=cap, common=common)
+    def _require_add_empty(self, job: dict) -> None:
+        census = self._add_census(job)
+        if not census.verified_empty or census.errors:
+            raise SalvageError("worktree add still has processes or its census is unverifiable", transient=True)
+
+    def _settle_worktree_add(self, job: dict) -> None:
+        deadline = time.monotonic() + self.kill_settle_s
+        while True:
+            try:
+                self._require_add_empty(job)
+                return
+            except SalvageError:
+                if time.monotonic() >= deadline:
+                    raise
+            time.sleep(min(0.05, max(0, deadline - time.monotonic())))
+
+    def _add_worktree(self, job: dict, workdir: str, common: str | None, cap: float):
+        """C-6.8: the checkout has its own group, marked environment, and file-backed stderr."""
+        self._require_add_empty(job)
+        command = [*self._tree_git(job, common, cap), "worktree", "add", "--detach", workdir, job["workdir_head"]]
+        env = {**_git_env(None), "SUBFLEET_ATTEMPT": worktree_add.marker(job["job_id"]),
+               "SUBFLEET_ROOT": str(self.root)}
+        timeout = self.policy["caps"]["worktree_add_timeout_s"]
+        failure = None
+        with tempfile.TemporaryFile(dir=self.root / "jobs" / job["job_id"]) as stderr:
+            child = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                     stderr=stderr, env=env, start_new_session=True)
+            children = self.__dict__.setdefault("_worktree_add_children", {})
+            children[job["job_id"]] = child
+            stop_attempted = False
+
+            def stop_and_reap():
+                nonlocal stop_attempted
+                stop_attempted = True
+                signal_error = None
+                # C-5.4: this remains our unreaped child; its pid cannot be reused.
+                try:
+                    os.killpg(child.pid, signal.SIGKILL)
+                except OSError as exc:
+                    signal_error = exc
+                try:
+                    child.wait(timeout=max(0.01, self.kill_settle_s))
+                except subprocess.TimeoutExpired as exc:
+                    # Keep the handle as well as the group. Later passes poll/reap
+                    # it, and no census can release a child we still know is alive.
+                    raise SalvageError("worktree add leader has not exited after group stop", transient=True) from (signal_error or exc)
+
+            try:
+                try:
+                    known = procs.identity(child.pid)
+                except (procs.InspectionError, OSError):
+                    known = None
+                self.__dict__.setdefault("_worktree_adds", {})[job["job_id"]] = (child.pid, known)
+                try:
+                    child.wait(timeout=timeout)
+                except subprocess.TimeoutExpired as exc:
+                    failure = exc
+                    stop_and_reap()
+            finally:
+                try:
+                    if child.returncode is None and not stop_attempted:
+                        stop_and_reap()
+                finally:
+                    if child.returncode is not None:
+                        children.pop(job["job_id"], None)
+                    stderr.seek(0)
+                    words = stderr.read().decode("utf-8", "backslashreplace")
+                    if words:
+                        self.log.warning("job %s: %s", job["job_id"], refusals.scrubbed_line(
+                            f"git worktree add exited {child.returncode}: {words}"))
+            self._settle_worktree_add(job)
+            if failure is not None:
+                raise failure
+            return subprocess.CompletedProcess(command, child.returncode, "", words)
+
+    def _unproven_worktree(self, job: dict, why: str) -> None:
+        self.log.warning("job %s: worktree removal refused: %s", job["job_id"], refusals.scrubbed_line(why))
+        raise AdapterError("the job's worktree could not be proved safe to rebuild; daemon.log has details",
+                           fix="preserve any work there and resolve the worktree before submitting again",
+                           reason="worktree-unproven")
+
+    def _worktree_proof(self, job: dict, tree: str, cap: float, common: str | None):
+        if not worktree_add.container_ok(self.root):
+            self._unproven_worktree(job, "the worktrees folder resolves elsewhere")
+        expected = self.root / "worktrees" / job["job_id"]
+        if Path(tree) != expected:
+            self._unproven_worktree(job, "the path is not the job's allocation")
+        self._require_add_empty(job)
+        named_common, admin = self._tree_registration(job, tree, cap)
+        common = named_common or common
+        if common is None:
+            self._unproven_worktree(job, "its repository cannot be identified")
+        if worktree_add.lock_state(admin) == worktree_add.OTHER:
+            raise AdapterError("the job's worktree needs cutting again and a lock stands on its registration",
+                               fix="run git worktree unlock on it, then submit again", reason="worktree-locked")
+        kept = worktree_add.kept_paths(self.root / "jobs" / job["job_id"], timeout_s=cap)
+        why = worktree_add.prove(tree, admin, common, job["workdir_head"], timeout_s=cap, kept=kept)
+        if why is not None:
+            self._unproven_worktree(job, why)
+        return common, admin
+
+    def _discard_worktree(self, repository: str, workdir: str, cap: float, common: str | None = None) -> None:
+        """Prove a never-run allocation before removal, .git before files; never broad prune."""
+        job = self.store.get_job(Path(workdir).name)
+        if job is None:
+            return
+        common, admin = self._worktree_proof(job, workdir, cap, common)
+        if worktree_add.lock_state(admin) == worktree_add.OTHER:
+            self._unproven_worktree(job, "a lock came before removal")
+        error = worktree_add.remove_tree(workdir)
+        if error is not None:
+            worktree_add.check_transient(error, "the worktree could not be removed")
+            self._unproven_worktree(job, "the worktree could not be removed")
+        _, why = worktree_add.drop_registration(common, workdir, job["workdir_head"], timeout_s=cap)
+        if why is not None:
+            self._unproven_worktree(job, why)
 
     def _probe_record(self, holder: str) -> dict | None:
         # C-8.4: probe state and results live in events, never synthetic jobs.
@@ -9152,8 +9306,10 @@ class Daemon:
         if (job and job["state"] in TERMINAL and job["sandbox"] == "workspace-write" and not job["in_place"]
                 and not job["worktree"] and path.exists() and not self.store.list_attempts(job_id)):
             cap = self.policy["caps"]["workspace_git_timeout_s"]
-            if not self._tree_locked(job, str(path), cap):      # C-6.20: someone's claim
+            try:
                 self._discard_worktree(job["workdir"], str(path), cap, self._recorded_common(job))
+            except (AdapterError, SalvageError, OSError) as exc:
+                self.log.warning("job %s: refused worktree kept: %s", job_id, refusals.scrubbed_line(str(exc)))
 
     def _offer_unrun_sweep(self) -> None:
         """C-6.20: ask for `_sweep_unrun_worktrees` on a worker; a run already going reads again."""
@@ -9260,22 +9416,18 @@ class Daemon:
                     *folders.turn_folders(self.store.query),
                     *(folder for folder, _ in folders.exclusive_folders(self.store.query))))):
             return False
-        # The repository names the registration, wherever the caller's checkout is now and whatever
-        # the tree holds (`_tree_registration`). A lock there is someone's claim, as git, retention
-        # and `discard_registration` read it. A tree whose repository nothing names might be locked.
         cap = self.policy["caps"]["workspace_git_timeout_s"]
         try:
-            common, admin = self._tree_registration(job, tree, cap)
-        except OSError:
+            common, admin = self._worktree_proof(job, tree, cap, self._recorded_common(job))
+            # C-6.20: registration first, with index and lock checked again there.
+            _, refused = worktree_add.drop_registration(common, tree, job["workdir_head"], timeout_s=cap)
+            if refused is not None:
+                self.log.warning("job %s: give-back kept worktree: %s", job_id, refusals.scrubbed_line(refused))
+                return False
+            self._discard_worktree(job["workdir"], tree, cap, common)
+        except (AdapterError, SalvageError, OSError) as exc:
+            self.log.warning("job %s: give-back kept worktree: %s", job_id, refusals.scrubbed_line(str(exc)))
             return False
-        if common is None or (admin is not None and os.path.lexists(admin / "locked")):
-            return False
-        # The registration goes first. No lock can come after it, one that came just before stops
-        # it with nothing lost, and a stop here leaves a gitfile that names nothing, which a look
-        # cuts again (`_workspace`).
-        if admin is not None and discard_registration(job["workdir"], tree, timeout=cap, common=common) is None:
-            return False
-        self._discard_worktree(job["workdir"], tree, cap, common)
         if os.path.lexists(path):
             return False
         left = admin

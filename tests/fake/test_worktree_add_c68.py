@@ -49,6 +49,13 @@ def real_procs():
 @pytest.fixture
 def real_census(monkeypatch):
     """The daemon's add census and identity read go to the real process table."""
+    try:
+        probe = subprocess.run(["/bin/ps", "-o", "pid=", "-p", str(os.getpid())],
+                               capture_output=True, timeout=5)
+    except (PermissionError, OSError) as exc:
+        pytest.skip(f"full census integration unavailable: /bin/ps denied ({type(exc).__name__})")
+    if probe.returncode:
+        pytest.skip("full census integration unavailable: /bin/ps returned an error")
     def containment(*args, **kwargs):
         with real_procs():
             return REAL["containment"](*args, **kwargs)
@@ -67,8 +74,8 @@ def alive(pid: int) -> bool:
         return False
     except PermissionError:
         return True
-    state = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
-    return bool(state) and not state.startswith("Z")
+    current = procs.kernel.process(pid)
+    return current is not None and not current.exiting
 
 
 class HeldFilter:
@@ -110,11 +117,11 @@ class HeldFilter:
 
     def killed_add(self, tree: Path) -> None:
         """What an add killed in its checkout leaves at `tree`: registered, locked `initializing`."""
+        self.hold()
         process = subprocess.Popen(["git", "-C", str(self.workdir), "worktree", "add", "--detach", str(tree), self.head],
                                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                    env={**os.environ, "LC_ALL": "C"}, start_new_session=True)
         self.processes.append(process)
-        self.hold()
         self.wait_for_filter()
         with contextlib.suppress(ProcessLookupError, PermissionError):
             os.killpg(process.pid, signal.SIGKILL)

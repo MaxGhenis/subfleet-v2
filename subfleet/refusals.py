@@ -111,6 +111,8 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     # C-6.20: a tree that needs cutting again while a lock, whoever took it, stands on its registration.
     "worktree-locked": ("the job's worktree needs cutting again and a lock stands on its registration",
                         "run git worktree unlock on it, then submit again"),
+    "worktree-unproven": ("the job's worktree could not be proved safe to rebuild; daemon.log has details",
+                           "preserve any work there and resolve the worktree before submitting again"),
     # D-SH1 round 6 (C-6.6): a policy review's copy of its caller's uncommitted work.
     "uncommitted-copy": ("the caller's uncommitted files changed while they were copied", "submit again"),
     "uncommitted-apply": ("the caller's uncommitted changes could not be copied into the worktree",
