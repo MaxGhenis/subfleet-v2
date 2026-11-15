@@ -1,0 +1,407 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.15.2, pytest-9.1.1, pluggy-1.6.0 -- /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/builds-v0/.tmpMjJAms/bin/python
+hypothesis profile 'default'
+rootdir: /Users/maxghenis/.subfleet/worktrees/20261115-100031-eff-fix-r2
+configfile: pyproject.toml
+plugins: xdist-3.8.0, timeout-2.4.0, hypothesis-6.168.1
+timeout: 90.0s
+timeout method: thread
+timeout func_only: False
+created: 2/2 workers
+2 workers [1144 items]
+
+scheduling tests via LoadScheduling
+
+tests/fake/test_unrun_worktrees.py::test_a_give_back_stopped_after_the_registration_is_cut_again 
+tests/fake/test_timers_end_to_end.py::test_daemon_cycles_reset_alert_recovery_and_keepalive[False-False] 
+[gw1] [  0%] FAILED tests/fake/test_timers_end_to_end.py::test_daemon_cycles_reset_alert_recovery_and_keepalive[False-False] 
+tests/fake/test_timers_end_to_end.py::test_daemon_cycles_reset_alert_recovery_and_keepalive[False-True] 
+[gw0] [  0%] PASSED tests/fake/test_unrun_worktrees.py::test_a_give_back_stopped_after_the_registration_is_cut_again 
+tests/fake/test_unrun_worktrees.py::test_a_tree_gone_with_its_registration_left_is_cut_again[stays] 
+[gw1] [  0%] FAILED tests/fake/test_timers_end_to_end.py::test_daemon_cycles_reset_alert_recovery_and_keepalive[False-True] 
+tests/fake/test_timers_end_to_end.py::test_daemon_cycles_reset_alert_recovery_and_keepalive[True-False] 
+[gw1] [  0%] PASSED tests/fake/test_timers_end_to_end.py::test_daemon_cycles_reset_alert_recovery_and_keepalive[True-False] 
+tests/fake/test_timers_end_to_end.py::test_daemon_cycles_reset_alert_recovery_and_keepalive[True-True] 
+[gw0] [  0%] PASSED tests/fake/test_unrun_worktrees.py::test_a_tree_gone_with_its_registration_left_is_cut_again[stays] 
+tests/fake/test_unrun_worktrees.py::test_a_tree_gone_with_its_registration_left_is_cut_again[goes] 
+[gw1] [  0%] PASSED tests/fake/test_timers_end_to_end.py::test_daemon_cycles_reset_alert_recovery_and_keepalive[True-True] 
+tests/fake/test_timers_end_to_end.py::test_hung_usage_cannot_block_api_or_shutdown 
+[gw1] [  0%] PASSED tests/fake/test_timers_end_to_end.py::test_hung_usage_cannot_block_api_or_shutdown 
+tests/fake/test_timers_end_to_end.py::test_socket_timer_status 
+[gw1] [  0%] FAILED tests/fake/test_timers_end_to_end.py::test_socket_timer_status 
+tests/fake/test_timers_end_to_end.py::test_keepalive_uses_real_guardian_when_process_inspection_allowed 
+[gw1] [  0%] SKIPPED tests/fake/test_timers_end_to_end.py::test_keepalive_uses_real_guardian_when_process_inspection_allowed 
+tests/fake/test_turn_trees.py::test_c26_13_finalization_takes_the_end_snapshot_while_the_turn_holds_its_leases 
+[gw0] [  0%] PASSED tests/fake/test_unrun_worktrees.py::test_a_tree_gone_with_its_registration_left_is_cut_again[goes] 
+tests/fake/test_unrun_worktrees.py::test_a_tree_gone_with_its_registration_locked_fails_its_job 
+[gw1] [  0%] PASSED tests/fake/test_turn_trees.py::test_c26_13_finalization_takes_the_end_snapshot_while_the_turn_holds_its_leases 
+tests/fake/test_turn_trees.py::test_c13_1_a_turns_end_snapshot_lists_the_nested_repositories_it_left_out 
+[gw0] [  1%] PASSED tests/fake/test_unrun_worktrees.py::test_a_tree_gone_with_its_registration_locked_fails_its_job 
+tests/fake/test_unrun_worktrees.py::test_a_broken_tree_someone_locked_fails_its_job_and_keeps_its_files 
+[gw0] [  1%] PASSED tests/fake/test_unrun_worktrees.py::test_a_broken_tree_someone_locked_fails_its_job_and_keeps_its_files 
+tests/fake/test_unrun_worktrees.py::test_a_refused_job_whose_tree_someone_locked_keeps_its_files 
+[gw1] [  1%] PASSED tests/fake/test_turn_trees.py::test_c13_1_a_turns_end_snapshot_lists_the_nested_repositories_it_left_out 
+tests/fake/test_turn_trees.py::test_c26_13_transient_snapshot_failures_retry_then_the_failure_is_recorded 
+[gw0] [  1%] PASSED tests/fake/test_unrun_worktrees.py::test_a_refused_job_whose_tree_someone_locked_keeps_its_files 
+tests/fake/test_unrun_worktrees.py::test_a_checkout_that_does_not_answer_is_taken_as_it_stands 
+[gw1] [  1%] PASSED tests/fake/test_turn_trees.py::test_c26_13_transient_snapshot_failures_retry_then_the_failure_is_recorded 
+tests/fake/test_turn_trees.py::test_c26_14_an_end_snapshot_failure_that_quotes_a_name_that_is_not_utf8_is_recorded 
+[gw0] [  1%] PASSED tests/fake/test_unrun_worktrees.py::test_a_checkout_that_does_not_answer_is_taken_as_it_stands 
+tests/fake/test_unrun_worktrees.py::test_registration_of_answers_by_the_backlink_alone 
+[gw0] [  1%] PASSED tests/fake/test_unrun_worktrees.py::test_registration_of_answers_by_the_backlink_alone 
+tests/fake/test_unrun_worktrees.py::test_a_backlink_or_gitfile_that_holds_a_nul_names_no_tree 
+[gw0] [  1%] PASSED tests/fake/test_unrun_worktrees.py::test_a_backlink_or_gitfile_that_holds_a_nul_names_no_tree 
+tests/fake/test_unrun_worktrees.py::test_a_nul_in_another_registrations_backlink_holds_up_no_look 
+[gw1] [  1%] PASSED tests/fake/test_turn_trees.py::test_c26_14_an_end_snapshot_failure_that_quotes_a_name_that_is_not_utf8_is_recorded 
+tests/fake/test_turn_trees.py::test_c26_14_a_live_diff_says_which_nested_repositories_it_does_not_show 
+[gw0] [  1%] PASSED tests/fake/test_unrun_worktrees.py::test_a_nul_in_another_registrations_backlink_holds_up_no_look 
+tests/fake/test_unrun_worktrees.py::test_a_nul_in_an_old_jobs_gitfile_reads_as_no_gitfile 
+[gw0] [  1%] PASSED tests/fake/test_unrun_worktrees.py::test_a_nul_in_an_old_jobs_gitfile_reads_as_no_gitfile 
+tests/fake/test_unrun_worktrees.py::test_a_recorded_repository_moved_away_reads_as_no_record 
+[gw1] [  2%] PASSED tests/fake/test_turn_trees.py::test_c26_14_a_live_diff_says_which_nested_repositories_it_does_not_show 
+tests/fake/test_turn_trees.py::test_c26_10_a_quarantined_turn_is_released_without_a_salvage_ref 
+[gw0] [  2%] PASSED tests/fake/test_unrun_worktrees.py::test_a_recorded_repository_moved_away_reads_as_no_record 
+tests/fake/test_unrun_worktrees.py::test_a_job_runs_after_a_checkout_whose_repository_git_cannot_enter_goes[submodule] 
+[gw1] [  2%] PASSED tests/fake/test_turn_trees.py::test_c26_10_a_quarantined_turn_is_released_without_a_salvage_ref 
+tests/fake/test_turn_trees.py::test_c26_13_a_quarantine_release_tries_the_end_snapshot_once 
+[gw0] [  2%] PASSED tests/fake/test_unrun_worktrees.py::test_a_job_runs_after_a_checkout_whose_repository_git_cannot_enter_goes[submodule] 
+tests/fake/test_unrun_worktrees.py::test_a_job_runs_after_a_checkout_whose_repository_git_cannot_enter_goes[explicit bare] 
+[gw1] [  2%] PASSED tests/fake/test_turn_trees.py::test_c26_13_a_quarantine_release_tries_the_end_snapshot_once 
+tests/fake/test_turn_trees.py::test_c26_13_a_workspace_git_cannot_open_is_gone_for_both_diffs 
+[gw0] [  2%] PASSED tests/fake/test_unrun_worktrees.py::test_a_job_runs_after_a_checkout_whose_repository_git_cannot_enter_goes[explicit bare] 
+tests/fake/test_unrun_worktrees.py::test_a_give_back_takes_the_registration_from_a_repository_git_cannot_enter[submodule] 
+[gw1] [  2%] PASSED tests/fake/test_turn_trees.py::test_c26_13_a_workspace_git_cannot_open_is_gone_for_both_diffs 
+tests/fake/test_turn_trees.py::test_c24_4_a_signal_after_a_complete_turn_does_not_undo_it[complete-True] 
+[gw0] [  2%] PASSED tests/fake/test_unrun_worktrees.py::test_a_give_back_takes_the_registration_from_a_repository_git_cannot_enter[submodule] 
+tests/fake/test_unrun_worktrees.py::test_a_give_back_takes_the_registration_from_a_repository_git_cannot_enter[explicit bare] 
+[gw1] [  2%] PASSED tests/fake/test_turn_trees.py::test_c24_4_a_signal_after_a_complete_turn_does_not_undo_it[complete-True] 
+tests/fake/test_turn_trees.py::test_c24_4_a_signal_after_a_complete_turn_does_not_undo_it[interrupted-False] 
+[gw0] [  2%] PASSED tests/fake/test_unrun_worktrees.py::test_a_give_back_takes_the_registration_from_a_repository_git_cannot_enter[explicit bare] 
+tests/fake/test_unrun_worktrees.py::test_a_tree_cut_from_the_repository_takes_the_main_checkouts_patterns 
+[gw1] [  2%] PASSED tests/fake/test_turn_trees.py::test_c24_4_a_signal_after_a_complete_turn_does_not_undo_it[interrupted-False] 
+tests/fake/test_turn_trees.py::test_c26_14_i4_a_turn_s_changes_name_the_conversation_that_wrote_beside_it 
+[gw0] [  2%] PASSED tests/fake/test_unrun_worktrees.py::test_a_tree_cut_from_the_repository_takes_the_main_checkouts_patterns 
+tests/fake/test_wall_cancel_races.py::test_acknowledged_client_overrides_pending_wall[0-before-kill] 
+[gw0] [  3%] PASSED tests/fake/test_wall_cancel_races.py::test_acknowledged_client_overrides_pending_wall[0-before-kill] 
+tests/fake/test_wall_cancel_races.py::test_acknowledged_client_overrides_pending_wall[0-after-sigterm] 
+[gw0] [  3%] PASSED tests/fake/test_wall_cancel_races.py::test_acknowledged_client_overrides_pending_wall[0-after-sigterm] 
+tests/fake/test_wall_cancel_races.py::test_acknowledged_client_overrides_pending_wall[1-before-kill] 
+[gw0] [  3%] PASSED tests/fake/test_wall_cancel_races.py::test_acknowledged_client_overrides_pending_wall[1-before-kill] 
+tests/fake/test_wall_cancel_races.py::test_acknowledged_client_overrides_pending_wall[1-after-sigterm] 
+[gw0] [  3%] PASSED tests/fake/test_wall_cancel_races.py::test_acknowledged_client_overrides_pending_wall[1-after-sigterm] 
+tests/fake/test_wall_cancel_races.py::test_receipt_winning_parent_does_not_stop_either_dependent 
+
+=================================== FAILURES ===================================
+______ test_daemon_cycles_reset_alert_recovery_and_keepalive[False-False] ______
+[gw1] darwin -- Python 3.15.2 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/builds-v0/.tmpMjJAms/bin/python
+
+daemon = <subfleet.daemon.Daemon object at 0x10dfeaba0>, consume_timeout = False
+observe_late = False
+
+    @pytest.mark.parametrize('consume_timeout', [False, True])
+    @pytest.mark.parametrize('observe_late', [False, True])
+    def test_daemon_cycles_reset_alert_recovery_and_keepalive(daemon, consume_timeout, observe_late):
+        """C-18.1 C-19.1 C-23.16–19 C-23.27 C-23.29 C-23.44 C-23.52: one integrated cycle verdict."""
+        codex(daemon, 1, limited=True)
+        codex(daemon, 2, limited=True)
+        dead = codex(daemon, 3)
+        job_id = waiting_job(daemon, exclude=[dead.lane_id])
+        claude = Lane('claude-1', 'claude', 'claude:fake:org', Credential('claude', 'fake-token', 'env'), None, LaneOwner.V2, False)
+        daemon.store.put_lane(claude)
+        state = {'limited': True, 'consumes': 0, 'dead_probes': 0, 'keepalives': 0, 'consume_accounts': []}
+    
+        def opener(request, timeout):
+            account = request.get_header('Chatgpt-account-id')
+            if request.full_url == WHAM_USAGE_URL:
+                if account == '3':
+                    state['dead_probes'] += 1
+                    return 401, b'{"error":{"code":"unauthorized"}}'
+                limited = state['limited']
+                return 200, json.dumps({'rate_limit': {'limit_reached': limited, 'allowed': not limited,
+                    'primary_window': {'window_minutes':10080, 'used_percent':100 if limited else 5,
+                        'reset_at':int(time.time()+3*86400)}},
+                    'rate_limit_reset_credits':{'available_count':1, 'applicable_available_count':1}}).encode()
+            if request.full_url == WHAM_RESET_CREDITS_URL:
+                return 200, b'{"credits":[{"id":"gift","status":"available","reset_type":"codex_rate_limits"}]}'
+            assert request.full_url == WHAM_RESET_CREDITS_CONSUME_URL
+            state['consumes'] += 1
+            state['consume_accounts'].append(account)
+            action = daemon.store.one('SELECT state FROM actions WHERE op_key=?', (f'codex:{account}:gift',))
+            assert action['state'] == 'executing'
+            if consume_timeout:
+                raise TimeoutError('fake timeout after submission')
+            return 200, b'{"code":"reset","windows_reset":2}'
+    
+        daemon.timers.adapter_factory = lambda provider: CodexAdapter(opener=opener)
+    
+        def turn(lane, purpose, holder, **kwargs):
+            sent = iso(datetime.now(timezone.utc))
+            if purpose == 'keepalive':
+                state['keepalives'] += 1
+            return Outcome(OutcomeClass.OK, 'fake Haiku', evidence={'requested_at':sent}, native_session_id='fake-session')
+    
+        daemon.timers.turn = turn
+        thread = threading.Thread(target=daemon._control, daemon=True)
+        thread.start()
+        try:
+            # The consume waits for admission to hold the job (C-23.16 (a)), so it can
+            # land a cycle or more after the first; wait for its result, not a row.
+>           until(lambda: daemon.store.query("SELECT * FROM actions WHERE state IN ('confirmed','unknown','failed')"))
+
+tests/fake/test_timers_end_to_end.py:127: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+fn = <function test_daemon_cycles_reset_alert_recovery_and_keepalive.<locals>.<lambda> at 0x10bf038a0>
+timeout = 5
+
+    def until(fn, timeout=5):
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            if value := fn():
+                return value
+            time.sleep(.01)
+>       raise AssertionError('timer condition did not arrive')
+E       AssertionError: timer condition did not arrive
+
+tests/fake/test_timers_end_to_end.py:28: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4529761184:daemon.py:996 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4529761184:daemon.py:1087 reset credits: automatic redemption on (only for a job waiting on the lane, one at a time, C-23.16); no-reset marker absent
+______ test_daemon_cycles_reset_alert_recovery_and_keepalive[False-True] _______
+[gw1] darwin -- Python 3.15.2 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/builds-v0/.tmpMjJAms/bin/python
+
+daemon = <subfleet.daemon.Daemon object at 0x10dfeb380>, consume_timeout = True
+observe_late = False
+
+    @pytest.mark.parametrize('consume_timeout', [False, True])
+    @pytest.mark.parametrize('observe_late', [False, True])
+    def test_daemon_cycles_reset_alert_recovery_and_keepalive(daemon, consume_timeout, observe_late):
+        """C-18.1 C-19.1 C-23.16–19 C-23.27 C-23.29 C-23.44 C-23.52: one integrated cycle verdict."""
+        codex(daemon, 1, limited=True)
+        codex(daemon, 2, limited=True)
+        dead = codex(daemon, 3)
+        job_id = waiting_job(daemon, exclude=[dead.lane_id])
+        claude = Lane('claude-1', 'claude', 'claude:fake:org', Credential('claude', 'fake-token', 'env'), None, LaneOwner.V2, False)
+        daemon.store.put_lane(claude)
+        state = {'limited': True, 'consumes': 0, 'dead_probes': 0, 'keepalives': 0, 'consume_accounts': []}
+    
+        def opener(request, timeout):
+            account = request.get_header('Chatgpt-account-id')
+            if request.full_url == WHAM_USAGE_URL:
+                if account == '3':
+                    state['dead_probes'] += 1
+                    return 401, b'{"error":{"code":"unauthorized"}}'
+                limited = state['limited']
+                return 200, json.dumps({'rate_limit': {'limit_reached': limited, 'allowed': not limited,
+                    'primary_window': {'window_minutes':10080, 'used_percent':100 if limited else 5,
+                        'reset_at':int(time.time()+3*86400)}},
+                    'rate_limit_reset_credits':{'available_count':1, 'applicable_available_count':1}}).encode()
+            if request.full_url == WHAM_RESET_CREDITS_URL:
+                return 200, b'{"credits":[{"id":"gift","status":"available","reset_type":"codex_rate_limits"}]}'
+            assert request.full_url == WHAM_RESET_CREDITS_CONSUME_URL
+            state['consumes'] += 1
+            state['consume_accounts'].append(account)
+            action = daemon.store.one('SELECT state FROM actions WHERE op_key=?', (f'codex:{account}:gift',))
+            assert action['state'] == 'executing'
+            if consume_timeout:
+                raise TimeoutError('fake timeout after submission')
+            return 200, b'{"code":"reset","windows_reset":2}'
+    
+        daemon.timers.adapter_factory = lambda provider: CodexAdapter(opener=opener)
+    
+        def turn(lane, purpose, holder, **kwargs):
+            sent = iso(datetime.now(timezone.utc))
+            if purpose == 'keepalive':
+                state['keepalives'] += 1
+            return Outcome(OutcomeClass.OK, 'fake Haiku', evidence={'requested_at':sent}, native_session_id='fake-session')
+    
+        daemon.timers.turn = turn
+        thread = threading.Thread(target=daemon._control, daemon=True)
+        thread.start()
+        try:
+            # The consume waits for admission to hold the job (C-23.16 (a)), so it can
+            # land a cycle or more after the first; wait for its result, not a row.
+            until(lambda: daemon.store.query("SELECT * FROM actions WHERE state IN ('confirmed','unknown','failed')"))
+            until(lambda: daemon.store.query("SELECT * FROM events WHERE kind='timer.cycle'"))
+            if observe_late:
+                # Reproduce a hosted runner that lets several real timer cycles
+                # finish before this test thread observes the initial result.
+                time.sleep(1.1)
+            actions = daemon.store.query('SELECT action_id,op_key,state FROM actions')
+            assert len(actions) == 1
+            assert actions[0]['state'] == ('unknown' if consume_timeout else 'confirmed')
+            assert actions[0]['op_key'] == f"codex:{state['consume_accounts'][0]}:gift"
+            request = json.loads(daemon.store.get_action(actions[0]['action_id'])['request_json'])
+            assert request['job_id'] == job_id and request['trigger_reason'] == 'waiting-demand'
+            if consume_timeout:
+                # An unknown consume reserves nothing; the job's own wait is not what this test covers.
+                daemon.kill(KillArgs(job_id))
+            else:
+                # C-23.16 (c): the job that caused the reset is the one admitted to that lane.
+                attempt = until(lambda: daemon.store.list_attempts(job_id))[0]
+                assert attempt['lane_id'] == f"codex-{state['consume_accounts'][0]}"
+            assert not daemon.store.get_lane(dead.lane_id).enabled
+            assert state['consumes'] == 1
+            until(lambda: state['keepalives'] == 1)
+            first_notices = daemon.dispatch('notice.pending', {'session_id':'test-operator'})['notices']
+            assert first_notices
+            assert all(row['notice_id'] < 0 for row in first_notices)
+            state['limited'] = False
+>           until(lambda: any('recovered' in row['text'].lower() for row in daemon.dispatch('notice.pending', {'session_id':'test-operator'})['notices']))
+
+tests/fake/test_timers_end_to_end.py:153: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+fn = <function test_daemon_cycles_reset_alert_recovery_and_keepalive.<locals>.<lambda> at 0x10c88a8d0>
+timeout = 5
+
+    def until(fn, timeout=5):
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            if value := fn():
+                return value
+            time.sleep(.01)
+>       raise AssertionError('timer condition did not arrive')
+E       AssertionError: timer condition did not arrive
+
+tests/fake/test_timers_end_to_end.py:28: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4529763200:daemon.py:996 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4529763200:daemon.py:1087 reset credits: automatic redemption on (only for a job waiting on the lane, one at a time, C-23.16); no-reset marker absent
+___________________________ test_socket_timer_status ___________________________
+[gw1] darwin -- Python 3.15.2 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/builds-v0/.tmpMjJAms/bin/python
+
+daemon = <subfleet.daemon.Daemon object at 0x10ccf82f0>
+
+    def test_socket_timer_status(daemon):
+        """C-16.4 C-18.1: the actual Unix API reports timer runs when sandbox permits sockets."""
+        try:
+            with socket.socket(socket.AF_UNIX) as probe:
+>               probe.bind(str(daemon.root / 'socket-check'))
+E               OSError: AF_UNIX path too long
+
+tests/fake/test_timers_end_to_end.py:205: OSError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4509893360:daemon.py:996 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4509893360:daemon.py:1087 reset credits: automatic redemption on (only for a job waiting on the lane, one at a time, C-23.16); no-reset marker absent
+=========================== short test summary info ============================
+SKIPPED [1] tests/fake/test_timers_end_to_end.py:240: sandbox denies process inspection; bounded turn unit tests cover this seam
+FAILED tests/fake/test_timers_end_to_end.py::test_daemon_cycles_reset_alert_recovery_and_keepalive[False-False] - AssertionError: timer condition did not arrive
+FAILED tests/fake/test_timers_end_to_end.py::test_daemon_cycles_reset_alert_recovery_and_keepalive[False-True] - AssertionError: timer condition did not arrive
+FAILED tests/fake/test_timers_end_to_end.py::test_socket_timer_status - OSError: AF_UNIX path too long
+============= 3 failed, 34 passed, 1 skipped in 619.06s (0:10:19) ==============
+Traceback (most recent call last):
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/main.py", line 330, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+                         ~~~~^^^^^^^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/main.py", line 384, in _main
+    config.hook.pytest_runtestloop(session=session)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+           ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/pluggy/_callers.py", line 167, in _multicall
+    raise exception
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/pluggy/_callers.py", line 139, in _multicall
+    teardown.throw(exception)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/logging.py", line 816, in pytest_runtestloop
+    return (yield)  # Run all the tests.
+            ^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/pluggy/_callers.py", line 139, in _multicall
+    teardown.throw(exception)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/terminal.py", line 708, in pytest_runtestloop
+    result = yield
+             ^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/xdist/dsession.py", line 138, in pytest_runtestloop
+    self.loop_once()
+    ~~~~~~~~~~~~~~^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/xdist/dsession.py", line 154, in loop_once
+    eventcall = self.queue.get(timeout=2.0)
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/queue.py", line 210, in get
+    self.not_empty.wait(remaining)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/threading.py", line 370, in wait
+    gotit = waiter.acquire(True, timeout)
+KeyboardInterrupt
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 201, in _run_module_as_main
+  File "<frozen runpy>", line 87, in _run_code
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/pytest/__main__.py", line 9, in <module>
+    raise SystemExit(_console_main())
+                     ~~~~~~~~~~~~~^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/config/__init__.py", line 253, in _console_main
+    code = _main(prog=_get_prog_name(sys.argv))
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/config/__init__.py", line 229, in _main
+    ret: ExitCode | int = config.hook.pytest_cmdline_main(config=config)
+                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+           ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/pluggy/_callers.py", line 167, in _multicall
+    raise exception
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/main.py", line 377, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/main.py", line 344, in wrap_session
+    config.hook.pytest_keyboard_interrupt(excinfo=excinfo)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+           ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/pluggy/_callers.py", line 167, in _multicall
+    raise exception
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/terminal.py", line 1012, in pytest_keyboard_interrupt
+    self._keyboardinterrupt_memo = excinfo.getrepr(funcargs=True)
+                                   ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/_code/code.py", line 774, in getrepr
+    return fmt.repr_excinfo(self)
+           ~~~~~~~~~~~~~~~~^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/_code/code.py", line 1224, in repr_excinfo
+    reprtraceback = self.repr_traceback(excinfo_)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/_code/code.py", line 1150, in repr_traceback
+    self.repr_traceback_entry(entry, excinfo if last == entry else None)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/_code/code.py", line 1080, in repr_traceback_entry
+    source = self._getentrysource(entry)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/_code/code.py", line 916, in _getentrysource
+    source = entry.getsource(self.astcache)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/_code/code.py", line 292, in getsource
+    source = self.frame.code.fullsource
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/_code/code.py", line 105, in fullsource
+    full, _ = findsource(self.raw)
+              ~~~~~~~~~~^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/_code/source.py", line 127, in findsource
+    sourcelines, lineno = inspect.findsource(obj)
+                          ~~~~~~~~~~~~~~~~~~^^^^^
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/inspect.py", line 1001, in findsource
+    module = getmodule(object, file)
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/inspect.py", line 955, in getmodule
+    f = getabsfile(module)
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/inspect.py", line 923, in getabsfile
+    _filename = getsourcefile(object) or getfile(object)
+                ~~~~~~~~~~~~~^^^^^^^^
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/inspect.py", line 908, in getsourcefile
+    if os.path.exists(filename):
+       ~~~~~~~~~~~~~~^^^^^^^^^^
+  File "<frozen genericpath>", line 20, in exists
+KeyboardInterrupt

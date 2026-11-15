@@ -7,10 +7,12 @@ import pytest
 
 from subfleet import daemon as module, protocol
 from subfleet.adapters.base import AdapterError
+from subfleet.adapters.claude import ClaudeAdapter
 from subfleet.adapters.registry import register
 from subfleet.contracts import Credential, Reading, ReadingLabel
 from subfleet.daemon import Daemon, after, native_session_lease_key, utcnow
 from subfleet.procs import Containment
+from subfleet.policy import load_policy
 from subfleet.retention import maintenance
 from tests.fake.test_state_contract import receipt_fixture, reserve, state_daemon
 from tests.fake.test_workspace_contract import repository
@@ -74,6 +76,80 @@ def test_c12_resume_invokes_native_launch_on_original_lane(state_daemon, monkeyp
     Daemon._launch(daemon, attempt)
     assert calls == [(source_attempt["lane_id"], "native-source-session",
                       source_attempt["model_requested"], resumed["workdir"], effort)]
+    assert daemon._children == {}
+
+
+@pytest.mark.parametrize("effort", [None, "high"])
+@pytest.mark.parametrize("source_route", ["pin", "task"])
+def test_resume_keeps_source_effort_when_policy_aliases_share_a_model_id(
+        state_daemon, monkeypatch, effort, source_route):
+    """C-12.4, C-6.2: preserve the source alias and pre-upgrade accepted retries."""
+    daemon, harness = state_daemon
+    daemon.policy["models"]["opus"]["effort"] = "low"
+    alternate = {**daemon.policy["models"]["opus"]}
+    alternate.pop("effort")
+    if effort is not None:
+        alternate["effort"] = effort
+    daemon.policy["models"]["opus_alternate"] = alternate
+    daemon.policy["chains"]["lookup"] = ["opus_alternate"] * len(daemon.policy["tiers"])
+    policy_path = daemon.root / "policy.json"
+    policy_path.write_text(json.dumps(daemon.policy))
+    daemon.policy = load_policy(policy_path)
+    lane = daemon.store.get_lane("codex-1")
+    daemon.store.put_lane(replace(lane, lane_id="claude-1", provider="claude",
+        account_key="claude:fixture", credential=Credential("claude", lane.home, "home")))
+    daemon.desktop_prober = lambda: None
+    register("claude", FakeAdapter)
+    source_id, source_attempt = finished_source(daemon, harness, task="lookup",
+        pinned_lane="claude-1", pinned_model="opus_alternate" if source_route == "pin" else None)
+    assert json.loads(source_attempt["evidence_json"])["model_short"] == "opus_alternate"
+    adapter = ClaudeAdapter()
+    source_job = daemon.store.get_job(source_id)
+    source_dir = daemon.root / "jobs" / source_id / "a1"
+    fresh = adapter.build_launch(daemon._spec(source_job), source_attempt["attempt_id"],
+        source_dir, daemon.store.get_lane("claude-1"), {}, alternate["id"], effort,
+        source_dir / "stdout", None)
+    # Simulate the digest an older daemon accepted: it resolved the provider
+    # model ID to the first alias, even when the source selected the alternate.
+    payload_digest = module.ids.payload_digest
+    legacy_digests = []
+
+    def capture_legacy_digest(prompt, **payload):
+        legacy_digests.append(payload_digest(prompt, **{**payload, "pinned_model": "opus"}))
+        return payload_digest(prompt, **payload)
+
+    resume_args = protocol.SubmitArgs(**harness.submit_args(kind="resume", parent_job_id=source_id))
+    with monkeypatch.context() as capture:
+        capture.setattr(module.ids, "payload_digest", capture_legacy_digest)
+        resumed_id = daemon.submit(resume_args)["job_id"]
+    assert len(legacy_digests) == 1
+    daemon.store.update_job(resumed_id, payload_digest=legacy_digests[0])
+    retried = daemon.submit(resume_args)
+    assert retried["job_id"] == resumed_id and retried["created"] is False
+    daemon._admit()
+    attempt = daemon.store.list_attempts(resumed_id)[0]
+    launches = []
+
+    class ObserveResume(FakeAdapter):
+        def resume_launch(self, *args, **kwargs):
+            launches.append(adapter.resume_launch(*args, **kwargs))
+            raise AdapterError("stopped after constructing native launch")
+
+    monkeypatch.setattr(module, "get_adapter", lambda _: ObserveResume())
+    Daemon._launch(daemon, attempt)
+    assert len(launches) == 1
+    resumed = launches[0]
+    for launch in (fresh, resumed):
+        argv = launch.argv
+        if effort is None:
+            assert "--effort" not in argv
+        else:
+            assert argv[argv.index("--effort") + 1] == effort
+        assert argv.count("--settings") == 1
+        settings = json.loads(argv[argv.index("--settings") + 1])
+        assert settings["env"].get("CLAUDE_CODE_EFFORT_LEVEL") == effort
+    assert daemon.store.get_job(resumed_id)["pinned_model"] == "opus_alternate"
+    assert resumed.native_session_id == "native-source-session"
     assert daemon._children == {}
 
 

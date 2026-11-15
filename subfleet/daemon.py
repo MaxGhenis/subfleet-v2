@@ -3236,8 +3236,12 @@ class Daemon:
                     raise ValueError("max_attempts must be positive and within policy caps")
                 if not isinstance(max_wall_s, (int, float)) or not 0 < max_wall_s <= caps["max_wall_s"]:
                     raise ValueError("max_wall_s must be positive and within policy caps")
+                # C-6.2: retain the pre-alias-fix normalization for accepted
+                # resume retries. The resume block binds the source attempt;
+                # routing still keeps that attempt's selected policy alias.
+                digest_model = resolve_model(self.policy, resume["model_id"]) if resume else model
                 digest = ids.payload_digest(prompt, workdir=str(workdir), workdir_head=head,
-                    task=args.task, tier=args.tier, pinned_model=model, pinned_lane=digest_pin,
+                    task=args.task, tier=args.tier, pinned_model=digest_model, pinned_lane=digest_pin,
                     sandbox=sandbox.value, exclusions=args.exclusions, out_path=out,
                     allow_desktop=args.allow_desktop, policy_hash=self.policy_digest,
                     isolated_review=args.isolated_review, review_root=review_root,
@@ -3640,9 +3644,13 @@ class Daemon:
         if preamble is None:
             # A source submitted before the manifest said: its prepared prompt did.
             preamble = (self.root / "jobs" / source["job_id"] / "prompt.prepared.md").is_file()
+        # C-12.4: model IDs can have several policy aliases with different
+        # efforts (including none). Keep the source attempt's selected alias;
+        # older imported attempts may only have the provider model ID.
+        model_alias = json.loads(attempt["evidence_json"] or "{}").get("model_short")
         args = dataclasses.replace(args, workdir=source["worktree"] or source["workdir"],
             sandbox=source["sandbox"], in_place=source["sandbox"] == "workspace-write",
-            pinned_lane=attempt["lane_id"], pinned_model=attempt["model_requested"],
+            pinned_lane=attempt["lane_id"], pinned_model=model_alias or attempt["model_requested"],
             task=source["task"], tier=source["tier"], allow_desktop=bool(source["allow_desktop"]),
             exclusions=json.loads(source["exclusions"] or "[]"),
             needs_shell=(args.needs_shell if args.needs_shell is not None else bool(source.get("needs_shell"))),

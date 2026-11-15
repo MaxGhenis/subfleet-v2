@@ -1,0 +1,75 @@
+[
+  {
+    "command": [
+      "git",
+      "-c",
+      "core.fsmonitor=false",
+      "diff",
+      "--check"
+    ],
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": "",
+    "started": "2026-11-15T22:19:52.983960+00:00",
+    "finished": "2026-11-15T22:20:12.981528+00:00"
+  },
+  {
+    "command": [
+      "git",
+      "-c",
+      "core.fsmonitor=false",
+      "status",
+      "--short",
+      "--untracked-files=all"
+    ],
+    "exit_code": 0,
+    "stdout": " M docs/acceptance-contract.md\n M docs/reports/2026-11-12-effort-env.md\n M subfleet/daemon.py\n M tests/fake/test_resume_contract.py\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/alias-only-retry.json\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/alias-only-retry.log\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/baseline-restoration.json\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/baseline.py\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/before.json\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/before.log\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/chunk-01.json\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/chunk-01.log\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/chunk-02.json\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/chunk-02.log\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/chunk-03.json\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/chunk-03.log\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/chunk-04.json\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/chunk-04.log\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/chunk-05.json\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/chunk-05.log\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/cleanup.json\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/cleanup.py\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/command-ledger.md\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/daemon-import-tests-resumed.txt\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/daemon-import-tests.txt\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/excluded-import-tests.txt\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/final-importers.json\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/final-importers.log\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/final-regression-before.json\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/final-regression-before.log\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/final-resume.json\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/final-resume.log\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/guards-final.json\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/guards-final.log\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/guards.json\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/guards.log\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/import-audit.md\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/import-chunk-01.txt\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/import-chunk-02.txt\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/import-chunk-03.txt\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/import-chunk-04.txt\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/import-chunk-05.txt\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/importers-interrupted.json\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/importers.log\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/isolate-catalog.json\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/isolate-catalog.log\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/isolate-inspection.json\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/isolate-inspection.log\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/isolate-launch-env.json\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/isolate-launch-env.log\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/isolate-socket-short.json\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/isolate-socket-short.log\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/isolate-socket-temp-short.json\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/isolate-socket-temp-short.log\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/isolate-timers.json\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/isolate-timers.log\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/partial-progress.json\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/resumed-after.json\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/resumed-after.log\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/resumed-before.json\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/resumed-before.log\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/run.py\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/safe-import-tests.txt\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/safe-importers.json\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/safe-importers.log\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/sf_eff_fix2_safety.py\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/short-basetemp.json\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/test-importers.json\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/test-importers.log\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/verbose-progress.json\n?? docs/reports/2026-11-12-effort-env-data/fix-r2/write-command-exclusions.md\n",
+    "stderr": "",
+    "started": "2026-11-15T22:19:53.078942+00:00",
+    "finished": "2026-11-15T22:20:12.876873+00:00"
+  },
+  {
+    "command": [
+      "git",
+      "-c",
+      "core.fsmonitor=false",
+      "rev-parse",
+      "HEAD"
+    ],
+    "exit_code": 0,
+    "stdout": "4fd796b49ae63417e845c93ad8f456978c161f1c\n",
+    "stderr": "",
+    "started": "2026-11-15T22:19:53.112667+00:00",
+    "finished": "2026-11-15T22:19:53.199880+00:00"
+  },
+  {
+    "command": "Python evidence consistency and cleanup assertions",
+    "exit_code": 0,
+    "result": "Final resume/importer/guard records green; all five recorded outside folders and primary scratch absent."
+  },
+  {
+    "command": [
+      "git",
+      "-c",
+      "core.fsmonitor=false",
+      "diff",
+      "--check"
+    ],
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": "",
+    "scope": "After final report and ledger updates",
+    "finished": "2026-11-15T22:22:33.880577+00:00"
+  },
+  {
+    "command": [
+      "git",
+      "-c",
+      "core.fsmonitor=false",
+      "show",
+      "4fd796b49ae63417e845c93ad8f456978c161f1c:docs/reports/2026-11-12-effort-env.md"
+    ],
+    "exit_code": 0,
+    "result": "Earlier committed report preserved byte-for-byte as prefix; all cleanup paths and final head present in appended section."
+  }
+]

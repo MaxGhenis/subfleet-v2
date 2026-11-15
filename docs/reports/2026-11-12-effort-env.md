@@ -234,3 +234,65 @@ c1's two failures are timing failures under load. Both passed alone in t09.
   - Codex's `resume_launch` passes no effort either: it calls `_launch(…, None, None, thread)`. I haven't checked whether a resumed Codex thread keeps its effort.
   - The ultracode served-effort record (`claude_turn.py:548`) ignores `applied.effort`.
 - **No other process.** None of mine outlives the session. I ran nothing against live state; I didn't read `~/chief-of-staff`, `~/.claude` or `~/.subfleet`, or any key. I pushed nothing, and I created, moved or deleted no branch. Commits added named files only.
+
+
+## Fix round 2
+
+**P1 and C-12.4 are fixed.** The final resume suite passed 29 tests, its three importing test files passed 42, and the four required guard files passed 435. Broader daemon-importer validation remains incomplete and has unresolved failures/errors.
+
+Report finalized **2026-11-15 22:21:46 UTC**, before the 23:00:58 UTC deadline. Started **2026-11-15 20:00:58 UTC**, from `date -u` in the first command, at checkpoint `4fd796b49ae63417e845c93ad8f456978c161f1c`. The required review, report and PR-body reads completed before edits. The workspace's preserved uncommitted regression and evidence were retained; the daemon initially matched the checkpoint. Preserved `before.*` evidence predates this continuation and is not counted below. All round-2 evidence is under `docs/reports/2026-11-12-effort-env-data/fix-r2/`. `command-ledger.md`, `import-audit.md` and the per-run JSON/log pairs record commands, results and counts, including read/setup commands without test counts.
+
+**P1 — a resume can pin another alias's effort.** `_resume_submission` discarded the source attempt's recorded `model_short`, then resolving its provider model ID selected the first matching policy alias. A source at `high` or no effort could therefore resume at `low`. Resume construction now retains the recorded alias, with provider-ID fallback for legacy evidence lacking one. The manifest still binds the provider ID/native session. The alias's current policy entry supplies effort; this does not freeze effort across policy edits.
+
+The new `test_resume_keeps_source_effort_when_policy_aliases_share_a_model_id` has four cases: explicit pin or task-chain routing, each with `high` or absent effort on an alternate alias sharing the first alias's model ID. It checks the resumed alias/session, `--effort` and effort env pin in the single `--settings`, against a fresh Claude launch, without spawning a provider. The exact final test fails all four cases against the original daemon read from the checkpoint's Git object, then passes with the fix. `baseline-restoration.json` verifies byte-for-byte restoration after that baseline run.
+
+The fix also preserves already accepted resume retries. Keeping the alias initially changed their payload digests; the expanded regression failed all four cases against that intermediate fix. Resume digest construction now retains the old provider-ID normalization while routing retains the source alias. The test installs the older accepted digest and replays the identical request, requiring the same job and `created: false`. Existing legacy-evidence and source-identity tests also pass.
+
+**C-12.4 — corrected.** The clause and its existing change-log line now describe recorded-alias retention, legacy ID fallback and effort from the current model entry; the change log also records accepted-retry compatibility. C-26.8 is unchanged. No round-2 finding is left for the hub to file.
+
+Every pytest command uses `uv run --no-sync --with 'pytest-xdist>=3.6'` through `fix-r2/run.py`, a new basetemp containing `pytest`, and at most four total workers. Exact expanded argv, timestamps and exit codes are in each named JSON file. Results below overlap and must not be summed as unique coverage.
+
+| Run label / command scope | Result | Exit |
+| --- | --- | --- |
+| `resumed-before`: initial regression, unchanged daemon | 4 failed, 25 deselected (expected) | 1 |
+| `resumed-after`: resume file, alias-only fix | 29 passed | 0 |
+| `alias-only-retry`: expanded regression, intermediate fix | 4 failed, 25 deselected (digest compatibility) | 1 |
+| `final-regression-before`: exact final test on 4fd796b49 | 4 failed, 25 deselected (wrong effort) | 1 |
+| `final-resume`: final resume file | 29 passed | 0 |
+| `importers`, `final-importers`: 238-file starts | Interrupted during startup, no test results | 130 each |
+| `safe-importers`: 229-file start | Interrupted after 21m22s without test results | 130 |
+| `chunk-01`: 46 files | Partial: 190 passed, 5 failed, 4 errors, 5 skipped, 1 xfailed | 130 |
+| `chunk-02`: 46 files | Partial: 381 passed, 4 failed, 15 skipped | 130 |
+| `chunk-03`: 46 files | Partial: 34 passed, 3 failed, 1 skipped / 1,144 collected | 130 |
+| `chunk-04`: 46 files | Early stop: 93 passed, 2 failed / 1,989 collected | 1 |
+| `chunk-05`: 45 files | Partial: 334 passed, 1 failed / 2,856 collected | 130 |
+| `isolate-catalog`, `isolate-inspection`, `isolate-launch-env` | 1 passed each | 0 each |
+| `isolate-timers`: three failed timer cases | 2 passed, 1 failed (socket path too long) | 1 |
+| `isolate-socket-short`: shorter pytest basetemp only | 1 failed (fixture uses tempfile directly) | 1 |
+| `isolate-socket-temp-short`: shorter tempfile root too | 1 passed | 0 |
+| `test-importers`: three direct changed-test importers | 42 passed | 0 |
+| `guards`, then `guards-final`: four required guard files | 435 passed each | 0 each |
+
+The `git grep -l` audit selected 238 files: all 235 direct daemon importers plus three embedded-import cases. The three importers of the changed resume test are included and also completed explicitly: `test_admission_priority.py`, `test_census_round3_interleavings.py`, `test_census_round3_leases.py`. Nine host-push files and one retention-archive case were excluded because their fixtures execute prohibited local or stub pushes; exact paths/rationale are in `write-command-exclusions.md`. The initial 238-file starts were stopped before fixture execution. The remaining 229 files were attempted in five batches after repeated startup stalls.
+
+These batches did not complete their selections. Chunks 01/02 had seven worker crashes; their quiet logs do not identify every failure/error, and those outcomes remain unclassified. Chunks 04/05 had three additional worker crashes. All six named failures from the verbose batches pass in isolation: catalog and inspection properties took 100.36s and 122.11s with a 180s timeout (batch timeout: 90s); both timer-cycle variants passed; the socket case passed after shortening the tempfile root; the launch-helper case passed in 17.18s. This does not establish a cause for every earlier failure. `partial-progress.json` and `verbose-progress.json` retain partial counts and exact available nodes. The guards were repeated after the extra importer/isolation checks so they remain the final test stage.
+
+**Setup, cleanup and deviations.** The prescribed `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"`, scratch/cache locations and `uv sync --group dev` were attempted first. Scratch/cache writes were denied (sync exit 2). Keeping that TMPDIR, setup succeeded with nine packages/CPython 3.15.2 using this writable fallback scratch, venv and cache:
+
+`/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2`
+
+The safety helper redirects tempfile and retained failures into scratch; the runner isolates Hypothesis, disables bytecode/cacheprovider and uses a missing synthetic v1-runner path. For socket diagnosis only, the extra short scratch root was used. Outside-primary-scratch generated folders were recorded in `cleanup.json` before guarded removal and are listed here:
+
+- `/Users/maxghenis/.subfleet/worktrees/20261115-100031-eff-fix-r2/subfleet/__pycache__`
+- `/Users/maxghenis/.subfleet/worktrees/20261115-100031-eff-fix-r2/subfleet/adapters/__pycache__`
+- `/Users/maxghenis/.subfleet/worktrees/20261115-100031-eff-fix-r2/subfleet/sessions/__pycache__`
+- `/Users/maxghenis/.subfleet/worktrees/20261115-100031-eff-fix-r2/subfleet/conversations/__pycache__`
+- `/private/tmp/sf-eff-fix2-201115200058`
+
+`cleanup.py` records paths first, moves outside folders beneath scratch, then uses `shutil.rmtree` guarded by assertions that `sf-eff-fix2` is in each removal path; it also removes the primary scratch. Cleanup completed with exit 0; all five listed folders and the primary scratch are absent. The tracked `private/guard` files were preserved.
+
+The importer exclusions, fallback paths, timeout adjustments, interrupted/incomplete importer runs and extra final guard pass are the validation deviations. Full CI, live CLI/provider probes, excluded push fixtures and the unexecuted remainder of importer selections did not run. The hub's scoped round 3 still needs to resolve the broader validation gap. No live state/process inspection, real credential, forbidden write-shaped command, history rewrite or push was used; all owned test runs ended before cleanup.
+
+All four named-file staging/commit steps (regression, alias/contract fix, retry compatibility and final report) were denied with exit 128 by the parent repository's `index.lock` permissions. No new commit was created; the hub must collect the working-tree changes. Final commit argv/results are in `final-commit.json`/`final-commit.log`. `git diff --check`, final status, HEAD verification and evidence/cleanup assertions all passed (exit 0); results are in `final-checks.json`. Read-only discovery/setup results are in the command ledger.
+
+Head built (working-tree changes; commits denied): `4fd796b49ae63417e845c93ad8f456978c161f1c`

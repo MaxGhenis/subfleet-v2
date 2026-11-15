@@ -1,0 +1,28 @@
+{
+  "command": [
+    "uv",
+    "run",
+    "--no-sync",
+    "--with",
+    "pytest-xdist>=3.6",
+    "python",
+    "-m",
+    "pytest",
+    "-p",
+    "no:cacheprovider",
+    "-p",
+    "sf_eff_fix2_safety",
+    "--timeout=90",
+    "--timeout-method=thread",
+    "--basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/pytest-isolate-inspection",
+    "tests/unit/test_daemon_inspection_properties.py::test_the_export_query_matches_the_sweep_it_replaced",
+    "-q",
+    "-ra",
+    "--tb=line",
+    "--timeout=180",
+    "--hypothesis-show-statistics"
+  ],
+  "exit_code": 0,
+  "started": "2026-11-15T21:55:16.384726+00:00",
+  "finished": "2026-11-15T21:57:58.212337+00:00"
+}
