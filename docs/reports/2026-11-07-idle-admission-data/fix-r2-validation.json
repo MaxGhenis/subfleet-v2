@@ -1,0 +1,1218 @@
+[
+ {
+  "file": "tests/fake/test_idle_capacity_carried_clock.py",
+  "name": "new-test_idle_capacity_carried_clock",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-new-test_idle_capacity_carried_clock",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-new-test_idle_capacity_carried_clock.xml",
+   "tests/fake/test_idle_capacity_carried_clock.py"
+  ],
+  "started_at": "02:21:06Z",
+  "load_start": "21:21  up 13:48, 1 user, load averages: 141.91 105.18 101.74",
+  "load_end": "21:21  up 13:49, 1 user, load averages: 126.10 103.78 101.31",
+  "ended_at": "02:21:24Z",
+  "elapsed_s": 17.4,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 5,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 0
+  },
+  "failed": [],
+  "summary": [
+   "5 passed in 14.02s"
+  ]
+ },
+ {
+  "file": "tests/fake/test_idle_capacity_news_sources.py",
+  "name": "new-test_idle_capacity_news_sources",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-new-test_idle_capacity_news_sources",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-new-test_idle_capacity_news_sources.xml",
+   "tests/fake/test_idle_capacity_news_sources.py"
+  ],
+  "started_at": "02:21:24Z",
+  "load_start": "21:21  up 13:49, 1 user, load averages: 126.10 103.78 101.31",
+  "load_end": "21:21  up 13:49, 1 user, load averages: 119.37 103.60 101.29",
+  "ended_at": "02:21:44Z",
+  "elapsed_s": 19.4,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 6,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 0
+  },
+  "failed": [],
+  "summary": [
+   "6 passed in 17.82s"
+  ]
+ },
+ {
+  "file": "tests/fake/test_idle_admission_self_wake.py",
+  "name": "new-test_idle_admission_self_wake",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-new-test_idle_admission_self_wake",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-new-test_idle_admission_self_wake.xml",
+   "tests/fake/test_idle_admission_self_wake.py"
+  ],
+  "started_at": "02:21:44Z",
+  "load_start": "21:21  up 13:49, 1 user, load averages: 119.37 103.60 101.29",
+  "load_end": "21:22  up 13:49, 1 user, load averages: 95.87 99.15 99.74",
+  "ended_at": "02:22:04Z",
+  "elapsed_s": 19.3,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 6,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 0
+  },
+  "failed": [],
+  "summary": [
+   "6 passed in 14.32s"
+  ]
+ },
+ {
+  "file": "tests/fake/test_capacity_wait_backoff.py",
+  "name": "req-test_capacity_wait_backoff",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-req-test_capacity_wait_backoff",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-req-test_capacity_wait_backoff.xml",
+   "tests/fake/test_capacity_wait_backoff.py"
+  ],
+  "started_at": "02:22:16Z",
+  "load_start": "21:22  up 13:50, 1 user, load averages: 97.95 99.50 99.86",
+  "load_end": "21:22  up 13:50, 1 user, load averages: 113.64 102.79 101.02",
+  "ended_at": "02:22:47Z",
+  "elapsed_s": 30.4,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 30,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 0
+  },
+  "failed": [],
+  "summary": [
+   "30 passed in 24.31s"
+  ]
+ },
+ {
+  "file": "tests/fake/test_admission_latency.py",
+  "name": "req-test_admission_latency",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-req-test_admission_latency",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-req-test_admission_latency.xml",
+   "tests/fake/test_admission_latency.py"
+  ],
+  "started_at": "02:23:00Z",
+  "load_start": "21:23  up 13:50, 1 user, load averages: 126.29 106.02 102.20",
+  "load_end": "21:24  up 13:52, 1 user, load averages: 148.32 118.88 107.59",
+  "ended_at": "02:24:42Z",
+  "elapsed_s": 102.0,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 14,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 0
+  },
+  "failed": [],
+  "summary": [
+   "14 passed in 97.79s (0:01:37)"
+  ]
+ },
+ {
+  "file": "tests/fake/test_admission_properties.py",
+  "name": "req-test_admission_properties",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-req-test_admission_properties",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-req-test_admission_properties.xml",
+   "tests/fake/test_admission_properties.py"
+  ],
+  "started_at": "02:24:42Z",
+  "load_start": "21:24  up 13:52, 1 user, load averages: 148.32 118.88 107.59",
+  "load_end": "21:25  up 13:53, 1 user, load averages: 158.48 124.12 109.88",
+  "ended_at": "02:25:11Z",
+  "elapsed_s": 28.5,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 27,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 1
+  },
+  "failed": [],
+  "summary": [
+   "27 passed, 1 xfailed in 22.93s"
+  ]
+ },
+ {
+  "file": "tests/fake/test_admission_visibility.py",
+  "name": "req-test_admission_visibility",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-req-test_admission_visibility",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-req-test_admission_visibility.xml",
+   "tests/fake/test_admission_visibility.py"
+  ],
+  "started_at": "02:25:12Z",
+  "load_start": "21:25  up 13:53, 1 user, load averages: 158.48 124.12 109.88",
+  "load_end": "21:25  up 13:53, 1 user, load averages: 165.34 128.39 111.82",
+  "ended_at": "02:25:35Z",
+  "elapsed_s": 23.8,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 43,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 0
+  },
+  "failed": [],
+  "summary": [
+   "43 passed in 18.85s"
+  ]
+ },
+ {
+  "file": "tests/fake/test_admission_stateful.py",
+  "name": "req-test_admission_stateful",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-req-test_admission_stateful",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-req-test_admission_stateful.xml",
+   "tests/fake/test_admission_stateful.py"
+  ],
+  "started_at": "02:25:48Z",
+  "load_start": "21:25  up 13:53, 1 user, load averages: 176.05 132.52 113.58",
+  "load_end": "21:34  up 14:02, 1 user, load averages: 171.02 150.98 132.41",
+  "ended_at": "02:34:45Z",
+  "elapsed_s": 536.5,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 17,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 0
+  },
+  "failed": [],
+  "summary": [
+   "17 passed in 533.87s (0:08:53)"
+  ]
+ },
+ {
+  "file": "tests/fake/test_admission_liveness.py",
+  "name": "req-test_admission_liveness",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-req-test_admission_liveness",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-req-test_admission_liveness.xml",
+   "tests/fake/test_admission_liveness.py"
+  ],
+  "started_at": "02:34:59Z",
+  "load_start": "21:34  up 14:02, 1 user, load averages: 180.85 154.06 133.82",
+  "load_end": "21:39  up 14:07, 1 user, load averages: 186.16 170.68 147.02",
+  "ended_at": "02:39:45Z",
+  "elapsed_s": 285.9,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 32,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 0
+  },
+  "failed": [],
+  "summary": [
+   "32 passed in 280.72s (0:04:40)"
+  ]
+ },
+ {
+  "file": "tests/fake/test_admission_route_isolation.py",
+  "name": "req-test_admission_route_isolation",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-req-test_admission_route_isolation",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-req-test_admission_route_isolation.xml",
+   "tests/fake/test_admission_route_isolation.py"
+  ],
+  "started_at": "02:39:57Z",
+  "load_start": "21:39  up 14:07, 1 user, load averages: 176.21 169.03 146.71",
+  "load_end": "21:40  up 14:08, 1 user, load averages: 171.00 167.73 147.68",
+  "ended_at": "02:40:54Z",
+  "elapsed_s": 56.9,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 93,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 0
+  },
+  "failed": [],
+  "summary": [
+   "93 passed in 53.40s"
+  ]
+ },
+ {
+  "file": "tests/fake/test_task_hold_admission.py",
+  "name": "req-test_task_hold_admission",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-req-test_task_hold_admission",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-req-test_task_hold_admission.xml",
+   "tests/fake/test_task_hold_admission.py"
+  ],
+  "started_at": "02:40:54Z",
+  "load_start": "21:40  up 14:08, 1 user, load averages: 171.00 167.73 147.68",
+  "load_end": "21:41  up 14:09, 1 user, load averages: 172.97 168.50 148.54",
+  "ended_at": "02:41:19Z",
+  "elapsed_s": 24.2,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 49,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 0
+  },
+  "failed": [],
+  "summary": [
+   "49 passed in 21.08s"
+  ]
+ },
+ {
+  "file": "tests/fake/test_reset_credit_incident.py",
+  "name": "req-test_reset_credit_incident",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-req-test_reset_credit_incident",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-req-test_reset_credit_incident.xml",
+   "tests/fake/test_reset_credit_incident.py"
+  ],
+  "started_at": "02:41:28Z",
+  "load_start": "21:41  up 14:09, 1 user, load averages: 166.64 167.26 148.22",
+  "load_end": "21:41  up 14:09, 1 user, load averages: 174.98 169.07 149.52",
+  "ended_at": "02:41:53Z",
+  "elapsed_s": 25.7,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 19,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 0
+  },
+  "failed": [],
+  "summary": [
+   "19 passed in 20.29s"
+  ]
+ },
+ {
+  "file": "tests/fake/test_unadmittable_pin_review.py",
+  "name": "req-test_unadmittable_pin_review",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-req-test_unadmittable_pin_review",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-req-test_unadmittable_pin_review.xml",
+   "tests/fake/test_unadmittable_pin_review.py"
+  ],
+  "started_at": "02:41:54Z",
+  "load_start": "21:41  up 14:09, 1 user, load averages: 174.98 169.07 149.52",
+  "load_end": "21:42  up 14:10, 1 user, load averages: 165.89 167.43 149.39",
+  "ended_at": "02:42:15Z",
+  "elapsed_s": 20.9,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 7,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 0
+  },
+  "failed": [],
+  "summary": [
+   "7 passed in 15.15s"
+  ]
+ },
+ {
+  "file": "tests/fake/test_unrun_worktrees.py",
+  "name": "req-test_unrun_worktrees",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-req-test_unrun_worktrees",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-req-test_unrun_worktrees.xml",
+   "tests/fake/test_unrun_worktrees.py"
+  ],
+  "started_at": "02:42:15Z",
+  "load_start": "21:42  up 14:10, 1 user, load averages: 165.89 167.43 149.39",
+  "load_end": "21:45  up 14:13, 1 user, load averages: 186.72 178.52 157.81",
+  "ended_at": "02:45:31Z",
+  "elapsed_s": 195.7,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 98,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 0
+  },
+  "failed": [],
+  "summary": [
+   "98 passed in 188.45s (0:03:08)"
+  ]
+ },
+ {
+  "file": "tests/fake/test_probe_cancel.py",
+  "name": "req-test_probe_cancel",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-req-test_probe_cancel",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-req-test_probe_cancel.xml",
+   "tests/fake/test_probe_cancel.py"
+  ],
+  "started_at": "02:45:58Z",
+  "load_start": "21:45  up 14:13, 1 user, load averages: 215.99 185.94 161.08",
+  "load_end": "21:49  up 14:16, 1 user, load averages: 115.45 154.55 152.98",
+  "ended_at": "02:49:08Z",
+  "elapsed_s": 190.0,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 24,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 0
+  },
+  "failed": [],
+  "summary": [
+   "24 passed in 183.81s (0:03:03)"
+  ]
+ },
+ {
+  "file": "tests/unit/test_daemon_verbs.py",
+  "name": "req-test_daemon_verbs",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-req-test_daemon_verbs",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-req-test_daemon_verbs.xml",
+   "tests/unit/test_daemon_verbs.py"
+  ],
+  "started_at": "02:49:23Z",
+  "load_start": "21:49  up 14:17, 1 user, load averages: 110.59 151.62 151.96",
+  "load_end": "21:50  up 14:17, 1 user, load averages: 134.28 151.56 151.89",
+  "ended_at": "02:50:04Z",
+  "elapsed_s": 41.3,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 20,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 0
+  },
+  "failed": [],
+  "summary": [
+   "20 passed in 33.37s"
+  ]
+ },
+ {
+  "file": "tests/fake/test_state_contract.py",
+  "name": "req-test_state_contract",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-req-test_state_contract",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-req-test_state_contract.xml",
+   "tests/fake/test_state_contract.py"
+  ],
+  "started_at": "02:50:05Z",
+  "load_start": "21:50  up 14:17, 1 user, load averages: 134.28 151.56 151.89",
+  "load_end": "21:50  up 14:18, 1 user, load averages: 114.80 144.02 149.10",
+  "ended_at": "02:50:54Z",
+  "elapsed_s": 48.9,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 37,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 0
+  },
+  "failed": [],
+  "summary": [
+   "37 passed in 44.15s"
+  ]
+ },
+ {
+  "file": "tests/unit/test_test_module_names.py",
+  "name": "req-test_test_module_names",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-req-test_test_module_names",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-req-test_test_module_names.xml",
+   "tests/unit/test_test_module_names.py"
+  ],
+  "started_at": "02:50:54Z",
+  "load_start": "21:50  up 14:18, 1 user, load averages: 114.80 144.02 149.10",
+  "load_end": "21:51  up 14:18, 1 user, load averages: 109.27 141.85 148.27",
+  "ended_at": "02:51:06Z",
+  "elapsed_s": 12.3,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 1,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 0
+  },
+  "failed": [],
+  "summary": [
+   "1 passed in 10.07s"
+  ]
+ },
+ {
+  "file": "tests/unit/test_invariants_index.py",
+  "name": "req-test_invariants_index",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-req-test_invariants_index",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-req-test_invariants_index.xml",
+   "tests/unit/test_invariants_index.py"
+  ],
+  "started_at": "02:51:06Z",
+  "load_start": "21:51  up 14:18, 1 user, load averages: 109.27 141.85 148.27",
+  "load_end": "21:51  up 14:19, 1 user, load averages: 119.13 141.35 147.89",
+  "ended_at": "02:51:31Z",
+  "elapsed_s": 24.7,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 25,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 0
+  },
+  "failed": [],
+  "summary": [
+   "25 passed in 20.05s"
+  ]
+ },
+ {
+  "file": "tests/fake/test_idle_admission_pacing.py",
+  "name": "extra-test_idle_admission_pacing",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-extra-test_idle_admission_pacing",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-extra-test_idle_admission_pacing.xml",
+   "tests/fake/test_idle_admission_pacing.py"
+  ],
+  "started_at": "02:51:51Z",
+  "load_start": "21:51  up 14:19, 1 user, load averages: 111.64 138.27 146.64",
+  "load_end": "21:52  up 14:20, 1 user, load averages: 124.19 138.40 146.34",
+  "ended_at": "02:52:24Z",
+  "elapsed_s": 32.9,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 23,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 0
+  },
+  "failed": [],
+  "summary": [
+   "23 passed in 23.26s"
+  ]
+ },
+ {
+  "file": "tests/fake/test_idle_capacity_events.py",
+  "name": "extra-test_idle_capacity_events",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-extra-test_idle_capacity_events",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-extra-test_idle_capacity_events.xml",
+   "tests/fake/test_idle_capacity_events.py"
+  ],
+  "started_at": "02:52:25Z",
+  "load_start": "21:52  up 14:20, 1 user, load averages: 124.19 138.40 146.34",
+  "load_end": "21:53  up 14:20, 1 user, load averages: 120.30 136.43 145.34",
+  "ended_at": "02:53:03Z",
+  "elapsed_s": 37.5,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 56,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 0
+  },
+  "failed": [],
+  "summary": [
+   "56 passed in 32.39s"
+  ]
+ },
+ {
+  "file": "tests/fake/test_idle_capacity_guard_news.py",
+  "name": "extra-test_idle_capacity_guard_news",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-extra-test_idle_capacity_guard_news",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-extra-test_idle_capacity_guard_news.xml",
+   "tests/fake/test_idle_capacity_guard_news.py"
+  ],
+  "started_at": "02:53:03Z",
+  "load_start": "21:53  up 14:20, 1 user, load averages: 120.30 136.43 145.34",
+  "load_end": "21:53  up 14:21, 1 user, load averages: 110.63 132.69 143.68",
+  "ended_at": "02:53:31Z",
+  "elapsed_s": 28.2,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 16,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 0
+  },
+  "failed": [],
+  "summary": [
+   "16 passed in 22.91s"
+  ]
+ },
+ {
+  "file": "tests/fake/test_idle_capacity_pools.py",
+  "name": "extra-test_idle_capacity_pools",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-extra-test_idle_capacity_pools",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-extra-test_idle_capacity_pools.xml",
+   "tests/fake/test_idle_capacity_pools.py"
+  ],
+  "started_at": "02:53:32Z",
+  "load_start": "21:53  up 14:21, 1 user, load averages: 110.63 132.69 143.68",
+  "load_end": "21:53  up 14:21, 1 user, load averages: 109.81 131.35 143.01",
+  "ended_at": "02:53:48Z",
+  "elapsed_s": 16.0,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 3,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 0
+  },
+  "failed": [],
+  "summary": [
+   "3 passed in 10.50s"
+  ]
+ },
+ {
+  "file": "tests/fake/test_idle_capacity_queue_news.py",
+  "name": "extra-test_idle_capacity_queue_news",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-extra-test_idle_capacity_queue_news",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-extra-test_idle_capacity_queue_news.xml",
+   "tests/fake/test_idle_capacity_queue_news.py"
+  ],
+  "started_at": "02:53:48Z",
+  "load_start": "21:53  up 14:21, 1 user, load averages: 109.81 131.35 143.01",
+  "load_end": "21:53  up 14:21, 1 user, load averages: 102.95 128.83 141.91",
+  "ended_at": "02:53:59Z",
+  "elapsed_s": 11.5,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 2,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 0
+  },
+  "failed": [],
+  "summary": [
+   "2 passed in 7.12s"
+  ]
+ },
+ {
+  "file": "tests/fake/test_idle_capacity_refresh_bound.py",
+  "name": "extra-test_idle_capacity_refresh_bound",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-extra-test_idle_capacity_refresh_bound",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-extra-test_idle_capacity_refresh_bound.xml",
+   "tests/fake/test_idle_capacity_refresh_bound.py"
+  ],
+  "started_at": "02:54:09Z",
+  "load_start": "21:54  up 14:22, 1 user, load averages: 101.88 127.71 141.35",
+  "load_end": "21:54  up 14:22, 1 user, load averages: 99.33 125.89 140.47",
+  "ended_at": "02:54:28Z",
+  "elapsed_s": 18.1,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 2,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 0
+  },
+  "failed": [],
+  "summary": [
+   "2 passed in 11.92s"
+  ]
+ },
+ {
+  "file": "tests/fake/test_idle_route_deferrals.py",
+  "name": "extra-test_idle_route_deferrals",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-extra-test_idle_route_deferrals",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-extra-test_idle_route_deferrals.xml",
+   "tests/fake/test_idle_route_deferrals.py"
+  ],
+  "started_at": "02:54:28Z",
+  "load_start": "21:54  up 14:22, 1 user, load averages: 99.33 125.89 140.47",
+  "load_end": "21:54  up 14:22, 1 user, load averages: 101.66 124.03 139.29",
+  "ended_at": "02:54:56Z",
+  "elapsed_s": 28.1,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 4,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 0
+  },
+  "failed": [],
+  "summary": [
+   "4 passed in 24.72s"
+  ]
+ },
+ {
+  "file": "tests/unit/test_admission_store_wakes.py",
+  "name": "extra-test_admission_store_wakes",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-extra-test_admission_store_wakes",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-extra-test_admission_store_wakes.xml",
+   "tests/unit/test_admission_store_wakes.py"
+  ],
+  "started_at": "02:54:57Z",
+  "load_start": "21:54  up 14:22, 1 user, load averages: 101.66 124.03 139.29",
+  "load_end": "21:55  up 14:23, 1 user, load averages: 102.84 121.93 137.99",
+  "ended_at": "02:55:27Z",
+  "elapsed_s": 29.7,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 16,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 0
+  },
+  "failed": [],
+  "summary": [
+   "16 passed in 24.54s"
+  ]
+ },
+ {
+  "file": "tests/fake/test_probe_turn.py",
+  "name": "extra-test_probe_turn",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-extra-test_probe_turn",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-extra-test_probe_turn.xml",
+   "tests/fake/test_probe_turn.py"
+  ],
+  "started_at": "02:55:27Z",
+  "load_start": "21:55  up 14:23, 1 user, load averages: 102.84 121.93 137.99",
+  "load_end": "21:58  up 14:26, 1 user, load averages: 184.37 148.33 145.56",
+  "ended_at": "02:58:29Z",
+  "elapsed_s": 182.1,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 61,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 0
+  },
+  "failed": [],
+  "summary": [
+   "61 passed in 174.44s (0:02:54)"
+  ]
+ },
+ {
+  "file": "tests/fake/test_probe_deadline.py",
+  "name": "extra-test_probe_deadline",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-extra-test_probe_deadline",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-extra-test_probe_deadline.xml",
+   "tests/fake/test_probe_deadline.py"
+  ],
+  "started_at": "02:58:30Z",
+  "load_start": "21:58  up 14:26, 1 user, load averages: 184.37 148.33 145.56",
+  "load_end": "21:59  up 14:27, 1 user, load averages: 180.00 152.71 147.33",
+  "ended_at": "02:59:22Z",
+  "elapsed_s": 52.3,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 17,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 0
+  },
+  "failed": [],
+  "summary": [
+   "17 passed in 48.89s"
+  ]
+ },
+ {
+  "file": "tests/fake/test_turn_wait_reasons.py",
+  "name": "extra-test_turn_wait_reasons",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-extra-test_turn_wait_reasons",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-extra-test_turn_wait_reasons.xml",
+   "tests/fake/test_turn_wait_reasons.py"
+  ],
+  "started_at": "03:00:00Z",
+  "load_start": "22:00  up 14:27, 1 user, load averages: 171.41 153.50 147.85",
+  "load_end": "22:00  up 14:28, 1 user, load averages: 171.12 155.04 148.57",
+  "ended_at": "03:00:26Z",
+  "elapsed_s": 25.6,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 7,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 0
+  },
+  "failed": [],
+  "summary": [
+   "7 passed in 19.04s"
+  ]
+ },
+ {
+  "file": "tests/fake/test_admission_disk.py",
+  "name": "extra-test_admission_disk",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-extra-test_admission_disk",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-extra-test_admission_disk.xml",
+   "tests/fake/test_admission_disk.py"
+  ],
+  "started_at": "03:00:26Z",
+  "load_start": "22:00  up 14:28, 1 user, load averages: 171.12 155.04 148.57",
+  "load_end": "22:00  up 14:28, 1 user, load averages: 166.07 154.81 148.61",
+  "ended_at": "03:00:39Z",
+  "elapsed_s": 13.5,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 27,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 0
+  },
+  "failed": [],
+  "summary": [
+   "27 passed in 11.40s"
+  ]
+ },
+ {
+  "file": "tests/fake/test_admission_ramp.py",
+  "name": "extra-test_admission_ramp",
+  "argv": [
+   "uv",
+   "run",
+   "--no-sync",
+   "--with",
+   "pytest-xdist>=3.6",
+   "pytest",
+   "-q",
+   "--tb=short",
+   "-p",
+   "no:cacheprovider",
+   "-n",
+   "4",
+   "--basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/pytest-extra-test_admission_ramp",
+   "--junitxml=/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/fix-r2-extra-test_admission_ramp.xml",
+   "tests/fake/test_admission_ramp.py"
+  ],
+  "started_at": "03:00:39Z",
+  "load_start": "22:00  up 14:28, 1 user, load averages: 166.07 154.81 148.61",
+  "load_end": "22:01  up 14:29, 1 user, load averages: 169.97 157.94 150.22",
+  "ended_at": "03:01:45Z",
+  "elapsed_s": 65.1,
+  "finished": true,
+  "returncode": 0,
+  "counts": {
+   "passed": 19,
+   "failed": 0,
+   "errors": 0,
+   "skipped": 0
+  },
+  "failed": [],
+  "summary": [
+   "19 passed in 60.12s (0:01:00)"
+  ]
+ }
+]
