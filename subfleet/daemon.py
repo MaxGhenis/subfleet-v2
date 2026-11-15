@@ -6657,18 +6657,34 @@ class Daemon:
         return admin is not None and os.path.lexists(admin / "locked")
 
     def _add_census(self, job: dict) -> procs.Containment:
-        """A fresh census on every pass and add generation; never cache by directory identity."""
+        """A fresh census on every pass and add generation; never cache by directory identity.
+
+        C-5.4, C-6.8: while the cap's stop has left an add's leader the daemon's unreaped child,
+        each census KILLs its group again before the poll that may reap it (review r1 of #329: a
+        failed first `killpg` was never sent again). The signal releases nothing: the live leader
+        and every member the census reads still hold the job."""
         tracked = self.__dict__.setdefault("_worktree_adds", {})
         group, known = tracked.get(job["job_id"], (None, None))
         children = self.__dict__.setdefault("_worktree_add_children", {})
+        stopped = self.__dict__.setdefault("_worktree_add_stopped", {})
         child = children.get(job["job_id"])
         live_child = False
         if child is not None:
+            if stopped.get(job["job_id"]) is child and child.returncode is None:
+                # Not yet reaped, so its pid, and the group it leads, cannot have been reused.
+                try:
+                    os.killpg(child.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                except OSError as exc:
+                    self.log.warning("job %s: worktree add group could not be signalled again: %s",
+                                     job["job_id"], refusals.scrubbed_line(str(exc)))
             try:
                 if child.poll() is None:
                     live_child = True
                 else:
                     children.pop(job["job_id"], None)
+                    stopped.pop(job["job_id"], None)
             except OSError as exc:
                 raise SalvageError("worktree add leader could not be reaped", transient=True) from exc
         try:
@@ -6705,8 +6721,9 @@ class Daemon:
         """C-6.8: the checkout has its own group, marked environment, and file-backed stderr."""
         self._require_add_empty(job)
         command = [*self._tree_git(job, common, cap), "worktree", "add", "--detach", workdir, job["workdir_head"]]
-        env = {**_git_env(None), "SUBFLEET_ATTEMPT": worktree_add.marker(job["job_id"]),
-               "SUBFLEET_ROOT": str(self.root)}
+        # C-6.8: `core.fsmonitor=false` pinned, so git starts no detached helper with the marker.
+        env = worktree_add.pinned({**_git_env(None), "SUBFLEET_ATTEMPT": worktree_add.marker(job["job_id"]),
+                                   "SUBFLEET_ROOT": str(self.root)})
         timeout = self.policy["caps"]["worktree_add_timeout_s"]
         failure = None
         with tempfile.TemporaryFile(dir=self.root / "jobs" / job["job_id"]) as stderr:
@@ -6714,11 +6731,13 @@ class Daemon:
                                      stderr=stderr, env=env, start_new_session=True)
             children = self.__dict__.setdefault("_worktree_add_children", {})
             children[job["job_id"]] = child
+            stopped = self.__dict__.setdefault("_worktree_add_stopped", {})
             stop_attempted = False
 
             def stop_and_reap():
                 nonlocal stop_attempted
                 stop_attempted = True
+                stopped[job["job_id"]] = child     # later censuses signal it again (`_add_census`)
                 signal_error = None
                 # C-5.4: this remains our unreaped child; its pid cannot be reused.
                 try:
@@ -6750,6 +6769,8 @@ class Daemon:
                 finally:
                     if child.returncode is not None:
                         children.pop(job["job_id"], None)
+                        if stopped.get(job["job_id"]) is child:
+                            stopped.pop(job["job_id"], None)
                     stderr.seek(0)
                     words = stderr.read().decode("utf-8", "backslashreplace")
                     if words:

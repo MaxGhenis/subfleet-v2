@@ -12,6 +12,7 @@ and reaps whatever is left, inside `finally` (F9).
 from __future__ import annotations
 
 import contextlib
+import ctypes
 import json
 import os
 import shutil
@@ -129,21 +130,34 @@ class HeldFilter:
         self.release()
 
     def release(self, bound: float = 10) -> None:
-        """Open the gate, wait with a bound, then kill and reap what is left (F9)."""
+        """Open the gate, wait with a bound, then kill and reap what is left (F9).
+
+        A group is signalled only while its leader is unreaped, and a filter pid only while its
+        argument buffer names this test's own filter, so a pid reused after its exit is never hit."""
         self.gate.unlink(missing_ok=True)
         deadline = time.monotonic() + bound
         for process in self.processes:
             with contextlib.suppress(subprocess.TimeoutExpired):
                 process.wait(timeout=max(0.1, deadline - time.monotonic()))
-            with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.killpg(process.pid, signal.SIGKILL)
+            if process.poll() is None:
+                with contextlib.suppress(ProcessLookupError, PermissionError):
+                    os.killpg(process.pid, signal.SIGKILL)
             process.wait(timeout=5)
         for pid in self.filter_pids():
-            with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.kill(pid, signal.SIGKILL)
-        while any(alive(pid) for pid in self.filter_pids()):
+            if self.ours(pid):
+                with contextlib.suppress(ProcessLookupError, PermissionError):
+                    os.kill(pid, signal.SIGKILL)
+        while any(alive(pid) and self.ours(pid) for pid in self.filter_pids()):
             assert time.monotonic() < deadline + 5, "a filter outlived its kill"
             time.sleep(0.05)
+
+    def ours(self, pid: int) -> bool:
+        """Whether `pid` is still one of this test's filters: its arguments name the script."""
+        try:
+            arguments = procs.kernel.arguments(pid, ctypes.create_string_buffer(4096))
+        except procs.InspectionError:
+            return False
+        return arguments is not None and os.fsencode(self.scratch / "hold-filter.sh") in arguments
 
 
 @pytest.fixture
@@ -157,6 +171,32 @@ def held(state_daemon, tmp_path):  # noqa: F811
         yield filtered
     finally:
         filtered.release()
+
+
+def cap_from_the_filter(monkeypatch, held: HeldFilter, bound: float = 120) -> list[subprocess.Popen]:
+    """While the gate is held, the daemon's `Popen` of a worktree add returns only once that add's
+    filter has started (or the add exited, or `bound` passed), so its cap counts from the filter.
+    Returns the list the adds are appended to as they start.
+
+    Review r1 of #329 (P2): at load near 200 an add took longer than its 1 s cap just to reach the
+    filter, so the cap fired before the checkout started. The filter blocks while the gate is held,
+    so a 1 s cap counted from it still fires, and it still stops a checkout git is writing."""
+    real_popen = subprocess.Popen
+    adds: list[subprocess.Popen] = []
+
+    def start(command, *args, **kwargs):
+        before = len(held.filter_pids())
+        child = real_popen(command, *args, **kwargs)
+        if not isinstance(command, (str, bytes)) and "worktree" in command and "add" in command:
+            adds.append(child)
+            deadline = time.monotonic() + bound
+            while (held.gate.exists() and len(held.filter_pids()) <= before and child.poll() is None
+                   and time.monotonic() < deadline):
+                time.sleep(0.02)
+        return child
+
+    monkeypatch.setattr(daemon_module.subprocess, "Popen", start)
+    return adds
 
 
 def submit(daemon, harness):
@@ -188,10 +228,15 @@ def assert_finished(tree: Path, head: str) -> None:
 
 # --- the four reproducers ---------------------------------------------------------------------------
 
-def test_reproducer_a_the_cap_stops_the_whole_checkout(state_daemon, held, real_census):  # noqa: F811
-    """Defect 1: at the cap the add's whole group goes, its filter with it; the job waits."""
+def test_reproducer_a_the_cap_stops_the_whole_checkout(state_daemon, held, real_census, monkeypatch):  # noqa: F811
+    """Defect 1: at the cap the add's whole group goes, its filter with it; the job waits.
+
+    The 1 s cap counts from the filter (`cap_from_the_filter`), and the next pass has the policy's
+    own cap: under load a 1 s cap stopped the unblocked add too (review r1 of #329, P2)."""
     daemon, harness = state_daemon
+    normal = daemon.policy["caps"]["worktree_add_timeout_s"]
     daemon.policy["caps"]["worktree_add_timeout_s"] = 1
+    cap_from_the_filter(monkeypatch, held)
     job_id = submit(daemon, harness)
     held.hold()
     try:
@@ -203,6 +248,7 @@ def test_reproducer_a_the_cap_stops_the_whole_checkout(state_daemon, held, real_
         assert (job["state"], job["wait_reason"]) == ("waiting", "workspace")
     finally:
         held.release()
+    daemon.policy["caps"]["worktree_add_timeout_s"] = normal
     due(daemon, job_id)
     daemon._admit()
     assert [a["state"] for a in daemon.store.list_attempts(job_id)] == ["reserved"]

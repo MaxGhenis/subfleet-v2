@@ -42,6 +42,44 @@ def marker(job_id: str) -> str:
     return MARKER_PREFIX + job_id
 
 
+#: Config every add pins in its environment (C-6.8). With `core.fsmonitor=true`, git 2.55 starts
+#: `git fsmonitor--daemon run --detach` from the add: a helper in a group of its own, ppid 1, that
+#: keeps the add's marker and so holds the job until it exits (review r1 of #329, P2).
+PINNED_CONFIG = (("core.fsmonitor", "false"),)
+
+
+def _config_count(value: str) -> int | None:
+    """What git reads from `GIT_CONFIG_COUNT`: C's `strtoul` over the whole value (empty is 0).
+    None when git refuses the value ("bogus count", "too many entries") and reads no config."""
+    digits = value.lstrip(" \t\n\v\f\r")
+    sign = digits[:1] if digits[:1] in ("+", "-") else ""
+    digits = digits[len(sign):]
+    if value == "":
+        return 0
+    if not digits or not digits.isascii() or not digits.isdigit():
+        return None
+    count = int(digits)
+    if count > 2**31 - 1 or (sign == "-" and count):
+        return None                         # "too many entries" (strtoul wraps a negative)
+    return count
+
+
+def pinned(env: dict[str, str]) -> dict[str, str]:
+    """C-6.8: `env` with `PINNED_CONFIG` appended after any `GIT_CONFIG_COUNT` entries it
+    already has. Git reads these as `git -c` (command-line scope, over every config file), and
+    every git the add starts inherits them. A count git refuses is left as it is: git then reads
+    no config at all and runs nothing."""
+    env = dict(env)
+    count = _config_count(env.get("GIT_CONFIG_COUNT", ""))
+    if count is None:
+        return env
+    for offset, (key, value) in enumerate(PINNED_CONFIG):
+        env[f"GIT_CONFIG_KEY_{count + offset}"] = key
+        env[f"GIT_CONFIG_VALUE_{count + offset}"] = value
+    env["GIT_CONFIG_COUNT"] = str(count + len(PINNED_CONFIG))
+    return env
+
+
 def transient(exc: OSError, what: str) -> SalvageError:
     """C-6.8: an OS error in an ownership read, transient by its errno, with the cause chained."""
     error = SalvageError(f"{what}: {os.strerror(exc.errno) if exc.errno else type(exc).__name__}",
