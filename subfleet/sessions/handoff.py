@@ -105,15 +105,14 @@ _LONG_BASE64_RE = re.compile(
 #: A URL's password (C-23.14): a scheme of letters, digits, `+`, `.`, `_` and `-`, any of
 #: them first (`9p://`, `my_postgres://`, `retry=2postgres://`), `://`, a user up to the
 #: first `:`, which may be empty (`redis://:pw@cache`) or hold an `@` (`user@server`, as
-#: Azure's database URLs name one), then the password. It runs to the last `@` before the
-#: first `/` (`ftp://anon:p@ss@host/x`, the userinfo's own end), or, where no `@` comes
-#: before that `/`, to the last `@` before whitespace or the next `://` (a raw `/` in the
-#: password, `https://alice:pa/ss@host`, hidden though a port and an `@` later in a path,
-#: `https://host:8080/@user`, then read as one). `_linear_sub` tries it once from the
-#: start of each run of scheme characters that `://` follows, and skips an empty password.
-_URL_PASSWORD_RE = re.compile(
-    r"(?i)([a-z0-9+._-]+://[^\s/:]*:)"
-    r"([^\s/@]*(?:@[^\s/@]*)*(?=@)|(?:(?!://)\S)*(?=@))(@)")
+#: Azure's database URLs name one), then the password. It runs to the last `@` before
+#: whitespace or the next `://`, so it may hold an `@` (`ftp://anon:p@ss@host`), a raw
+#: `/` (`https://alice:pa/ss@host`) or both (`https://alice:p@ss/x@host`). A later `@`
+#: in a path is read as the userinfo's end too: `https://alice:pw@host/users/@me` hides
+#: the host and the path before that `@`, and `https://host:8080/users/@me` the port on,
+#: as no password is told from a path. `_linear_sub` tries it once from the start of each
+#: run of scheme characters that `://` follows, and skips an empty password.
+_URL_PASSWORD_RE = re.compile(r"(?i)([a-z0-9+._-]+://[^\s/:]*:)((?:(?!://)\S)*(?=@))(@)")
 _URL_SCHEME_RE = re.compile(r"[a-z0-9+._-]+", re.IGNORECASE)
 #: A header's name: an identifier ending in `authorization` or `cookie` (`Authorization`,
 #: `Proxy-Authorization`, `X-Authorization`, `Cookie`, `Set-Cookie`). One that starts its

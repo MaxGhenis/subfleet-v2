@@ -110,6 +110,42 @@ def test_a_url_without_a_password_is_written_whole_on_every_route(route, monkeyp
     assert plain in written and CONTROL_URL in written
 
 
+# --- review r2's URL form, and what reading a password to its last `@` costs ------------
+
+#: A password holding an `@` and then a raw `/`: fix r1's rule ended it at the `@` before
+#: the first `/`, so everything after that `@` was written (review r2 of #308, P1).
+AT_THEN_SLASH = ("https://alice:p@ss/{}@host.test", "Fx2Markatthensl0009zz")
+#: The cost (C-5.10, C-23.14): an `@` later in a path is read as the userinfo's end, so
+#: the host and path before it are hidden with the password, and a port and a path with
+#: an `@` and no password are read as a password.
+HOST_BEFORE_PATH_AT = "https://alice:{}@host.test/users/@me"
+HOST_MARKER = "Fx2HostMark00010zz"
+PORT_BEFORE_PATH_AT = "http://localhost:3000/api/users/@me"
+#: No `:` after the host, so nothing is read as a password: written whole.
+PATH_AT_ONLY = "https://host.test/users/@me"
+
+
+@pytest.mark.parametrize("route", ROUTES)
+def test_r2_a_password_with_an_at_and_then_a_raw_slash_is_hidden_on_every_route(route, monkeypatch, capsys):
+    shape, marker = AT_THEN_SLASH
+    written = _written(route, f"{shape.format(marker)} via {CONTROL_URL}", monkeypatch)
+    written += capsys.readouterr().err
+    _hidden(written, marker)
+    assert "ss/Fx2Mark" not in written and CONTROL_URL in written
+
+
+@pytest.mark.parametrize("route", ROUTES)
+def test_r2_an_at_in_a_path_hides_what_comes_before_it_on_every_route(route, monkeypatch):
+    """Pinned over-redaction: the host of a URL with a password, and the port on of a URL
+    with none, when its path holds an `@`. A path `@` with no port is written whole."""
+    text = f"{HOST_BEFORE_PATH_AT.format(HOST_MARKER)}, {PORT_BEFORE_PATH_AT} and {PATH_AT_ONLY} via {CONTROL_URL}"
+    written = _written(route, text, monkeypatch)
+    _hidden(written, HOST_MARKER)
+    assert "host.test/users/" not in written.replace(PATH_AT_ONLY, "")
+    assert "localhost:3000" not in written and "/api/users/" not in written
+    assert PATH_AT_ONLY in written and CONTROL_URL in written
+
+
 # --- terminal escapes (review r1's P2) ---------------------------------------------------
 
 #: OSC 52 (a clipboard write), then a screen clear: what a terminal acts on unseen.
