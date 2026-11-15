@@ -841,8 +841,23 @@ was wrapped in `timeout 540` to `570`. Times are UTC.
 | 10 | 21:29 | `test_daemon_log_handler`, `_tail`, `_scrubbing`, `_reminders`, `_trailing_reminders` | stopped by `timeout 545` with **385 passed, no `F` or `E`**, at about 99% | 106 → 98 |
 | 11 | 21:39 | `test_sessions_handoff`, `test_scrub_release_first`, `test_conversation_redact`, `test_suggestion_secret_properties`, `test_conversation_handoff_briefs` | stopped by `timeout 545` with **212 passed, no `F` or `E`**, at about 99% | 101 → 137 |
 
+| 12 | 21:54 | `test_scrub_no_new_leak`, `test_scrub_release_frozen`, `test_scrub_inline_headers` | stopped by `timeout 545` at about 250 results, **3 `F` marks, unnamed** (`-q`) | 102 → 187 |
+| 13 | 22:04 | `test_scrub_inline_headers.py -k linear` | **1 failed, 16 passed**: `test_inline_headers_and_bearer_keep_scrubbing_linear[a Cookie:\n]`, its CPU-scaling subprocess past its own 60 s `TimeoutExpired` | 248 → 290 |
+| 14 | 22:09 | run 12's files, `-k "not linear"`, `-v` | **262 passed**, 324 s | 298 → 160 |
+
 Run 7's 258 are r1's 190 plus this round's 68: 20 URL, 40 invisible-key,
 4 separator, 2 format-class and 2 outer-frame tests.
+
+**The scaling failure (runs 12 and 13).**
+- Run 14 passed every test of run 12's files but the 17 cases of
+  `test_inline_headers_and_bearer_keep_scrubbing_linear`. So run 12's three
+  `F` marks are, by inference, cases of that test. They weren't named.
+- Run 13 named one case: `[a Cookie:\n]`, the same case fix r1's run 8 failed
+  at load about 185.
+- Its input holds no `://`. For it, the URL rule does only what fix r1's did:
+  one scheme-run scan and a `startswith` per run. So I read the failure as load
+  (248 to 290), not this change.
+- That is a reading of the code. The test wasn't run on base, or at a low load.
 
 Other commands:
 - `git diff`, `git log` and `git grep` reads in the worktree.
@@ -864,6 +879,8 @@ Other commands:
 **Did not run.** Time ran out at this load. Of the 50 test files that import
 `daemon_log` or `handoff` (`git grep -l`), these ran:
 - in full: the three worker-failure files and `test_handler_refusals.py`;
+- in full but for the scaling test above: `test_scrub_inline_headers`,
+  `test_scrub_no_new_leak` and `test_scrub_release_frozen`;
 - to about 99%, with no failure: runs 10 and 11 above.
 
 These did not run:
@@ -873,8 +890,8 @@ These did not run:
 - `test_daemon_log_cut_windows`, `_first_pass`, `_mutation_tool` and `_sites`;
 - `test_daemon_verbs`, `test_launch_env_round7` and `_round8`,
   `test_lockwatch`, `test_outcome_unknown`, `test_protocol_secrecy`;
-- `test_scrub_inline_headers`, `_key_order`, `_no_new_leak`,
-  `_release_frozen`, `_review_r10`, `r2` to `r7` and `_review_r9b`;
+- `test_scrub_key_order`, `_review_r10`, `r2` to `r7` and `_review_r9b`
+  (runs 12 to 14 ran `_inline_headers`, `_no_new_leak` and `_release_frozen`);
 - `test_sessions_cli`, `test_sessions_handoff_excerpts`,
   `test_sessions_transcripts`, `test_status_hold_source`, `test_store_ids`
   and `test_task_hold_cas_wire`.
@@ -908,9 +925,12 @@ Folders outside scratch:
 - pytest's own `sf-test-homes-*` folders (`tests/conftest.py`) are removed by
   its session teardown. Others' are there too, so I touched none.
 
-Scratch `$TMPDIR/sf-wcp-fix2` holds the probes, the run outputs, the mutant
-copies' results and the basetemps. It is removed at the end with a guarded
-`shutil.rmtree` that asserts `sf-wcp-fix2` is in the path. No live state,
+Scratch `$TMPDIR/sf-wcp-fix2` held the probes, the run outputs, the mutant
+copies' results and the basetemps. It was removed at 22:16 UTC with a guarded
+`shutil.rmtree` that asserts `sf-wcp-fix2` is in the path and is the folder's
+name; it no longer exists. No process of mine is left. No live state,
 credential store or caller file was read or changed.
 
-Head built: the commit holding this section, on top of `e2af521cd`.
+Head built: the commit holding this section's last edit, on top of
+`dc515a2ad` (the section's first commit) and `e2af521cd` (code, tests,
+contract and runner). Finished at 22:17 UTC, 2 h 42 min after the start.
