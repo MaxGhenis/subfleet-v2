@@ -6396,6 +6396,7 @@ class Daemon:
             if ready:
                 self._push_unused_workspaces.add(job_id)
             return ready
+        start = False
         if future is None:
             if job.get("worktree"):
                 self._push_unused_workspaces.add(job_id)
@@ -6405,14 +6406,22 @@ class Daemon:
             # use the same disk reading before any reservation exists.
             if not self._push_workspaces and not self._push_preparation_offered:
                 self._push_preparation_offered = True
-                self._push_workspaces[job_id] = self.pushes.submit(self._run_worker, self._prepare_push_workspace, dict(job), destination)
-        if job["wait_reason"] != "workspace":
+                start = True
+        if start or job["wait_reason"] != "workspace":
             try:
                 with self.store.transaction("job.workspace_preparing", job_id=job_id) as tx:
-                    if self._task_held_at_write(tx, job, None) is None:     # C-11.10 (R3-1)
-                        tx.execute("UPDATE jobs SET state='waiting',wait_reason='workspace',next_check_at=NULL "
-                                   "WHERE job_id=? AND state IN ('queued','waiting') AND cancel_requested_at IS NULL",
-                                   (job_id,))
+                    # C-11.10 (R3-1; fix r1 of #309): the checkout starts only inside the
+                    # transaction that reads the hold again, so a hold committed since the
+                    # door's look takes the job and no worktree is built for it. A hold
+                    # committing after this finds the build in flight and lets it run (C-4.1).
+                    if self._task_held_at_write(tx, job, None) is None:
+                        if start:
+                            self._push_workspaces[job_id] = self.pushes.submit(
+                                self._run_worker, self._prepare_push_workspace, dict(job), destination)
+                        if job["wait_reason"] != "workspace":
+                            tx.execute("UPDATE jobs SET state='waiting',wait_reason='workspace',next_check_at=NULL "
+                                       "WHERE job_id=? AND state IN ('queued','waiting') "
+                                       "AND cancel_requested_at IS NULL", (job_id,))
             except sqlite3.Error as exc:
                 if not self._push_workspace_store_busy(exc):
                     self._push_workspace_store_errors[job_id] = exc
