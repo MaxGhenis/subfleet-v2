@@ -147,10 +147,11 @@ def load(service, rows, order=None):
         for index in range(len(rows)) if order is None else order:
             row = rows[index]
             tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,"
-                       "outcome_class,killed_by,started_at,finished_at,reserved_at) "
-                       "VALUES (?,'wall-property',?,'codex-1','fake',?,?,?,?,?,?)",
+                       "outcome_class,killed_by,started_at,finished_at,reserved_at,evidence_json) "
+                       "VALUES (?,'wall-property',?,'codex-1','fake',?,?,?,?,?,?,?)",
                        (f"wall-property/a{index + 1}", index + 1, row["state"], row["outcome_class"],
-                        row["killed_by"], row["started_at"], row["finished_at"], stamp(0)))
+                        row["killed_by"], row["started_at"], row["finished_at"], stamp(0),
+                        row.get("evidence_json")))
 
 
 @PROPERTY
@@ -287,40 +288,105 @@ def test_wall_retry_reader_sees_class_written_in_same_transaction(ledger):
         assert service._running_s("wall-property") == 0
 
 
+# How a generated attempt ends when its provider exits on its own, as (state,
+# class): a lane fault is an auth-dead attempt that `Daemon._lane_fault` would
+# accept; a plain auth-dead one is not (a pinned lane, a changed workspace).
+ENDINGS = {"limited": ("failed", "limited"), "transient": ("failed", "transient"),
+           "lane-fault": ("failed", "auth-dead"), "auth-dead": ("failed", "auth-dead"),
+           "lost": ("lost", "unknown"), "ok": ("succeeded", "ok"), "unknown": ("failed", "unknown"),
+           "content-filter": ("failed", "content-filter"), "cli-too-old": ("failed", "cli-too-old")}
+# C-4.5's classes that admit another attempt on this unpinned read-only job,
+# subject to `Daemon._attempts_left`; a lane fault is admitted regardless.
+RETRIED = {"limited", "transient", "lost"}
+SAFETY = 9  # More attempts than any job may have: 5 plus one lane fault.
+
+
+def wall_stop_ms(service, clock, start, cap):
+    """Production `_running_s`: the first millisecond of a live attempt's own
+    time at which the wall's sum reaches `cap`, or None if it never does."""
+    def reached(ms):
+        clock.at = start + timedelta(milliseconds=ms)
+        return service._running_s("wall-property") >= cap
+
+    if not reached(cap * 1000):
+        return None
+    low, high = 0, cap * 1000
+    while low < high:
+        middle = (low + high) // 2
+        low, high = (low, middle) if reached(middle) else (middle + 1, high)
+    return low
+
+
 @PROPERTY
-@given(max_attempts=st.integers(1, 5), lane_fault=st.booleans(), cap=st.integers(1, 100),
-       requested_us=st.lists(st.integers(0, 200_000_000), min_size=6, max_size=6),
-       missed_wall_us=st.lists(st.integers(0, 10_000_000), min_size=6, max_size=6),
-       outcomes=st.lists(st.sampled_from(CLASSES), min_size=6, max_size=6))
+@example(max_attempts=3, cap=10, requested_ms=[9_000, 9_000, 13_000] + [0] * 6,
+         missed_ms=[0, 0, 4_000] + [0] * 6, endings=["transient"] * 9)
+@example(max_attempts=1, cap=10, requested_ms=[6_000, 20_000] + [0] * 7,
+         missed_ms=[0] * 9, endings=["lane-fault", "transient"] + ["limited"] * 7)
+@example(max_attempts=2, cap=10, requested_ms=[6_000, 20_000] + [0] * 7,
+         missed_ms=[0, 2_000] + [0] * 7, endings=["lost", "limited"] + ["limited"] * 7)
+@given(max_attempts=st.integers(1, 5), cap=st.integers(1, 100),
+       requested_ms=st.lists(st.integers(0, 200_000), min_size=SAFETY, max_size=SAFETY),
+       missed_ms=st.lists(st.integers(0, 10_000), min_size=SAFETY, max_size=SAFETY),
+       endings=st.lists(st.sampled_from(sorted(ENDINGS)), min_size=SAFETY, max_size=SAFETY))
 def test_wall_retry_provider_time_is_bounded_by_attempts_times_cap(
-        ledger, max_attempts, lane_fault, cap, requested_us, missed_wall_us, outcomes):
+        ledger, max_attempts, cap, requested_ms, missed_ms, endings):
     """Invariant 3: retries plus one lane fault each buy at most one own cap.
 
-    A delayed enforcement may add the separately generated overrun. Completing
-    an outside fault can restore the next attempt's budget but cannot restore
-    its own live time. The fake-provider tests cover real retry admission.
+    Production code decides both halves of the bound. `_running_s` decides
+    when the wall stops each live attempt, and `_attempts_left` (with
+    `_uncharged`) decides whether another attempt is admitted. A provider
+    asks for `requested_ms` of its own time, and the daemon may check the
+    wall `missed_ms` late (D-WALL1's overrun cases). An overrun counts as
+    finalization measures it, with `_running_s(finishing_attempt_id=...)`,
+    or as the late stop's cancel record would. The daemon-level case is
+    `tests/fake/test_wall_retry.py::test_a_job_whose_every_attempt_ends_transient_is_bounded`.
     """
     service, clock = ledger
-    clock.at = NOW
-    rows = []
-    provider_time = overruns = 0.0
-    allowed_attempts = max_attempts + int(lane_fault)
-    for index in range(allowed_attempts):
-        prior = reference_running_s(rows)
-        remaining = max(0.0, cap - prior)
-        normal_time = min(requested_us[index] / 1_000_000, remaining)
-        load(service, rows + [running(duration=normal_time)])
-        assert service._running_s("wall-property") == pytest.approx(prior + normal_time, abs=1e-6)
-        assert normal_time <= cap
-        overrun = missed_wall_us[index] / 1_000_000
-        duration = normal_time + overrun
-        load(service, rows + [running(duration=duration)])
-        assert service._running_s("wall-property") >= duration - 1e-6
-        outcome = "auth-dead" if lane_fault and index == 0 else outcomes[index]
-        rows.append(completed(outcome_class=outcome, duration=duration))
-        provider_time += duration
-        overruns += overrun
-    assert provider_time <= allowed_attempts * cap + overruns + 1e-6
+    service.store.update_job("wall-property", max_attempts=max_attempts, max_wall_s=cap)
+    job = service.store.get_job("wall-property")
+    rows, provider_ms, overruns, cursor = [], 0, 0.0, 0
+    for index in range(SAFETY):
+        seq, ending = index + 1, endings[index]
+        start = NOW + timedelta(milliseconds=cursor)
+        live = {"state": "running", "outcome_class": None, "killed_by": None,
+                "started_at": stamp(cursor * 1000), "finished_at": None}
+        load(service, rows + [live])
+        stop = wall_stop_ms(service, clock, start, cap)
+        late = 0 if ending == "lost" else missed_ms[index]
+        own = requested_ms[index]
+        stopped = stop is not None and own >= stop + late
+        if stopped:
+            own = stop + late
+            clock.at = start + timedelta(milliseconds=own)
+            # The wall's cancel record carries this sum: its excess is the late stop's overrun.
+            overruns += max(0.0, service._running_s("wall-property") - cap)
+            state, outcome_class, killed_by = "interrupted", "unknown", "max_wall_s"
+        else:
+            (state, outcome_class), killed_by = ENDINGS[ending], None
+        with service.store.transaction(None) as tx:
+            moved = service._uncharged(tx, "wall-property", before=seq)
+        fault = ending == "lane-fault" and not stopped and moved == 0
+        rows.append({**live, "state": state, "outcome_class": outcome_class, "killed_by": killed_by,
+                     "finished_at": stamp((cursor + own) * 1000),
+                     "evidence_json": '{"lane_fault": {"class": "auth-dead"}}' if fault else None})
+        load(service, rows)
+        provider_ms += own
+        if not stopped and state != "lost":
+            # Finalization's own comparison, after its terminal class is written.
+            running_s = service._running_s("wall-property", finishing_attempt_id=f"wall-property/a{seq}")
+            overruns += max(0.0, running_s - cap)
+        with service.store.transaction(None) as tx:
+            left = service._attempts_left(tx, job, {"seq": seq})
+        if stopped or not (fault or left and ending in RETRIED):
+            break
+        cursor += own + 60_000  # Waits between attempts spend no wall.
+    else:
+        pytest.fail(f"admission kept retrying past {SAFETY} attempts")
+    with service.store.transaction(None) as tx:
+        lane_faults = service._uncharged(tx, "wall-property", before=len(rows) + 1)
+    assert lane_faults <= 1
+    assert len(rows) <= max_attempts + lane_faults
+    assert provider_ms / 1000 <= (max_attempts + lane_faults) * cap + overruns + 1e-6
 
 
 @pytest.mark.parametrize(("durations", "classes", "spent", "remaining"), [

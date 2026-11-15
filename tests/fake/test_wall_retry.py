@@ -191,3 +191,71 @@ def test_lane_fault_extra_attempt_has_its_own_wall_cap(retry_wall, monkeypatch):
                            for a in attempts)
     assert total_provider_s == 16
     assert total_provider_s <= len(attempts) * 10
+
+
+def provider_seconds(attempt):
+    return (datetime.fromisoformat(attempt['finished_at']) -
+            datetime.fromisoformat(attempt['started_at'])).total_seconds()
+
+
+@pytest.mark.parametrize('last', ['exits after a missed cap', 'runs into the wall'])
+def test_a_job_whose_every_attempt_ends_transient_is_bounded(retry_wall, monkeypatch, last):
+    """C-4.5, D-WALL1: `max_attempts` bounds a job whose attempts all end transient.
+
+    Settled transients give their time back, so each attempt has its own cap
+    while it runs. The daemon either misses the last one's cap, which exits
+    on its own and records the overrun, or the wall stops it at its own cap.
+    Either way the job's provider time stays within max_attempts times
+    max_wall_s plus the overrun the daemon recorded, and no fourth attempt
+    is admitted.
+    """
+    service, harness, advance = retry_wall
+    stopped = []
+    monkeypatch.setattr(service, '_kill_attempt', lambda a: stopped.append(a['attempt_id']))
+    jid, attempt, _ = reserve(service, harness, max_wall_s=10, max_attempts=3)
+    service.store.update_attempt(attempt['attempt_id'], state='running',
+                                 started_at=daemon_module.utcnow())
+    for seq in (1, 2, 3):
+        assert attempt['seq'] == seq
+        advance(9)  # Under the old sum a2 and a3 would be stopped here.
+        service._process_attempt(attempt['attempt_id'])
+        assert service._running_s(jid) == 9  # Only this attempt's own time.
+        assert (stopped, cancel_events(service, jid)) == ([], [])
+        if seq < 3:
+            finish(service, attempt, Transient)
+            assert service._running_s(jid) == 0
+            assert service.store.get_job(jid)['state'] == 'waiting'
+            advance(61)  # C-4.5: a transient retry is due 60 s after finalization.
+            attempt = next_running(service, jid)
+    if last == 'exits after a missed cap':
+        advance(4)
+        finish(service, attempt, Transient)
+        job = service.store.get_job(jid)
+        assert (job['state'], job['rc']) == ('failed', 1)
+    else:
+        advance(1)
+        service._process_attempt(attempt['attempt_id'])
+        assert stopped == [attempt['attempt_id']]
+        assert cancel_events(service, jid) == [
+            {'by': 'daemon', 'reason': 'max_wall_s', 'running_s': 10.0}]
+        finish(service, service.store.get_attempt(attempt['attempt_id']), Transient,
+               killed_by='max_wall_s')
+        assert service.store.get_job(jid)['state'] == 'cancelled'
+    advance(61)
+    service._admit()
+    attempts = service.store.list_attempts(jid)
+    assert [a['seq'] for a in attempts] == [1, 2, 3]  # No fourth attempt.
+    assert [(a['state'], a['outcome_class'], a['killed_by']) for a in attempts] == (
+        [('failed', 'transient', None)] * 3 if last == 'exits after a missed cap' else
+        [('failed', 'transient', None)] * 2 + [('interrupted', 'unknown', 'max_wall_s')])
+    overruns = [json.loads(a['evidence_json'] or '{}').get('wall_overrun') for a in attempts]
+    if last == 'exits after a missed cap':
+        assert overruns == [None, None, {
+            'running_s': 13.0, 'max_wall_s': 10.0, 'overrun_s': 3.0,
+            'provider_finished_at': attempts[2]['finished_at'],
+            'reason': 'provider exited before the daemon enforced the wall'}]
+    else:
+        assert overruns == [None, None, None]
+    provider_s = [provider_seconds(a) for a in attempts]
+    assert provider_s == [9, 9, 13 if last == 'exits after a missed cap' else 10]
+    assert sum(provider_s) <= 3 * 10 + sum(o['overrun_s'] for o in overruns if o)
