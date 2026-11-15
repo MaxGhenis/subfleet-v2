@@ -26,11 +26,12 @@ from hypothesis import HealthCheck, assume, given, settings, strategies as st
 from subfleet.adapters.base import AdapterError
 from subfleet.adapters.claude import (
     AUTH_SIGNATURE_RE, CLI_TOO_OLD_RE, CREDITS_RE, LIMIT_RE, LINE_EXCERPT_MAX,
-    ORG_BLOCK_CAUSES, ORG_BLOCK_RE, TRANSIENT_RE, ClaudeAdapter, _first_line_containing,
-    _subscription_refusal,
+    ORG_BLOCK_CAUSES, ORG_BLOCK_RE, SCRUBBED_AWAY, TRANSIENT_RE, ClaudeAdapter,
+    _first_line_containing, _subscription_refusal,
 )
 from subfleet.adapters.claude_stream import parse_stream
 from subfleet.contracts import Credential, OutcomeClass
+from subfleet.sessions.handoff import scrub_secrets
 from tests.conftest import (
     FIXTURES, NOW, exit_info, load_expected, make_lane, make_launch, stage_case,
 )
@@ -474,7 +475,13 @@ def _matched_line(corpus: str) -> tuple[str, str]:
 
 
 def _assert_quotes(text: str, corpus: str) -> None:
-    line, found = _matched_line(corpus)
+    """`text` quotes the refusal line of `corpus` scrubbed whole, as the adapter
+    takes it (review r1, P1), or says the scrub removed what matched."""
+    clean = scrub_secrets(corpus, whole=True)[0]
+    if not ORG_BLOCK_RE.search(clean):
+        assert SCRUBBED_AWAY in text
+        return
+    line, found = _matched_line(clean)
     if len(line) <= LINE_EXCERPT_MAX:
         assert line in text
     else:

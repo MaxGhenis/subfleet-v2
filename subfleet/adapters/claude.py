@@ -347,6 +347,31 @@ def _first_line_containing(corpus: str, match: re.Match[str]) -> str:
     return ("…" if low else "") + line[low:high] + ("…" if high < len(line) else "")
 
 
+#: What a `detail` says in place of a quote when every match lay inside text the
+#: scrubber removes: the words that matched are not repeated.
+SCRUBBED_AWAY = "the words that matched lie inside text the scrubber removes"
+
+
+def _scrubbed(text: str) -> str:
+    """`text` scrubbed whole (C-23.14), its lines kept, before any line or excerpt is
+    taken from it. A cut can drop the label that marks a value as a credential
+    (`password="…` far ahead of the words that matched), and a scrub of the cut text
+    then no longer knows the value; scrubbed whole first, the label still masks it
+    (#104 review r1, P1)."""
+    from ..sessions.handoff import scrub_secrets
+    return scrub_secrets(text, whole=True)[0]
+
+
+def _quoted(text: str, match: re.Match[str]) -> str:
+    """The line a `detail` quotes for `match`, a match of its pattern in `text`: the
+    line holding the pattern's first match in `text` scrubbed whole (`_scrubbed`),
+    excerpted (`_first_line_containing`); `SCRUBBED_AWAY` when the scrub removed
+    every match."""
+    clean = _scrubbed(text)
+    found = match.re.search(clean)
+    return _first_line_containing(clean, found) if found else SCRUBBED_AWAY
+
+
 def model_matches_requested(served: str | None, requested: str | None) -> bool:
     """v1's `model_matches_requested`, ported.
 
@@ -1707,7 +1732,7 @@ class ClaudeAdapter(Adapter):
         if match:
             return finish(
                 OutcomeClass.CLI_TOO_OLD,
-                f"cli-too-old: {_first_line_containing(cli_corpus, match)}",
+                f"cli-too-old: {_quoted(cli_corpus, match)}",
                 answered={"cli": "version gate in the provider's own output"},
             )
 
@@ -1740,7 +1765,7 @@ class ClaudeAdapter(Adapter):
             if not summary.has_init:
                 return finish(
                     OutcomeClass.AUTH_DEAD,
-                    f"auth-dead: {_first_line_containing(cli_corpus, auth_signature)}",
+                    f"auth-dead: {_quoted(cli_corpus, auth_signature)}",
                     answered={"auth": "no system/init and a credential failure signature"},
                 )
             # C-9.3: the credential authenticated. Something else answered 401.
@@ -1781,7 +1806,7 @@ class ClaudeAdapter(Adapter):
         # above is the sole limit verdict that can override that success.
         match = None if successful else CREDITS_RE.search(scrubbed)
         if match:
-            line = _first_line_containing(scrubbed, match)
+            line = _quoted(scrubbed, match)
             until, clock_source = _closure_clock(
                 _clock_from_text(scrubbed, now), now
             )
@@ -1805,7 +1830,7 @@ class ClaudeAdapter(Adapter):
             )
         match = None if successful else LIMIT_RE.search(scrubbed)
         if match:
-            line = _first_line_containing(scrubbed, match)
+            line = _quoted(scrubbed, match)
             until, clock_source = _closure_clock(_clock_from_text(scrubbed, now), now)
             return finish(
                 OutcomeClass.LIMITED,
@@ -1873,7 +1898,7 @@ class ClaudeAdapter(Adapter):
             if transient_kind is not None:
                 parts.append(f"provider error kind {transient_kind}")
             if match is not None:
-                parts.append(_first_line_containing(cli_corpus, match))
+                parts.append(_quoted(cli_corpus, match))
             reason = "; ".join(parts)
             return finish(
                 OutcomeClass.TRANSIENT, f"transient: {reason}",
@@ -2104,15 +2129,19 @@ def _decode(value: Any) -> str:
 
 
 def _first_auth_phrase(corpus: str) -> str | None:
-    match = AUTH_SIGNATURE_RE.search(corpus) or ORG_BLOCK_RE.search(corpus)
-    return _first_line_containing(corpus, match) if match else None
+    """The first credential-failure or refusal line, from `corpus` scrubbed whole
+    (`_scrubbed`); None when there is none, or the scrub removed every match."""
+    clean = _scrubbed(corpus)
+    match = AUTH_SIGNATURE_RE.search(clean) or ORG_BLOCK_RE.search(clean)
+    return _first_line_containing(clean, match) if match else None
 
 
 @dataclass(frozen=True)
 class SubscriptionRefusal:
     """Claude Code refusing subscription access, as its own evidence (C-9.3).
 
-    `line` is Claude Code's words verbatim, `error_kinds` every distinct `error`
+    `line` is Claude Code's words verbatim from its source scrubbed whole
+    (`_scrubbed`), `error_kinds` every distinct `error`
     kind the stream carried, in the parser's order. `source` is what made it a
     refusal: "error-kind" when Claude Code stamped `oauth_org_not_allowed`, else
     "text" (ORG_BLOCK_RE alone). `quoted_from` is where `line` came from. None of
@@ -2128,6 +2157,8 @@ class SubscriptionRefusal:
         evidence = []
         if self.line:
             evidence.append(f'verbatim: "{self.line}"')
+        elif self.source == "text":
+            evidence.append(f"no words: {SCRUBBED_AWAY}")
         else:
             evidence.append(
                 f"no words: the frame carrying {ORG_BLOCK_ERROR_KIND} has none, "
@@ -2182,6 +2213,12 @@ def _subscription_refusal(corpus: str, summary: StreamSummary) -> SubscriptionRe
     3. the rest of the corpus (stderr, ordinary text): the first line it matches;
     4. a stamped refusal with no words of its own: the provider's error text's
        first line, else nothing, and the statement says so.
+
+    Whether it is a refusal is read from the text as written; the words quoted are
+    taken from each source scrubbed whole first (`_scrubbed`), so a credential whose
+    label lies outside the excerpt is still masked (#104 review r1, P1). A text
+    refusal whose every match lay inside text the scrubber removes quotes nothing,
+    and the statement says so.
     """
     kinds = tuple(dict.fromkeys(summary.error_kinds))
     stamped = ORG_BLOCK_ERROR_KIND in kinds
@@ -2190,25 +2227,30 @@ def _subscription_refusal(corpus: str, summary: StreamSummary) -> SubscriptionRe
         return None
     source = "error-kind" if stamped else "text"
 
-    def quote(text: str, found: re.Match[str], where: str) -> SubscriptionRefusal:
-        return SubscriptionRefusal(_first_line_containing(text, found), kinds, source, where)
+    def quote(clean: str, found: re.Match[str], where: str) -> SubscriptionRefusal:
+        return SubscriptionRefusal(_first_line_containing(clean, found), kinds, source, where)
 
     for message in summary.assistants:
         if message.error == ORG_BLOCK_ERROR_KIND:
-            found = ORG_BLOCK_RE.search(message.text) or re.search(r"\S", message.text)
+            clean = _scrubbed(message.text)
+            found = ORG_BLOCK_RE.search(clean) or re.search(r"\S", clean)
             if found:
-                return quote(message.text, found, "refusal-frame")
-    errors = _provider_error_texts(summary)
-    for text in errors:
-        found = ORG_BLOCK_RE.search(text)
+                return quote(clean, found, "refusal-frame")
+    errors = tuple(_scrubbed(text) for text in _provider_error_texts(summary))
+    for clean in errors:
+        found = ORG_BLOCK_RE.search(clean)
         if found:
-            return quote(text, found, "provider-error")
+            return quote(clean, found, "provider-error")
     if in_corpus is not None:
-        return quote(corpus, in_corpus, "output")
-    for text in errors:
-        found = re.search(r"\S", text)
+        clean = _scrubbed(corpus)
+        found = ORG_BLOCK_RE.search(clean)
         if found:
-            return quote(text, found, "provider-error")
+            return quote(clean, found, "output")
+    if stamped:
+        for clean in errors:
+            found = re.search(r"\S", clean)
+            if found:
+                return quote(clean, found, "provider-error")
     return SubscriptionRefusal(None, kinds, source, None)
 
 

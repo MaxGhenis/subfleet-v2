@@ -24,6 +24,7 @@ past the refusal and the `system/init` gate, no profile request (`_Passed`).
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import re
@@ -32,12 +33,15 @@ from pathlib import Path
 import pytest
 from hypothesis import HealthCheck, example, given, settings, strategies as st
 
-from subfleet import protocol, refusals
+from subfleet import daemon_log, protocol, refusals
 from subfleet.adapters import claude
 from subfleet.adapters.base import AdapterError
-from subfleet.adapters.claude import CLI_TOO_OLD_RE, ORG_BLOCK_RE, ClaudeAdapter, _subscription_refusal
+from subfleet.adapters.claude import (
+    AUTH_SIGNATURE_RE, CLI_TOO_OLD_RE, ORG_BLOCK_RE, ClaudeAdapter, _subscription_refusal,
+)
 from subfleet.adapters.claude_stream import ERROR_KINDS, parse_stream
 from subfleet.contracts import Credential, OutcomeClass
+from subfleet.sessions.handoff import scrub_secrets
 from tests.conftest import NOW, exit_info, make_launch
 from tests.unit.test_protocol_secrecy import wire_reply
 
@@ -143,11 +147,13 @@ def cli_line(draw, phrases: bool = True) -> str:
 
 
 @st.composite
-def mixed_streams(draw, phrases: bool = True, oauth: bool = True):
+def mixed_streams(draw, phrases: bool = True, oauth: bool = True, blank: bool = False):
     """(stdout, stderr): CLI frames, model frames, api_retry kinds, a result, stderr.
 
     Model frames always carry refusal phrases when `phrases` is false too: a model
-    may quote them, and that must never matter."""
+    may quote them, and that must never matter. With `blank`, a result not marked
+    `is_error` may have blank text, so an rc-0 run can be one that is not a verified
+    success (no deliverable)."""
     cli_kinds = ERROR_KINDS if oauth else tuple(k for k in ERROR_KINDS if k != "oauth_org_not_allowed")
     rows = [INIT] if draw(st.booleans()) else []
     for _ in range(draw(st.integers(0, 4))):
@@ -160,7 +166,12 @@ def mixed_streams(draw, phrases: bool = True, oauth: bool = True):
             rows.append(retry(draw(st.sampled_from(cli_kinds))))
     if draw(st.booleans()):
         is_error = draw(st.booleans())
-        text = draw(cli_line(phrases)) if is_error else marked(draw(cli_line(True)))
+        if is_error:
+            text = draw(cli_line(phrases))
+        elif blank and draw(st.booleans()):
+            text = draw(st.sampled_from(("", " ", "\n", " \t\n")))
+        else:
+            text = marked(draw(cli_line(True)))
         rows.append(result(text, is_error=is_error,
                            errors=tuple(draw(st.lists(cli_line(phrases), max_size=2)))))
     stderr = "\n".join(draw(st.lists(cli_line(phrases), max_size=3)))
@@ -238,6 +249,20 @@ def on_the_wire(error: AdapterError, log_name: str = "protocol-secrecy") -> tupl
 WIRE = re.compile(re.escape(BASE) + r'(?:: "(?P<line>.*)")?(?: \(error kind (?P<kind>[a-z_]+)\))?', re.S)
 
 
+def written_to_daemon_log(error: AdapterError) -> tuple[dict, str]:
+    """`on_the_wire`, with daemon.log as the daemon's own handler writes it
+    (`daemon_log.ScrubbingStreamHandler`, which scrubs every line again)."""
+    stream = io.StringIO()
+    handler = daemon_log.ScrubbingStreamHandler(stream)
+    log = logging.getLogger("protocol-secrecy")
+    log.addHandler(handler)
+    try:
+        reply, _ = on_the_wire(error)
+    finally:
+        log.removeHandler(handler)
+    return reply, stream.getvalue()
+
+
 # --- 2. no model prose ----------------------------------------------------------
 
 def test_a_model_quoting_the_refusal_does_not_refuse_enrolment():
@@ -295,7 +320,11 @@ def test_every_quoted_line_is_the_cli_s(case, tmp_path):
     corpus = cli_corpus(stdout, stderr)
     refusal = _subscription_refusal(corpus, parse_stream(stdout))
     if refusal is not None and refusal.line is not None:
-        assert refusal.line.removeprefix("…").removesuffix("…") in corpus
+        # Quoted from its source scrubbed whole (review r1, P1): stderr and the CLI's
+        # texts, as one corpus or each alone.
+        body = refusal.line.removeprefix("…").removesuffix("…")
+        sources = (corpus, *parse_stream(stdout).cli_texts())
+        assert any(body in scrub_secrets(text, whole=True)[0] for text in sources)
         assert MODEL not in refusal.line
     error = enroll(stdout, stderr)
     if error is not None and error.reason == "claude-subscription-refused":
@@ -328,6 +357,22 @@ def test_a_verified_success_is_never_refused(channels, words, answer, tmp_path):
     assert "refusal" not in outcome.evidence
 
 
+@pytest.mark.parametrize("carrier", ("stderr", "retry"))
+def test_enroll_verified_success_contract(carrier, tmp_path):
+    """C-9.3 as amended (review r1, P2): only classification excludes a verified
+    success. The same rc-0 stream, with a result not marked `is_error` and a final
+    text that is not blank, classifies `ok`, and enrolment still refuses it, exit 5."""
+    rows, stderr = [INIT], ""
+    if carrier == "stderr":
+        stderr = REFUSAL
+    else:
+        rows.append(retry("oauth_org_not_allowed"))
+    stdout = _stream(*rows, result("Done.", is_error=False))
+    assert classify(tmp_path / "a1", stdout, stderr, rc=0).cls is OutcomeClass.OK
+    error = enroll(stdout, stderr, rc=0)
+    assert error.reason == "claude-subscription-refused" and error.code == 5
+
+
 # --- 5. the template only, on the wire -------------------------------------------
 
 def test_the_recorded_refusal_reaches_the_wire_whole_and_daemon_log_has_every_word():
@@ -350,6 +395,71 @@ def test_a_reworded_refusal_is_not_quoted_on_the_wire_but_is_in_daemon_log():
     assert reply["error"]["message"] == f"{BASE} (error kind oauth_org_not_allowed)"
     assert reworded not in json.dumps(reply)
     assert any(f'verbatim: "{reworded}"' in line for line in logged)
+
+
+def test_a_wordless_stamp_quotes_a_reworded_error_result():
+    """Review r1's surviving mutant: `_provider_error_texts` without an error
+    result's text. A stamped frame with no words quotes that text's first line."""
+    reworded = "Subscription access is unavailable for this account"
+    stdout = _stream(INIT, cli_frame("", "oauth_org_not_allowed"), result(reworded, is_error=True))
+    refusal = _subscription_refusal(cli_corpus(stdout, ""), parse_stream(stdout))
+    assert (refusal.line, refusal.source, refusal.quoted_from) == (
+        reworded, "error-kind", "provider-error")
+
+
+# --- 5b. daemon.log: excerpts come from text scrubbed whole (#104 review r1, P1) --
+
+SECRET = "SYNTHETICSECRET7"
+
+
+def _never_logged(stderr: str, tmp_path: Path) -> str:
+    """Enrolment refuses with the template's least specific form, as it did before
+    the fix, and no part of SECRET reaches daemon.log, the exception or the
+    `auth-dead` record. Returns daemon.log's text."""
+    error = enroll(_stream(INIT), stderr)
+    assert error.reason == "claude-subscription-refused" and error.code == 5
+    reply, logged = written_to_daemon_log(error)
+    assert reply["error"]["message"] == BASE and reply["error"]["fix"] == CAUSES
+    assert "refused (ProtocolError)" in logged
+    outcome = classify(tmp_path / "a1", _stream(INIT), stderr)
+    assert outcome.cls is OutcomeClass.AUTH_DEAD
+    for text in (logged, str(error), json.dumps(reply), outcome.detail, json.dumps(outcome.evidence)):
+        assert SECRET[:4] not in text
+    return logged
+
+
+def test_log_scrubs_a_password_whose_label_is_outside_excerpt(tmp_path):
+    """Review r1's case: the label lies 600 characters ahead of the words that
+    matched, outside any excerpt of them. The source is scrubbed whole before the
+    excerpt is taken, so the label still masks the value, and what matched lay
+    inside it: the statement quotes nothing and says why."""
+    stderr = 'password="' + "a" * 600 + "organization has disabled " + SECRET + "b" * 600 + '"'
+    logged = _never_logged(stderr, tmp_path)
+    assert f"no words: {claude.SCRUBBED_AWAY}" in logged
+
+
+@pytest.mark.parametrize("words", (48, 51, 52, 54, 120))
+def test_log_scrubs_a_password_whose_label_follows_the_marker(words, tmp_path):
+    """The label after the words that matched: the excerpt's cut at 300 characters
+    falls before the label (120), inside it (54) or inside the value (51, 52), or
+    the line is short enough to be quoted whole (48); no part of the value is logged."""
+    stderr = "organization has disabled " + "word " * words + 'password="' + SECRET + '"'
+    logged = _never_logged(stderr, tmp_path)
+    assert 'verbatim: "organization has disabled word word' in logged
+
+
+def test_the_recorded_line_reaches_the_wire_whole_beside_a_credential():
+    """The client reply is unchanged: the scrub leaves the recorded line whole, so
+    it still passes its closed check when a credential shares the stream."""
+    for line in claude.SUBSCRIPTION_REFUSAL_LINES:
+        assert scrub_secrets(line, whole=True)[0] == line
+    for stdout, stderr in ((_stream(INIT, cli_frame(REFUSAL, "oauth_org_not_allowed")),
+                            f'password="{SECRET}"'),
+                           (_stream(INIT), f'password="{SECRET}"\n{REFUSAL}')):
+        error = enroll(stdout, stderr)
+        reply, logged = written_to_daemon_log(error)
+        assert reply["error"]["message"].startswith(f'{BASE}: "{REFUSAL}"')
+        assert f'verbatim: "{REFUSAL}"' in logged and SECRET not in logged
 
 
 lines_to_quote = st.one_of(
@@ -437,25 +547,54 @@ def test_no_refusal_is_invented_from_any_channel(case):
 
 # --- 9. the class is unchanged ----------------------------------------------------
 
-@settings(max_examples=120, **QUIET)
-@given(case=mixed_streams(), rc=st.sampled_from((1, 0)))
+def _release_217_auth_dead(stdout: str, stderr: str, rc: int) -> bool:
+    """b51f08f96's `classify` up to its `auth-dead` returns, written out whole. A
+    verified success (`successful`: rc 0, a result not marked `is_error`, and a final
+    text, the result's or else the last assistant frame's, that is not blank) has no
+    text failure. Otherwise the CLI version gate comes first; then ORG_BLOCK_RE on
+    the CLI corpus, a credential kind, or, in a run that never reached
+    `system/init`, AUTH_SIGNATURE_RE on the CLI corpus is `auth-dead`."""
+    summary = parse_stream(stdout)
+    corpus = cli_corpus(stdout, stderr)
+    result_ = summary.result
+    final = (result_.text if result_ is not None and result_.text
+             else next((m.text for m in reversed(summary.assistants) if m.text), ""))
+    successful = rc == 0 and result_ is not None and not result_.is_error and bool(final.strip())
+    if successful or CLI_TOO_OLD_RE.search(corpus):
+        return False
+    return (ORG_BLOCK_RE.search(corpus) is not None
+            or any(kind in CREDENTIAL_KINDS for kind in summary.error_kinds)
+            or (not summary.has_init and AUTH_SIGNATURE_RE.search(corpus) is not None))
+
+
+@settings(max_examples=150, **QUIET)
+@given(case=mixed_streams(blank=True), rc=st.sampled_from((1, 0)))
 @example(case=(_stream(INIT, retry("authentication_failed")), ""), rc=1)
 @example(case=(_stream(cli_frame(REFUSAL)), ""), rc=0)
+# rc 0 and a result not marked is_error, but blank: no deliverable, so no success.
+@example(case=(_stream(INIT, result("", is_error=False)), REFUSAL), rc=0)
+@example(case=(_stream(INIT, result(" \n", is_error=False, errors=(REFUSAL,))), ""), rc=0)
+@example(case=(_stream(INIT, cli_frame(REFUSAL), result("", is_error=False)), ""), rc=0)
+@example(case=(_stream(result("", is_error=False)), "HTTP 401 Unauthorized"), rc=0)
+# rc 0 and a nonblank result not marked is_error: a verified success.
+@example(case=(_stream(INIT, retry("oauth_org_not_allowed"), result("Done.", is_error=False)),
+               REFUSAL), rc=0)
+@example(case=(_stream(result("Done.", is_error=False)), "HTTP 401 Unauthorized"), rc=0)
+# Empty streams, and the no-init signature branch.
+@example(case=("", ""), rc=0)
+@example(case=("", "HTTP 401 Unauthorized"), rc=1)
 def test_what_release_217_called_auth_dead_still_is(case, rc, tmp_path):
-    """Differential against b51f08f96's predicate: on a run that is not a verified
-    success, ORG_BLOCK_RE on the CLI corpus or a credential kind (behind the CLI
-    version gate) was `auth-dead`; at enrolment, no `system/init`, or ORG_BLOCK_RE
-    on the CLI's words, was exit 5."""
+    """Differential against b51f08f96's predicate (`_release_217_auth_dead`), over
+    blank and nonblank rc-0 results too: classification is `auth-dead` exactly when
+    it was. At enrolment, no `system/init`, or ORG_BLOCK_RE on the CLI's words, was
+    exit 5, and still is. Mutant: gate the refusal on `non_error_result` instead of
+    `successful` (a blank rc-0 result then hides the refusal)."""
     stdout, stderr = case
     summary = parse_stream(stdout)
-    if rc == 0 and summary.result is not None and not summary.result.is_error:
-        return                              # possibly a verified success: not this property
     corpus = cli_corpus(stdout, stderr)
-    old_auth_dead = not CLI_TOO_OLD_RE.search(corpus) and (
-        ORG_BLOCK_RE.search(corpus) is not None
-        or any(kind in CREDENTIAL_KINDS for kind in summary.error_kinds))
-    if old_auth_dead:
-        assert classify(tmp_path / "a1", stdout, stderr, rc).cls is OutcomeClass.AUTH_DEAD
+    outcome = classify(tmp_path / "a1", stdout, stderr, rc)
+    assert (outcome.cls is OutcomeClass.AUTH_DEAD) == _release_217_auth_dead(stdout, stderr, rc), (
+        outcome.cls, outcome.detail)
     if not summary.has_init or ORG_BLOCK_RE.search(corpus):
         error = enroll(stdout, stderr, rc)
         assert error is not None and error.code == 5
