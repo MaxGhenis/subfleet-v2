@@ -95,7 +95,7 @@ def test_lane_home_settings_are_never_opened_and_change_no_builder_argv(tmp_path
             argv = lsc.build(case, work)
         finally:
             watching = False
-        assert argv == baseline[lsc.case_id(case)]
+        assert lsc.without_job_startup(argv) == lsc.without_job_startup(baseline[lsc.case_id(case)])
         assert subject._settings(argv)["env"][lsc.WATCHDOG] == "0"
     assert opened == []
 

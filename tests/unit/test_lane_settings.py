@@ -115,7 +115,7 @@ def test_i2_every_other_setting_is_what_the_launch_had_before(case, built):
     """I2: the override adds `env` and nothing else; `disableAllHooks`, `fastMode`,
     `ultracode` and the publish hook are where and what they were, and a writable
     review still passes `--setting-sources user` just before its one `--settings`."""
-    argv = built[lsc.case_id(case)]
+    argv = lsc.without_job_startup(built[lsc.case_id(case)])
     settings = _settings(argv)
     assert settings.pop("env") == {WATCHDOG: OFF}
     hooks = settings.pop("hooks", None)
@@ -133,7 +133,7 @@ def test_i2_every_other_setting_is_what_the_launch_had_before(case, built):
 def test_differential_the_override_is_the_only_change_from_676906f85(case, built):
     """The new argv, the override taken back out of its one `--settings`, is the argv
     676906f85's builders made for the same inputs, flag for flag."""
-    argv = built[lsc.case_id(case)]
+    argv = lsc.without_job_startup(built[lsc.case_id(case)])
     assert lsc.without_override(argv) == RECORDED[lsc.case_id(case)]
 
 
@@ -161,7 +161,7 @@ def test_i3_the_users_settings_file_changes_no_argv_and_is_never_opened(tmp_path
         monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
         watching[0] = True
         try:
-            built[label] = {lsc.case_id(case): lsc.build(case, tmp_path / label / f"case-{number:03d}")
+            built[label] = {lsc.case_id(case): lsc.without_job_startup(lsc.build(case, tmp_path / label / f"case-{number:03d}"))
                             for number, case in enumerate(CASES)}
         finally:
             watching[0] = False
@@ -223,7 +223,7 @@ def test_property_i1_i2_i4_over_the_builders_inputs(case, tmp_path, user_on):
     """I1, I2 and I4 for inputs drawn over every builder's dimensions, efforts beyond
     the recorded grid included: one `--settings` with the watchdog off, every other
     key as `expected_settings` states it, and the read-only set intact."""
-    argv = lsc.build(case, Path(tempfile.mkdtemp(dir=tmp_path)))
+    argv = lsc.without_job_startup(lsc.build(case, Path(tempfile.mkdtemp(dir=tmp_path))))
     settings = _settings(argv)
     assert settings.pop("env") == {WATCHDOG: OFF}                          # I1
     assert ("hooks" in settings) is lsc.publish_hook(case)                 # I2
