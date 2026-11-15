@@ -11,7 +11,7 @@ MAX_REVIEW_BYTES = 4 * 1024 * 1024
 
 #: A byte-order mark and zero-width characters an editor or model can put
 #: before the verdict line (review r1 P3). They never make a line non-empty.
-_ZERO_WIDTH = "﻿​‌‍⁠"
+_ZERO_WIDTH = "\ufeff\u200b\u200c\u200d\u2060"
 _VISIBLE = str.maketrans("", "", _ZERO_WIDTH)
 
 #: A finding's level at the start of a line (review r1 P2). Up to three spaces
@@ -31,13 +31,13 @@ _FINDING = re.compile(
     r"(P[0-3])(?:-\d{1,4})?(?![0-9A-Za-z])"
     r"[*_]*+"
     r"(?:[ \t]*\([^()\n]{1,80}\)[*_]*+)?"
-    r"(?P<separator>:|\.(?=[ \t])|[ \t]+[—–-])"
+    r"(?P<separator>:|\.(?=[ \t])|[ \t]+[\u2014\u2013-])"
 )
 #: What follows a level in a count or tally, not a finding: `P0: 0`,
 #: `P1: none`, `P0: 0, P1: 2`, `P2: no findings`. A number that starts a
 #: sentence (`P1: 2 tests fail`) is a finding's summary.
 _TALLY = re.compile(r"(?:(?:\d+|none|zero)(?:[ \t]+findings?)?|no[ \t]+findings?)\b[ \t*_]*"
-                    r"(?:$|[,;|/·(]|\.(?=[ \t]|$)|P[0-3]\b)", re.IGNORECASE)
+                    r"(?:$|[,;|/\u00b7(]|\.(?=[ \t]|$)|P[0-3]\b)", re.IGNORECASE)
 #: A dash between two levels is a range (`P0 - P1: none`), not a finding.
 _RANGE = re.compile(r"P[0-3]\b")
 #: The opening of each level's own definition (C-12.11). A levelled line that
