@@ -301,6 +301,12 @@ def in_claude_session(env: dict[str, str] | None = None) -> bool:
 
 
 def caller_pid(env: dict[str, str] | None = None) -> int | None:
+    """Claude's established process marker; Codex's thread ids are not pids.
+
+    No Codex PID marker is established here. A fresh command's parent shell
+    also cannot identify the persistent caller process, so known Codex callers
+    skip the daemon's session-instance comparison while keeping worktree holds.
+    """
     env = os.environ if env is None else env
     try:
         value = int((env.get("CLAUDE_PID") or "").strip())
@@ -418,6 +424,7 @@ def job_row(row: dict[str, Any]) -> dict[str, Any]:
         "notice": _first(merged, "notice", "notify", "notice_state"),
         "caller_session": merged.get("caller_session"),
         "caller_family": merged.get("caller_family"),
+        "allow_same_family": bool(merged.get("allow_same_family", False)),
         "review_subject": merged.get("review_subject"),
         "review_round": merged.get("review_round"),
         "task": merged.get("task"),
@@ -995,6 +1002,7 @@ def _prepare_submit(args: argparse.Namespace,
         parent_job_id=args.parent or os.environ.get("SUBFLEET_TURN_JOB"),
         caller_session=session_id(),
         caller_family=family,
+        allow_same_family=bool(getattr(args, "allow_same_family", False)),
         review_subject=getattr(args, "subject", None),
         review_round=getattr(args, "round", None),
         caller_pid=caller_pid(),
@@ -2554,9 +2562,14 @@ def cmd_why(args: argparse.Namespace) -> int:
         return fail(Exit.INVALID_INPUT, "why: name a job id, or --task T --tier X")
     if args.task and not args.tier:
         return fail(Exit.INVALID_INPUT, "why: --tier is required with --task")
+    try:
+        family = caller_family(getattr(args, "caller_family", None)) if not args.id else None
+    except ValueError as exc:
+        return fail(Exit.INVALID_INPUT, f"why: {exc}")
     why = protocol.WhyArgs(job_id=args.id, task=args.task, tier=args.tier,
                            pinned_model=args.m, exclusions=list(args.exclude or []),
-                           allow_desktop=bool(args.allow_desktop))
+                           allow_desktop=bool(args.allow_desktop), caller_family=family,
+                           allow_same_family=bool(getattr(args, "allow_same_family", False)))
     try:
         result = _client(args).call("why", _asdict(why))
     except DaemonUnavailable as exc:
@@ -3644,6 +3657,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="minimum capability for --task")
     p_run.add_argument("--caller-family", choices=("claude", "codex"),
                        help="submitting model family (overrides SUBFLEET_CALLER_FAMILY and detection)")
+    p_run.add_argument("--allow-same-family", action="store_true",
+                       help="authorize a same-family model pin or fallback for reviews")
     p_run.add_argument("--subject", metavar="TEXT",
                        help="review subject: a GitHub PR URL or caller key (requires --task review)")
     p_run.add_argument("--round", type=int, metavar="N",
@@ -3882,6 +3897,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_why.add_argument("id", nargs="?")
     p_why.add_argument("--task", choices=TASK_CHOICES)
     p_why.add_argument("--tier", choices=TIER_CHOICES)
+    p_why.add_argument("--caller-family", choices=("claude", "codex"),
+                       help="review caller family (default: detect as run does)")
+    p_why.add_argument("--allow-same-family", action="store_true",
+                       help="show the review chain with authorized same-family fallback")
     p_why.add_argument("-m", dest="m", metavar="MODEL")
     p_why.add_argument("-x", "--exclude", action="append", default=[], metavar="EMAIL")
     p_why.add_argument("--allow-desktop", action="store_true")

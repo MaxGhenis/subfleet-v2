@@ -213,20 +213,29 @@ class GateService:
         assert_expected(revision(subject), expected)
         main_model = getattr(args, "main_model", None)
         peer_family = self.daemon.policy["models"][peer]["provider"]
+        caller_family = getattr(args, "caller_family", None)
+        if caller_family is not None and (type(caller_family) is not str
+                                          or caller_family not in ("claude", "codex")):
+            raise GateError("caller_family must be claude, codex, or null")
         if main_model:
             model = self.daemon.policy["models"].get(main_model)
             if not model:
                 raise GateError("unknown --main-model")
             main_family = model["provider"]
-            if main_family == peer_family:
-                raise GateError("main and peer must be different model families")
+            if caller_family is not None and main_family != caller_family:
+                raise GateError("--main-model disagrees with the recorded caller family")
+        elif caller_family is not None:
+            main_family = caller_family
         else:
-            # As in v1, peer selection is the caller's complementary-family attestation.
+            # Without recorded identity, retain v1's complementary-family attestation.
             main_family = "claude" if peer_family == "codex" else "codex"
+        if main_family == peer_family:
+            raise GateError("main and peer must be different model families")
         state = {"schema_version": 1, "id": utc_now().replace("-", "").replace(":", "").replace("T", "-").rstrip("Z") + f"-{args.gate_command}-{uuid.uuid4().hex[:8]}",
                  "created_at": utc_now(), "updated_at": utc_now(), "status": "ready",
                  "kind": args.gate_command, "locator": locator, "subject": subject,
                  "workdir": str(cwd), "peer": peer, "main_family": main_family,
+                 "caller_family": caller_family,
                  "on_agreement": args.on_agreement, "merge_method": args.merge_method,
                  "max_rounds": limit, "brief": read_context(args.brief, "brief"),
                  "rounds": [], "action": None}

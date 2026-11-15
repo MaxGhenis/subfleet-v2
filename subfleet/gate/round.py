@@ -69,4 +69,4 @@ def prepare(root: Path, state: dict, record: dict, body: bytes, *, response: str
                       out_path=str(output), name=f"gate-{state['id']}-r{number}",
                       exclusions=list(exclusions), allow_tmp=True, max_attempts=1,
                       isolated_review=True, review_root=review_root, round_lease=lease,
-                      independent=True)
+                      independent=True, caller_family=state.get("caller_family"))

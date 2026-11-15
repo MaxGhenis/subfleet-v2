@@ -5,6 +5,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+import re
 import logging
 import os
 import sqlite3
@@ -28,7 +29,7 @@ STATES = ('queued', 'waiting', 'running', 'succeeded', 'failed', 'cancelled', 'l
 TABLES = {
     'schema_version', 'lanes', 'readings', 'closures', 'jobs', 'job_owned_branches',
     'job_pushes', 'attempts', 'artifacts', 'notices', 'decisions', 'leases',
-    'actions', 'events', 'service_notices',
+    'actions', 'events', 'service_notices', 'caller_wake_sessions',
 }
 # Independent copies of the live readers, including why's evaluation timestamp.
 WHY = ('SELECT decision_json,evaluated_at FROM decisions WHERE job_id=? '
@@ -198,7 +199,10 @@ def test_prune_requires_every_migrated_column(tmp_path, table, column):
     database = tmp_path / 'state.sqlite3'
     with sqlite3.connect(database) as conn:
         for index in conn.execute(f'PRAGMA index_list("{table}")').fetchall():
-            if column in {row[2] for row in conn.execute(f'PRAGMA index_info("{index[1]}")')}:
+            indexed = {row[2] for row in conn.execute(f'PRAGMA index_info("{index[1]}")')}
+            definition = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='index' AND name=?", (index[1],)).fetchone()[0] or ''
+            if column in indexed or re.search(r'\b' + re.escape(column) + r'\b', definition):
                 conn.execute(f'DROP INDEX "{index[1]}"')
         conn.execute(f'ALTER TABLE "{table}" DROP COLUMN "{column}"')
     before = _tables(database)

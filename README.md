@@ -156,13 +156,26 @@ Review and caller flags:
 | `subfleet run --caller-family claude -C DIR -p PROMPT --task research` | Record the requesting family; overrides `SUBFLEET_CALLER_FAMILY` and detection. |
 | `subfleet run --task review --subject PR_URL -C DIR -p PROMPT` | Normalize a GitHub PR URL and assign its next review round, up to four. |
 | `subfleet run --task review --subject KEY --round 2 -C DIR -p PROMPT` | Keep the caller-chosen round, including a re-run of an earlier round. |
+| `subfleet why --task review --tier hard --caller-family codex` | Explain the other-family reviewer chain; caller detection matches `run`. |
+| `subfleet run --task review --tier hard --caller-family codex -m astra --allow-same-family -C DIR -p PROMPT` | Explicitly authorize a same-family review and record the exception on the job. |
 
 `--subject` and `--round` require `--task review`; `--round` also requires a
 subject. A fifth round requires a person. A review with no subject keeps its
-ordinary behavior. `runs --json` and `runs show --json` include `caller_family`,
-`review_subject` and `review_round`; readable `runs` labels review rounds.
+ordinary round behavior. `runs --json` and `runs show --json` include `caller_family`,
+`review_subject`, `review_round` and boolean `allow_same_family`; readable `runs` labels review rounds.
 `runs --mine` and `wait --mine` recognize Codex's `CODEX_THREAD_ID` (then
 `CODEX_SESSION_ID`), after `CLAUDE_CODE_SESSION_ID` and `SUBFLEET_SESSION_ID`.
+
+Reviews with a known caller family try only the other family's models from the
+chosen tier upward. When that chain has none, the defaults are `sol61` for a
+Claude caller and `opus` for a Codex caller. Optional policy
+`"review_family_defaults": {"claude": "sol61", "codex": "opus"}` overrides these
+by caller family; older policies need no new key. Without other-family capacity
+the review waits. An explicit same-family model pin is refused unless
+`--allow-same-family` is passed; that flag permits the original chain as fallback
+after independent choices. `why` also accepts the flag. Null caller identity and
+other tasks retain their routing. Gates use recorded caller identity when
+available, requiring a peer from the other family even without `--main-model`.
 
 Writable detached Claude jobs start with no MCP servers. Opt one job into the
 servers it needs by repeating `--mcp NAME`:

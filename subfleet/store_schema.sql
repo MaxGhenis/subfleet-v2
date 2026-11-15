@@ -107,6 +107,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   parent_job_id TEXT REFERENCES jobs(job_id),
   caller_session TEXT,
   caller_family TEXT CHECK (caller_family IS NULL OR caller_family IN ('claude','codex')),
+  allow_same_family INTEGER NOT NULL DEFAULT 0 CHECK (allow_same_family IN (0,1)),
   caller_pid INTEGER,
   review_subject TEXT,
   review_round INTEGER CHECK (review_round IS NULL OR review_round BETWEEN 1 AND 4),
@@ -230,10 +231,26 @@ CREATE TABLE IF NOT EXISTS notices (
   transport TEXT,
   created_at TEXT NOT NULL,
   offered_at TEXT,
-  acknowledged_at TEXT
+  acknowledged_at TEXT,
+  wake_state TEXT CHECK (wake_state IS NULL OR wake_state IN ('claimed','delivered','undeliverable','stale')),
+  wake_attempts INTEGER NOT NULL DEFAULT 0,
+  wake_next_at REAL,
+  wake_at REAL,
+  wake_reason TEXT
 );
 CREATE INDEX IF NOT EXISTS notices_session ON notices(session_id, state);
 CREATE INDEX IF NOT EXISTS notices_job ON notices(job_id, state);
+CREATE INDEX IF NOT EXISTS notices_caller_wake ON notices(created_at, notice_id)
+  WHERE job_id IS NOT NULL AND state='pending' AND wake_state IS NULL;
+
+-- #307 migration 11 compatibility: caller activity and wake bounds.
+CREATE TABLE IF NOT EXISTS caller_wake_sessions (
+  session_id TEXT PRIMARY KEY,
+  active_at REAL NOT NULL DEFAULT 0,
+  source TEXT,
+  wake_streak INTEGER NOT NULL DEFAULT 0,
+  last_wake_at REAL
+);
 
 -- C-11.5
 CREATE TABLE IF NOT EXISTS decisions (

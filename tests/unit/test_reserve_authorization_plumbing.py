@@ -73,7 +73,8 @@ def test_migration_preserves_old_jobs_without_authorizing_them(version_4_store):
         assert store.one("SELECT provider_qos FROM jobs WHERE job_id='old'")["provider_qos"] is None
         assert set(after) - set(before) == {"unmeasured_reserve_reason", "mcp_servers", "push_branch", "push_remote",
                                             "push_default_branch", "push_sha", "push_error", "needs_shell",
-                                            "provider_qos", "caller_family", "review_subject", "review_round"}
+                                            "provider_qos", "caller_family", "review_subject", "review_round",
+                                            "allow_same_family"}
         store.add_job(job_id="authorized", request_id="new-request", payload_digest="new",
                       kind="dispatch", workdir="/work", prompt_path="/prompt", sandbox="read-only",
                       pinned_model="fable", pinned_lane="claude-1", unmeasured_reserve_reason=REASON)

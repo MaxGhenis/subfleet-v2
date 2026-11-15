@@ -68,6 +68,37 @@ def flatten_chain(chain: Sequence[str | list[str]], tier_index: int = 0) -> list
                              for name in (entry if isinstance(entry, list) else [entry])))
 
 
+#: C-6.23: a caller's default reviewer when its eligible review chain contains
+#: no model of the other family. Older operator policies need no new key.
+REVIEW_FAMILY_DEFAULTS = {"claude": "sol61", "codex": "opus"}
+
+
+def review_family_defaults(policy: Mapping[str, Any]) -> dict[str, str]:
+    return {**REVIEW_FAMILY_DEFAULTS, **policy.get("review_family_defaults", {})}
+
+
+def routing_chain(policy: Mapping[str, Any], task: str, tier_index: int = 0, *,
+                  caller_family: str | None = None, allow_same_family: bool = False) -> list[str]:
+    """C-6.23: an independent review walks only models of the other family.
+
+    Ordinary tasks and unattributed reviews keep exactly their old chain.
+    Explicit permission appends today's chain after the independent choices.
+    """
+    chain = flatten_chain(policy["chains"][task], tier_index)
+    if task != "review" or caller_family not in REVIEW_FAMILY_DEFAULTS:
+        return chain
+    independent = [name for name in chain if policy["models"][name]["provider"] != caller_family]
+    if not independent:
+        default = resolve_model(policy, review_family_defaults(policy)[caller_family], note=False)
+        if policy["models"][default]["provider"] == caller_family:
+            other = "codex" if caller_family == "claude" else "claude"
+            raise PolicyError(policy.get("_policy_path", "policy.json"),
+                              f"review_family_defaults.{caller_family}",
+                              f"missing {other} reviewer: default {default!r} belongs to the caller's family")
+        independent = [default]
+    return list(dict.fromkeys([*independent, *(chain if allow_same_family else ())]))
+
+
 #: `sessions.handoff_caps` (C-23.36): a character cap per brief section, carried
 #: forward from v1 `handoff.py`'s module constants so a ported brief is the same
 #: size it always was. `recent_records` is a count of main-chain entries, not
@@ -525,6 +556,19 @@ def load_policy(path: str | Path) -> dict[str, Any]:
                 fail(f"{key}.{optional}", "must be a nonempty string when provided")
         if "priority" in model and (type(model["priority"]) is not int or model["priority"] < 0):
             fail(f"{key}.priority", "must be a nonnegative integer when provided")
+
+    if "review_family_defaults" in value:
+        defaults = value["review_family_defaults"]
+        if not isinstance(defaults, dict):
+            fail("review_family_defaults", "must map caller families to other-family model short names")
+        for family, name in defaults.items():
+            key = f"review_family_defaults.{family}"
+            if family not in REVIEW_FAMILY_DEFAULTS:
+                fail(key, "must name a caller family: claude or codex")
+            if not isinstance(name, str) or name not in models:
+                fail(key, f"unknown model {name!r}; expected a models key")
+            if models[name]["provider"] == family:
+                fail(key, "reviewer must be from the other model family")
 
     chains = value["chains"]
     if not isinstance(chains, dict) or not chains:

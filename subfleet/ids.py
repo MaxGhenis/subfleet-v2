@@ -108,7 +108,8 @@ def payload_digest(prompt: bytes | Mapping[str, Any], *, workdir: str | Path | N
                    mcp_servers: Collection[str] = (), push_branch: str | None = None,
                    push_remote: str | None = None, needs_shell: bool = False,
                    provider_qos: str | None = None,
-                   review_subject: str | None = None, review_round: int | None = None) -> str:
+                   review_subject: str | None = None, review_round: int | None = None,
+                   allow_same_family: bool = False) -> str:
     """Hash the exact C-6.2 payload, excluding caller identity and display name.
 
     A mapping is accepted for callers that have already assembled these canonical
@@ -153,6 +154,8 @@ def payload_digest(prompt: bytes | Mapping[str, Any], *, workdir: str | Path | N
             # The requested round belongs to the payload, the assigned round
             # does not: retrying an automatic request keeps its original job.
             payload.update(review_subject=review_subject, review_round=review_round)
+        if allow_same_family:
+            payload["allow_same_family"] = True
     return hashlib.sha256(canonical_json(payload)).hexdigest()
 
 

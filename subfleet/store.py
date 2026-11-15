@@ -43,8 +43,11 @@ from .lockwatch import WatchedLock, thread_name
 SHELL_REQUIREMENT_MIGRATION = 8
 LAUNCH_CAPABILITY_MIGRATION = 9
 PROVIDER_QOS_MIGRATION = 10
-REVIEW_SUBJECT_MIGRATION = 11
+NOTICE_WAKE_MIGRATION = 11
+REVIEW_SUBJECT_MIGRATION = 12
 SCHEMA_VERSION = REVIEW_SUBJECT_MIGRATION
+#: #307 schema compatibility: unread notices from before caller waking stay stale.
+NOTICE_WAKE_PREDATES = "before-migration"
 #: C-12.4: jobs whose attempts in the last 24 h had no shell or no writes. A
 #: range on `reserved_at`, which `attempts_reserved` indexes, in the stored
 #: spelling (`restricted_window`): `julianday(reserved_at)` could use no index and
@@ -130,7 +133,22 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         "ALTER TABLE jobs ADD COLUMN provider_qos TEXT "
         "CHECK (provider_qos IS NULL OR provider_qos IN ('utility','default'))",
     ),
-    # D-REVIEW-SUBJECT1: caller attribution and a review's durable subject/round.
+    # #307 owns migration 11. Retain its additive schema and safe historical
+    # notice state so a direct upgrade and an upgrade after #307 agree. This
+    # supplies storage compatibility without installing the caller-wake runtime.
+    NOTICE_WAKE_MIGRATION: (
+        "ALTER TABLE notices ADD COLUMN wake_state TEXT "
+        "CHECK (wake_state IS NULL OR wake_state IN ('claimed','delivered','undeliverable','stale'))",
+        "ALTER TABLE notices ADD COLUMN wake_attempts INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE notices ADD COLUMN wake_next_at REAL",
+        "ALTER TABLE notices ADD COLUMN wake_at REAL",
+        "ALTER TABLE notices ADD COLUMN wake_reason TEXT",
+        "CREATE TABLE IF NOT EXISTS caller_wake_sessions ("
+        "session_id TEXT PRIMARY KEY, active_at REAL NOT NULL DEFAULT 0, source TEXT, "
+        "wake_streak INTEGER NOT NULL DEFAULT 0, last_wake_at REAL)",
+    ),
+    # D-REVIEW-SUBJECT1 / D-REVIEW-FAMILY1: caller attribution, durable review
+    # subject/round and the explicit same-family authorization.
     # The schema file creates jobs_review_subject after these columns exist.
     REVIEW_SUBJECT_MIGRATION: (
         "ALTER TABLE jobs ADD COLUMN caller_family TEXT "
@@ -138,6 +156,8 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         "ALTER TABLE jobs ADD COLUMN review_subject TEXT",
         "ALTER TABLE jobs ADD COLUMN review_round INTEGER "
         "CHECK (review_round IS NULL OR review_round BETWEEN 1 AND 4)",
+        "ALTER TABLE jobs ADD COLUMN allow_same_family INTEGER NOT NULL DEFAULT 0 "
+        "CHECK (allow_same_family IN (0,1))",
     ),
 }
 
@@ -157,10 +177,12 @@ def job_flags(row: Mapping[str, Any]) -> Row:
     `utility`, the clamp; so is a missing column, as a read-only Store reads a schema-9
     file it may not migrate (#277 review r1, P2). Attempt rows take `shell_flags` alone,
     so they gain no job field; raw SQL still reads NULL. Review metadata absent
-    from an older schema reads as NULL, as it does after migration."""
+    from an older schema reads as NULL, as it does after migration. A missing
+    same-family authorization reads as false, as its migration default does."""
     value = shell_flags(row)
     if value.get("provider_qos") is None:
         value["provider_qos"] = "utility"
+    value["allow_same_family"] = bool(value.get("allow_same_family", False))
     # A read-only handle may open an older store without migrating it.
     for key in ("caller_family", "review_subject", "review_round"):
         value.setdefault(key, None)
@@ -398,6 +420,7 @@ class Store:
         when the column is already there, so an interrupted upgrade re-runs safely.
         """
         for step in range(version + 1, SCHEMA_VERSION + 1):
+            added = set()
             for statement in MIGRATIONS.get(step, ()):
                 if statement.startswith("ALTER TABLE "):
                     _alter, _table_kw, table, _add, _column_kw, column, *_rest = statement.split()
@@ -406,7 +429,14 @@ class Store:
                     # The schema file creates any table absent from an old store.
                     if not present or column in present:
                         continue
+                    added.add((table, column))
                 self.connection.execute(statement)
+            if ("notices", "wake_state") in added:
+                # #307 compatibility: only pre-feature unread notices are stale.
+                # A replay over an existing column must retain new pending wakes.
+                self.connection.execute(
+                    "UPDATE notices SET wake_state='stale',wake_reason=? "
+                    "WHERE wake_state IS NULL AND state IN ('pending','offered')", (NOTICE_WAKE_PREDATES,))
             if step == LAUNCH_CAPABILITY_MIGRATION and self.connection.execute(
                     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='attempts'").fetchone():
                 self.connection.execute(

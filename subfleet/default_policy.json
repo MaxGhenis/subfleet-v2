@@ -60,6 +60,10 @@
       "fable"
     ]
   },
+  "review_family_defaults": {
+    "claude": "sol61",
+    "codex": "opus"
+  },
   "fallback": "upward-only",
   "permissions": {
     "build": "workspace-write",

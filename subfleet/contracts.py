@@ -516,6 +516,7 @@ class JobSpec:
     caller_family: str | None = None
     review_subject: str | None = None
     review_round: int | None = None
+    allow_same_family: bool = False
 
 
 @dataclass(frozen=True)

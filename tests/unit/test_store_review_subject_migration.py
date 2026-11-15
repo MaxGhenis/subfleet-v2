@@ -17,7 +17,7 @@ FIELDS = {"caller_family", "review_subject", "review_round"}
 
 def version_10_store(path):
     with sqlite3.connect(path) as conn:
-        _schema_before_migration(conn, _migration_adding("caller_family"))
+        _schema_before_migration(conn, 11)
         conn.execute("INSERT INTO lanes(lane_id,provider,account_key,credential_ref,credential_kind,created_at,updated_at) "
                      "VALUES ('codex-1','codex','codex:fixture','/fake','home','before','before')")
         for index, state in enumerate(("queued", "running", "waiting", "succeeded", "failed", "cancelled", "lost")):
@@ -42,7 +42,7 @@ def rows(path):
 
 
 def test_review_subject_metadata_is_the_next_nullable_migration():
-    assert REVIEW_SUBJECT_MIGRATION == SCHEMA_VERSION == 11
+    assert REVIEW_SUBJECT_MIGRATION == SCHEMA_VERSION == 12
     assert {_migration_adding(field) for field in FIELDS} == {REVIEW_SUBJECT_MIGRATION}
 
 
@@ -55,14 +55,17 @@ def test_i6_migration_preserves_every_existing_row_and_adds_only_null_job_fields
         indexed = store.query("PRAGMA index_info(jobs_review_subject)")
         assert [column["name"] for column in indexed] == ["review_subject"]
     after = rows(path)
-    assert before.keys() == after.keys()
-    assert after["jobs"] == [{**job, **dict.fromkeys(FIELDS)} for job in before["jobs"]]
+    assert after.keys() == before.keys() | {"caller_wake_sessions"}
+    assert after["caller_wake_sessions"] == []
+    assert after["jobs"] == [{**job, **dict.fromkeys(FIELDS), "allow_same_family": 0} for job in before["jobs"]]
     for table in before.keys() - {"jobs", "schema_version", "events"}:
         assert after[table] == before[table], table
-    assert after["schema_version"][:-1] == before["schema_version"]
+    assert after["schema_version"][:-2] == before["schema_version"]
+    assert [row["version"] for row in after["schema_version"][-2:]] == [11, 12]
     assert after["schema_version"][-1]["version"] == REVIEW_SUBJECT_MIGRATION
     assert after["events"][:len(before["events"])] == before["events"]
     assert [(event["kind"], json.loads(event["data_json"])) for event in after["events"][len(before["events"]):]] == [
+        ("schema.migrated", {"version": 11}),
         ("schema.migrated", {"version": REVIEW_SUBJECT_MIGRATION}),
         ("schema.applied", {"version": SCHEMA_VERSION}),
     ]

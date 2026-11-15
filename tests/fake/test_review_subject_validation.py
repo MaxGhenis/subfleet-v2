@@ -31,7 +31,7 @@ def test_invalid_round_is_refused_by_name(state_daemon, round_):
 def test_submission_and_job_views_keep_caller_and_review_fields(state_daemon, family):
     service, harness = state_daemon
     args = harness.submit_args(task="review", caller_family=family, caller_session="codex-thread",
-                               review_subject="release-review", review_round=3)
+                               pinned_model=None, review_subject="release-review", review_round=3)
     reply = service.dispatch("submit", args)
     job = service.dispatch("show", {"job_id": reply["job_id"]})["job"]
     assert {key: job[key] for key in ("caller_family", "caller_session", "review_subject", "review_round")} == {

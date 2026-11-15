@@ -7,7 +7,7 @@ transactions contain only SQL (C-3.3, C-16.4).
 from __future__ import annotations
 
 from .contracts import launch_has_shell, launch_capability
-from .policy import job_needs_shell, resolve_sandbox
+from .policy import job_needs_shell, resolve_sandbox, routing_chain
 
 import argparse
 import contextlib
@@ -2992,6 +2992,8 @@ class Daemon:
         if args.caller_family is not None and (type(args.caller_family) is not str or
                                                args.caller_family not in ("claude", "codex")):
             raise protocol.ProtocolError(refusals.HANDLER_MESSAGES["caller-family"][0], reason="caller-family")
+        if type(args.allow_same_family) is not bool:
+            raise protocol.ProtocolError("allow_same_family must be true or false", reason="invalid-args")
         if ((args.review_subject is not None or args.review_round is not None) and args.task != "review"
                 or args.review_round is not None and args.review_subject is None):
             raise protocol.ProtocolError(refusals.HANDLER_MESSAGES["review-fields"][0], reason="review-fields")
@@ -3190,6 +3192,11 @@ class Daemon:
                                            + ", ".join(self.policy["models"]), code=7,
                                            fix="pin a model from the live policy",
                                            reason="unknown-pinned-model", details={"model": model}) from exc
+                    if (args.task == "review" and args.caller_family is not None
+                            and self.policy["models"][model]["provider"] == args.caller_family
+                            and not args.allow_same_family):
+                        message, fix = refusals.HANDLER_MESSAGES["review-same-family"]
+                        raise AdapterError(message, code=7, fix=fix, reason="review-same-family")
                 if args.needs_shell is not None and type(args.needs_shell) is not bool:
                     raise ValueError("needs_shell must be true or false")
                 if args.provider_qos is not None and (type(args.provider_qos) is not str
@@ -3218,8 +3225,9 @@ class Daemon:
                 if model:
                     task_model = model
                 elif args.task:
-                    chain = scheduler.mcp_chain(self.policy, flatten_chain(self.policy["chains"][args.task],
-                        self.policy["tiers"].index(args.tier or "standard")), {"mcp_servers": mcp_servers})
+                    chain = scheduler.mcp_chain(self.policy, routing_chain(self.policy, args.task,
+                        self.policy["tiers"].index(args.tier or "standard"), caller_family=args.caller_family,
+                        allow_same_family=args.allow_same_family), {"mcp_servers": mcp_servers})
                     task_model = chain[0] if chain else None
                 else:
                     task_model = next((k for k, v in self.policy["models"].items() if v["provider"] == lane.provider), None)
@@ -3252,7 +3260,8 @@ class Daemon:
                     round_lease=args.round_lease, resume=resume,
                     unmeasured_reserve_reason=reason, mcp_servers=mcp_servers,
                     push_branch=args.push_branch, push_remote=push_remote, needs_shell=needs_shell,
-                    provider_qos=args.provider_qos, review_subject=args.review_subject, review_round=args.review_round)
+                    provider_qos=args.provider_qos, review_subject=args.review_subject, review_round=args.review_round,
+                    allow_same_family=args.allow_same_family)
                 if turn is not None:
                     # C-6.2 for turns: the message digest, not HEAD or the policy
                     # hash, so a restart can always re-bind the job (review IR-1).
@@ -3485,7 +3494,9 @@ class Daemon:
         on, and its digest then decides.
         """
         job_provider = scheduler.pin_provider(self.policy, {"pinned_model": model, "task": args.task, "tier": args.tier,
-                                                            "mcp_servers": list(args.mcp_servers or ())})
+                                                            "mcp_servers": list(args.mcp_servers or ()),
+                                                            "caller_family": args.caller_family,
+                                                            "allow_same_family": args.allow_same_family})
         roster = self._pin_roster()
         flag = args.pinned_provider if args.pinned_provider in ("claude", "codex") else None
         if flag and not any(lane["lane_id"] == args.pinned_lane for lane in roster):
@@ -3971,6 +3982,12 @@ class Daemon:
                 raise AdapterError(f"session {session} has a live writable job ({holder}) and a revive is a second instance of it",
                                    fix=f"wait for {holder}, or kill it before reviving or dispatching", reason="revive-writer",
                                    details={"job_id": holder})
+            # Codex supplies thread/session markers, but no established caller
+            # process id. Those markers cannot identify a live CLI instance;
+            # preserve worktree protection and session caps without treating a
+            # second submission from one thread as an unidentified twin.
+            if job.get("caller_family") == "codex":
+                continue
             theirs = recorded[holder].get("caller_instance")
             if instance is not None and theirs == instance:
                 continue
@@ -4368,6 +4385,11 @@ class Daemon:
             a = protocol.coerce_args(protocol.WhyArgs, args)
             if a.job_id:
                 return self._why_job(self._job(a.job_id))
+            if a.caller_family is not None and (type(a.caller_family) is not str
+                                               or a.caller_family not in ("claude", "codex")):
+                raise protocol.ProtocolError(refusals.HANDLER_MESSAGES["caller-family"][0], reason="caller-family")
+            if type(a.allow_same_family) is not bool:
+                raise protocol.ProtocolError("allow_same_family must be true or false", reason="invalid-args")
             # C-9.6 (review r2 of #263, P3-2): a hold's source as every reader shows it.
             decision = decision_rows(dataclasses.asdict(self._pick(dataclasses.asdict(a),
                                                                    desktop=self._desktop_identity())))

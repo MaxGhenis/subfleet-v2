@@ -84,6 +84,8 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     "reserve-dispatch": ("unmeasured reserve authorization requires a fresh dispatch with explicit "
                          "pinned_lane and pinned_model", None),
     "caller-family": ("caller_family must be claude, codex or null", None),
+    "review-same-family": ("review: the pinned model belongs to the caller's family",
+                           "choose a model from the other family, or pass --allow-same-family"),
     "review-fields": ("--subject and --round require --task review; --round also requires --subject", None),
     "review-subject": ("review_subject must contain 1 to 2000 printable characters", None),
     "review-round": ("review_round must be a positive whole number from 1 to 4", None),
