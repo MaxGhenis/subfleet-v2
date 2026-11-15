@@ -27,6 +27,7 @@ from pathlib import Path
 MNT_RDONLY = 0x00000001
 MNT_LOCAL = 0x00001000
 MNT_IGNORE_OWNERSHIP = 0x00200000       # mounted `noowners`
+MNT_AUTOMOUNTED = 0x00400000
 MNT_NOWAIT = 2
 #: File systems that keep no owners or permissions: an archive holds every
 #: file of a job's tree, credentials included, so they never take one.
@@ -157,7 +158,8 @@ def _volume(fs: _Statfs, *, encryption: bool) -> Volume:
     mount = os.fsdecode(fs.f_mntonname)
     fstype = os.fsdecode(fs.f_fstypename).lower()
     flags = fs.f_flags
-    local = bool(flags & MNT_LOCAL) and fstype not in NETWORK
+    local = (bool(flags & MNT_LOCAL) and not flags & MNT_AUTOMOUNTED
+             and fstype not in NETWORK and fstype != "autofs")
     # A network or automounted volume is never a target: asking it for its
     # identity could wait on the network or trigger a mount, so it is not asked.
     identity, name = _uuid_and_name(mount) if local else (None, None)

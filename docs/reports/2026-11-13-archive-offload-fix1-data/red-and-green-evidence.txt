@@ -1,0 +1,106 @@
+r1-red:
+FAILED tests/unit/test_retention_offload_r1.py::test_resumed_matching_external_entries_become_private[copied]
+FAILED tests/unit/test_retention_offload_r1.py::test_copying_recall_never_drops_the_only_good_bundle
+FAILED tests/unit/test_retention_offload_r1.py::test_recall_restores_modes_of_matching_internal_files
+FAILED tests/unit/test_retention_offload_r1.py::test_resumed_matching_external_files_are_fullsynced[copied]
+FAILED tests/unit/test_retention_offload_r1.py::test_recall_fullsyncs_matching_internal_files_before_dropping_external
+FAILED tests/unit/test_retention_offload_r1.py::test_resumed_matching_external_entries_become_private[verified]
+FAILED tests/unit/test_retention_offload_r1.py::test_resumed_matching_external_files_are_fullsynced[verified]
+FAILED tests/unit/test_retention_offload_r1.py::test_recall_refuses_all_unsettled_archive_names[job.2-job.2]
+FAILED tests/unit/test_retention_offload_r1.py::test_recall_refuses_all_unsettled_archive_names[job-job]
+FAILED tests/unit/test_retention_offload_r1.py::test_offload_rechecks_archive_directory_after_planning
+FAILED tests/unit/test_retention_offload_r1.py::test_recall_cannot_write_through_a_replaced_archive_symlink
+FAILED tests/unit/test_retention_offload_r1.py::test_external_bundle_link_after_hash_prevents_internal_removal
+FAILED tests/unit/test_retention_offload_r1.py::test_repair_refuses_to_switch_to_incomplete_internal_copy
+FAILED tests/unit/test_retention_offload_r1.py::test_unowned_target_bundle_is_never_adopted_or_replaced[False]
+FAILED tests/unit/test_retention_offload_r1.py::test_interrupted_repair_keeps_resolver_on_verified_internal_copy
+FAILED tests/unit/test_retention_offload_r1.py::test_unowned_target_bundle_is_never_adopted_or_replaced[True]
+FAILED tests/unit/test_retention_volume_offload_r1.py::test_automounts_are_refused_without_identity_or_encryption_reads[automounted-flag-enumeration]
+FAILED tests/unit/test_retention_volume_offload_r1.py::test_automounts_are_refused_without_identity_or_encryption_reads[autofs-filesystem-target]
+FAILED tests/unit/test_retention_offload_r1.py::test_replaced_owned_bundle_is_never_adopted_or_overwritten[True]
+FAILED tests/unit/test_retention_volume_offload_r1.py::test_automounts_are_refused_without_identity_or_encryption_reads[automounted-flag-target]
+FAILED tests/unit/test_retention_offload_r1.py::test_replaced_owned_bundle_is_never_adopted_or_overwritten[False]
+FAILED tests/unit/test_retention_volume_offload_r1.py::test_automounts_are_refused_without_identity_or_encryption_reads[autofs-filesystem-enumeration]
+FAILED tests/unit/test_retention_offload_r1.py::test_shared_target_keeps_bundles_from_two_state_roots
+FAILED tests/unit/test_retention_offload_r1.py::test_recall_refuses_all_unsettled_archive_names[job.2-job]
+24 failed in 229.35s (0:03:49)
+
+debug1:
+FAILED tests/unit/test_retention_offload_r1.py::test_resumed_matching_external_entries_become_private[copied]
+1 failed in 31.39s
+
+extra-red:
+FAILED tests/unit/test_retention_offload_r1.py::test_contents_refuses_external_ownership_mismatch
+1 failed, 1 passed in 98.24s (0:01:38)
+
+extra-red2:
+FAILED tests/unit/test_retention_offload_r1.py::test_drop_external_keeps_unclaimed_file_at_an_archived_store_name
+FAILED tests/unit/test_retention_offload_r1.py::test_contents_refuses_external_ownership_mismatch
+2 failed in 169.15s (0:02:49)
+
+late-link-red:
+FAILED tests/unit/test_retention_offload_r1.py::test_offload_cannot_remove_through_archive_replaced_after_verification
+1 failed in 158.03s (0:02:38)
+
+clone-red:
+
+clone-red2:
+FAILED tests/unit/test_retention_offload_r1.py::test_recall_from_copied_state_keeps_original_sources_external_copy
+1 failed in 64.95s (0:01:04)
+
+r1-green:
+FAILED tests/unit/test_retention_offload_r1.py::test_resumed_matching_external_files_are_fullsynced[copied]
+FAILED tests/unit/test_retention_offload_r1.py::test_interrupted_repair_keeps_resolver_on_verified_internal_copy
+FAILED tests/unit/test_retention_offload_r1.py::test_resumed_matching_external_files_are_fullsynced[verified]
+FAILED tests/unit/test_retention_offload_r1.py::test_shared_target_keeps_bundles_from_two_state_roots
+FAILED tests/unit/test_retention_offload_r1.py::test_resumed_matching_external_entries_become_private[copied]
+FAILED tests/unit/test_retention_offload_r1.py::test_resumed_matching_external_entries_become_private[verified]
+FAILED tests/unit/test_retention_offload.py::test_a_copy_that_does_not_read_back_stops_with_the_internal_copy_untouched
+FAILED tests/unit/test_retention_offload.py::test_a_resumed_offload_reads_the_external_copy_back_before_removing
+FAILED tests/unit/test_retention_offload.py::test_a_lock_file_removed_while_waiting_is_taken_again
+FAILED tests/unit/test_retention_offload.py::test_a_damaged_external_copy_with_nothing_left_inside_fails_loudly
+FAILED tests/unit/test_retention_offload.py::test_recall_that_does_not_read_back_keeps_the_stub_and_the_external_copy
+FAILED tests/unit/test_retention_offload.py::test_recall_of_a_damaged_bundle_fails
+FAILED tests/unit/test_retention_offload.py::test_recall_all_on_a_folder_and_keep_or_drop_the_external_copy
+FAILED tests/unit/test_retention_offload.py::test_cli_offload_list_check_recall
+14 failed, 45 passed in 400.68s (0:06:40)
+
+r1-green2:
+28 passed in 180.97s (0:03:00)
+
+r1-green3:
+71 passed in 649.57s (0:10:49)
+
+cli-release:
+90 passed in 190.44s (0:03:10)
+
+cli-owner-red:
+FAILED tests/unit/test_retention_offload_r1.py::test_contents_refuses_external_ownership_mismatch
+1 failed in 43.78s
+
+cli-owner-green:
+1 passed in 20.68s
+
+recall-temp-red:
+FAILED tests/unit/test_retention_offload_r1.py::test_recall_reuses_verified_temporary_when_external_source_is_damaged[stored]
+FAILED tests/unit/test_retention_offload_r1.py::test_recall_reuses_verified_temporary_when_external_source_is_damaged[bundle]
+2 failed in 75.20s (0:01:15)
+
+r1-green4:
+Interrupted130; no tests ran in55.59s.
+
+r1-green5:
+73 passed in702.31s (0:11:42)
+
+importers-first:
+Interrupted130; observed68passes and10skips before interruption; no final summary.
+
+importers-final:
+6 failed,1342 passed,48 skipped in1252.06s (0:20:52).
+importer-retries:
+6 passed,4 skipped in25.31s.
+ordinary-retry after isolated cache fill:
+4 passed in4.63s.
+
+guards:
+435 passed in22.13s.

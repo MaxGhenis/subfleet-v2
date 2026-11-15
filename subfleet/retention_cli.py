@@ -1,11 +1,12 @@
-"""`subfleet retention archives | restore | survey | delete | offload | recall` (C-17.1, C-8.7, C-8.8, design d635).
+"""`subfleet retention archives | restore | survey | outcomes | delete | offload | recall` (C-17.1, C-8.7, C-8.8, design d635).
 
 All but `delete` run offline, without the daemon: `archives` lists what
 retention has archived, `restore` puts an archive back (it touches only its
 destinations and the archive's lock file), `survey` is a read-only dry run of
-retention over the state root, `offload` moves settled archives' stored files
-and bundles to another volume, and `recall` brings them back
-(`retention_offload`). `delete` asks the daemon to remove the kept trees of an
+retention over the state root, `outcomes` reads a session's retired unread job
+outcomes, `offload` moves settled archives' stored files and bundles to another
+volume, and `recall` brings them back (`retention_offload`). `delete` asks the
+daemon to remove the kept trees of an
 operator-approved list of finished jobs (`retention_delete`, decision d2660):
 `--dry-run` says what it would do, `--apply` does it, `--status` and `--stop`
 read and end it.
@@ -25,7 +26,7 @@ DELETE_POLL_S = 2.0
 
 
 def add_verbs(sub) -> None:
-    parser = sub.add_parser("retention", help="archives of retired jobs: list, restore, survey, offload, recall")
+    parser = sub.add_parser("retention", help="archives of retired jobs: list, restore, survey, outcomes, delete, offload, recall")
     verbs = parser.add_subparsers(dest="retention_command")
     parser.set_defaults(handler=cmd_retention, retention_command=None)
     listing = verbs.add_parser("archives", help="every archive retention has written")
@@ -45,7 +46,7 @@ def add_verbs(sub) -> None:
     survey.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     offload = verbs.add_parser("offload", help="move settled archives' stored files and bundles to another volume")
     offload.add_argument("--to", type=Path, required=True, metavar="DIR",
-                         help="a folder on an encrypted local volume; archives go to DIR/subfleet-archive/<name>")
+                         help="a folder on an encrypted local volume; archives go to DIR/subfleet-archive/<source>/<name>")
     offload.add_argument("--limit", type=int, metavar="N", help="archives per run (largest first)")
     offload.add_argument("--min-bytes", type=int, default=0, metavar="B", help="skip archives smaller than B bytes")
     offload.add_argument("--keep-internal", action="store_true",
@@ -58,6 +59,9 @@ def add_verbs(sub) -> None:
     recall.add_argument("--all-on", type=Path, metavar="DIR", help="every archive offloaded to DIR")
     recall.add_argument("--drop-external", action="store_true", help="remove the external copy once it is back")
     recall.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
+    outcomes = verbs.add_parser("outcomes", help="retired unread job outcomes, even after their notices expired")
+    outcomes.add_argument("--session", required=True, help="the session whose archived outcomes to read")
+    outcomes.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     delete = verbs.add_parser("delete", help="delete the kept trees of an approved list of finished jobs (C-8.7)")
     delete.add_argument("--request", type=Path, metavar="FILE",
                         help="the request: ruling, jobs, age_exempt, min_age_days, exclude_repositories, min_free_gb")
@@ -84,6 +88,23 @@ def cmd_retention(args: argparse.Namespace) -> int:
     if command == "delete":
         return _delete(args, as_json)
     root = state_root()
+    if command == "outcomes":
+        from .retention_notices import OutcomesLookupError, archived_outcomes
+        import sqlite3
+        try:
+            result = archived_outcomes(root, args.session)
+        except (OutcomesLookupError, OSError, ValueError, sqlite3.Error) as exc:
+            return fail(Exit.OPERATIONAL, f"retention outcomes: {exc}")
+        if as_json:
+            emit(result)
+        else:
+            for outcome in result["outcomes"]:
+                out(outcome["text"])
+            if not result["outcomes"] and not result["errors"]:
+                out(f"No retired unread job outcomes for session {args.session}.")
+            for error in result["errors"]:
+                out(f"{error['job_id']}: outcome unavailable: {error['error']}")
+        return int(Exit.OPERATIONAL if result["errors"] else Exit.OK)
     if command in (None, "archives"):
         archives = rarch.list_archives(root)
         if as_json:

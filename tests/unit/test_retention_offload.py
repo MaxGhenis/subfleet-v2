@@ -192,7 +192,7 @@ class Env:
         return self.root / "archive" / name
 
     def external(self, name: str) -> Path:
-        return self.target / rof.FOLDER / name
+        return self.target / rof.FOLDER / rof._source(self.root) / name
 
 
 def fresh(parent: Path, volumes: Volumes, **volume) -> Env:
@@ -232,14 +232,25 @@ def tree_state(path: Path) -> dict | None:
 
 def stub_state(env: Env, name: str) -> dict | None:
     stub = rof.read_stub(env.root, name)
-    return None if stub is None else {k: v for k, v in stub.items() if k not in VOLATILE}
+    if stub is None:
+        return None
+    out = {k: v for k, v in stub.items() if k not in VOLATILE}
+    parts = out["path"].split("/")
+    parts[-2] = "<source>"
+    out["path"] = "/".join(parts)
+    return out
 
 
 def final_state(env: Env, name: str) -> dict:
     internal = tree_state(env.archive(name)) or {}
     internal.pop(rof.STUB, None)
     leftovers = sorted(n for n in os.listdir(env.root / "archive") if n.startswith(".lock."))
-    return {"internal": internal, "stub": stub_state(env, name), "external": tree_state(env.external(name)),
+    external = tree_state(env.external(name))
+    if external is not None:
+        # Source and inode identities differ between the independent worlds
+        # compared here; their safety is checked by the ownership regressions.
+        external.pop(rof.OWNER, None)
+    return {"internal": internal, "stub": stub_state(env, name), "external": external,
             "locks": leftovers}
 
 
@@ -462,7 +473,7 @@ def test_the_stub_moves_copying_verified_offloaded(archives, env, monkeypatch):
     stub = rof.read_stub(env.root, name)
     found = rof.plan(env.root, name)
     assert stub["volume"] == {"uuid": EXT_UUID, "name": "Backup ☃", "fstype": "apfs", "encrypted": True}
-    assert stub["path"] == f"backups/{rof.FOLDER}/{name}"
+    assert stub["path"] == f"backups/{rof.FOLDER}/{rof._source(env.root)}/{name}"
     assert stub["manifest_sha256"] == found.manifest_sha256
     assert (stub["files"], stub["bytes"], stub["bundle_bytes"]) == (len(found.stores), found.files_bytes,
                                                                     found.bundle_bytes)
@@ -508,8 +519,8 @@ def test_a_copy_that_does_not_read_back_stops_with_the_internal_copy_untouched(a
     before = tree_state(env.archive(name))
     original = rof._copy_into
 
-    def spoiled(src_dir_fd, n, dst_dir_fd, dst_name, mode):
-        original(src_dir_fd, n, dst_dir_fd, dst_name, mode)
+    def spoiled(src_dir_fd, n, dst_dir_fd, dst_name, mode, **kwargs):
+        original(src_dir_fd, n, dst_dir_fd, dst_name, mode, **kwargs)
         fd = os.open(dst_name, os.O_WRONLY | os.O_APPEND, dir_fd=dst_dir_fd)
         try:
             os.write(fd, b"!")        # a bad drive: one byte too many
@@ -669,7 +680,9 @@ def test_a_lock_file_removed_while_waiting_is_taken_again(env):
     calls = {"n": 0}
 
     def swap(path, *args, **kwargs):
-        if str(path) == str(lock.path) and calls["n"] == 0:
+        checking_lock = str(path) == str(lock.path) or (
+            str(path) == lock.path.name and kwargs.get("dir_fd") == lock.parent_fd)
+        if checking_lock and calls["n"] == 0:
             calls["n"] += 1
             os.unlink(lock.path)                   # another holder finished and removed it
             raise FileNotFoundError(path)
@@ -944,7 +957,8 @@ def test_offload_and_recall_write_only_their_own_paths(archives, env):
     report = offload(env)
     assert outcomes(report) == {name: "offloaded"} and "retention folder" in skips(report)["other"]
     assert outside() == before
-    assert sorted(os.listdir(env.target / rof.FOLDER)) == [name]
+    assert sorted(os.listdir(env.target / rof.FOLDER)) == [rof._source(env.root)]
+    assert sorted(os.listdir(env.target / rof.FOLDER / rof._source(env.root))) == [name]
     rof.recall(env.root, name, drop_external=True)
     assert outside() == before
     assert sorted(n for n in os.listdir(env.root / "archive") if n.startswith(".")) == [rof.LOG]
