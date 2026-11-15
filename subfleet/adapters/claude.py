@@ -151,7 +151,8 @@ STARTUP_FILE_NAMES = ("CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md", "AGEN
 #: The cap on the one `git rev-parse --show-toplevel` a writable job launch runs.
 JOB_STARTUP_GIT_TIMEOUT_S = 10.0
 #: `glob_literal`'s escapes: picomatch reads each as the one character.
-_GLOB_ESCAPES = MappingProxyType({**{char: f"[{char}]" for char in "*?[]{}()|+"}, ",": "[,-,]"})
+_GLOB_ESCAPES = MappingProxyType({**{char: f"[{char}]" for char in "*?[]{}()|+."},
+                                   **{char: f"[{char}-{char}]" for char in ',"'}})
 
 HEADLESS_BLOCK = f"""{HEADLESS_MARKER}
 ## HEADLESS EXECUTION (binding — read before anything else)
@@ -376,8 +377,12 @@ def glob_literal(path: str) -> str:
     one-character bracket can, where the character is a regex metacharacter:
     picomatch compiles `[*]` to the class `[*]`. For any other character it also
     matches the bracket's own text (`[!]` compiles to `(?:\\[!\\]|[!])`), so `!`, `@`
-    and the rest stay as they are; with `(` bracketed they start no extglob. A
-    comma, which would split the negation's alternatives, becomes the range `[,-,]`.
+    and the rest stay as they are; with `(` bracketed they start no extglob. Two
+    characters need escaping without being regex metacharacters, so they become a
+    one-character range, which holds one (`-`): a comma, which would split the
+    negation's alternatives (`[,-,]`), and a double quote, which picomatch drops
+    while quoting what follows (`["-"]`). Inside braces two dots would make a
+    range (`{a..b}`), so every dot is bracketed too.
     """
     return "".join(_GLOB_ESCAPES.get(char, char) for char in path)
 
