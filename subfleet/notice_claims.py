@@ -14,6 +14,7 @@ import math
 import os
 import time
 from pathlib import Path
+from time import monotonic as _monotonic, sleep as _sleep
 
 from .store import notice_fingerprint
 
@@ -23,17 +24,35 @@ def receipt_path(root: Path, session: str) -> Path:
     return Path(root) / "hooks" / "notice-receipts" / (key + ".json")
 
 
+#: How often a waiting `delivery_lock` tries the lock again.
+LOCK_POLL_S = 0.01
+
+
 @contextmanager
-def delivery_lock(root: Path, session: str):
-    """Nonblocking: neither a prompt nor one busy caller stalls the pass."""
+def delivery_lock(root: Path, session: str, *, wait_s: float = 0.0, gone=None):
+    """Nonblocking by default: neither a prompt nor one busy caller stalls the pass.
+
+    `wait_s` tries a taken lock again for up to that long, and `gone`, when it
+    turns true, ends the wait early: a PostToolUse claim waits out a pass's or a
+    hook's brief hold rather than leave its result to a later wake (C-15.9).
+    """
     path = receipt_path(root, session).with_suffix(".lock")
     fd = None
     held = False
     try:
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        held = True
+        until = _monotonic() + max(0.0, wait_s)
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                held = True
+                break
+            except BlockingIOError:
+                left = until - _monotonic()
+                if left <= 0 or (gone is not None and gone()):
+                    break
+                _sleep(min(LOCK_POLL_S, left))
     except OSError:
         pass
     try:

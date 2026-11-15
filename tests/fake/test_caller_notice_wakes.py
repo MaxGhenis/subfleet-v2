@@ -1088,3 +1088,78 @@ def test_human_prompt_during_header_render_prevents_wake(callers, monkeypatch, s
         callers.now += 301                                          # quiet again: one wake
         callers.pass_once()
         assert callers.counts()[notice] == 1
+
+
+def test_c15_9_a_posttooluse_print_that_fails_gives_its_claim_back(callers):
+    """Review r2 of #307, with r1's finding 10: a crash between the claim and the print
+    leaves the notice retryable. Exit 0 shows the harness nothing, so the hook gives
+    the claim back and the wake delivers the notice, once."""
+    sid = "broken-stderr"
+    callers.register(sid)
+    notice = callers.finish(sid)
+
+    class Broken(io.StringIO):
+        def write(self, text):
+            raise BrokenPipeError("the harness closed the hook's stderr")
+
+    job = callers.daemon.store.get_job(callers.notices[notice])
+    assert hooks._deliver(HookClient(callers), sid, dict(job), stderr=Broken(),
+                          deadline=time.monotonic() + 60, now=time.monotonic) == 0
+    row = callers.row(notice)
+    assert (row["state"], row["transport"], row["offered_at"], row["wake_state"]) == ("pending", None, None, None)
+    callers.pass_once()
+    assert callers.counts()[notice] == 1
+
+
+def test_c15_9_posttooluse_prints_its_job_line_only_when_the_session_has_no_notice(callers):
+    """Review r2 of #307, P1 1: the line from the job row is printed only when its claim
+    succeeded, that is, when the session has no notice for the job at all. A notice a
+    prompt hook already showed is held elsewhere: PostToolUse prints nothing."""
+    sid = "line-from-the-job"
+    callers.register(sid, age=0)                    # active: no wake in this test
+    notice = callers.finish(sid)
+    assert callers.mentioned(notice, surface(callers.daemon, callers.harness.root, sid))
+    assert post_tool_use(callers, sid, notice, HookClient(callers)) == (0, False)
+    job = callers.notices[notice]
+    with callers.daemon.store.transaction() as tx:
+        tx.execute("DELETE FROM notices WHERE notice_id=?", (notice,))
+    stderr = io.StringIO()
+    assert hooks._deliver(HookClient(callers), sid, dict(callers.daemon.store.get_job(job)), stderr=stderr,
+                          deadline=time.monotonic() + 60, now=time.monotonic) == 2
+    assert stderr.getvalue().startswith(f"{job}: ") and "no notice row for this job" in stderr.getvalue()
+
+
+def test_c15_9_a_posttooluse_claim_after_its_client_gave_up_marks_nothing(callers):
+    """As finding 5 of r1 for the prompt hooks: a PostToolUse claim the daemon reaches
+    after its deadline, or after its client has gone, reserves nothing, so the notice
+    stays for the wake."""
+    sid = "late-post-tool-use"
+    callers.register(sid)
+    notice = callers.finish(sid)
+    args = {"session_id": sid, "surface": "PostToolUse", "job_id": callers.notices[notice], "deadline_s": 5.0}
+    late = callers.daemon.dispatch("notice.pending", args, arrived=time.monotonic() - 5.0)
+    gone = callers.daemon.dispatch("notice.pending", args, arrived=time.monotonic(), client_gone=lambda: True)
+    assert late == gone == {"notices": [], "absent": False}
+    assert callers.row(notice)["state"] == "pending"
+    callers.pass_once()
+    assert callers.counts()[notice] == 1
+
+
+def test_c15_9_posttooluse_honours_an_offline_hooks_receipt(callers):
+    """One reservation across every path: a notice an offline prompt hook printed (its
+    receipt not yet reconciled) is not printed again by PostToolUse, nor woken."""
+    sid = "offline-then-post-tool-use"
+    callers.register(sid)
+    notice = callers.finish(sid)
+
+    class OfflineClient:
+        def call(self, *args, **kwargs):
+            raise OSError("app restarting")
+
+    assert callers.mentioned(notice, hook_prompt(callers, sid, "status?", client=OfflineClient()))
+    assert callers.row(notice)["state"] == "pending"            # only the receipt knows
+    assert post_tool_use(callers, sid, notice, HookClient(callers)) == (0, False)
+    assert callers.row(notice)["transport"] == "hook:offline"
+    callers.now += 600
+    callers.pass_once()
+    assert callers.counts()[notice] == 0

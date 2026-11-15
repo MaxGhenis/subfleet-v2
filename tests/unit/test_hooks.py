@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from subfleet import hooks
-from subfleet.client import Client
+from subfleet.client import Client, DEFAULT_TIMEOUT_S
 from subfleet.contracts import Exit
 
 JOB = "20260905-120000-demo"
@@ -543,12 +543,10 @@ def finished_job(job_id: str = JOB) -> dict:
 def test_post_tool_use_delivers_a_finished_job_with_exit_two(daemon, root):
     """C-15.2 layer 2: exit 2 with the notice on stderr is how a PostToolUse hook
     shows anything at all (`claude-hooks.md` §1, the asyncRewake limitation)."""
-    marked: list[dict] = []
-    daemon({
+    server = daemon({
         "list": lambda request: {"jobs": [running_job()]},
         "wait": lambda request: {"jobs": [finished_job()]},
-        "notice.pending": lambda request: {"notices": [notice(7, text="demo done")]},
-        "notice.mark": lambda request: marked.append(request.args) or {"notices": []},
+        "notice.pending": lambda request: {"notices": [notice(7, text="demo done")], "absent": False},
     })
     stderr = io.StringIO()
     clock = Clock()
@@ -556,14 +554,19 @@ def test_post_tool_use_delivers_a_finished_job_with_exit_two(daemon, root):
         payload("PostToolUse", tool_name="Bash",
                 tool_input={"command": "subfleet run -p p.md"},
                 tool_response=f"{JOB}\nrequest=req-1"),
-        # Leave time after the 60-second poll for notice lookup and mark.
+        # Leave time after the 60-second poll for the notice claim.
         root, budget_s=65, stderr=stderr, now=clock, sleep=clock.sleep)
     assert code == int(Exit.INVALID_INPUT) == 2
     assert stderr.getvalue().strip() == "demo done"
-    # `offered`, not `surfaced`: this transport gets no acknowledgement, so
-    # layer 3 must be free to show the row again (C-15.3).
-    assert marked == [{"session_id": SESSION, "notice_ids": [7],
-                       "state": "offered", "transport": "hook:PostToolUse"}]
+    # C-15.9 (review r2 of #307): the hook claims the job's notice before it prints,
+    # through the reservation the wake takes, and marks nothing after. The claim
+    # leaves it `offered`, not `surfaced`: this transport gets no acknowledgement,
+    # so layer 3 must be free to show the row again (C-15.3).
+    assert server.ops() == ["list", "wait", "notice.pending"]
+    claim = server.args("notice.pending")
+    assert {key: claim[key] for key in ("session_id", "surface", "job_id")} == {
+        "session_id": SESSION, "surface": "PostToolUse", "job_id": JOB}
+    assert 0 < claim["deadline_s"] < DEFAULT_TIMEOUT_S
 
 
 def test_post_tool_use_exits_zero_and_silent_on_timeout(daemon, root):
@@ -588,7 +591,7 @@ def test_post_tool_use_reports_a_job_with_no_notice_row_from_the_job_itself(
     published.write_text("result\n")
     daemon({"list": lambda request: {"jobs": [running_job()]},
             "wait": lambda request: {"jobs": [finished_job()]},
-            "notice.pending": lambda request: {"notices": []}})
+            "notice.pending": lambda request: {"notices": [], "absent": True}})
     stderr = io.StringIO()
     clock = Clock()
     assert hooks.post_tool_use(
@@ -600,6 +603,26 @@ def test_post_tool_use_reports_a_job_with_no_notice_row_from_the_job_itself(
     assert "/repo/out.md" in text and "subfleet runs show" in text
     # C-15.1: the accepted attempt's deliverable, as the daemon's notice names it.
     assert f"deliverable={root.resolve() / 'jobs' / JOB / 'a1' / 'deliverable.md'};" in text
+
+
+@pytest.mark.parametrize("answer", [{"notices": []}, {"notices": [], "absent": False},
+                                    {"notices": [], "absent": "true"}],
+                         ids=["claimed-elsewhere", "not-absent", "absent-not-a-boolean"])
+def test_post_tool_use_that_lost_the_claim_prints_nothing(daemon, root, answer):
+    """C-15.9 (review r2 of #307, P1 1): when another path holds the job's notice (the
+    wake claimed it, a prompt hook showed it), or the claim could not be taken in
+    time, the daemon reserves nothing and the hook prints nothing, not even its line
+    from the job row: that line is only for a job the session has no notice for."""
+    daemon({"list": lambda request: {"jobs": [running_job()]},
+            "wait": lambda request: {"jobs": [finished_job()]},
+            "notice.pending": lambda request: answer})
+    stderr = io.StringIO()
+    clock = Clock()
+    assert hooks.post_tool_use(
+        payload("PostToolUse", tool_name="Bash",
+                tool_input={"command": "subfleet run -p p.md"}, tool_response=JOB),
+        root, budget_s=30, stderr=stderr, now=clock, sleep=clock.sleep) == 0
+    assert stderr.getvalue() == ""
 
 
 def test_the_lease_stops_a_second_hook_waiting_on_one_job(daemon, root):
@@ -981,21 +1004,21 @@ def test_post_tool_notice_calls_keep_the_remaining_deadline(root):
             return {'jobs': [{'job_id': JOB, 'state': 'running'}]}
         if op == 'wait':
             return {'jobs': [{'job_id': JOB, 'state': 'succeeded'}]}
-        if op == 'notice.pending':
-            return {'notices': [notice(1)]}
-        assert op == 'notice.mark'
-        return {}
+        assert op == 'notice.pending'
+        return {'notices': [notice(1)]}
 
     assert hooks.post_tool_use(payload('PostToolUse', tool_name='Bash'), root,
                                client=SimpleNamespace(call=call, root=root, timeout=15),
                                budget_s=65, now=lambda: clock[0], sleep=sleep,
                                stderr=io.StringIO()) == int(Exit.INVALID_INPUT)
-    assert ops == ['list', 'wait', 'notice.pending', 'notice.mark']
+    assert ops == ['list', 'wait', 'notice.pending']
     assert clock[0] <= 65
 
 
-def test_post_tool_six_second_timeout_keeps_notice_and_mark(daemon, root):
-    """C-15.2 the reviewer's short command hook surfaces its available notice."""
+def test_post_tool_six_second_timeout_keeps_its_notice_claim(daemon, root):
+    """C-15.2 the reviewer's short command hook surfaces its available notice; the
+    claim it takes before printing marks the notice, so nothing is marked after
+    (C-15.9, review r2 of #307)."""
     marked = []
     server = daemon({
         'list': lambda request: {'jobs': [running_job()]},
@@ -1008,9 +1031,10 @@ def test_post_tool_six_second_timeout_keeps_notice_and_mark(daemon, root):
     result = _hook_process('PostToolUse', payload('PostToolUse', tool_name='Bash'), env)
     assert result.returncode == 2, result.stderr
     assert result.stderr.strip() == 'round four notice'
-    assert server.ops() == ['list', 'wait', 'notice.pending', 'notice.mark']
-    assert marked == [{'session_id': SESSION, 'notice_ids': [7],
-                       'state': 'offered', 'transport': 'hook:PostToolUse'}]
+    assert server.ops() == ['list', 'wait', 'notice.pending']
+    claim = server.args('notice.pending')
+    assert (claim['surface'], claim['job_id']) == ('PostToolUse', JOB) and claim['deadline_s'] > 0
+    assert marked == []
 
 
 @pytest.mark.parametrize('final_poll', [False, True], ids=['immediate', 'at-poll-deadline'])
@@ -1032,17 +1056,28 @@ def test_terminal_poll_keeps_delivery_reserve(root, final_poll):
                 clock[0] += kwargs['timeout']
             return {'jobs': [finished_job()]}
         remaining = 1.0 - clock[0]
-        assert kwargs['timeout'] == pytest.approx(remaining / 2 if op == 'notice.pending' else remaining)
-        clock[0] += kwargs['timeout']   # even a lookup using its whole share leaves time to mark
-        return {'notices': [notice(7)]} if op == 'notice.pending' else {}
+        assert kwargs['timeout'] == pytest.approx(remaining / 2 if not args.get('release') else remaining)
+        clock[0] += kwargs['timeout']   # even a claim using its whole share leaves time to give it back
+        return {'notices': [notice(7)]}
 
     stderr = io.StringIO()
     code = hooks._wait_and_deliver(SimpleNamespace(call=call, root=root, timeout=15),
                                   SESSION, JOB, 1.0, stderr=stderr,
                                   now=lambda: clock[0], sleep=sleep)
     assert code == 2 and stderr.getvalue().strip() == 'run finished'
-    assert ops == ['wait', 'notice.pending', 'notice.mark']
+    assert ops == ['wait', 'notice.pending']
     assert sleeps == [] and clock[0] <= 1.0
+    # C-15.9: a print that fails gives the claim back, inside the same deadline.
+    clock[0], ops[:] = 0.0, []
+
+    class Broken(io.StringIO):
+        def write(self, text):
+            raise BrokenPipeError("the harness closed the hook's stderr")
+
+    assert hooks._wait_and_deliver(SimpleNamespace(call=call, root=root, timeout=15),
+                                   SESSION, JOB, 1.0, stderr=Broken(),
+                                   now=lambda: clock[0], sleep=sleep) == 0
+    assert ops == ['wait', 'notice.pending', 'notice.pending'] and clock[0] <= 1.0
 
 
 def test_idle_hook_backoff_preserves_delivery_reserve(root):

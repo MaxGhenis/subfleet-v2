@@ -41,6 +41,14 @@ _GATE_MARGIN_S = 1e-3
 #: attempt (review r1, finding 3). Its `state` stays `pending` for the hooks.
 STALE_REASON = "older-than-retry-window"
 _BATCH = 500
+#: The transport a PostToolUse claim records (C-15.2 layer 2, C-15.3).
+POST_TOOL_USE = "hook:PostToolUse"
+#: At most this long, within its own `deadline_s`, a PostToolUse claim waits for
+#: the caller's delivery lock (review r2 of #307, P1 1). A pass holds the lock
+#: while it judges the caller and through a wake's send, a prompt hook while it
+#: claims, an offline hook while it writes its receipt. A claim that gave up at
+#: once would leave the result to a wake five quiet minutes later.
+CLAIM_LOCK_WAIT_S = 2.0
 
 
 def _instant(stamp: str) -> float:
@@ -87,6 +95,105 @@ def _abandoned(args: protocol.NoticePendingArgs, arrived: float | None, client_g
     return _monotonic() >= arrived + budget
 
 
+def _lock_wait(args: protocol.NoticePendingArgs, arrived: float | None) -> float:
+    """How long a PostToolUse claim may wait for the delivery lock: at most
+    `CLAIM_LOCK_WAIT_S`, and never past its own `deadline_s`."""
+    budget = args.deadline_s
+    if arrived is None or isinstance(budget, bool) or not isinstance(budget, (int, float)):
+        return CLAIM_LOCK_WAIT_S
+    return max(0.0, min(CLAIM_LOCK_WAIT_S, arrived + budget - _monotonic()))
+
+
+def reserve(tx, session: str, rows: list[dict], *, transport: str, at,
+            wake: bool = False) -> list[dict]:
+    """C-15.9: the one reservation every path takes before it delivers a notice.
+
+    A notice leaves `pending` once, in one conditional update matched on its full
+    identity; the path whose update matched delivers it, and every other path
+    delivers nothing (review r2 of #307, P1 1). The wake marks it `surfaced` and
+    claimed, and also needs `wake_state` NULL, so a stale or expired notice is never
+    woken, though a hook may still show it. PostToolUse marks it `offered`: the
+    harness acknowledges nothing, so layer 3 shows it again (C-15.2, C-15.3).
+    Returns the rows this call reserved.
+    """
+    won = []
+    for row in rows:
+        identity = (row["notice_id"], row["job_id"], session, row["created_at"], row["text"])
+        if wake:
+            cursor = tx.execute(
+                "UPDATE notices SET state='surfaced',transport=?,wake_state='claimed',"
+                "wake_attempts=wake_attempts+1,wake_at=?,wake_next_at=NULL "
+                "WHERE notice_id=? AND job_id=? AND session_id=? AND created_at=? AND text=? "
+                "AND state='pending' AND wake_state IS NULL", (transport, at, *identity))
+        else:
+            cursor = tx.execute(
+                "UPDATE notices SET state='offered',transport=?,offered_at=COALESCE(offered_at,?) "
+                "WHERE notice_id=? AND job_id=? AND session_id=? AND created_at=? AND text=? "
+                "AND state='pending'", (transport, at, *identity))
+        if cursor.rowcount:
+            won.append(row)
+    return won
+
+
+def _record_activity(tx, session: str, now: float, event: str, source, personal: bool) -> None:
+    """A session hook's activity: the quiet clock, the SessionStart source, and for
+    personal input the reset of the unattended bounds."""
+    tx.execute("INSERT INTO caller_wake_sessions(session_id,active_at,source) VALUES(?,?,?) "
+               "ON CONFLICT(session_id) DO UPDATE SET active_at=excluded.active_at,source=excluded.source,"
+               "wake_streak=CASE WHEN ? THEN 0 ELSE wake_streak END,"
+               "last_wake_at=CASE WHEN ? THEN NULL ELSE last_wake_at END",
+               (session, now, source if event == "SessionStart" else None, personal, personal))
+
+
+def _post_tool_use(daemon, args: protocol.NoticePendingArgs, *, arrived: float | None,
+                   client_gone) -> dict:
+    """C-15.2 layer 2's claim of one job's notices, before the hook prints them.
+
+    Taken as the wake takes its own (review r2 of #307, P1 1): under the caller's
+    delivery lock, after the offline receipts are reconciled, through `reserve`.
+    The answer's `notices` are the rows this claim reserved, and the only ones the
+    hook may print. `absent` is true only when this session has no notice for the
+    job at all, so no other path can deliver it and the hook may print its line
+    from the job row (C-15.1). A claim that cannot take the lock in time, or whose
+    client has gone or deadline passed, reserves nothing and is not `absent`.
+    With `release`, the hook gives back the `notice_ids` it reserved but could not
+    print: they are `pending` again, for the wake and the prompt hooks, unless
+    another path has moved them on since.
+    """
+    session, job_id = args.session_id, args.job_id
+    if not isinstance(job_id, str) or not job_id.strip():
+        raise protocol.request_error("invalid-args")
+    if args.release is True:
+        ids = [protocol.notice_row(notice_id) for notice_id in args.notice_ids]
+        released = []
+        with daemon.store.transaction("notice.hook_released", data={"session_id": session,
+                                                                    "job_id": job_id}) as tx:
+            for table, row_id in ids:
+                if table == protocol.JOB_NOTICE_TABLE and tx.execute(
+                        "UPDATE notices SET state='pending',transport=NULL,offered_at=NULL "
+                        "WHERE notice_id=? AND session_id=? AND job_id=? AND state='offered' AND transport=?",
+                        (row_id, session, job_id, POST_TOOL_USE)).rowcount:
+                    released.append(row_id)
+        return {"notices": [], "released": released}
+    with notice_claims.delivery_lock(daemon.root, session, wait_s=_lock_wait(args, arrived),
+                                     gone=client_gone) as held:
+        if not held:
+            return {"notices": [], "absent": False}
+        notice_claims.reconcile(daemon, session)
+        with daemon.store.transaction("notice.hook_claimed", data={"session_id": session, "event": "PostToolUse",
+                                                                   "job_id": job_id}) as tx:
+            rows = [dict(row) for row in tx.execute(
+                "SELECT * FROM notices WHERE session_id=? AND job_id=? ORDER BY notice_id", (session, job_id))]
+            if _abandoned(args, arrived, client_gone):
+                daemon.store.audit_as("notice.hook_abandoned", {"session_id": session, "event": "PostToolUse"})
+                return {"notices": [], "absent": False}
+            stamp = datetime.fromtimestamp(time.time(), timezone.utc).isoformat()
+            won = reserve(tx, session, [row for row in rows if row["state"] == "pending"],
+                          transport=POST_TOOL_USE, at=stamp)
+    return {"notices": [{**row, "state": "offered", "transport": POST_TOOL_USE} for row in won],
+            "absent": not rows}
+
+
 def surface(daemon, args: protocol.NoticePendingArgs, *, arrived: float | None = None,
             client_gone=None) -> dict:
     """Reserve the hook's rows and activity atomically, before it prints them.
@@ -96,25 +203,29 @@ def surface(daemon, args: protocol.NoticePendingArgs, *, arrived: float | None =
     A claim whose client has gone, or whose deadline has passed, still records
     the activity but marks no notice. A prompt that is Subfleet's own inbox
     envelope (`own_envelope`) is activity, not personal input, so it resets no
-    unattended bound (review r1, finding 2).
+    unattended bound (review r1, finding 2). A prompt or start that finds the
+    delivery lock taken (a pass judging or waking this caller) records its
+    activity all the same and claims nothing, so a wake whose claim comes after
+    it holds (review r2 of #307, P1 2). PostToolUse claims one job's notices
+    (`_post_tool_use`).
     """
     session, event = args.session_id, args.surface
+    if event == "PostToolUse":
+        return _post_tool_use(daemon, args, arrived=arrived, client_gone=client_gone)
     if event not in ("SessionStart", "UserPromptSubmit"):
         raise protocol.ProtocolError("unknown notice state", reason="notice-state")
     now = time.time()
     personal = event == "UserPromptSubmit" and args.own_envelope is not True
     with notice_claims.delivery_lock(daemon.root, session) as held:
         if not held:
+            with daemon.store.transaction("notice.hook_activity", data={"session_id": session,
+                                                                        "event": event}) as tx:
+                _record_activity(tx, session, now, event, args.source, personal)
             return {"notices": []}
         notice_claims.reconcile(daemon, session)
         with daemon.store.transaction("notice.hook_claimed", data={"session_id": session,
                                                                    "event": event}) as tx:
-            tx.execute("INSERT INTO caller_wake_sessions(session_id,active_at,source) VALUES(?,?,?) "
-                       "ON CONFLICT(session_id) DO UPDATE SET active_at=excluded.active_at,source=excluded.source,"
-                       "wake_streak=CASE WHEN ? THEN 0 ELSE wake_streak END,"
-                       "last_wake_at=CASE WHEN ? THEN NULL ELSE last_wake_at END",
-                       (session, now, args.source if event == "SessionStart" else None,
-                        personal, personal))
+            _record_activity(tx, session, now, event, args.source, personal)
             rows = [dict(row) for row in tx.execute(
                 "SELECT * FROM notices WHERE session_id=? AND state IN ('pending','offered') ORDER BY notice_id",
                 (session,))]
@@ -347,21 +458,24 @@ class CallerWakeEngine:
             except Exception:                           # noqa: BLE001 - retried, never sent
                 self._failure(rows, "header-unavailable", now, retry=True)
                 return
-            claimed = []
             with self.store.transaction("notice.wake_claimed", data={"session_id": session}) as tx:
-                if self.daemon._conversation_binding(session) or not self._eligibility(
-                        session, entry, after, limits, now)[0]:
+                # Judged again inside the claim, on what is true now, after rendering:
+                # a person who typed meanwhile shows in the registry, the transcript
+                # or the activity a prompt hook recorded though this pass held the
+                # lock (review r2 of #307, P1 2). A caller now unreachable is left
+                # for the next pass, which records why.
+                if self.daemon._conversation_binding(session):
+                    return
+                entry = notify_push.find_session(session)
+                if entry is None or not entry["alive"] or not entry["socket_present"]:
+                    return
+                current = transcripts.turn_state(path, now=datetime.fromtimestamp(now, timezone.utc))
+                if current.fingerprint != before.fingerprint or not self._eligibility(
+                        session, entry, current, limits, now)[0]:
                     return
                 previous_clock = self.store.one(
                     "SELECT wake_streak,last_wake_at FROM caller_wake_sessions WHERE session_id=?", (session,)) or {}
-                for row in rows:
-                    if tx.execute("UPDATE notices SET state='surfaced',transport='caller-wake',"
-                                  "wake_state='claimed',wake_attempts=wake_attempts+1,wake_at=?,wake_next_at=NULL "
-                                  "WHERE notice_id=? AND job_id=? AND session_id=? AND created_at=? AND text=? "
-                                  "AND state='pending' AND wake_state IS NULL",
-                                  (now, row["notice_id"], row["job_id"], session,
-                                   row["created_at"], row["text"])).rowcount:
-                        claimed.append(row)
+                claimed = reserve(tx, session, rows, transport="caller-wake", at=now, wake=True)
                 if claimed:
                     tx.execute("INSERT INTO caller_wake_sessions(session_id,last_wake_at,wake_streak) VALUES(?,?,1) "
                                "ON CONFLICT(session_id) DO UPDATE SET last_wake_at=excluded.last_wake_at,"
