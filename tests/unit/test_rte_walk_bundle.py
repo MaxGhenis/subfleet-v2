@@ -23,6 +23,7 @@ import logging
 import os
 import stat
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -199,6 +200,67 @@ def leftovers(archive: Path) -> dict[str, tuple[bytes, int, int]]:
             st = path.lstat()
             out[name] = (path.read_bytes(), st.st_mode, st.st_mtime_ns)
     return out
+
+
+def bundle_leftover_builder(tmp_path, monkeypatch):
+    """Exercise the leftover decision without building a complete archive."""
+    builder = rarch._Builder.__new__(rarch._Builder)
+    builder.r = SimpleNamespace(job_id="job-lock")
+    notes = []
+    monkeypatch.setattr(builder, "_note", notes.append)
+    monkeypatch.setattr(rarch, "_wall_now", lambda: WALL)
+    temporary = tmp_path / "commits.bundle.tmp"
+    temporary.write_bytes(b"partial bundle")
+    return builder, temporary, notes
+
+
+def test_a_bundle_lock_dated_seventy_years_ahead_is_young(tmp_path, monkeypatch):
+    """R2's witness: clock skew cannot make an unfinished bundle stale."""
+    builder, temporary, notes = bundle_leftover_builder(tmp_path, monkeypatch)
+    lock = temporary.with_name(temporary.name + ".lock")
+    lock.write_bytes(b"unfinished bundle lock")
+    future = WALL + 70 * 365 * 86400
+    os.utime(lock, (future, future))
+    before = leftovers(tmp_path)
+    with pytest.raises(rarch.Defer) as refused:
+        builder._clear_bundle_leftovers(temporary)
+    assert refused.value.reason == "bundle lock in use"
+    assert lock.name in refused.value.detail
+    assert leftovers(tmp_path) == before
+    assert notes == []
+
+
+def test_a_bundle_lock_just_below_the_stale_boundary_reports_a_young_age(tmp_path, monkeypatch, caplog):
+    builder, temporary, notes = bundle_leftover_builder(tmp_path, monkeypatch)
+    lock = temporary.with_name(temporary.name + ".lock")
+    lock.write_bytes(b"unfinished bundle lock")
+    os.utime(lock, (WALL - 599.999, WALL - 599.999))
+    before = leftovers(tmp_path)
+    with caplog.at_level(logging.WARNING, logger=rarch.__name__), pytest.raises(rarch.Defer) as refused:
+        builder._clear_bundle_leftovers(temporary)
+    assert "is 599 s old, under 600 s" in refused.value.detail
+    assert "599 s old" in caplog.text
+    assert leftovers(tmp_path) == before
+    assert notes == []
+
+
+def test_a_stale_folder_shaped_bundle_lock_defers_and_preserves_leftovers(tmp_path, monkeypatch, caplog):
+    builder, temporary, notes = bundle_leftover_builder(tmp_path, monkeypatch)
+    lock = temporary.with_name(temporary.name + ".lock")
+    lock.mkdir()
+    (lock / "unexpected").write_bytes(b"keep this")
+    os.utime(lock, (WALL - 600, WALL - 600))
+    before = lock.stat()
+    with caplog.at_level(logging.WARNING, logger=rarch.__name__), pytest.raises(rarch.Defer) as refused:
+        builder._clear_bundle_leftovers(temporary)
+    assert refused.value.reason == "bundle lock in use"
+    assert f"{lock.name} is a directory" in refused.value.detail
+    assert temporary.read_bytes() == b"partial bundle"
+    assert (lock / "unexpected").read_bytes() == b"keep this"
+    after = lock.stat()
+    assert (after.st_mode, after.st_mtime_ns) == (before.st_mode, before.st_mtime_ns)
+    assert "removes" not in caplog.text
+    assert notes == []
 
 
 @pytest.mark.parametrize("left", ["neither", "tmp", "lock", "both"])

@@ -2162,7 +2162,8 @@ class _Builder:
         the future is young). A younger one raises `Defer` naming the lock,
         its age and size, before anything here is removed. Either way the
         lock's size and age are logged; a removal also goes into the
-        progress notes."""
+        progress notes. A directory at the lock path defers for inspection,
+        preserving it and the temporary bundle."""
         lock = temporary.with_name(temporary.name + ".lock")
         try:
             found = os.lstat(lock)
@@ -2170,13 +2171,18 @@ class _Builder:
             found = None
         if found is not None:
             age = _wall_now() - found.st_mtime
-            stale = age >= self.BUNDLE_LOCK_STALE_S
+            directory = stat.S_ISDIR(found.st_mode)
+            stale = not directory and age >= self.BUNDLE_LOCK_STALE_S
+            age_seconds = int(age)  # never round a young lock up to the stale boundary
             logging.getLogger(__name__).warning(
-                "Retention %s the bundle lock of %s: %d bytes, %.0f s old (removed at %d s)",
-                "removes" if stale else "keeps", self.r.job_id, found.st_size, age, self.BUNDLE_LOCK_STALE_S)
+                "Retention %s the bundle lock of %s: %d bytes, %d s old (removed at %d s)",
+                "removes" if stale else "keeps", self.r.job_id, found.st_size, age_seconds, self.BUNDLE_LOCK_STALE_S)
+            if directory:
+                raise Defer("bundle lock in use", DEFER_BUSY_S,
+                            f"{lock.name} is a directory: inspect it before retrying the bundle")
             if not stale:
                 raise Defer("bundle lock in use", DEFER_BUSY_S,
-                            f"{lock.name} is {age:.0f} s old, under {self.BUNDLE_LOCK_STALE_S} s "
+                            f"{lock.name} is {age_seconds} s old, under {self.BUNDLE_LOCK_STALE_S} s "
                             f"({found.st_size} bytes): a git may still be writing it")
             lock.unlink()                # unlink never follows a link
             self._note({"k": "bundle-lock", "size": found.st_size, "age_s": round(age, 1), "removed_at": _now()})

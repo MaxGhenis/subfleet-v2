@@ -557,13 +557,13 @@ def _delete(op: Callable[..., None], parent: int, name: str, *, parent_inside: b
     """`op` (`os.unlink` or `os.rmdir`) on `name` in the open directory `parent`,
     inside an allocation being removed (D-TMPDIR-ACL1).
 
-    Refused with EACCES or EPERM, the extended ACLs that can refuse it are
-    removed and the call is retried once: the entry's own (deny `delete`),
+    Refused with EACCES or EPERM, only delete-related deny permissions are
+    removed and the call is retried once: the entry's own deny `delete`,
     when it is this user's and, unless a directory, has no other link (one
     elsewhere would change too); and the parent's (deny `delete_child`) when
     `parent_inside` (a directory of the allocation, the tombstone included;
-    never the temp root). Only an ACL that is there is removed, and only after
-    a refusal. Nothing removed: the refusal stands.
+    never the temp root). Other ACL permissions and entries are preserved.
+    Nothing changed: the refusal stands.
     """
     try:
         op(name, dir_fd=parent)
@@ -585,25 +585,26 @@ def _clear_blocking_acls(parent: int, name: str, *, parent_inside: bool) -> bool
         cleared = _clear_entry_acl(parent, name, found)
     if parent_inside:
         try:
-            if os.fstat(parent).st_uid == os.getuid() and rfs.has_extended_acl(parent):
-                rfs.clear_extended_acl(parent)
-                cleared = True
+            if os.fstat(parent).st_uid == os.getuid():
+                cleared = rfs.clear_extended_acl(parent, delete_child=True) or cleared
         except OSError:
             pass
     return cleared
 
 
 def _clear_entry_acl(parent: int, name: str, found: os.stat_result) -> bool:
-    """Remove the extended ACL of the entry `found` (its lstat) at `name`.
+    """Remove deny-delete permissions of entry `found` (its lstat) at `name`.
 
     Opened without following a link (a symlink itself with `O_SYMLINK`), checked
     against `found` through the descriptor, changed through it, so the change
-    reaches nothing else. An entry no open admits (no owner read: 0000, 0200)
+    reaches that inode. A regular file denying read can be opened write-only,
+    without writing or truncation. An entry no open admits (0000, 0200)
     is first set to exactly owner read and write (search too, for a
     directory) by name, never through a symlink (`_empty`'s rule for
     directories): an entry swapped in between can have its mode set that
     way, only if it is this user's, and then fails the check. A socket or a
-    device, which no open admits, keeps its ACL: the refusal stands."""
+    device, which no open admits, keeps its ACL: the refusal stands. The
+    link-count guard cannot exclude a same-user hard link made after fstat."""
     is_dir = stat.S_ISDIR(found.st_mode)
     if is_dir:
         flags = rfs.O_DIR
@@ -619,19 +620,30 @@ def _clear_entry_acl(parent: int, name: str, found: os.stat_result) -> bool:
         except PermissionError as exc:
             if exc.errno != errno.EACCES:
                 return False
-            os.chmod(name, stat.S_IRWXU if is_dir else stat.S_IRUSR | stat.S_IWUSR, dir_fd=parent,
-                     follow_symlinks=False)
-            fd = os.open(name, flags, dir_fd=parent)
+            try:
+                # A deny-read ACL can still admit write-only access. No bytes
+                # are written or truncated; this is the same checked inode.
+                if not stat.S_ISREG(found.st_mode):
+                    raise exc
+                fd = os.open(name, (flags & ~os.O_ACCMODE) | os.O_WRONLY, dir_fd=parent)
+            except PermissionError:
+                os.chmod(name, stat.S_IRWXU if is_dir else stat.S_IRUSR | stat.S_IWUSR, dir_fd=parent,
+                         follow_symlinks=False)
+                try:
+                    fd = os.open(name, flags, dir_fd=parent)
+                except PermissionError:
+                    if not stat.S_ISREG(found.st_mode):
+                        raise
+                    fd = os.open(name, (flags & ~os.O_ACCMODE) | os.O_WRONLY, dir_fd=parent)
     except OSError:
         return False
     try:
         now = os.fstat(fd)
         if ((now.st_dev, now.st_ino, now.st_uid) != (found.st_dev, found.st_ino, found.st_uid)
                 or stat.S_IFMT(now.st_mode) != stat.S_IFMT(found.st_mode)
-                or (not is_dir and now.st_nlink != 1) or not rfs.has_extended_acl(fd)):
+                or (not is_dir and now.st_nlink != 1)):
             return False
-        rfs.clear_extended_acl(fd)
-        return True
+        return rfs.clear_extended_acl(fd)
     except OSError:
         return False
     finally:
@@ -672,8 +684,8 @@ def _empty(top: int, dev: int) -> None:
     `retention_fs.MAX_DEPTH` is refused, as `size()` refuses to measure it, so
     removal holds at most that many descriptors (P3-5). An unlink or rmdir an
     extended ACL refuses (deny `delete` on the entry, deny `delete_child` on
-    its directory) has that ACL removed and is retried once (`_delete`,
-    D-TMPDIR-ACL1); no other entry's ACL is touched.
+    its directory) has only that deny permission removed and is retried once
+    (`_delete`, D-TMPDIR-ACL1); unrelated permissions are preserved.
     """
     def writable(fd: int) -> None:
         if stat.S_IMODE(os.fstat(fd).st_mode) & 0o700 != 0o700:

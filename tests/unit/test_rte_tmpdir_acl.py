@@ -30,6 +30,7 @@ import errno
 import logging
 import os
 import stat
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -205,9 +206,11 @@ def test_only_an_acl_that_refused_an_unlink_is_cleared(restored, monkeypatch):
     blocking_ino = os.lstat(folder / "blocking").st_ino
     cleared, real = [], rfs.clear_extended_acl
 
-    def spy(fd):
-        cleared.append(os.fstat(fd).st_ino)
-        return real(fd)
+    def spy(fd, **kwargs):
+        changed = real(fd, **kwargs)
+        if changed:
+            cleared.append(os.fstat(fd).st_ino)
+        return changed
 
     monkeypatch.setattr(rfs, "clear_extended_acl", spy)
     assert scratch._remove(record) is True
@@ -247,6 +250,63 @@ def test_a_refusal_no_acl_explains_still_defers_and_names_its_errno(restored, mo
     assert scratch.remove(record, subject(), verified_empty=True) is None
     assert scratch.presence(record) == "present"
     assert lines.lines == ["TMPDIR removal deferred for job/a1: PermissionError(EPERM)"], lines.lines
+
+
+def acl_entries(path):
+    listing = subprocess.run(["/bin/ls", "-led", str(path)], check=True, capture_output=True, text=True)
+    return listing.stdout.splitlines()[1:]
+
+
+@pytest.mark.parametrize("pinned", ["entry", "parent"])
+def test_an_immutable_refusal_preserves_unrelated_acls(restored, pinned):
+    """EPERM alone is no evidence that a deny-writeattr ACL blocks delete."""
+    scratch = scratch_in(restored)
+    record = scratch.create("job/a1")
+    directory = Path(record["path"]) / "d"
+    directory.mkdir()
+    entry = directory / "x"
+    entry.write_text("x")
+    locked, harmless = (entry, directory) if pinned == "entry" else (directory, entry)
+    add_acl(harmless, DENY_WRITEATTR)
+    before = acl_entries(harmless)
+    os.chflags(locked, stat.UF_IMMUTABLE)
+    assert scratch._remove(record) is False
+    assert acl_entries(harmless) == before
+
+
+@pytest.mark.parametrize("on_parent", [False, True])
+def test_clearing_delete_denials_preserves_other_permissions_and_entries(restored, on_parent):
+    """A mixed deny ACE loses only its delete bit; unrelated ACEs stay ordered."""
+    directory = restored / "d"
+    directory.mkdir()
+    entry = directory / "x"
+    entry.write_text("x")
+    target = directory if on_parent else entry
+    permission = "delete_child" if on_parent else "delete"
+    add_acl(target, f"everyone deny {permission},writeattr")
+    add_acl(target, "everyone allow read")
+    before = acl_entries(target)
+    fd = os.open(directory, rfs.O_DIR)
+    try:
+        assert attempt_tmp._clear_blocking_acls(fd, "x", parent_inside=on_parent)
+    finally:
+        os.close(fd)
+    after = acl_entries(target)
+    assert len(after) == len(before) == 2
+    assert "deny writeattr" in after[0] and permission not in after[0]
+    assert after[1] == before[1]
+
+
+def test_a_file_whose_acl_denies_read_and_delete_is_removed_in_one_pass(restored):
+    scratch = scratch_in(restored)
+    record = scratch.create("job/a1")
+    entry = Path(record["path"]) / "locked"
+    entry.write_text("synthetic payload")
+    add_acl(entry, "everyone deny read,delete")
+    with pytest.raises(PermissionError):
+        os.open(entry, rfs.O_FILE)
+    assert scratch._remove(record) is True
+    assert scratch.presence(record) == "absent"
 
 
 # --- sweep_unknown: the folder's name, never None ------------------------------------------------
