@@ -19,7 +19,9 @@ The accepted attempt's parsed verdict, level counts, validity and consistency ar
 reported as `review` by `runs --json` and `runs show <id> --json`; readable
 `runs show` prints the verdict and round validity. Invalid formatting does not
 fail the job: callers decide whether to count a round. The format applies with
-every provider and sandbox, including `--no-preamble`.
+every provider and sandbox, including `--no-preamble`, and to a review's resume.
+Gate rounds answer in the gate's sentinel JSON instead and get neither the
+format nor the parse ([acceptance contract](docs/acceptance-contract.md), C-12.11).
 
 Python 3.12+, standard library only. `uv sync --group dev && uv run pytest`.
 
