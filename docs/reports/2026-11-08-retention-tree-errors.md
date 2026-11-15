@@ -8,7 +8,7 @@ Two sessions built this. Both worked on a detached HEAD, because git refuses to 
   - 5169107e0: TMPDIR removal clears a blocking ACL (change 3).
   - 0f846b74f and a8583bee0: tests.
   - d767b2a8b: the first report.
-- **Session 2 (rte-build-r2), 2026-11-14 23:40 UTC to 2026-11-15 02:30 UTC.**
+- **Session 2 (rte-build-r2), 2026-11-14 23:40 UTC to 2026-11-15 02:22 UTC.**
   - 342d95001: merged release/217.
   - 4d97ecf2c: the hub's bundle-lock age ruling.
   - a0e02ffef: the change 4 test.
