@@ -108,7 +108,7 @@ Mutants 1 and 2 ran the whole peers file, the whole person file, and the renderi
 | 2 | `process_chain` strips both ends | `test_the_chain_keeps_the_space_a_root_ends_in`, the veto property; real `ps`: `..._that_ends_the_line` (non-framework only; it is skipped under a framework Python) |
 | 3 | `endswith` | `..._with_another_variable_after_it_is_found`, the veto property; real `ps`: `..._with_a_variable_after_it` (non-framework). Under the framework Python that test failed on a 5 s `ps` timeout, which was load, not a kill. |
 | 4 | `ValueError` escapes `judge` | all 4 unholdable-root person tests (`ValueError` and `UnicodeEncodeError` escape) |
-| 5 | NFC-normalise | `test_ps_text_examples[José]`, `test_ps_text_keeps_nfc_and_nfd_as_their_own_bytes`. Two real-process failures were 5 s `ps` timeouts, which was load. |
+| 5 | NFC-normalise | `test_ps_text_examples[Jose + U+0301]`, `test_ps_text_keeps_nfc_and_nfd_as_their_own_bytes`. Two real-process failures were 5 s `ps` timeouts, which was load. |
 | 6 | 0xA0 in an `M-` form | `test_ps_text_prints_every_byte_as_ps_printed_it` (fixture), 2 `test_ps_text_examples` rows, `test_ps_text_invariants`; real `ps`: both rendering tests. Two person-check failures were timeouts. |
 | 7 | 0x80-0x9F as `M-^X` | the fixture test, the `\udc80…` and NFD example rows; real `ps`: both rendering tests |
 | 8 | `ps_text` keeps a NUL | both `test_ps_text_refuses_a_value_with_a_nul` rows; the person tests' NUL rows (app admitted; `unknown-approval`). The veto property's failure was a Hypothesis "input generation is slow" health check, which was load. |
@@ -164,7 +164,7 @@ Setup:
 Earlier sessions' commands (second session, on 355e295c1's code, which this head shares):
 - the peers file 57 passed (521 s), then 62 passed at its final head;
 - `test_person_boundary.py -k no_environment_can_hold` 4 passed;
-- the census files 32 passed and 1 failed, the failure being a bad test case of the session's own (CPython joins a `􏰀` pair), replaced, then 14 passed;
+- the census files 32 passed and 1 failed, the failure being a bad test case of the session's own (CPython joins a high and a low surrogate written as a pair), replaced, then 14 passed;
 - the rendering file 3 + 1 skipped / 4;
 - a fail-before attempt killed at 560 s (`.......FFFF.`).
 
