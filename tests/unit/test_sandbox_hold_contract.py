@@ -180,7 +180,8 @@ def test_cli_json_condition_refusal_preserves_sandbox_details(monkeypatch, capsy
     class Client:
         def call(self, op, args):
             if op == "capabilities":
-                return {"capabilities": [protocol.TASKS_IF_NOTE_PREFIX_CAPABILITY]}
+                return {"capabilities": [protocol.TASKS_IF_NOTE_PREFIX_CAPABILITY,
+                                         protocol.TASKS_SANDBOX_CAPABILITY]}
             assert op == "tasks" and args["sandbox"] == SANDBOX
             response = protocol.refuse("sandbox-condition", protocol.ProtocolError(
                 "private diagnostic", Exit.REFUSED, reason="task-hold-condition", details={"task_hold": HOLD}))

@@ -2468,6 +2468,19 @@ def cmd_tasks(args: argparse.Namespace) -> int:
         payload["if_note_prefix"] = prefix
     try:
         client = _client(args)
+        if "sandbox" in payload:
+            # D-RO-ADMIT1 (fix r1 of #309): an older daemon drops `sandbox`, sees no task
+            # and refuses "unknown task None". Ask first, so it is sent nothing and the
+            # operator reads why. One swapped for an older daemon after this check still
+            # refuses that way, writing nothing.
+            capability = protocol.TASKS_SANDBOX_CAPABILITY
+            if capability not in _daemon_capabilities(client):
+                if args.json:
+                    emit({"refused": "task-hold-capability", "capability": capability})
+                return fail(Exit.CLI_TOO_OLD,
+                            f"task-hold-capability: tasks {action} --sandbox needs daemon capability "
+                            f"`{capability}`; this daemon does not support sandbox holds",
+                            RESTART_DAEMON)
         try:
             result = client.call("tasks", payload)
         except DaemonError as exc:
@@ -3811,7 +3824,8 @@ def build_parser() -> argparse.ArgumentParser:
                              "other jobs place as before. Conversation turns and jobs with no task are never "
                              "held, and running attempts are never touched. "
                              "Prefixes must have no surrounding spaces. "
-                             "Exit 7: task-hold-condition; exit 6: daemon missing tasks.if_note_prefix.v2. "
+                             "Exit 7: task-hold-condition; exit 6: daemon missing tasks.if_note_prefix.v2, "
+                             "or tasks.sandbox.v1 for --sandbox. "
                              "With --json each refusal is one JSON object on stdout; prose stays on stderr.")
     _add_json(p_tasks)
     p_tasks.set_defaults(handler=cmd_tasks, tasks_command=None)
@@ -3823,7 +3837,8 @@ def build_parser() -> argparse.ArgumentParser:
                                  "and jobs with no task are never held; running attempts are never touched. "
                                  "With --if-note-prefix P, write only if no hold is in force "
                                  "or its note starts with P; --note must also start with P. "
-                                 "Exit 7: task-hold-condition; exit 6: daemon missing tasks.if_note_prefix.v2. "
+                                 "Exit 7: task-hold-condition; exit 6: daemon missing tasks.if_note_prefix.v2, "
+                                 "or tasks.sandbox.v1 for --sandbox. "
                                  "--json refusals are one object on stdout, with prose on stderr.")
     hold_target = t_hold.add_mutually_exclusive_group(required=True)
     hold_target.add_argument("task", nargs="?", help=f"a task the policy routes ({', '.join(TASK_CHOICES)})")
@@ -3838,7 +3853,8 @@ def build_parser() -> argparse.ArgumentParser:
                                     "Conversation turns and jobs with no task are never held; running attempts "
                                     "are never touched. With --if-note-prefix P, delete only if "
                                     "the stored note starts with P, even for an expired hold; no row succeeds. "
-                                    "Exit 7: task-hold-condition; exit 6: daemon missing tasks.if_note_prefix.v2. "
+                                    "Exit 7: task-hold-condition; exit 6: daemon missing tasks.if_note_prefix.v2, "
+                                    "or tasks.sandbox.v1 for --sandbox. "
                                     "--json refusals are one object on stdout, with prose on stderr.")
     release_target = t_release.add_mutually_exclusive_group(required=True)
     release_target.add_argument("task", nargs="?")

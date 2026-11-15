@@ -18,7 +18,11 @@ HOLD_ARGV = ["tasks", "hold", "--sandbox", "workspace-write", "--until", UNTIL,
 RELEASE_ARGV = ["tasks", "release", "--sandbox", "workspace-write"]
 
 
-def client_for(monkeypatch, answer, *, capabilities=()):
+#: What a daemon with sandbox holds advertises (fix r1 of #309).
+SANDBOX_CAPABLE = (protocol.TASKS_SANDBOX_CAPABILITY,)
+
+
+def client_for(monkeypatch, answer, *, capabilities=SANDBOX_CAPABLE):
     calls = []
 
     class Client:
@@ -61,7 +65,7 @@ def test_task_or_supported_sandbox_is_required_before_connecting(monkeypatch, ca
 def test_sandbox_hold_and_release_send_one_explicit_target(monkeypatch, capsys, argv, expected):
     calls = client_for(monkeypatch, {"task_hold": HOLD})
     assert cli.main([*argv, "--json"]) == 0
-    assert calls == [("tasks", expected)]
+    assert calls == [("capabilities", {}), ("tasks", expected)]
     assert json.loads(capsys.readouterr().out) == {"task_hold": HOLD}
 
 
@@ -80,9 +84,9 @@ def test_hold_success_and_both_list_targets_are_named(monkeypatch, capsys):
 def test_sandbox_condition_reuses_note_prefix_capability(monkeypatch, capsys, argv):
     # #304: a conditional call goes as `hold-if`/`release-if`, with no condition preflight.
     calls = client_for(monkeypatch, {"task_hold": HOLD},
-                       capabilities=[protocol.TASKS_IF_NOTE_PREFIX_V2_CAPABILITY])
+                       capabilities=[protocol.TASKS_IF_NOTE_PREFIX_V2_CAPABILITY, *SANDBOX_CAPABLE])
     assert cli.main([*argv, "--if-note-prefix", "disk:", "--json"]) == 0
-    assert [op for op, _ in calls] == ["tasks"]
+    assert [op for op, _ in calls] == ["capabilities", "tasks"]
     assert calls[-1][1]["action"] == f"{argv[1]}-if"
     assert calls[-1][1]["sandbox"] == "workspace-write"
     assert calls[-1][1]["if_note_prefix"] == "disk:"
@@ -91,7 +95,7 @@ def test_sandbox_condition_reuses_note_prefix_capability(monkeypatch, capsys, ar
 
 def test_sandbox_condition_refusal_keeps_structured_target(monkeypatch, capsys):
     error = DaemonError(7, "operator owns this hold", reason="task-hold-condition", details={"task_hold": HOLD})
-    client_for(monkeypatch, error, capabilities=[protocol.TASKS_IF_NOTE_PREFIX_CAPABILITY])
+    client_for(monkeypatch, error, capabilities=[protocol.TASKS_IF_NOTE_PREFIX_CAPABILITY, *SANDBOX_CAPABLE])
     assert cli.main([*RELEASE_ARGV, "--if-note-prefix", "other:", "--json"]) == 7
     captured = capsys.readouterr()
     assert json.loads(captured.out) == {"refused": "task-hold-condition", "task_hold": HOLD}
