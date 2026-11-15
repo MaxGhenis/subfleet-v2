@@ -7571,6 +7571,37 @@ class Daemon:
             self._capacity_waits[job_id] = {**wait, "checked_at": utcnow(), "label": hold["reason"], "hold": dict(hold),
                                             "lane_wait": False}
 
+    def _clip_carried_clock(self, job: dict, carried: str | None, holds: dict[str, dict],
+                            reason: str) -> tuple[bool, str | None]:
+        """C-6.10: a look that ends in a wait that is not event-only keeps no clock past 30 s.
+
+        A look that sets no clock of its own (`probe-pending` with no probe reserved,
+        `route-moved`) leaves its job the clock it `carried`. A look brought forward
+        (capacity news, a probe's turn, an older job gone) carries a clock still
+        ahead, and that may be the 600 s one only an event-only verdict earns
+        (`scheduler.capacity_recheck_ceiling`). This look's wait is not one, and
+        nothing need bring the job forward again: a detached pass leaves probes'
+        leases out of its census, and a probe hold with no `behind` has no turn to
+        come (review r2 of #301: the slot taken between evaluation and reservation
+        left a released job on its old 600 s clock). So the clock is clipped to the
+        30 s ceiling from now, the furthest a carried clock reached before 600 s
+        clocks existed. A sooner clock is kept as it is, and costs no write, so
+        every clock the old rule could carry is unchanged.
+
+        (whether a task hold took the job instead, C-11.10's R3-1; the job's clock).
+        """
+        ceiling = after(CAPACITY_RECHECK_CEILING_S)
+        if not carried or carried <= ceiling:
+            return False, carried
+        with self.store.transaction("job.capacity_clock_clipped", job_id=job["job_id"],
+                                    data={"hold": reason, "carried": carried, "next_check_at": ceiling}) as tx:
+            if self._task_held_at_write(tx, job, holds) is not None:      # C-11.10 (R3-1)
+                return True, None
+            tx.execute("UPDATE jobs SET next_check_at=? WHERE job_id=? AND state='waiting' "
+                       "AND wait_reason='capacity' AND cancel_requested_at IS NULL AND next_check_at>?",
+                       (ceiling, job["job_id"], ceiling))
+        return False, ceiling
+
     @staticmethod
     def _turn_fences(read: Callable, folder: str, absent: OSError | None,
                      run_folder: str | None, run_absent: OSError | None) -> tuple[list[str], str]:
@@ -8565,7 +8596,13 @@ class Daemon:
                         continue
                     hold["next_check_at"] = next_check
                 elif clocked:
-                    hold.setdefault("next_check_at", current["next_check_at"])
+                    if "next_check_at" not in hold:
+                        # No probe set it: the clock the job carried here, which a
+                        # look brought forward may have from an event-only verdict.
+                        taken, hold["next_check_at"] = self._clip_carried_clock(
+                            job, current["next_check_at"], holds, "probe-pending")
+                        if taken:
+                            continue
                     self._refresh_hold(job["job_id"], hold)
                 wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
                 holds[job["job_id"]] = hold
@@ -9112,6 +9149,10 @@ class Daemon:
                 # jobs it competes with wait behind it (C-6.9), and the next pass,
                 # which follows this one at once, looks at it again.
                 self._count_route(deferred=1)
+                # C-6.10: a moved route is no event-only verdict, and it sets no clock:
+                # a job brought forward keeps at most 30 s of the one it carried.
+                if self._clip_carried_clock(job, job["next_check_at"], holds, "route-moved")[0]:
+                    continue
                 # C-11.8: never from a decision with rotation's lanes left out, which read
                 # `excluded`, a standing refusal they are not (review of #153 r2, P3-B).
                 moved_for_good = None if rotation else scheduler.refused_for_good(
