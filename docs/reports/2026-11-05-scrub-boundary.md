@@ -591,8 +591,8 @@ All tests are in `tests/unit/test_sessions_handoff_excerpts.py`.
 ### Mutant
 
 Each mutant changed one line of a copy of `handoff.py` in the job's scratch folder; the worktree's file
-was never touched. Its killers ran against that copy, and a probe test confirmed the copy's `subfleet`
-was the one imported.
+was never touched. Its killers ran against that copy. A probe test placed in one copy (m3) confirmed
+that its `subfleet` was the one imported; the others ran the same way.
 
 | Mutant | Change | Killed by |
 |---|---|---|
