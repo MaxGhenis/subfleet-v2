@@ -3842,7 +3842,7 @@ def build_parser() -> argparse.ArgumentParser:
                                  "--json refusals are one object on stdout, with prose on stderr.")
     hold_target = t_hold.add_mutually_exclusive_group(required=True)
     hold_target.add_argument("task", nargs="?", help=f"a task the policy routes ({', '.join(TASK_CHOICES)})")
-    hold_target.add_argument("--sandbox", choices=("workspace-write",), help="hold jobs with this stored sandbox")
+    hold_target.add_argument("--sandbox", choices=("workspace-write",), help="hold detached jobs that have a task and this stored sandbox")
     t_hold.add_argument("--until", help="ISO 8601 instant; no zone is UTC")
     t_hold.add_argument("--note", help=f"required: why, one line of at most {task_holds.NOTE_MAX} characters")
     t_hold.add_argument("--if-note-prefix", metavar="P", help="case-sensitive note prefix; no surrounding spaces; "
