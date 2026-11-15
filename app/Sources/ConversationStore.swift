@@ -439,9 +439,20 @@ func makeServedChip(for turn: TurnTimeline, provider: String, laneLabels: [Strin
 // MARK: - Notifications
 
 struct NotificationIntent: Identifiable, Equatable {
-    enum Kind: String {
+    enum Kind: String, CaseIterable {
         case completed, failed, approval
         case deliveryUnknown = "delivery-unknown"
+
+        /// How a request identifier of this kind begins: `approval:<seq>`, `complete:<message>`.
+        var idPrefix: String { self == .completed ? "complete" : rawValue }
+
+        /// The kind a request identifier names, for a notification whose
+        /// userInfo does not say (one posted before userInfo carried `kind`).
+        init?(requestID: String) {
+            guard let colon = requestID.firstIndex(of: ":"),
+                  let kind = Kind.allCases.first(where: { $0.idPrefix == requestID[..<colon] }) else { return nil }
+            self = kind
+        }
     }
     var id: String
     var kind: Kind
@@ -449,6 +460,105 @@ struct NotificationIntent: Identifiable, Equatable {
     var messageID: String?
     var title: String
     var body: String
+
+    /// What the posted notification carries so its click finds its way back
+    /// (`NotificationTarget`).
+    var userInfo: [String: String] { ["conversation_id": conversationID, "kind": kind.rawValue] }
+}
+
+extension NotificationIntent {
+    /// One notification per event (an approval by its feed row, a message's
+    /// state by the message), however often the feed repeats it.
+    init(kind: Kind, subject: String, conversationID: String, messageID: String?, title: String, body: String) {
+        self.init(id: "\(kind.idPrefix):\(subject)", kind: kind, conversationID: conversationID, messageID: messageID,
+                  title: title, body: body)
+    }
+}
+
+/// Where a clicked notification takes the person (C-29.9): the main window on
+/// its conversation, and for an approval that conversation's oldest waiting
+/// card (C-27.5).
+struct NotificationTarget: Equatable {
+    var conversationID: String
+    /// Nil when the notification names no kind this build knows.
+    var kind: NotificationIntent.Kind?
+
+    /// Read back from a delivered notification; nil when it names no
+    /// conversation. `kind` comes from the userInfo, or else from the request
+    /// identifier (a notification an earlier build posted carries only
+    /// `conversation_id`).
+    init?(requestID: String, userInfo: [AnyHashable: Any]) {
+        guard let conversationID = userInfo["conversation_id"] as? String, !conversationID.isEmpty else { return nil }
+        self.conversationID = conversationID
+        kind = (userInfo["kind"] as? String).flatMap(NotificationIntent.Kind.init(rawValue:))
+            ?? NotificationIntent.Kind(requestID: requestID)
+    }
+
+    /// An approval's click also brings the conversation's oldest waiting card
+    /// into view (`UIModel.approvalReveal`).
+    var revealsApproval: Bool { kind == .approval }
+
+    /// What the click opens, given the conversation's pending approvals as the
+    /// feed last reported them: a card is revealed only while one waits, since
+    /// a notification outlives the approval it announced.
+    func opening(pendingApprovals: Int) -> NotificationOpening {
+        NotificationOpening(conversationID: conversationID, revealsCard: revealsApproval && pendingApprovals > 0)
+    }
+
+    /// Whether it shows when it arrives while the app is frontmost. It was
+    /// posted because its conversation was not on screen (D-24): another
+    /// conversation, for which the window shows at most a sidebar badge (a
+    /// count of waiting approvals, a turn no longer running), or the focused
+    /// one while the app was inactive, the main window closed, miniaturized,
+    /// covered or not key, or its display asleep. It shows
+    /// as it would with the app in the background, unless its conversation is
+    /// on screen by now (`ConversationStoreState.onScreenConversationID`).
+    func showsWhileFrontmost(onScreenConversationID: String?) -> Bool {
+        conversationID != onScreenConversationID
+    }
+}
+
+/// What a click opens: the conversation to focus, and whether to bring its
+/// oldest waiting card into view.
+struct NotificationOpening: Equatable {
+    var conversationID: String
+    var revealsCard: Bool
+}
+
+/// Clicks in the order they come (C-29.9). One that comes before the app has
+/// its first conversation list and feed baseline is held until then: before
+/// it the daemon may not answer an open, and the baseline, when it lands,
+/// replaces the state, focus included. A held click is dropped if the person
+/// has gone somewhere since it came (`navigation`, which moves with every
+/// navigation, as for an open that answers late) or started a conversation
+/// (`drop`), and a later click replaces it.
+struct NotificationClicks: Equatable {
+    private(set) var held: NotificationTarget?
+    private var heldAt = 0
+
+    /// A click now: what to open, or nil while it is held for the baseline.
+    mutating func click(_ target: NotificationTarget, baselined: Bool, navigation: Int,
+                        pendingApprovals: [String: Int]) -> NotificationOpening? {
+        guard baselined else {
+            held = target
+            heldAt = navigation
+            return nil
+        }
+        held = nil
+        return target.opening(pendingApprovals: pendingApprovals[target.conversationID] ?? 0)
+    }
+
+    /// The person acted in a way `navigation` does not count (started a
+    /// conversation): a held click no longer decides what opens.
+    mutating func drop() { held = nil }
+
+    /// The baseline has landed: the held click to open, if the person has not
+    /// gone elsewhere since it came.
+    mutating func baselineLanded(navigation: Int, pendingApprovals: [String: Int]) -> NotificationOpening? {
+        defer { held = nil }
+        guard let held, heldAt == navigation else { return nil }
+        return held.opening(pendingApprovals: pendingApprovals[held.conversationID] ?? 0)
+    }
 }
 
 // MARK: - State
@@ -462,14 +572,28 @@ struct ConversationStoreState: Equatable {
     /// Policy defaults published by `models.list`, never inferred from catalog order.
     var modelDefaults: [String: String] = [:]
     var focusedConversationID: String?
+    /// Whether the focused conversation is on screen: the app is active, its
+    /// main window is visible (not closed, miniaturized or covered) and holds
+    /// the key window, and the displays are awake. UIModel keeps it from AppKit. The focus stays set while the app is in the
+    /// background or its window is closed, so it alone does not say what the
+    /// person can see (D-24). False until UIModel says otherwise: a conversation
+    /// not known to be on screen notifies.
+    var focusedOnScreen = false
     var timelines: [String: Timeline] = [:]
     /// Pending approvals per conversation: from `conversation.list`, then the watch feed.
     var pendingApprovals: [String: Int] = [:]
+    /// Pending approvals per conversation as the feed last reported them. An
+    /// approval is announced when the feed's count rises over this, never over
+    /// `pendingApprovals`, which `conversation.list` and `approval.list` answers
+    /// also write: one of those landing before the feed's row would hide the
+    /// rise. At the baseline a conversation the feed has not reported starts from
+    /// the count the list gave (`markBaselined`).
+    private(set) var feedPendingApprovals: [String: Int] = [:]
     var watchCursor = 0
     /// Live messages per conversation, from the watch feed (read from seq 0 at launch).
     var liveMessages: [String: Set<String>] = [:]
-    /// The first drain of the watch feed after launch posts nothing.
-    var watchBaselined = false
+    /// The first drain of the watch feed after launch posts nothing (`markBaselined`).
+    private(set) var watchBaselined = false
     var notifications: [NotificationIntent] = []
     private(set) var notified: Set<String> = []
     var searchQuery = ""
@@ -489,6 +613,9 @@ struct ConversationStoreState: Equatable {
 
     var focusedConversation: Conversation? { focusedConversationID.flatMap(conversation) }
     var focusedTimeline: Timeline? { focusedConversationID.flatMap { timelines[$0] } }
+    /// The conversation the person can see now: the focused one while it is on
+    /// screen. Every other conversation notifies (D-24).
+    var onScreenConversationID: String? { focusedOnScreen ? focusedConversationID : nil }
 
     func conversation(_ id: String) -> Conversation? { conversations.first { $0.conversation_id == id } }
 
@@ -693,7 +820,8 @@ struct ConversationStoreState: Equatable {
     }
 
     /// The global change feed (D-24): approval counts, message states, and
-    /// notifications for conversations that are not focused.
+    /// notifications for conversations that are not on screen, once the feed
+    /// has its baseline.
     @discardableResult
     mutating func apply(watch page: WatchPage) -> WatchResult {
         if page.superseded == true { return .superseded }
@@ -707,7 +835,8 @@ struct ConversationStoreState: Equatable {
                 continue
             }
             let cid = change.conversation_id
-            let before = pendingApprovals[cid] ?? 0
+            let before = feedPendingApprovals[cid] ?? 0
+            feedPendingApprovals[cid] = change.pending_approvals
             pendingApprovals[cid] = change.pending_approvals
             if let mid = change.message_id, let state = change.state.flatMap(MessageState.init(rawValue:)) {
                 if MessageState.live.contains(state) { liveMessages[cid, default: []].insert(mid) }
@@ -737,34 +866,44 @@ struct ConversationStoreState: Equatable {
                                                 state_reason: change.state_reason, steered_into: change.steered_into))
                 timelines[cid] = timeline
             }
-            if watchBaselined && cid != focusedConversationID {
+            if watchBaselined && cid != onScreenConversationID {
                 notify(change, pendingBefore: before)
             }
             watchCursor = max(watchCursor, change.seq)
         }
         watchCursor = max(watchCursor, page.next)
-        if page.changes.isEmpty { watchBaselined = true }
+        if page.changes.isEmpty { markBaselined() }
         return .applied(applied)
+    }
+
+    /// The feed has its baseline: what it reports from now on is news. A
+    /// conversation it has not reported yet starts from the list's count, so its
+    /// first row announces an approval only if the count rose past that.
+    mutating func markBaselined() {
+        guard !watchBaselined else { return }
+        watchBaselined = true
+        for (cid, count) in pendingApprovals where feedPendingApprovals[cid] == nil {
+            feedPendingApprovals[cid] = count
+        }
     }
 
     private mutating func notify(_ change: ConversationChange, pendingBefore: Int) {
         let title = conversation(change.conversation_id).map(conversationTitle) ?? change.conversation_id
         var intent: NotificationIntent?
         if change.pending_approvals > pendingBefore {
-            intent = NotificationIntent(id: "approval:\(change.seq)", kind: .approval, conversationID: change.conversation_id,
+            intent = NotificationIntent(kind: .approval, subject: "\(change.seq)", conversationID: change.conversation_id,
                                         messageID: change.message_id, title: "Approval needed", body: title)
         } else if let mid = change.message_id, let state = change.state.flatMap(MessageState.init(rawValue:)) {
             switch state {
             case .complete:
-                intent = NotificationIntent(id: "complete:\(mid)", kind: .completed, conversationID: change.conversation_id,
+                intent = NotificationIntent(kind: .completed, subject: mid, conversationID: change.conversation_id,
                                             messageID: mid, title: "Turn completed", body: title)
             case .failed:
-                intent = NotificationIntent(id: "failed:\(mid)", kind: .failed, conversationID: change.conversation_id,
+                intent = NotificationIntent(kind: .failed, subject: mid, conversationID: change.conversation_id,
                                             messageID: mid, title: "Turn failed", body: title)
             case .deliveryUnknown:
-                intent = NotificationIntent(id: "delivery-unknown:\(mid)", kind: .deliveryUnknown,
-                                            conversationID: change.conversation_id, messageID: mid,
-                                            title: "Delivery unknown", body: title)
+                intent = NotificationIntent(kind: .deliveryUnknown, subject: mid, conversationID: change.conversation_id,
+                                            messageID: mid, title: "Delivery unknown", body: title)
             default:
                 // A steered message settles inside its host's turn, whose completion
                 // is the one notification (C-24.9): `steering` and `steered` post nothing.
