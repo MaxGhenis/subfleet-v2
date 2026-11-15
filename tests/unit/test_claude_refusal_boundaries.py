@@ -438,6 +438,70 @@ def test_log_scrubs_a_password_whose_label_is_outside_excerpt(tmp_path):
     assert f"no words: {claude.SCRUBBED_AWAY}" in logged
 
 
+def test_scrubbed_never_sends_over_budget_text_to_whole_mode(monkeypatch):
+    """C-23.14: count the input to the scrub, without a wall-clock assertion."""
+    from subfleet.sessions import handoff
+
+    calls = []
+
+    def scrub(text, *, whole=False):
+        calls.append((len(text), whole))
+        return "clean", 0
+
+    monkeypatch.setattr(handoff, "scrub_secrets", scrub)
+    for size in (4096, handoff.MAX_SCRUB_CHARS + 1, 1_048_576):
+        assert claude._scrubbed("x" * size) == "clean"
+        length, whole = calls[-1]
+        assert not whole or length <= handoff.MAX_SCRUB_CHARS
+    assert len(calls) == 3
+    assert calls[0] == (4096, True)
+
+
+def test_a_match_lost_to_the_scrub_budget_is_not_quoted():
+    """A raw match still refuses, but a discarded middle supplies no quote."""
+    from subfleet.sessions.handoff import MAX_SCRUB_CHARS
+
+    padding = "ordinary diagnostic\n" * (MAX_SCRUB_CHARS // 20)
+    text = padding + "organization has disabled\n" + padding
+    match = ORG_BLOCK_RE.search(text)
+    assert match is not None and len(text) > MAX_SCRUB_CHARS
+    assert claude._quoted(text, match) == claude.SCRUBBED_AWAY
+    assert claude._first_auth_phrase(text) is None
+    refusal = _subscription_refusal(text, parse_stream(""))
+    assert refusal is not None and refusal.source == "text" and refusal.line is None
+    assert claude.SCRUBBED_AWAY in refusal.statement()
+
+
+@pytest.mark.parametrize("where", ("frame", "provider-error"))
+def test_a_discarded_refusal_never_quotes_the_cut_marker(where):
+    """The safe cut's synthetic omission marker is never Claude's evidence."""
+    words = "reworded diagnostic " * 1000
+    stdout = _stream(cli_frame(words if where == "frame" else "", "oauth_org_not_allowed"),
+                     result(words if where == "provider-error" else "", is_error=True))
+    refusal = _subscription_refusal(cli_corpus(stdout, ""), parse_stream(stdout))
+    assert refusal is not None and refusal.source == "error-kind"
+    assert refusal.line is None
+    assert "characters omitted" not in refusal.statement()
+
+
+@pytest.mark.parametrize(("phrase", "expected"), (
+    pytest.param("Update Claude Code to use this model", OutcomeClass.CLI_TOO_OLD,
+                 id="cli-too-old"),
+    pytest.param("HTTP 401 Unauthorized", OutcomeClass.AUTH_DEAD, id="no-init-401"),
+    pytest.param("out of usage credits", OutcomeClass.LIMITED, id="credits"),
+    pytest.param("hit your limit", OutcomeClass.LIMITED, id="limit"),
+    pytest.param("service unavailable", OutcomeClass.TRANSIENT, id="transient"),
+))
+def test_classify_quote_scrubs_a_password_before_excerpt(phrase, expected, tmp_path):
+    """Review r2 F3: each quote site must scrub a label 600 characters ahead."""
+    stderr = 'password="' + "a" * 600 + phrase + " " + SECRET + "b" * 600 + '"'
+    outcome = classify(tmp_path / "attempt", "", stderr)
+    assert outcome.cls is expected
+    assert claude.SCRUBBED_AWAY in outcome.detail
+    assert SECRET[:4] not in outcome.detail
+    assert SECRET[:4] not in json.dumps(outcome.evidence)
+
+
 @pytest.mark.parametrize("words", (48, 51, 52, 54, 120))
 def test_log_scrubs_a_password_whose_label_follows_the_marker(words, tmp_path):
     """The label after the words that matched: the excerpt's cut at 300 characters

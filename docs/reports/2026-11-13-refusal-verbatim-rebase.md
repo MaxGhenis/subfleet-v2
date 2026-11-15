@@ -273,3 +273,99 @@ Runs 1-5 and m1-m3, m5 and m6 finished. M4 did not finish; its unfinished mutant
 It is left in place. `$TMPDIR/uv-cache` is shared and also left in place. Outside the scratch folder I created only the empty file and the probe's temporary folders listed under Deviations; both are gone.
 
 Head built: the commit that adds this section (its parent is `cdcda5ac8`).
+
+## Fix round 2
+
+Started 2026-11-15 20:53:39 UTC (`date -u`, the first command), from `0835c2f06bfcef7a1b168f77da4676daa436cf25`. Finished: 2026-11-15 22:15:13 UTC. The review, this report, C-9.3/C-23.14 and `gh pr view 104 --repo MaxGhenis/subfleet-v2` were read before editing.
+
+**F1 (P2): unbounded whole-text scrubbing.** `_scrubbed` passed every source to `scrub_secrets(..., whole=True)`, including unbounded enrolment stderr. Merely switching to bounded mode past 262,144 characters left the 200 KB slowdown. It now uses the existing `cut_whole` to retain safe whole head/tail lines within 4,096 characters before scrubbing, and enables whole mode only within `MAX_SCRUB_CHARS`. The cut preserves credential context, including quoted values spanning lines. Its synthetic omission marker is removed, retaining a line break, before any signature or quote search. Raw text still decides classification; a lost match supplies `SCRUBBED_AWAY` (or no quoted refusal line). A long single line can therefore supply no quote. C-9.3 and its dated change-log line describe this tighter quote-context budget; C-23.14 is unchanged.
+
+- `test_scrubbed_never_sends_over_budget_text_to_whole_mode` counts scrub input lengths/modes at the quote budget, `MAX_SCRUB_CHARS + 1`, and 1 MB; it has no wall-clock assertion. Against the original helper it fails on `(262145, True)`.
+- `test_a_match_lost_to_the_scrub_budget_is_not_quoted` checks `_quoted`, `_first_auth_phrase` and `_subscription_refusal`: a discarded middle still refuses without quoting it. It fails against the original helper, which quotes the match.
+- Two `test_a_discarded_refusal_never_quotes_the_cut_marker` cases cover a stamped frame and provider-error text. Both failed before marker removal by quoting `… [20,000 characters omitted] …`; both pass after it. This edge case was caught during this fix's code review.
+
+**F3 (P3): untested classify quote sites.** Five cases of `test_classify_quote_scrubs_a_password_before_excerpt` cover cli-too-old, no-init 401, credits, limit and transient. Each uses a made-up password value with its label 600 characters before the signature, checks the outcome class and excludes the value from detail/evidence. All five fail with `_scrubbed = lambda text: text`, and pass with the fix. The mutation tool's scrub anchor was updated; all 29 anchors apply exactly once.
+
+**F2 (P3): PR-body corrections for the hub.** The PR body was read, not edited. Every stale claim named by F2 is addressed here:
+
+1. The merged release/217 base is `a4aded885`, not `bd97bb156`.
+2. The displayed `enroll()` exception/fix is not the client reply. Enrolment raises exit 5 with the full statement, `ORG_BLOCK_CAUSES`, reason `claude-subscription-refused` and details checked by the wire renderer. The client receives that reason's closed template; the full statement is scrubbed into daemon.log.
+3. `_provider_error_texts` takes result `errors`, error-result text, and assistant text only when the frame has an error and passes `cli_placeholder`; arbitrary error-stamped model prose is excluded.
+4. The quote invariant applies to retained, scrubbed source text, not unconditional raw verbatim text. A match removed by scrubbing or the safe context cut is not quoted; `SCRUBBED_AWAY` explains a lost text match.
+5. The tool contains 29 mutations, not 17. Fix r1 reported 29/29 killed. This round checked all 29 anchors and killed the identity mutant with all five new quote cases; it did not rerun all 29 mutations.
+6. The body must mention the new reason, scrub and wire template: the checked recorded sentence, a checked `AUTH_ERROR_KINDS` kind, both, or neither determine its four forms. Every form uses the neutral two-cause fix, without choosing a cause or promising re-enrolment succeeds.
+
+### Timings
+
+The probe loads the original head (`0835c2f06`), base (`a4aded885`) and final fix as separate adapter modules, then runs each head/base/fix triple back to back against identical scratch-only attempts. Stderr is the failure phrase on its first line followed by ordinary diagnostic lines, exactly 200,000 or 1,000,000 bytes. Identity is unclaimed and projects/transcripts point only into scratch. Each call records `uptime` before and after. Times below are seconds; the two repeated 200 KB branches use seven-triple medians to reduce scheduling noise.
+
+| Stderr | Case | Head | Base | Fix | Fix/base | Runs | Uptime 1-minute load range |
+|---|---|---:|---:|---:|---:|---:|---:|
+| 200,000 B | no-init-401 | 3.6786 | 0.0841 | 0.1887 | 2.24× | 7 triples | 57.96–101.35 |
+| 200,000 B | credits | 4.1061 | 0.3690 | 0.6777 | 1.84× | 7 triples | 55.08–101.93 |
+| 200,000 B | transient | 3.7440 | 0.2088 | 0.3746 | 1.79× | 1 triple | 82.27–82.27 |
+| 1,000,000 B | no-init-401 | 16.5051 | 1.2500 | 1.0238 | 0.82× | 1 triple | 65.84–69.49 |
+| 1,000,000 B | credits | 20.0966 | 2.3050 | 2.9027 | 1.26× | 1 triple | 51.63–55.08 |
+| 1,000,000 B | transient | 23.7921 | 4.1151 | 5.2862 | 1.28× | 1 triple | 37.33–40.05 |
+
+The largest median ratio is 2.24× (200 KB no-init 401); its CPU-time medians are 0.0106 s base and 0.0174 s fix (1.64×). Individual wall-clock measurements vary with host load; every final measurement is retained in the raw logs. No wall-clock assertion was added. Raw logs, including all three `uptime` load averages, are `S/timings-4096-all.jsonl` and `S/timings-4096-200k.jsonl`; the harnesses are `S/timing_probe.py` and `S/timing_200k_repeat.py`.
+
+The initial size guard alone measured 7.9925 s fix versus 0.3665 s base at 200 KB/no-init 401. An 8 KB trial still showed unstable fast-branch ratios. A seven-cycle base/8 KB/4 KB comparison measured median CPU times 0.0160/0.0276/0.0205 s. This justified the final 4 KB context budget.
+
+### Commands and tests
+
+`S` below is `/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-143406-rv-fix-r2-a2-cu12ld_3/sf-rv-fix2`. Runs use `TMPDIR=S`, `UV_CACHE_DIR=S/uv-cache`, `uv run --no-sync --with 'pytest-xdist>=3.6' python -m pytest -q -p no:cacheprovider`, at most `-n 4`, and a distinct `--basetemp=S/pytest-<run>`. Later runs add `-p sf_rv_pytest` from scratch; that plugin redirects failed-state retention to scratch, forces `SUBFLEET_LIVE=0`, and skips commands this brief forbids. Hypothesis storage is also in scratch.
+
+| Command / run (all basetemps distinct) | Result |
+|---|---|
+| `mkdir` at the requested system-temp scratch, before `uv sync` | Denied (exit 1); sync did not run |
+| `uv sync --group dev --cache-dir=S/uv-cache` | Passed; CPython 3.15.2, 9 packages installed |
+| Refusal boundaries, `-k 'never_sends_over_budget or match_lost_to'`, original helper | 2 failed, 27 deselected, 173.51 s (expected red) |
+| `uv run --no-sync --with 'pytest-xdist>=3.6' python S/identity.py` | All five F3 sites failed, 24 deselected, 70.14 s (expected red) |
+| Both refusal files, size-guard-only fix, `-n 4` | 56 passed, 163.57 s |
+| Both refusal files, initial safe-context fix, `-n 4` | 56 passed, 195.58 s |
+| `python S/budget_before_final.py` (original helper injected in process) | Both F1 tests failed, 27 deselected, 39.04 s (expected red) |
+| Refusal boundaries, `-k discarded_refusal`, before marker removal | 2 failed, 29 deselected, 10.32 s (expected red) |
+| Both refusal files, marker removed / 8 KB context, `-n 4` | 58 passed, 77.96 s |
+| Importers, first attempt | Interrupted to add marker fix; 103 passed, no failures, 243.32 s; exit 130 |
+| Importers, second attempt | Interrupted to tighten context budget; 844 passed, no failures, 341.43 s; exit 130 |
+| Both refusal files, final 4 KB context, `-n 4` | 58 passed, 74.95 s |
+| Final 45-file importer run, `-n 4` | 3,348 passed, 77 skipped, 1,814.74 s; exit 0 |
+| Required last group: `tests/fake/test_state_contract.py tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py tests/unit/test_handler_refusals.py`, `-n 4` | 435 passed, 115.68 s; exit 0 |
+
+The two refusal files are `tests/unit/test_claude_refusal_boundaries.py tests/unit/test_claude_subscription_refusal.py`. The importers run reads `S/importers.txt` as explicit pytest arguments. Final new/changed tests preceded the final importer run, which preceded the required last group.
+
+All timing commands were `uv run --no-sync python S/<script>` (exit 0): `timing_probe.py` ran the six-case grid for the size-only fix, the 8 KB fix, the marker fix, and final 4 KB fix (18 classify calls each); `timing_noinit_repeat.py` ran three 1 MB/no-init triples (9 calls); `timing_budget_choice.py` ran seven base/8 KB/4 KB cycles (21 calls); `timing_200k_repeat.py` ran seven triples for each fast 200 KB branch at 8 KB and again at 4 KB (42 calls per run). `uptime` was recorded throughout. Preliminary results led to the documented refinements; final results are above.
+
+Read-only inspection used `cat`/`sed`/`rg`, `git grep -l`, `git show`, `git status`, `git diff`, `git rev-parse`, and `gh pr view`; successful reads found the paths and behavior described above. `git diff --check` passed. A `runpy.run_path('tools/refusal_mutations.py')` anchor-count check passed for all 29 mutations. The importer search used `git grep -l -E 'subfleet\.adapters\.claude([[:space:].]|$)|from subfleet\.adapters import ([^(]*[[:space:],])?claude([[:space:],]|$)' -- tests`; 45 runnable test files were included, with three helper modules excluded. An AST cross-check found all 44 normal direct-import test files, plus one grep match importing the adapter inside child-Python source. `tests/bin/claude` was only a comment match. No whole suite, live probe, alternate Python version, full mutation run, merge, push, or PR-body write ran; CI owns the whole suite.
+
+### Deviations, commits and cleanup
+
+- The mandated `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"` resolved to `/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/`, where this sandbox denied `mkdir sf-rv-fix2`. The permitted job-temp subdirectory `S` was used for scratch, temporary allocation, uv cache and basetemps instead. The successful setup command was `uv sync --group dev --cache-dir=S/uv-cache`.
+- Named-file `git add` and `git commit` were attempted after the regression step, bounded-code step, marker step, final-budget step and report step. Each was denied creating `/Users/maxghenis/subfleet-v2/.git/worktrees/20261115-143406-rv-fix-r2/index.lock` (exit 128). No history was rewritten; HEAD remains the starting head, with the five-file patch left for the hub to collect.
+- I mistakenly started `find .. -name AGENTS.md`, outside the permitted search scope. It was interrupted (130) before producing output; it did not read file contents. An earlier slow `git status` command was also interrupted (130). Later searches stayed inside the worktree, repository objects and scratch. A source search naming three guessed nonexistent helper paths returned exit 2; the actual helper was then read in the worktree.
+- Initial pytest sessions used the repository's existing `pytest_sessionstart`, which calls `tests.failed_keep.prune()` on `/tmp/sf-failed`. This can list global retained-test directories and probe stale process IDs. That path was not inspected afterward, so whether it existed or was traversed is unknown. Subsequent sessions loaded the scratch plugin in controller and workers to redirect retention into `S/failed-keeps` before session startup. No live-process census was deliberately run.
+- The 77 skipped cases include existing skip gates and the explicit exclusions below. The importer run skips actual forbidden command executions: five write-executing functions in `test_review_publish_guard.py`, the `allowed=False` parameters of `test_review_gh_write_denied_reads_reach_fake`, and `test_live_store_guard_round6.py::test_probes_detect_a_launch_that_is_not_refused` (a temporary `security` executable). Pure command-classifier tests remain enabled. The four live Claude cases are disabled by `SUBFLEET_LIVE=0`. No Claude CLI, real credential helper, `launchctl`, gh write command or git push ran.
+- Two importer attempts were interrupted when this fix changed, then restarted after the final refusal tests; their partial counts are recorded above. The source mutant was injected only in process; no test ran against a mutated worktree file. All new values are made up.
+
+Outside scratch, the job generated the following directories (relative to `/Users/maxghenis/.subfleet/worktrees/20261115-143406-rv-fix-r2`):
+
+- `.hypothesis`
+- `.venv`
+- `subfleet/__pycache__`
+- `subfleet/adapters/__pycache__`
+- `subfleet/conversations/__pycache__`
+- `subfleet/gate/__pycache__`
+- `subfleet/guard/__pycache__`
+- `subfleet/sessions/__pycache__`
+- `tests/__pycache__`
+- `tests/e2e/__pycache__`
+- `tests/fake/__pycache__`
+- `tests/fixtures/__pycache__`
+- `tests/live/__pycache__`
+- `tests/process/__pycache__`
+- `tests/unit/__pycache__`
+
+Each was recorded here before cleanup, moved into `S/sf-rv-fix2-cleanup/`, then deleted with `shutil.rmtree` guarded by `assert "sf-rv-fix2" in str(path)`. `python3 S/cleanup.py` recorded and removed 15 generated directories. No pre-existing uncommitted files were removed. Scratch and its uv cache remain inside the permitted job temporary directory.
+
+Head built: 0835c2f06bfcef7a1b168f77da4676daa436cf25

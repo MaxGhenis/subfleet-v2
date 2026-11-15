@@ -53,8 +53,13 @@ FIX = ('CLAUDE_REFUSAL_CAUSES = (\n'
 TEMPLATE = "    \"claude-subscription-refused\": ('claude: Claude Code refused subscription access for this account: '\n"
 CHECK = "    if type(value) is not str:\n        return False\n    choices = _choices()\n"
 FIRST = "    for message in summary.assistants:\n" + STAMPED
-SCRUB = ("    from ..sessions.handoff import scrub_secrets\n"
-         "    return scrub_secrets(text, whole=True)[0]\n")
+SCRUB = ("    from ..sessions.handoff import MAX_SCRUB_CHARS, cut_whole, scrub_secrets\n"
+         "    if len(text) > QUOTE_SCRUB_CHARS:\n"
+         "        # The cut's marker is ours, never words the provider supplied (its count\n"
+         "        # could even look like a 401 or 503 signature). Keep a line break instead.\n"
+         '        text = re.sub(r"(?m)^… \\[[\\d,]+ characters omitted\\] …\\n", "\\n",\n'
+         "                      cut_whole(text, QUOTE_SCRUB_CHARS))\n"
+         "    return scrub_secrets(text, whole=len(text) <= MAX_SCRUB_CHARS)[0]\n")
 ERROR_RESULT = ("        if summary.result.is_error and summary.result.text:\n"
                 "            texts.append(summary.result.text)\n")
 

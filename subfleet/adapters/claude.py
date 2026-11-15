@@ -351,20 +351,31 @@ def _first_line_containing(corpus: str, match: re.Match[str]) -> str:
 #: scrubber removes: the words that matched are not repeated.
 SCRUBBED_AWAY = "the words that matched lie inside text the scrubber removes"
 
+# Quotes normally need 300 characters; retain safe context without scrubbing a
+# large diagnostic corpus again merely to produce one quote.
+QUOTE_SCRUB_CHARS = 4096
+
 
 def _scrubbed(text: str) -> str:
-    """`text` scrubbed whole (C-23.14), its lines kept, before any line or excerpt is
-    taken from it. A cut can drop the label that marks a value as a credential
+    """`text` safely bounded and scrubbed within C-23.14's budget, before a
+    quoted line or excerpt is taken. A raw cut can drop a credential's label
     (`password="…` far ahead of the words that matched), and a scrub of the cut text
-    then no longer knows the value; scrubbed whole first, the label still masks it
-    (#104 review r1, P1)."""
-    from ..sessions.handoff import scrub_secrets
-    return scrub_secrets(text, whole=True)[0]
+    then no longer knows the value. `cut_whole` keeps only safe whole lines within
+    a small head/tail budget, never cutting a credential's context, including a
+    quoted value spanning lines. Scrub those whole (#104 review r1, P1), within
+    MAX_SCRUB_CHARS; a match the safe cut drops supplies no quote."""
+    from ..sessions.handoff import MAX_SCRUB_CHARS, cut_whole, scrub_secrets
+    if len(text) > QUOTE_SCRUB_CHARS:
+        # The cut's marker is ours, never words the provider supplied (its count
+        # could even look like a 401 or 503 signature). Keep a line break instead.
+        text = re.sub(r"(?m)^… \[[\d,]+ characters omitted\] …\n", "\n",
+                      cut_whole(text, QUOTE_SCRUB_CHARS))
+    return scrub_secrets(text, whole=len(text) <= MAX_SCRUB_CHARS)[0]
 
 
 def _quoted(text: str, match: re.Match[str]) -> str:
     """The line a `detail` quotes for `match`, a match of its pattern in `text`: the
-    line holding the pattern's first match in `text` scrubbed whole (`_scrubbed`),
+    line holding the pattern's first match in `text` scrubbed within its budget (`_scrubbed`),
     excerpted (`_first_line_containing`); `SCRUBBED_AWAY` when the scrub removed
     every match."""
     clean = _scrubbed(text)
@@ -2129,7 +2140,7 @@ def _decode(value: Any) -> str:
 
 
 def _first_auth_phrase(corpus: str) -> str | None:
-    """The first credential-failure or refusal line, from `corpus` scrubbed whole
+    """The first credential-failure or refusal line, from `corpus` scrubbed within its budget
     (`_scrubbed`); None when there is none, or the scrub removed every match."""
     clean = _scrubbed(corpus)
     match = AUTH_SIGNATURE_RE.search(clean) or ORG_BLOCK_RE.search(clean)
@@ -2140,7 +2151,7 @@ def _first_auth_phrase(corpus: str) -> str | None:
 class SubscriptionRefusal:
     """Claude Code refusing subscription access, as its own evidence (C-9.3).
 
-    `line` is Claude Code's words verbatim from its source scrubbed whole
+    `line` is Claude Code's words verbatim from its source scrubbed within its budget
     (`_scrubbed`), `error_kinds` every distinct `error`
     kind the stream carried, in the parser's order. `source` is what made it a
     refusal: "error-kind" when Claude Code stamped `oauth_org_not_allowed`, else
@@ -2215,7 +2226,7 @@ def _subscription_refusal(corpus: str, summary: StreamSummary) -> SubscriptionRe
        first line, else nothing, and the statement says so.
 
     Whether it is a refusal is read from the text as written; the words quoted are
-    taken from each source scrubbed whole first (`_scrubbed`), so a credential whose
+    taken from each source scrubbed within its budget first (`_scrubbed`), so a credential whose
     label lies outside the excerpt is still masked (#104 review r1, P1). A text
     refusal whose every match lay inside text the scrubber removes quotes nothing,
     and the statement says so.
