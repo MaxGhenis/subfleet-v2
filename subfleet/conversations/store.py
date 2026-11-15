@@ -233,6 +233,16 @@ def canonical_native(session_id: Any) -> Any:
     return parsed
 
 
+def caller_session_identity(session_id: Any) -> tuple[str | None, Any]:
+    """C-17.6: qualified Codex callers name only that provider's native thread.
+
+    Unqualified callers retain the historical lookup across both providers.
+    """
+    if isinstance(session_id, str) and session_id.startswith("codex:"):
+        return "codex", canonical_native(session_id[len("codex:"):])
+    return None, canonical_native(session_id)
+
+
 def validate_settings(provider: str, settings: Any) -> dict:
     """The shape every message's settings must have (C-24.2); catalog checks are
     `models.list`'s and the driver's (C-26.8)."""

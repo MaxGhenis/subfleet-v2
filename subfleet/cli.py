@@ -1,7 +1,7 @@
 """subfleet CLI: a thin client over the daemon socket, with an offline reader.
 
   subfleet [status]              lanes, readings, closures, running jobs
-  subfleet run ...               submit a job; detached by default in a Claude session
+  subfleet run ...               submit a job; detached by default in a Claude or Codex session
   subfleet runs [--mine ...]     the job ledger, newest first; conversation turns only with
                                  --kind turn or --include-turns (alias: jobs)
   subfleet runs show <id>        one job's metadata and artifacts (alias: show)
@@ -139,7 +139,26 @@ def fail(code: Exit | int, message: str, fix: str | None = None) -> int:
 
 def session_id(env: dict[str, str] | None = None) -> str | None:
     env = os.environ if env is None else env
+    if not _subfleet_launch(env):
+        claude = (env.get("CLAUDE_CODE_SESSION_ID") or "").strip()
+        if claude:
+            return claude
+        codex = (env.get("CODEX_THREAD_ID") or "").strip()
+        if codex:
+            return f"codex:{codex}"
     return (env.get("CLAUDE_CODE_SESSION_ID") or env.get("SUBFLEET_SESSION_ID") or "").strip() or None
+
+
+def _subfleet_launch(env: dict[str, str]) -> bool:
+    # Share the existing C-5.1 classification with hooks, including probes.
+    from .hooks import launched_by_subfleet
+    return launched_by_subfleet(env) is not None
+
+
+def in_codex_session(env: dict[str, str] | None = None) -> bool:
+    """Codex injects its thread id into tool commands; lane jobs keep v217 behavior."""
+    env = os.environ if env is None else env
+    return not _subfleet_launch(env) and bool((env.get("CODEX_THREAD_ID") or "").strip())
 
 
 def cmd_wake(args: argparse.Namespace) -> int:
@@ -290,9 +309,9 @@ def launch_mode(args: argparse.Namespace,
                 env: dict[str, str] | None = None) -> tuple[str, str]:
     """('detached' | 'sync', why), following v1's precedence (C-17.6).
 
-    Inside a Claude Code session the tool shell's process tree dies on an
-    account switch or the desktop app's idle SIGTERM, so `run` returns as soon
-    as the daemon has the job and the caller re-joins with `subfleet wait`.
+    Inside a Claude Code or Codex session the tool shell can end before the
+    job, so `run` returns as soon as the daemon has the job and the caller
+    re-joins with `subfleet wait`.
     Outside a session (a terminal, a launchd lane) `run` blocks as v1 did.
     """
     env = os.environ if env is None else env
@@ -309,6 +328,10 @@ def launch_mode(args: argparse.Namespace,
         if getattr(args, "attach", False):
             return "detached", "inside a Claude session; --attach waits inline"
         return "detached", "inside a Claude session — the job must outlive it"
+    if in_codex_session(env):
+        if getattr(args, "attach", False):
+            return "detached", "inside a Codex session; --attach waits inline"
+        return "detached", "inside a Codex session — the job must outlive it"
     return "sync", "outside a Claude session"
 
 
@@ -1630,8 +1653,8 @@ def cmd_wait(args: argparse.Namespace) -> int:
         mine = session_id()
         if mine is None:
             return fail(Exit.INVALID_INPUT,
-                        "wait: --mine needs CLAUDE_CODE_SESSION_ID "
-                        "(run it from a Claude session)")
+                        "wait: --mine needs CLAUDE_CODE_SESSION_ID, CODEX_THREAD_ID "
+                        "or SUBFLEET_SESSION_ID (run it from a Claude or Codex session)")
     if not ids and not args.mine and not args.last:
         return fail(Exit.INVALID_INPUT, "wait: name a job id, or use --mine or --last")
     if ids and not getattr(args, "json", False):
@@ -1704,8 +1727,8 @@ def cmd_runs(args: argparse.Namespace) -> int:
         mine = session_id()
         if mine is None:
             return fail(Exit.INVALID_INPUT,
-                        "runs: --mine needs CLAUDE_CODE_SESSION_ID "
-                        "(run it from a Claude session)")
+                        "runs: --mine needs CLAUDE_CODE_SESSION_ID, CODEX_THREAD_ID "
+                        "or SUBFLEET_SESSION_ID (run it from a Claude or Codex session)")
     offline = False
     honoured = True
     try:
@@ -2617,7 +2640,7 @@ def _stdin_message(stream: Any = None, wait_s: float | None = None, *,
 
 
 def cmd_ping(args: argparse.Namespace) -> int:
-    """C-15.8: the session named, else this Claude session, else none: the daemon
+    """C-15.8: the session named, else this Claude or Codex session, else none: the daemon
     then addresses `alerts.operator_session`, or refuses text addressed to no one.
     With no text it is a liveness question, answered `pong`."""
     target = args.session or session_id()
@@ -2788,6 +2811,7 @@ def _daemond_argv(root: Path) -> list[str]:
 # references; this tuple no longer defines the environment boundary (C-12.3/4, D-ENV1).
 STRIPPED_ENV = ("ANTHROPIC_API_KEY", "CODEX_API_KEY", "OPENAI_API_KEY",
                 "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDECODE", "CLAUDE_CODE_SESSION_ID",
+                "CODEX_THREAD_ID",
                 "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_PID", "SUBFLEET_RUN_DETACH",
                 *GIT_LOCATION_ENV, "GIT_INDEX_FILE", *GIT_PATHSPEC_ENV)
 
@@ -3635,7 +3659,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--wait", "--attach", dest="attach", action="store_true",
                        help="block until the job is terminal and return its rc")
     p_run.add_argument("-d", "--detach", dest="detach", action="store_true",
-                       help="return at once (the default inside a Claude session)")
+                       help="return at once (the default inside a Claude or Codex session)")
     p_run.add_argument("--no-wait-queue", action="store_true",
                        help="with --json, exit 75 when the job is still queued")
     p_run.add_argument("--no-preamble", action="store_true",
@@ -3660,7 +3684,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_runs = sub.add_parser("runs", help="the job ledger, newest first")
     p_runs.add_argument("--last", type=int, default=20, help="how many (default 20)")
     p_runs.add_argument("--mine", action="store_true",
-                        help="only this session's jobs (CLAUDE_CODE_SESSION_ID)")
+                        help="only this Claude or Codex session's jobs")
     p_runs.add_argument("--running", action="store_true", help="only unfinished jobs")
     # C-17.1, C-26.12: conversations' turn jobs are left out unless asked for.
     kinds = p_runs.add_mutually_exclusive_group()
