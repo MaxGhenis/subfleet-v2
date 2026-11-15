@@ -266,11 +266,30 @@ The test helpers don't conflict:
 | `tests/unit/test_claude_adapter.py` | import `:26`; `without_publish_hook` `:410-411` | 15-line test inserted after `:404` | none |
 
 #310's new test in `test_claude_adapter.py` calls `without_publish_hook`, which now also drops
-the startup keys. #310's own writable-argv tests will need `without_job_startup` after a merge,
-as the older ones here did.
+the startup keys.
 
-The contract doesn't overlap: #310 edits C-12.4 and C-26.11, and this build edits C-12.9 and the
-change log.
+Corrected in fix round 1. The two statements that stood here understated the merge: that #310's
+writable-argv tests alone would need `without_job_startup`, and that the contract doesn't overlap.
+Review r1 merged 2234e7196 with #310's head 4fd796b49 in a scratch repository, without committing,
+and measured:
+
+- Conflicts: `claude.py:1510` and `:1562` (the two settings lines above; `:1565` and `:1617`
+  after fix round 1), plus the contract's change log, where both PRs add a line. #310 edits
+  C-12.4 and C-26.11 and this PR C-12.9, so the clauses themselves don't overlap.
+- Resolved to `lane_settings(startup, effort=effort)`: 181 failed, 1,828 passed.
+  - 179 of the failures are this PR's own recorded cases: 154 in
+    `test_i5_i6_every_other_launch_is_byte_for_byte_adf66f2e5s`, 24 in the writable differential
+    (`test_a_writable_job_changes_only_by_the_startup_keys`) and `test_the_grid_is_the_recording`.
+    The `argv-adf66f2e5.json` recording predates #310's effort env key and its 70 added cases.
+  - The other 2 are #310's property tests in `test_effort_env.py`, which need
+    `without_job_startup`.
+
+The hub's ruling: #310 merges first. This PR then merges release/217, keeps both change-log lines,
+takes `lane_settings(startup, effort=effort)` on both settings lines, adds `without_job_startup`
+to #310's two property tests, and re-records `tests/fixtures/lane_startup/argv-adf66f2e5.json` from
+a base that includes #310 (`HOME=<fake> python -I tests/lane_settings_cases.py <git archive of
+that base> <scratch>`, as under "Commands"). The fixture must be re-recorded after #310; until
+then it holds adf66f2e5's argv. Fix round 1 did not merge #310.
 
 ## Records: new keys
 
@@ -398,3 +417,265 @@ folders come from `tests/frontend/test_core_store.py`, which I did not run, so t
 | add5ae3b4, 728decba6 | older tests and the mutant data |
 | 24e1d3bf8 | the contract's quote range |
 | 08858cfd0, 740b241ad and this table's commit | report and evidence data |
+
+## Fix round 1
+
+This round fixes review r1's three P2s
+(`~/reviews/subfleet-hub/lane-startup-2026-11-14/review-a-r1.md`, head 2234e7196) under the hub's
+rulings. It was built from 2234e7196 in a detached worktree, starting at 19:37:56 UTC. No Claude
+CLI ran. The Claude Code 2.1.318 binary was read (sha256 `677a2ea7…5e7d`, as before) only to
+extract its matcher. Line numbers below are this round's head unless marked otherwise.
+
+### P2 1: a repository's own git config could move R
+
+**Cause.** `job_startup_settings` took `git rev-parse --show-toplevel` as R without checking it,
+and a checkout's own config decides that answer:
+
+- With `core.worktree /` in `.git/config`, git answered `/`. The negation became `!/**`, which
+  spares every path.
+- A `.git` file whose `gitdir:` names another repository hands git that repository's config. In a
+  probe here, git 2.55.0 followed it and answered that repository's `core.worktree`, a folder
+  outside the workdir.
+
+**Change.** `_job_root` (`subfleet/adapters/claude.py:412`) now picks R:
+
+- Git's answer is R only when it is not `/` and the workdir's real folder is that folder or lies
+  under it. Otherwise R is `abspath(workdir)`, as on any git failure.
+  - "Not `/`" is judged on the folder: `samestat` with `/`, so `//` or `/private/..` count too.
+  - "Is or lies under" compares `realpath(workdir)` and each of its parents with `realpath(R)` by
+    `samestat`, not by string.
+- The one `rev-parse` runs with `core.fsmonitor=false` pinned:
+  - `pin_git_config` (`:394`) appends `JOB_STARTUP_GIT_CONFIG` (`:156`) through
+    `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n`, after the entries an existing
+    count names, and keeps those entries.
+  - A count git would refuse is replaced by the pin's own count. Git 2.55.0 refused
+    `GIT_CONFIG_COUNT=abc` ("bogus count") and a count with a missing key ("missing config key"),
+    so the call failed either way.
+  - The environment is `_git_env(None)`, the one the call had before, plus the pin;
+    `_git_bytes` applies `_git_env` again, which changes nothing.
+- `pin_git_config` joins `__all__` beside `glob_literal` and `job_startup_settings` (5c7c1de60).
+
+**Why folders, not strings.** The ruling says "`realpath(workdir)` equals `realpath(R)` or lies
+under it". Python's `realpath` keeps the case and Unicode form it is given (checked here: an
+NFC-spelled path to an NFD folder comes back NFC, and an upper-case spelling stays upper-case).
+Git, though, spells the folder as it is stored. A string comparison would make a workdir given in
+another case, or in NFC for an NFD folder, fall back to the workdir. That would undo the review's
+"lower case" row and half of P2 2. Comparing by `samestat` gives the ruling's meaning for every
+spelling.
+
+**Tests** (`tests/unit/test_lane_startup.py`):
+
+| Test | Before (2234e7196) | After |
+|---|---|---|
+| `test_r_is_the_workdir_when_the_checkouts_config_moves_git_off_it[root]`: the review's `core.worktree /` case; git answers `/` | failed: `'!/**' in excludes` | passed |
+| `…[sibling]`: `core.worktree` names a sibling folder | failed: the negation spared the sibling | passed |
+| `test_r_is_the_workdir_when_a_gitdir_file_points_git_at_a_tree_elsewhere` | failed: the negation spared `elsewhere-tree` | passed |
+| `test_the_git_call_pins_core_fsmonitor_off`: a stub git records the `GIT_CONFIG_*` names it was given and what the real git reads as `core.fsmonitor` there, against a checkout whose config names a marker hook | failed: no pin; `fsmonitor=<the hook>` | passed: `COUNT=1`, `KEY_0=core.fsmonitor`, `VALUE_0=false`, `fsmonitor=false`; the marker never ran |
+| `test_the_pin_is_appended_after_config_the_environment_already_counts`: a count of 2 already set | failed: count stayed 2 | passed: entries 0 and 1 kept, the pin at 2, count 3 |
+| `test_r_may_be_an_ancestor_that_git_names_and_that_holds_the_workdir` | passed | passed |
+| `test_r_is_gits_answer_when_the_workdir_is_spelled_otherwise` | passed | passed |
+
+The last two rows pin behaviour that should not change, so they pass on both sides. The first
+pins the ruling's boundary: an ancestor that holds the workdir is accepted. The second guards
+against a string comparison; it skips on a case-sensitive file system.
+
+### P2 2: a repository stored in NFD lost its own guidance
+
+**Cause.** Claude Code 2.1.318 normalizes its cwd to NFC (review: `Rn`, applied to
+`originalCwd`) and builds every path of its startup walk from that. Git and `realpath` return the
+name as stored. For a folder created as `café` in NFD, R and R_real were NFD, so the negation
+spared only the NFD spelling. Every path Claude Code built (NFC) fell outside it, so the
+repository's own `CLAUDE.md`, `AGENTS.md` and `sub/CLAUDE.md` were excluded. This fails closed:
+no personal file was added.
+
+**Change.** R's spellings are now `R`, `R_real`, `NFC(R)` and `NFC(R_real)`, de-duplicated in that
+order (`claude.py:466-469`). Both the ancestor list and the negation use them, and the stored forms
+stay. For an ASCII or already-NFC path the four collapse to the two there were, so the patterns
+are unchanged. The re-recorded main fixture is byte-identical, below.
+
+**Tests:**
+
+| Test or check | Before | After |
+|---|---|---|
+| `test_i3_a_repository_stored_in_nfd_keeps_its_own_guidance[as-stored]`: a real repository folder `café` in NFD, workdir `café/sub`, through `job_startup_settings`, the I2/I3 checks and the oracle, with Claude Code's cwd taken as `NFC(os.getcwd())` | failed: the negation lacked the NFC spelling | passed |
+| `…[nfc-spelled]`: the same folder given to the job in NFC | failed | passed (git answers NFD; R is accepted by `samestat`) |
+| `test_lane_startup_glob.py::test_job_startup_settings_still_writes_the_recorded_patterns[n000…n011]` over the new NFD recording | 12 failed | 12 passed |
+| `…::test_the_oracle_gives_the_bundles_verdict_on_every_recorded_path[n000…n011]`, `…::test_i3_by_the_bundles_own_verdicts[n000…n011]`, `…::test_the_nfd_recording_asks_for_each_roots_nfc_spelling_and_the_bundle_keeps_it` | passed | passed |
+| `nfd_bundle_check.py`: the review's real-folder check, with the bundle's matcher | rc 1: the NFD repository kept 0 of 4 own files in each of its 4 cases; the ASCII control kept 4 of 4 | rc 0: 4 of 4 kept in all 6 cases; 7 of 7 outside and personal paths excluded in each |
+
+The replay tests in the fourth row judge the recording, not the code, so they pass on both sides.
+
+The bundle's matcher and the evidence:
+
+- **Recorder.** `tools/claude_md_glob_record.py --nfd` puts one decomposed letter in every
+  repository folder name: an accent (`e`+U+0301 and kin), the singleton U+212B, or conjoining
+  Hangul jamo. It asks for each root's files, mutations and ancestors in the NFC spelling as well.
+  Without `--nfd` it makes the same random calls as before.
+- **NFD fixture.** `tests/fixtures/lane_startup/picomatch-2.1.318-nfd.json` (`--sets 12 --seed
+  20261115 --nfd`) has 1,432 paths, and the oracle and the bundle agree on all of them.
+  - With the old patterns, the bundle excluded 144 of the 320 root files: every NFC spelling.
+  - With the new ones it keeps all 320.
+- **Main fixture.** Re-recorded with this tree and the default mode (`--sets 18 --seed 20261115`),
+  it is byte-identical to the committed `picomatch-2.1.318.json`: 1,313 paths, all agreeing.
+- **Seeds 1-6.** With `--nfd` and 60 sets each, they give 42,728 paths, all agreeing between the
+  oracle and the bundle, with no `FWo` mismatch.
+  - Of 9,600 root-file paths the bundle kept 9,598.
+  - The other two (seeds 2 and 3) are random subfolder names, `.\␉#^` and `#:[\.`. Once `\` is
+    read as `/`, each holds a `.` segment, and picomatch's `/**` with `dot: true` never matches
+    one. This is not about NFD; see residue 3.
+- **Real folders.** `docs/reports/2026-11-15-lane-startup-build-data/nfd_bundle_check.py` makes a
+  repository `café` in NFD (with `CLAUDE.md`, `AGENTS.md` and `sub/CLAUDE.md`) and an ASCII
+  control `cafe`. It takes patterns from the tree's `job_startup_settings` for each workdir (the
+  top and `sub`, given as stored and in NFC). Node then gives `process.cwd()`, which was NFD, and
+  normalizes it to NFC. Paths built from that cwd go to the bundle's matcher, with `FWo` reading
+  the real disk.
+
+### P2 3: the #310 merge needs more than the report said
+
+Not merged here, as ruled.
+
+- **The report.** The statements at the old `:269` and `:272` under "Lines #310 also touches" are
+  replaced with the review's measurements:
+  - conflicts at `claude.py:1510` and `:1562` (now `:1565` and `:1617`), plus the contract's
+    change log;
+  - 181 failures, of which 179 are this PR's recorded cases (154 + 24 + 1), and 2 are #310's
+    `test_effort_env.py` property tests, which need `without_job_startup`;
+  - the hub's order: #310 first, then this PR merges release/217 and re-records
+    `argv-adf66f2e5.json` from a base that includes #310.
+- **The PR body.** Its corrected text is in `docs/reports/2026-11-15-lane-startup-build-data/
+  pr-326-body-fix-r1.md`, ready for `gh pr edit 326 --body-file`. That replaces the one #310
+  bullet with a "Merging with #310" section, and describes R's check, the pin and the NFC
+  spellings. I did not edit the PR on GitHub: that writes outside this job's workspace (see
+  "Deviations").
+
+### C-12.9 and its change-log line
+
+- **The passage (`docs/acceptance-contract.md:607`).** It now lists the ancestors and the negation
+  over every spelling of R. R is git's answer, run with `core.fsmonitor=false` appended through
+  `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_<n>`/`GIT_CONFIG_VALUE_<n>` and capped at 10 s, only when it
+  is not `/` and is the workdir's real folder or holds it, compared as folders. It names
+  `core.worktree` and a `gitdir:` file as the reason. R's spellings are R, its real path and the
+  NFC form of each.
+- **The change-log line (`:9`).** It gains "#326 review r1" in its references, and its root clause
+  now reads "which is git's top-level folder only when that folder holds the workdir and is not
+  `/`, and is spared in its NFC spelling too".
+- **Commit.** 99f6bca5b.
+
+### Open residues
+
+1. **Unverified, from the review.** The AGENTS.md plugin resolves `~` paths (`_7s`, @299541146).
+   If personal settings configure extra instruction paths that it reads outside `yV`, the excludes
+   won't apply. I did not read personal settings to settle it, as ruled.
+2. **R may still be moved up.** A checkout's config can still make R a proper ancestor of the
+   workdir (not `/`), as the ruling allows. The folders between it and the workdir then load as the
+   checkout's; `$HOME`'s and `C`'s files stay excluded by name.
+   `test_r_may_be_an_ancestor_that_git_names_and_that_holds_the_workdir` pins this.
+3. **A `.` segment after the fold.** A repository subfolder whose name holds a `.` or `..` segment
+   once `\` reads as `/` (`.\x`, `x\..`) loses its nested files: picomatch's `/**` refuses such a
+   segment. This fails closed and predates this round; it is the mirror of the build's residue 2.
+4. **`$HOME` and `CLAUDE_CONFIG_DIR` in NFD.** They get no NFC spelling, which is outside the
+   ruling. When R lies under `$HOME`, the NFC ancestors of R cover `$HOME`'s six names. Otherwise,
+   how Claude Code spells home paths was not checked.
+5. **A workdir of `/` itself.** R is the workdir, so the negation is `!/**`, as before this round.
+   A quick search of `subfleet/` found no submit-time refusal of `/`. It was not tested and is not
+   in this round's rulings.
+6. **File systems that tell NFC from NFD apart.** There, `NFC(R)/**` would also spare a separate
+   folder spelled in NFC. The daemon runs on APFS, which doesn't tell them apart.
+7. **A stalled git call, from the review (not run).** An `include.path` pointing at a FIFO still
+   stalls the call to its 10 s cap. The pin does not change that.
+
+### Commands and results
+
+Unless the row says otherwise, every test command was `uv run --no-sync --with
+'pytest-xdist>=3.6' python -m pytest … -q -p no:cacheprovider -n 4 --basetemp=$S/pytest-<label>`.
+`TMPDIR` was `$(getconf DARWIN_USER_TEMP_DIR)`, `UV_CACHE_DIR` was `$TMPDIR/uv-cache`, and
+`PYTHONPATH` was unset. `S` is `$TMPDIR/sf-lsa-fix1`. The times are UTC, and the loads are
+`uptime`'s one-minute figure. Outputs are in
+`docs/reports/2026-11-15-lane-startup-build-data/fix-r1-evidence.log`.
+
+| Run | Command | Start → end (load) | Result |
+|---|---|---|---|
+| setup | `uv sync --group dev` | about 20:04 (45 s) | installed into the worktree's `.venv` |
+| before-1 | the 9 new tests (`-k`), on the unfixed tree | 20:15:19 → 20:17:13 (121) | 7 failed, 2 passed (the two pinning tests), 77 s |
+| before-2, before-3 | the same, with `--tb=line` (before-3 without the two pinning tests) | about 20:18 → 20:24 | the same 7 failures, each on the assertion named above |
+| bundle before | `HOME=$S/fakehome .venv/bin/python -I nfd_bundle_check.py <worktree> <binary> $S/nfd-before2` (run twice; the second after the script learned to print whether node's raw cwd was NFD) | 20:27:35, 20:28 | rc 1 both times, as in the table above |
+| record before | `.venv/bin/python -I tools/claude_md_glob_record.py <binary> … --sets 12 --seed 20261115 --nfd` | 20:30:44 → 20:32:35 | 1,432 agree; `keep/True=144` |
+| after-1 | both lane-startup modules, fixed tree, before the glob changes | 20:38:02 → 20:45:55 (167) | 357 passed, 411 s |
+| record fixture | the same recorder, writing `tests/fixtures/lane_startup/picomatch-2.1.318-nfd.json` | 20:46:23 → 20:46:53 | 1,432 agree; `keep/False=320` |
+| record main | the recorder, `--sets 18 --seed 20261115`, to scratch | 20:47:25 → 20:48:01 | 1,313 agree; `cmp` byte-identical to the committed fixture |
+| bundle after | `nfd_bundle_check.py` | 20:49 | rc 0, "all ok" |
+| seeds | the recorder, `--sets 60 --seed 1..6 --nfd` | 20:50:22 → about 20:58 | 7,032 + 7,136 + 7,231 + 7,194 + 7,127 + 7,008 paths, all agree, 0 `FWo` mismatches |
+| prefix | the new test files and NFD fixture copied over a `git archive 2234e7196 subfleet tests tools pyproject.toml`, run there (imports checked to resolve to the copy); the glob module and the 9 new tests | 21:05:35 → 21:09:32 | 19 failed (12 `[n0xx]` pattern cases and 7 lane-startup tests), 99 passed, 205 s |
+| **A** | the new and changed tests: `tests/unit/test_lane_startup_glob.py` whole, and in `tests/unit/test_lane_startup.py` the 9 new tests plus the I2/I3/payload tests whose helpers changed (`-k`) | 21:14:26 → 21:17:05 (193 → 119) | **135 passed**, 113 s |
+| **B** | `tests/unit/test_lane_startup.py tests/unit/test_lane_startup_glob.py tests/unit/test_claude_adapter.py` | 21:17:36 → 21:20:43 (129 → 125) | **566 passed**, 158 s |
+| **C** | `tests/fake/test_state_contract.py tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py tests/unit/test_handler_refusals.py` | 21:21:01 → 21:25:36 (124 → 92) | **435 passed**, 260 s |
+| D | after adding `pin_git_config` to `__all__`: an import check that every `__all__` name exists, then `-k "pin or module"` over `test_lane_startup.py test_test_module_names.py` | 21:27:39 → 21:28:24 | exports ok; 3 passed |
+
+**Unchanged paths.** Run B holds the recorded fixture `argv-adf66f2e5.json`, which this round
+does not touch:
+
+- `test_i5_i6_every_other_launch_is_byte_for_byte_adf66f2e5s`: 189 read-only launches, isolated
+  reviews, turns, probes and gates, byte for byte;
+- `test_the_grid_is_the_recording`;
+- `test_a_writable_job_changes_only_by_the_startup_keys`: 48 writable cases, equal once the keys
+  are taken out.
+
+All passed.
+
+**Commits:** 08acfbaa3 (adapter and its tests), 6e080e03c (NFD recorder mode, fixture, glob tests
+and the bundle check), 99f6bca5b (C-12.9), 5c7c1de60 (`__all__`), then this section and its
+evidence.
+
+### What did not run
+
+- **Wider runs.** The whole suite (CI runs it), any Claude CLI, the #310 merge, and a re-run of the
+  build's mutant runner against the new code.
+- **Runs A-C** ran before 5c7c1de60, which only adds a name to `__all__`. Run D and the import
+  check cover it.
+- **The PR body** was not changed on GitHub.
+
+### Deviations from the brief
+
+1. **Folder comparison.** R is checked by folder identity (`samestat`), not by comparing
+   `realpath` strings. The reason is under P2 1.
+2. **The PR body** is delivered as a file, not edited: `gh pr edit` writes outside the job's
+   workspace.
+3. **One commit for two findings.** P2 1 and P2 2 share one adapter commit (08acfbaa3), since both
+   change `job_startup_settings`'s R and its test helpers. The recording, the contract, the export
+   and the report are separate commits.
+4. **Run A** is the new and changed tests chosen by `-k`, as the table says, not two whole files.
+   Run B then runs both lane-startup files whole.
+5. **No delegation.** I did the work alone, with no in-session workflow or subagents: the standing
+   rule sends delegation through Subfleet, and this brief forbids running `subfleet`.
+6. **Git and the harness.** Plain `git status` hung on the untracked scan, so I used
+   `--untracked-files=no`. Three commands passed the Bash tool's 120 s default and the harness
+   moved them to the background; I stopped each with TaskStop:
+   - the opening `date; git status` (the date had printed);
+   - a recursive `grep` over `subfleet tests docs`, replaced by `git grep`;
+   - a `git diff --stat` chained after the recorder edit (the edit had completed).
+
+   No process from this job is left running. The first `git archive` for the prefix copy hit its
+   100 s `timeout` and left a partial tree. I removed it with the guarded `rmtree` and archived
+   only `subfleet tests tools pyproject.toml`.
+
+### Housekeeping
+
+- **Scratch.** Everything this round wrote outside the worktree is under `$TMPDIR/sf-lsa-fix1`:
+  - the probe repositories;
+  - the fake home;
+  - the pytest basetemps `pytest-before1..3`, `pytest-after1`, `pytest-prefix`, `pytest-runA..D`
+    and `pytest-collect`;
+  - the prefix tree;
+  - the NFD real-folder trees `nfd-before`, `nfd-before2` and `nfd-after`;
+  - the recordings and seed outputs, with their extracted matcher modules (third-party code, not
+    committed);
+  - the evidence files.
+
+  It held 87 MB. I removed it at 21:35:56 UTC with a `shutil.rmtree` that asserts the path's last
+  part is `sf-lsa-fix1`, after checking that no process named it, and confirmed afterwards that it
+  no longer exists.
+- **Outside the scratch.** The worktree's `.venv`, from `uv sync`, is inside the workspace and git
+  ignores it. I left it, since the guard can't name it.
+- **Shared folders.** The shared `$TMPDIR/uv-cache` predates this round and stays. The temp root
+  had 1,425 entries changed since my start, from other sessions (`.com.openai.codex.*`, `.tmp*`
+  and more). I can't attribute any to this round, and I removed none.
