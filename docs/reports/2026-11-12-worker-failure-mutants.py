@@ -1,171 +1,273 @@
 #!/usr/bin/env python3
-"""Run C-5.10 mutations separately, restoring exact daemon.py bytes each time.
+"""Run C-5.10's mutants one at a time in a copy of the source, never in this checkout.
 
-Run only after the ordinary tests finish and while daemon.py has no other writer.
-The runner refuses to start if its expected pristine snippets are absent.
+Usage (from anywhere; the interpreter must have pytest and hypothesis, such as this
+checkout's `.venv/bin/python`):
+
+    python docs/reports/2026-11-12-worker-failure-mutants.py --scratch DIR --out FILE [--budget S] [NAME ...]
+
+`DIR` must exist and have a path component starting `sf-`; the runner makes one copy of
+the checkout's tracked `subfleet/`, `tests/` and top-level files under it, applies each
+mutant alone to the copy, runs that mutant's tests there with the copy first on the
+import path, puts the copied file's bytes back and checks them, and removes the copy at
+the end. `FILE` collects one result per mutant; a mutant already in it is not run again,
+so a run stopped by a time limit resumes. Naming mutants runs only those. The checkout's
+mutated files are hashed before and after: the runner never writes to them.
+
+Fix r1 replaced the build round's runner, which rewrote `subfleet/daemon.py` in place
+(review r1 of #308, P3). The build round's seven mutants (B1 to B7) are here with their
+anchors as the code reads now; fix r1's follow.
 """
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
-from pathlib import Path
+import shutil
 import subprocess
 import sys
 import time
+from pathlib import Path
 
-WORKTREE = Path(__file__).resolve().parents[2]
-SCRATCH = Path('/private/tmp/sf-wcp-b1')
-SOURCE = WORKTREE / 'subfleet/daemon.py'
-CAUSE_TESTS = 'tests/unit/test_worker_failure_cause.py'
+CHECKOUT = Path(__file__).resolve().parents[2]
+CAUSE = "tests/unit/test_worker_failure_cause.py"
+ROUTES = "tests/unit/test_worker_failure_url_and_terminal.py"
+HANDOFF = "subfleet/sessions/handoff.py"
+DAEMON = "subfleet/daemon.py"
+DAEMON_LOG = "subfleet/daemon_log.py"
+ONE_SHOT = ('                    self.log.error("worker %s failed: %s", key, failure_class(exc), '
+            'exc_info=True)')
+URL_HEAD = 'r"(?i)([a-z0-9+._-]+://[^\\s/:]*:)"'
+URL_PASSWORD = 'r"([^\\s/@]*(?:@[^\\s/@]*)*(?=@)|(?:(?!://)\\S)*(?=@))(@)")'
+URL_SCHEME = '_URL_SCHEME_RE = re.compile(r"[a-z0-9+._-]+", re.IGNORECASE)'
+URL_TRY = "                    match = pattern.match(text, token.start())"
+FIRST_TRACE = '''        try:
+            if signature in traced:
+                return False
+            if len(traced) >= TRACED_CAUSES_MAX:
+                traced.clear()
+            traced.add(signature)
+        except Exception:                   # noqa: BLE001 - never raise into the failure handler
+            pass
+        return True'''
+LINKS = '''            outer = inner = None
+            if tb is not None:
+                outer = _frame_location(tb)
+                while tb.tb_next is not None:
+                    tb = tb.tb_next
+                inner = _frame_location(tb)
+            links.append((_plain(_TYPE_QUALNAME.__get__(type(link))), inner, outer))'''
+
+
+def mutant(name, path, edits, tests, what):
+    return {"name": name, "file": path, "edits": edits, "tests": tests, "what": what}
+
+
+MUTANTS = [
+    mutant("B1-cause-on-every-paced-failure", DAEMON,
+           [("                cause = count % WORKER_CAUSE_EVERY == 1          # 1, 33, 65, ...",
+             "                cause = True  # MUTANT")],
+           [f"{CAUSE}::test_paced_cause_and_exact_summary_cadence"], "every paced failure carries its cause"),
+    mutant("B2-cause-rendering-raises-out-of-done", DAEMON,
+           [(ONE_SHOT, "                    str(exc)  # MUTANT\n" + ONE_SHOT)],
+           [f"{CAUSE}::test_hostile_exception_cause_never_escapes_or_skips_handler"],
+           "render the exception before the protected handler"),
+    mutant("B3-retention-error-holds-message", DAEMON,
+           [('error=failure_class(exc), next_due=after(delay))', 'error=str(exc), next_due=after(delay))')],
+           [f"{CAUSE}::test_retention_error_is_type_only_and_deferred_keeps_count"], "str(exc) in timers.mark"),
+    mutant("B4-control-set-never-clears", DAEMON,
+           [("                self._control_traced.clear()", "                pass  # MUTANT")],
+           [f"{CAUSE}::test_control_cause_deduplication_resets_after_completed_iteration"],
+           "a completed iteration keeps the control set"),
+    mutant("B5-remembered-set-grows-past-256", DAEMON,
+           [("            if len(traced) >= TRACED_CAUSES_MAX:\n                traced.clear()",
+             "            if False:  # MUTANT\n                traced.clear()")],
+           [f"{CAUSE}::test_first_trace_holds_at_most_256_and_starts_again_when_full"], "a set past 256"),
+    mutant("B6-summary-text-changes", DAEMON,
+           [('"worker %s failed: %s (%d in a row, next try in %g s)"',
+             '"worker %s failed: %s (%d consecutive, retry after %g s)"')],
+           [f"{CAUSE}::test_paced_cause_and_exact_summary_cadence"], "the summary line's words"),
+    mutant("B7-cause-bypasses-formatter", DAEMON,
+           [(ONE_SHOT, "                    print(exc, file=sys.stderr)  # MUTANT\n" + ONE_SHOT)],
+           [f"{CAUSE}::test_exception_message_notes_chain_and_source_are_scrubbed"], "a raw print to stderr"),
+    # Fix r1, finding 1: each URL form, the rule narrowed back for it.
+    mutant("F1-url-underscore", HANDOFF,
+           [(URL_SCHEME, URL_SCHEME.replace("+._-", "+.-")),
+            (URL_HEAD, URL_HEAD.replace('(?i)([a-z0-9+._-]+', '(?i)(?<!\\w)([a-z0-9+.-]+'))],
+           [f"{ROUTES}::test_r1_url_forms_are_hidden_on_every_route", "-k", "underscore"],
+           "no `_` in a scheme, which starts at a word boundary (release/217's reading)"),
+    mutant("F2-url-digit-first", HANDOFF,
+           [(URL_HEAD, URL_HEAD.replace("([a-z0-9+._-]+://", "([a-z][a-z0-9+._-]*://"))],
+           [f"{ROUTES}::test_r1_url_forms_are_hidden_on_every_route", "-k", "digit"],
+           "a scheme must start with a letter"),
+    mutant("F3-url-after-digit", HANDOFF,
+           [(URL_TRY, "                    start = re.compile(r'\\b[a-z]', re.I).search(text, token.start(), "
+                      "token.end())  # MUTANT\n"
+                      "                    match = start and pattern.match(text, start.start())")],
+           [f"{ROUTES}::test_r1_url_forms_are_hidden_on_every_route", "-k", "digit"],
+           "tried at the run's first letter after a word boundary (release/217's start)"),
+    mutant("F4-url-empty-user", HANDOFF,
+           [(URL_HEAD, URL_HEAD.replace("[^\\s/:]*:", "[^\\s/:]+:"))],
+           [f"{ROUTES}::test_r1_url_forms_are_hidden_on_every_route", "-k", "empty-user"],
+           "a user must hold a character"),
+    mutant("F5-url-raw-slash", HANDOFF,
+           [(URL_PASSWORD, 'r"([^\\s/@]*(?:@[^\\s/@]*)*(?=@))(@)")')],
+           [f"{ROUTES}::test_r1_url_forms_are_hidden_on_every_route", "-k", "raw-slash"],
+           "no `/` in a password"),
+    mutant("F6-url-second-at", HANDOFF,
+           [(URL_PASSWORD, URL_PASSWORD.replace("[^\\s/@]*(?:@[^\\s/@]*)*(?=@)|", "[^\\s/@]*(?=@)|"))],
+           [f"{ROUTES}::test_r1_url_forms_are_hidden_on_every_route", "-k", "second-at"],
+           "a password ends at the first `@`"),
+    # Finding 2: the qualified name read through the metaclass, unguarded.
+    mutant("F7-unguarded-qualname", DAEMON,
+           [("links.append((_plain(_TYPE_QUALNAME.__get__(type(link))), inner, outer))",
+             "links.append((type(link).__qualname__, inner, outer))")],
+           [f"{CAUSE}::test_hostile_exception_types_never_raise_into_control_or_request",
+            f"{CAUSE}::test_raise_signature_of_a_hostile_type_is_plain_and_hashable"],
+           "`type(link).__qualname__` as read before fix r1"),
+    mutant("F8-first-trace-unguarded", DAEMON,
+           [(FIRST_TRACE, "        if signature in traced:\n            return False\n"
+                          "        if len(traced) >= TRACED_CAUSES_MAX:\n            traced.clear()\n"
+                          "        traced.add(signature)\n        return True")],
+           [f"{CAUSE}::test_first_trace_treats_an_uncomparable_signature_as_new"], "`_first_trace` without its guard"),
+    mutant("F9-class-name-through-metaclass", DAEMON,
+           [('        name = type.__dict__["__name__"].__get__(type(exc))\n',
+             '        return type(exc).__name__  # MUTANT\n')],
+           [f"{CAUSE}::test_hostile_exception_types_never_raise_into_control_or_request"],
+           "the summary's class name read through the metaclass"),
+    # Finding 3: a link keyed on its whole traceback.
+    mutant("F10-whole-traceback-keying", DAEMON,
+           [(LINKS, "            frames = []\n            while tb is not None:\n"
+                    "                frames.append(_frame_location(tb))\n                tb = tb.tb_next\n"
+                    "            links.append((_plain(_TYPE_QUALNAME.__get__(type(link))), tuple(frames)))")],
+           [f"{CAUSE}::test_one_object_raised_on_three_control_ticks_logs_one_cause",
+            f"{CAUSE}::test_one_object_raised_from_three_requests_logs_one_cause"], "every frame of the traceback"),
+    # Finding 4: review r1's R1, R2 and R3 on `raise_signature`.
+    mutant("F11-R1-suppress-context-ignored", DAEMON,
+           [("                    if BaseException.__suppress_context__.__get__(link)\n",
+             "                    if False\n")],
+           [f"{CAUSE}::test_raise_signature_honours_raise_from_none"], "`raise ... from None` ignored"),
+    mutant("F12-R2-line-number-zero", DAEMON,
+           [("    return (_plain(code.co_filename), _plain(tb.tb_lineno), _plain(code.co_name))",
+             "    return (_plain(code.co_filename), 0, _plain(code.co_name))")],
+           [f"{CAUSE}::test_raise_signature_reads_line_numbers"], "line numbers replaced by 0"),
+    mutant("F13-R3-first-link-only", DAEMON,
+           [(LINKS, LINKS + "\n            break")],
+           [f"{CAUSE}::test_raise_signature_reads_the_whole_chain"], "the chain's first link only"),
+    # Finding 5: escapes reach the output.
+    mutant("F14-escapes-not-neutralized", DAEMON_LOG,
+           [("        if any(_CONTROL.search(part) for part in (line, *blocks)):", "        if False:  # MUTANT"),
+            ("    if not _CONTROL.search(source):\n        return scrubbed",
+             "    if True:  # MUTANT\n        return scrubbed")],
+           [f"{ROUTES}::test_osc52_and_screen_clear_are_written_as_visible_escapes",
+            f"{ROUTES}::test_no_control_character_but_tab_and_line_breaks_is_ever_written"],
+           "the handler, the tail and the follower write control characters as they are"),
+    mutant("F15-terminal-reading-ignored", DAEMON_LOG,
+           [("        return match.group() if not plain or plain in shown else REDACTED",
+             "        return match.group()  # MUTANT")],
+           [f"{ROUTES}::test_a_key_an_escape_splits_is_still_a_password"],
+           "no run hidden for what the terminal reading hides"),
+    # Finding 6 (P3): the chain is rendered whole again.
+    mutant("F16-chain-not-capped", DAEMON_LOG,
+           [("        ends = _chain_ends(value) if isinstance(value, BaseException) else None",
+             "        ends = None  # MUTANT")],
+           [f"{ROUTES}::test_a_longer_chain_renders_only_its_two_ends"], "every link rendered"),
+]
 
 
 def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def replace_once(source: str, old: str, new: str) -> str:
-    count = source.count(old)
-    if count != 1:
-        raise AssertionError(f'Expected one mutation anchor, found {count}: {old!r}')
-    return source.replace(old, new, 1)
+def mutated(source: str, edits) -> str:
+    for old, new in edits:
+        count = source.count(old)
+        if count != 1:
+            raise AssertionError(f"expected one anchor, found {count}: {old!r}")
+        source = source.replace(old, new, 1)
+    return source
 
 
-ONE_SHOT = ('                    self.log.error("worker %s failed: %s", key, '
-            'type(exc).__name__, exc_info=True)')
-MUTANTS = [
-    {
-        'number': 1,
-        'name': 'cause-on-every-paced-failure',
-        'old': '                cause = count % WORKER_CAUSE_EVERY == 1          # 1, 33, 65, ...',
-        'new': '                cause = True  # MUTANT: every paced failure gets its cause',
-        'test': f'{CAUSE_TESTS}::test_paced_cause_and_exact_summary_cadence',
-    },
-    {
-        'number': 2,
-        'name': 'cause-rendering-raises-out-of-done',
-        'old': ONE_SHOT,
-        'new': '                    str(exc)  # MUTANT: render before the protected handler\n' + ONE_SHOT,
-        'test': f'{CAUSE_TESTS}::test_hostile_exception_cause_never_escapes_or_skips_handler',
-    },
-    {
-        'number': 3,
-        'name': 'retention-structured-error-contains-message',
-        'old': '                    self.timers.mark("retention", error=type(exc).__name__, next_due=after(delay))',
-        'new': '                    self.timers.mark("retention", error=str(exc), next_due=after(delay))',
-        'test': f'{CAUSE_TESTS}::test_retention_error_is_type_only_and_deferred_keeps_count',
-    },
-    {
-        'number': 4,
-        'name': 'control-signatures-never-clear-on-success',
-        'old': '                self._control_traced.clear()',
-        'new': '                pass  # MUTANT: retain control causes after completed iterations',
-        'test': f'{CAUSE_TESTS}::test_control_cause_deduplication_resets_after_completed_iteration',
-    },
-    {
-        'number': 5,
-        'name': 'remembered-set-grows-past-256',
-        'old': '        if len(traced) >= TRACED_CAUSES_MAX:\n            traced.clear()',
-        'new': '        if False:  # MUTANT: the remembered set never restarts\n            traced.clear()',
-        'test': f'{CAUSE_TESTS}::test_first_trace_holds_at_most_256_and_starts_again_when_full',
-    },
-    {
-        'number': 6,
-        'name': 'summary-text-changes',
-        'old': '                    self.log.error("worker %s failed: %s (%d in a row, next try in %g s)",',
-        'new': '                    self.log.error("worker %s failed: %s (%d consecutive, retry after %g s)",',
-        'test': f'{CAUSE_TESTS}::test_paced_cause_and_exact_summary_cadence',
-    },
-    {
-        'number': 7,
-        'name': 'cause-bypasses-scrubbing-formatter',
-        'old': ONE_SHOT,
-        'new': '                    print(exc, file=sys.stderr)  # MUTANT: raw cause bypass\n' + ONE_SHOT,
-        'test': f'{CAUSE_TESTS}::test_exception_message_notes_chain_and_source_are_scrubbed',
-    },
-]
+def guarded_rmtree(path: Path, scratch: Path) -> None:
+    resolved = path.resolve()
+    assert resolved.parent == scratch.resolve() and resolved.name.startswith("mutant-copy-"), resolved
+    assert any(part.startswith("sf-") for part in resolved.parts), resolved
+    shutil.rmtree(resolved)
 
 
 def main() -> int:
-    assert SCRATCH.name == 'sf-wcp-b1'
-    assert SOURCE.resolve().is_relative_to(WORKTREE.resolve())
-    SCRATCH.mkdir(exist_ok=True)
-    pristine = SOURCE.read_bytes()
-    pristine_hash = sha(pristine)
-    pristine_text = pristine.decode('utf-8')
-    # Build every mutation before touching the source, so an outdated anchor stops safely.
-    variants = [(spec, replace_once(pristine_text, spec['old'], spec['new']).encode('utf-8'))
-                for spec in MUTANTS]
-    snapshot = SCRATCH / 'daemon-pristine-mutants.py'
-    snapshot.write_bytes(pristine)
-    assert snapshot.read_bytes() == pristine
-    run_tag = str(time.time_ns())
-    session = SCRATCH / f'mutants-{run_tag}'
-    session.mkdir()
-    env = os.environ.copy()
-    darwin_tmp = subprocess.check_output(['getconf', 'DARWIN_USER_TEMP_DIR'], text=True).strip()
-    env['TMPDIR'] = darwin_tmp
-    env['UV_CACHE_DIR'] = str(SCRATCH / 'uv-cache')
-    results = []
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--scratch", required=True, type=Path)
+    parser.add_argument("--out", required=True, type=Path)
+    parser.add_argument("--budget", type=float, default=float("inf"),
+                        help="seconds after which no further mutant starts")
+    parser.add_argument("names", nargs="*")
+    args = parser.parse_args()
+    scratch = args.scratch.resolve()
+    assert scratch.is_dir() and any(part.startswith("sf-") for part in scratch.parts), scratch
+    assert not scratch.is_relative_to(CHECKOUT.resolve()), "the copy is never inside the checkout"
+    chosen = [spec for spec in MUTANTS if not args.names or spec["name"] in args.names]
+    results = json.loads(args.out.read_text())["results"] if args.out.exists() else []
+    finished = {row["name"] for row in results if row.get("killed") is not None}
+    files = sorted({spec["file"] for spec in MUTANTS})
+    before = {name: sha((CHECKOUT / name).read_bytes()) for name in files}
+    # Every mutant is built before anything runs, so an outdated anchor stops the run.
+    variants = {spec["name"]: mutated((CHECKOUT / spec["file"]).read_text(), spec["edits"]) for spec in chosen}
+    tracked = subprocess.run(["git", "-C", str(CHECKOUT), "ls-files", "-z"], check=True,
+                             capture_output=True).stdout.decode().split("\0")
+    copy = scratch / f"mutant-copy-{time.time_ns()}"
+    copy.mkdir()
     try:
-        for spec, variant in variants:
-            assert SOURCE.read_bytes() == pristine, 'Source changed between mutations'
-            test_temp = session / f"pytest-{spec['number']}"
-            command = [
-                'uv', '--cache-dir', env['UV_CACHE_DIR'], 'run', '--no-sync',
-                '--with', 'pytest-xdist>=3.6', 'pytest', spec['test'], '-n', '4',
-                '--basetemp', str(test_temp), '-q',
-            ]
-            started = time.monotonic()
-            stdout = ''
-            returncode = None
-            error = None
-            SOURCE.write_bytes(variant)
+        for name in tracked:
+            if name and (name.startswith(("subfleet/", "tests/")) or "/" not in name):
+                target = copy / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(CHECKOUT / name, target)
+        probe = subprocess.run([sys.executable, "-c", "import subfleet; print(subfleet.__file__)"], cwd=copy,
+                               capture_output=True, text=True, check=True).stdout.strip()
+        assert Path(probe).resolve().is_relative_to(copy.resolve()), probe
+        env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
+        env.pop("PYTHONPATH", None)
+        run_started = time.monotonic()
+        for spec in chosen:
+            if spec["name"] in finished:
+                continue
+            if time.monotonic() - run_started > args.budget:
+                break
+            target = copy / spec["file"]
+            pristine = target.read_bytes()
+            assert sha(pristine) == before[spec["file"]]
+            command = [sys.executable, "-m", "pytest", *spec["tests"], "-q", "-p", "no:cacheprovider",
+                       f"--basetemp={scratch / ('pytest-' + spec['name'])}"]
+            started, load = time.monotonic(), os.getloadavg()[0]
+            target.write_text(variants[spec["name"]])
             try:
-                assert SOURCE.read_bytes() == variant
-                completed = subprocess.run(
-                    command, cwd=WORKTREE, env=env, text=True,
-                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=300,
-                )
-                stdout, returncode = completed.stdout, completed.returncode
-            except BaseException as exc:
-                error = f'{type(exc).__name__}: {exc}'
-                if isinstance(exc, subprocess.TimeoutExpired):
-                    stdout = exc.stdout or ''
-                    if isinstance(stdout, bytes):
-                        stdout = stdout.decode('utf-8', 'replace')
-                raise
+                done = subprocess.run(command, cwd=copy, env=env, capture_output=True, text=True, timeout=400)
+                output, code = done.stdout + done.stderr, done.returncode
+            except subprocess.TimeoutExpired as exc:
+                output, code = str(exc), None
             finally:
-                SOURCE.write_bytes(pristine)
-                restored = SOURCE.read_bytes()
-                assert restored == pristine and sha(restored) == pristine_hash
-                output_path = session / f"{spec['number']}-{spec['name']}.txt"
-                output_path.write_text(stdout, encoding='utf-8')
-                result = {
-                    'number': spec['number'], 'name': spec['name'], 'test': spec['test'],
-                    'command': command, 'returncode': returncode,
-                    'killed': returncode == 1, 'seconds': time.monotonic() - started,
-                    'output': str(output_path), 'error': error,
-                    'restored_sha256': sha(restored),
-                }
-                results.append(result)
-                (session / 'results.json').write_text(json.dumps({
-                    'pristine_sha256': pristine_hash, 'snapshot': str(snapshot),
-                    'TMPDIR': env['TMPDIR'], 'UV_CACHE_DIR': env['UV_CACHE_DIR'],
-                    'results': results,
-                }, indent=2) + '\n', encoding='utf-8')
-                print(json.dumps(result), flush=True)
-            # Exit codes 2/3/4/5 indicate infrastructure/collection failures, not kills.
-            if returncode != 1:
-                print(f"Mutation {spec['number']} was not killed by an assertion failure", file=sys.stderr)
-                return 1
+                target.write_bytes(pristine)
+                restored = sha(target.read_bytes())
+                assert restored == before[spec["file"]], spec["name"]
+            tail = [line for line in output.splitlines() if " passed" in line or " failed" in line]
+            failed = [line.split(" ")[1] for line in output.splitlines() if line.startswith("FAILED ")]
+            row = {"name": spec["name"], "file": spec["file"], "what": spec["what"], "tests": spec["tests"],
+                   "returncode": code, "killed": None if code is None else code == 1,
+                   "summary": tail[-1] if tail else "", "failed": failed, "restored_sha256": restored,
+                   "seconds": round(time.monotonic() - started, 1), "load_start": round(load, 1),
+                   "load_end": round(os.getloadavg()[0], 1)}
+            results = [r for r in results if r["name"] != spec["name"]] + [row]
+            args.out.write_text(json.dumps({"checkout_sha256": before, "results": results}, indent=2) + "\n")
+            print(json.dumps(row), flush=True)
     finally:
-        SOURCE.write_bytes(pristine)
-        assert SOURCE.read_bytes() == pristine
-        assert sha(SOURCE.read_bytes()) == pristine_hash
-    print(f'All seven mutants killed. Source restored: {pristine_hash}. Results: {session}', flush=True)
-    return 0
+        guarded_rmtree(copy, scratch)
+    after = {name: sha((CHECKOUT / name).read_bytes()) for name in files}
+    assert after == before, "the checkout's sources changed during the run"
+    ran = {row["name"]: row for row in results}
+    return 0 if all(ran.get(name, {}).get("killed") for name in variants) else 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     raise SystemExit(main())
