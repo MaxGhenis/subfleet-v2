@@ -2062,8 +2062,10 @@ class Daemon:
         pin grace says when), each with its `job.task_hold_ended` event, beside the
         `task.released` event; the next pass looks at them, and one in flight reads
         the holds again at its next job. A task the policy no longer routes can
-        still be released while its row is there. A release with no row changes
-        nothing and records nothing. A release of a hold already past its end
+        still be released while its row is there. A release with no row of its
+        target changes nothing and records nothing: it wakes no job, not even one a
+        stale hold of the same or the other kind kept waiting (a pass gives that one
+        back at its end). A release of a hold already past its end
         (`was_held` false) still deletes the row and records `task.released`, and
         gives any job no pass has woken since the end its clocks back, from that end.
         With `if_note_prefix`, even an expired row must have a matching note;
@@ -2082,9 +2084,11 @@ class Daemon:
             now = utcnow()
             row = tx.execute(task_holds.ROW_SQL, (key,)).fetchone()
             ended = task_holds.hold_of(dict(row)) if row else None
-            if prefix is not None and ended is None:
-                # A conditional release owns no row here. Even stale waiting
-                # jobs are unchanged; only a row bearing this prefix may be released.
+            if row is None or (prefix is not None and ended is None):
+                # A release with no row of its own target changes nothing and records
+                # nothing, conditional or not. A job still `task-held` for a stale hold,
+                # of this target or of the other kind, keeps its clock: a pass gives it
+                # back at that end (fix r1 of #309, review r1's probe p5).
                 return {"released": task, "was_held": False, "woken": 0,
                         "task_holds": task_holds.listing(self._task_holds_now())}
             if prefix is not None and ended is not None and not ended["note"].startswith(prefix):
