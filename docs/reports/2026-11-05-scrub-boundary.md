@@ -433,8 +433,9 @@ Built head: see the final answer.
 
 ## Reminder-erased openers (issue #325)
 
-Build job 20261115-094656-scrub-op-build-r1, run 2026-11-15 15:35–18:35 UTC on a4aded885 (release/217
-with #300 merged). Host load ran 30–177 on 18 cores; this job's processes got 2–6% of a CPU each. Commits
+Build job 20261115-094656-scrub-op-build-r1, run 2026-11-15 15:35–19:20 UTC on a4aded885 (release/217
+with #300 merged). Host load ran 30–195 on 18 cores; this job's processes got 2–9% of a CPU each. The
+host stalled from about 17:40 to 19:15 UTC during the last test run (see the deviations). Commits
 are on the job's detached checkout: `fb4344951` (fix), `45f638981` (tests), `254e2a37b` (contract), then
 this report.
 
@@ -648,14 +649,29 @@ PYTHONPATH`, a new `--basetemp` under `$TMPDIR/sf-scrub-op1`, and `uv run --no-s
   tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py`): 70 passed in 283.4 s.
 - **Superset comparison** (`rows.py` on the archive and on the change, `compare.py`): 176 pairs, 165
   identical, 11 grew, 0 lost.
+- **More of the excerpts file**:
+  - The within-budget tests and the split, cascade, read-cap and stored-example tests, run with `-q`
+    (`-k "within_the_budget or resolves or row_b or quoted_data_uri or read_cap or no_block_leaves or
+    stored_example"`), hit their 575 s limit with 39 passed and none failed. `-q` doesn't name them.
+  - Run again with `-v` and without the long split and stored-example tests (`-k "within_the_budget or
+    resolves or row_b or quoted_data_uri or read_cap"`): 29 passed in 67.8 s. Those are the four
+    within-budget tests (with both 200-example properties), the drawn-block and cascade
+    differentials, `resolves_the_blocks`, row (b), the quoted data URI and both read-cap cases.
+- **`tests/unit/test_scrub*.py`** (14 files, `-v`): stopped unfinished, after 205 passed, none failed
+  and none skipped. They were all in `test_scrub_inline_headers.py` (some 200) and
+  `test_scrub_key_order.py` (15). The host stalled during the run; its 575 s `timeout` didn't fire
+  until about 98 minutes later, and I stopped its processes by pid.
 
 ### What didn't run
 
-At this host's load a test got 2–6% of a CPU, so the brief's later runs didn't fit in the 3 hours:
+At this host's load a test got 2–9% of a CPU, and the host then stalled, so these runs didn't fit:
 
-- the rest of `tests/unit/test_sessions_handoff_excerpts.py`, including the 80-example property and the
-  200-example within-budget properties;
-- every `tests/unit/test_scrub*.py`;
+- the rest of `tests/unit/test_sessions_handoff_excerpts.py`. That includes the 80-example property
+  and the long rows of the block-edge, chained-cut, split-shape, cascade, omission-marker and edge
+  tests. Inference, not a run: the superset comparison found `_split_masks` unchanged on every such
+  fixed row (the same text and masks as a4aded885). `_split_masks` is the only changed step in their
+  path, so their results should be a4aded885's (all passed in review r2's run);
+- the rest of `tests/unit/test_scrub*.py` (12 of 14 files unreached, the other two in part);
 - every other `tests/unit/test_sessions_*.py`.
 
 CI's run of the whole suite is the check for these. I also didn't rerun review r2's two P3 measurements
@@ -675,6 +691,9 @@ CI's run of the whole suite is the check for these. I also didn't rerun review r
   reason and its tests are above.
 - **Scope of invariant 1's tests.** The helper checks the rows' `Zq…` values, not every run the
   whole-text scrub replaces.
+- **Time.** The brief's 3-hour limit ended at 18:35 UTC. The host stalled from about 17:40 to 19:15
+  during the scrub-file run, so I stopped that run's processes at 19:16 and wrote up at once. The
+  report and the cleanup finished at about 19:20.
 - **Placements.** "Alone" is the 115-character row itself, as the issue's offsets give it (not the
   cascades' 500 characters of prose either side).
 - **Folders outside the job's scratch.** `$TMPDIR/sf-scrub-op1`
