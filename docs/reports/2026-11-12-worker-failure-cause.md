@@ -6,7 +6,9 @@ round left the underscore-scheme URL leak for the hub, and its commits were
 blocked by the workspace's shared `index.lock` permissions; the hub then
 committed the build as `0b750661a` and this report as `1593a4efd`. Review r1
 found more (URL forms, hostile types, re-raises, escapes, chain cost); "Fix r1"
-at the end records what changed.
+records what changed. Review r2 found a test the release/217 merge broke, a URL
+password with an `@` and then a raw `/`, keys split by invisible characters and
+an untested outer frame; "Fix r2" at the end records what changed.
 
 Start: `2026-11-12 05:49:38 UTC` (`date -u`, first command). Base:
 `b51f08f961e1b1dcfb93347eb080f9ddd9a9260d`. Work is confined to the assigned
@@ -615,3 +617,300 @@ asserts `sf-wc-f1` is in the path. pytest's own `sf-test-homes-*` folders
 
 Head built: `26869e411` (code, tests, contract and runner). This section is
 committed on top of it.
+
+## Fix r2
+
+Round 2's fix of review r2 (`review-r2.md`, head `bb118f63d`). Start:
+`2026-11-15 19:34:41 UTC` (`date -u`, first command). Load was 94 to 216
+throughout. All values in tests and probes are made up; no environment value
+was printed.
+
+### Findings and changes
+
+**P1, `run_control` failed every time.**
+- Cause: #302 on release/217 made `_control` call `self._retention_due()` each
+  iteration. That calls `_retention_delete_ready()` and then
+  `self._retention_delete.pending()`, which the fixture's `Daemon.__new__`
+  service never sets. So the "completed" iteration raised `AttributeError`
+  and the reset never ran.
+- Change: `tests/unit/test_worker_failure_cause.py:118`. `run_control` stubs
+  `service._retention_due = lambda: False` beside its other stubs. The
+  deduplication test also checks that the logged causes are the fixture's own
+  (`["one", "three"]`), so a gap like this one names itself next time.
+- Shown: before, `1 failed` (`[True, False, True, False] != [True, False, True]`,
+  53 s); after, `1 passed`. With the reset removed (B4), `1 failed`.
+
+**P1, a password with an `@` and then a raw `/`.**
+- Cause: fix r1's password had two branches. The first, "to the last `@`
+  before the first `/`", matched `p` in `https://alice:p@ss/…@host.test`, so
+  the second branch was never tried.
+- Change: `subfleet/sessions/handoff.py:105-115`. The password now has one
+  branch: it runs to the last `@` before whitespace or the next `://`. That
+  branch matches wherever the old first one did, so the first is gone.
+  `_linear_sub` is unchanged, and each try still reads at most to the next
+  `://`.
+- Cost, as the hub ruled: an `@` later in a path is read as the userinfo's end.
+  - `https://alice:pw@host.test/users/@me` is written as `[REDACTED]` whole,
+    host included. Fix r1 hid only `pw`.
+  - `http://localhost:3000/api/users/@me` is written as `[REDACTED]`, as under
+    fix r1.
+  - `https://host.test/users/@me` (no `:` after the host) is written whole.
+  - A JSON list of two password URLs with no space between them still hides
+    each password alone (probed).
+- Tests, in `tests/unit/test_worker_failure_url_and_terminal.py`:
+  - `test_r2_a_password_with_an_at_and_then_a_raw_slash_is_hidden_on_every_route`
+    (review r2's case);
+  - `test_r2_an_at_in_a_path_hides_what_comes_before_it_on_every_route`, which
+    pins the over-redaction.
+
+  Each runs on all ten of r1's routes: message, note, `__cause__`,
+  `__context__`, source line, group member, control, request, tail and follow.
+  That covers the brief's five.
+- Shown: G1 puts back fix r1's two-branch password: 20 failed. After the fix:
+  20 passed. The pin's no-password and no-port parts behaved the same before
+  the fix. It fails on fix r1's rule because of its host case.
+
+**P2, a key split by an invisible character.**
+- Cause: `_HIDDEN_CONTROL` dropped only controls that aren't whitespace to `\s`.
+  - `\x1c` to `\x1f` are whitespace to `\s`, so the terminal reading kept them
+    and they split the key.
+  - Format characters are not controls. The formatter and `_terminal_safe`
+    read a text as a terminal shows it only when it held a `_CONTROL`, so a
+    text holding only format characters was never read so.
+- Change: `subfleet/daemon_log.py:140-215`, and `:374` in the formatter.
+  - `_FORMAT` lists Unicode's category Cf as of Unicode 17 (the venv's Python
+    3.15.2). The list is fixed in the code, so import does no scan.
+  - `_INVISIBLE` replaces `_HIDDEN_CONTROL`. `_rendered` drops what it names:
+    the controls that aren't whitespace, `\x1c` to `\x1f`, and `_FORMAT`.
+  - `_UNSHOWN` is `_CONTROL` plus `_FORMAT`. A text holding one is read as a
+    terminal shows it, by the formatter and by `_terminal_safe` (the tail and
+    the follower).
+  - `_SHOWN_RUN`: `_controls_shown` reads a run across `\x1c` to `\x1f`, as a
+    terminal draws it. Words a separator joins are still written when they
+    hide nothing, with the separator escaped.
+  - Format characters are written as they are, not escaped. Soft hyphens, ZWJ
+    emoji and a BOM in plain text are unchanged.
+  - The code comment that said "the others separate runs in either reading"
+    now names the controls left and why they separate runs.
+  - `test_daemon_log_handler.py::test_a_one_line_record_is_exactly_its_line_form`
+    now decides on `_UNSHOWN`, as the handler does.
+- Cost, pinned: a one-line record's line form folds `\x1f` to a space, so the
+  handler writes `alpha\x1fbeta gamma` as `[REDACTED] [REDACTED] gamma`. Each
+  word alone isn't a run of the terminal reading. `\x1c` to `\x1e` break
+  `str.splitlines()`, so that record takes the block form, which keeps them. The
+  tail and the follower write all four as `alpha\x1Nbeta gamma`.
+- Tests, in `tests/unit/test_worker_failure_url_and_terminal.py`:
+  - `test_r2_a_key_an_invisible_character_splits_is_still_a_password`: 40
+    cases (ZWSP, soft hyphen, word joiner, BOM and `\x1c` to `\x1f`, each on
+    message, control, request, tail and follow);
+  - `test_r2_words_a_separator_joins_are_one_run_that_hides_nothing`: 4 cases;
+  - `test_r2_the_format_characters_are_unicode_cf`: the class against the
+    running Python's `unicodedata`, allowing `Cn` for an older Python's Unicode;
+  - `test_r2_format_characters_in_plain_text_are_written_as_they_are`.
+- Shown: each part undone alone fails a test.
+  - G3, format characters kept by the reading: 21 failed.
+  - G4, separators kept: 4 failed.
+  - G5, format characters not read as a terminal shows them: 21 failed.
+  - G6, a run ends at a separator: 4 failed.
+  - After the fix: 46 passed.
+
+  The tests weren't run against `bb118f63d` itself. Review r2's own run
+  showed the leak there.
+- Left, for the hub to file:
+  - Bidirectional controls (Cf, such as U+202E) are read as invisible but
+    written raw. A terminal that does bidi could reorder what it shows.
+  - Zero-width characters outside Cf aren't dropped from the reading:
+    combining marks such as U+034F, variation selectors and Hangul fillers. A
+    key they split isn't read whole.
+
+**P2, the outermost frame was untested.**
+- Cause: every signature test raised and caught in one frame, or told the links
+  apart by the innermost frame.
+- Change, tests only (`tests/unit/test_worker_failure_cause.py:559-575`):
+  - `test_raise_signature_reads_the_outermost_frame`: one helper's raise line,
+    caught at two calls, gives two signatures, and the same call gives one.
+  - `test_one_helper_reached_from_two_control_lines_logs_two_causes`:
+    `run_control` reaches the helper through the loop's query and through its
+    pending exports, logging `[True, True, False]`. `run_control` gained an
+    `exports` keyword and calls a callable outcome.
+- Shown: M1 (G2, `outer = None`), 2 failed; after, 2 passed.
+
+**P3s.**
+- **Formatting cost is bounded by exceptions, not frames** (`daemon_log.py:106`).
+  Not fixed in code. C-5.10 now says the renderer reads at most 64
+  exceptions, "each with every frame of its traceback". For the hub to file:
+  a per-link frame cap. Review r2 measured 60 links of about 1,600 frames each
+  at 87.7 s.
+- **Over-redaction in shared consumers, and C-23.14 not amended.** C-23.14's
+  text names no URL rule (checked: its only `://` is a header example), so
+  this change doesn't touch it. Listed for the hub: the amendment is still
+  open, now with fix r2's host case too. C-5.10 states that cost.
+- **Two narrow URL forms still leak.** Not fixed; listed.
+  - A password containing `://`: each try stops at the next `://` to stay
+    linear.
+  - A scheme of non-ASCII letters (`дб://`): the rule's class is ASCII.
+    `[\w+.-]` would take it, but it would widen every consumer's rule, so it
+    is the hub's call.
+- **Stale PR body**: what changed is listed below for the hub's rewrite.
+
+### What the PR body should now say
+
+- The build round: causes at all three sites with #26's cadence, through the
+  handler. Its "1,185 passed, 7/7 mutants" are the build round's own counts.
+- The underscore leak the body calls "Gap, not fixed here" is fixed. Fix r1
+  hid it with review r1's other URL forms: a digit-first scheme, a scheme
+  after a digit, an empty user, a user holding `@`, a raw `/`, a second `@`.
+- Fix r1 also:
+  - made signatures read no metaclass hook, and count one that can't be
+    compared as new;
+  - kept one cause for a re-raised object, keying each link on its innermost
+    and outermost frames;
+  - wrote control characters as `\xNN` escapes on the handler, tail and
+    follower, and read a text as a terminal shows it;
+  - capped a chain of more than 64 exceptions at its two 16-link ends;
+  - rewrote the mutant runner to work on a copy (23/23 killed).
+- Fix r2:
+  - the test stub for #302's `_retention_due`;
+  - a URL password to its last `@` before whitespace or `://` (a host before a
+    path `@` is hidden too);
+  - `\x1c` to `\x1f` and Unicode format characters read as invisible in a key;
+  - tests for the outermost frame;
+  - C-5.10 and its change-log line amended.
+- The shared head URL rule (C-23.14) changed in fixes r1 and r2. C-23.14
+  itself isn't amended (above).
+
+### Mutants
+
+`.venv/bin/python docs/reports/2026-11-12-worker-failure-mutants.py --scratch
+$TMPDIR/sf-wcp-fix2/mutants --out $TMPDIR/sf-wcp-fix2/mutants/mutants.json
+--budget 330 NAME …`, in four slices of at most 590 s each, from 20:46 to
+21:16 UTC. The runner gained G1 to G6, and fix r1's F1, F2, F4, F5, F6 and F14
+were re-anchored on the new code. All 29 mutants build and parse.
+
+13 were run and all 13 were killed. Every copy was removed and every restored
+hash matched. Results are in
+`docs/reports/2026-11-12-worker-failure-mutants-r2.json`. Its `daemon_log.py`
+hash predates `e2af521cd`, which changed only a comment.
+
+| Mutant | Result | Seconds | Load |
+|---|---|---:|---|
+| B4 control set never clears | 1 failed | 97 | 125 → 136 |
+| G1 fix r1's first-`/` branch first | 20 failed | 113 | 136 → 166 |
+| G2 M1, outer frame dropped | 2 failed | 65 | 166 → 158 |
+| G3 format characters kept by the reading | 21 failed, 20 passed | 76 | 158 → 150 |
+| G4 separators kept by the reading | 4 failed, 40 passed (second run) | 124 | 100 → 137 |
+| G5 format characters don't trigger the reading | 21 failed, 20 passed | 113 | 146 → 182 |
+| G6 a run ends at a separator | 4 failed | 69 | 182 → 96 |
+| F1 underscore scheme | 20 failed | 67 | 117 → 101 |
+| F2 digit-first scheme | 20 failed | 66 | 57 → 34 |
+| F4 empty user | 10 failed | 141 | 34 → 99 |
+| F5 no `/` in a password | 10 failed | 40 | 101 → 66 |
+| F6 password ends at the first `@` | 10 failed | 51 | 66 → 47 |
+| F14 escapes not neutralized | 6 failed | 96 | 47 → 141 |
+
+G4's first run, against the key-split test alone, **survived** (40 passed,
+99 s). The joined run (`_SHOWN_RUN`) hides those keys by itself, so dropping
+the separators matters for what is written whole, not for hiding. I added the
+separator test to G4's list, and the second run killed it. The runner rewrites
+its JSON, so the first run's row is recorded only here.
+
+Not re-run: B1 to B3, B5 to B7, F3, F7 to F13, F15 and F16. Their anchors
+didn't change, and all build.
+
+### Commands and results
+
+Every test run set `TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)` and
+`UV_CACHE_DIR=$TMPDIR/uv-cache`, with `-p no:cacheprovider` and a new
+`--basetemp=$TMPDIR/sf-wcp-fix2/pytest-NN-…`. The prefix was
+`uv run --no-sync --with 'pytest-xdist>=3.6' python -m pytest … -n 4`; runs 1,
+2, 5 and 6 used `uv run --no-sync python -m pytest`, one worker. Each command
+was wrapped in `timeout 540` to `570`. Times are UTC.
+
+| # | When | Files | Result | Load |
+|---|---|---|---|---|
+| 0 | 19:55 | `uv sync --group dev` | installed (pytest 9.1.1, the workspace package) | ~156 |
+| 1 | 19:56 | the deduplication test, before the stub | **1 failed** (the P1) | 140 |
+| 2 | 20:01 | the same, after | **1 passed** | – |
+| 3 | 20:05 | the URL file, `-k r2_` | **20 passed**, 175 s | 216 |
+| 4 | 20:22 | the URL file, `-k "r2_ and (invisible or format)"` | **42 passed**. The differential test named beside it was deselected by `-k`; run 10 ran it | 141 |
+| 5 | 20:29 | four selected tests of the cause file | **4 passed** | 211 |
+| 6 | 20:36 | the URL file, `-k separator_joins` | **4 passed** | – |
+| 7 | 21:18 | the three worker-failure files | **258 passed**, 136 s | 109 → 125 |
+| 8 | 21:23 | `test_state_contract`, `test_test_module_names`, `test_invariants_index` | **63 passed** | 187 |
+| 9 | 21:25 | `test_handler_refusals.py` | **372 passed**, 199 s | 94 → 102 |
+| 10 | 21:29 | `test_daemon_log_handler`, `_tail`, `_scrubbing`, `_reminders`, `_trailing_reminders` | stopped by `timeout 545` with **385 passed, no `F` or `E`**, at about 99% | 106 → 98 |
+| 11 | 21:39 | `test_sessions_handoff`, `test_scrub_release_first`, `test_conversation_redact`, `test_suggestion_secret_properties`, `test_conversation_handoff_briefs` | stopped by `timeout 545` with **212 passed, no `F` or `E`**, at about 99% | 101 → 137 |
+
+Run 7's 258 are r1's 190 plus this round's 68: 20 URL, 40 invisible-key,
+4 separator, 2 format-class and 2 outer-frame tests.
+
+Other commands:
+- `git diff`, `git log` and `git grep` reads in the worktree.
+- `.venv/bin/python -I` probes, run from scratch scripts:
+  - the URL forms through `scrub_secrets` and `scrubbed_tail`;
+  - the invisible keys and plain separator text through the handler, the tail
+    and the follower;
+  - the Cf list from `unicodedata`.
+- An anchor check that all 29 mutants build and parse.
+- Commits, by named files only:
+  - `525dd4177`: the P1 stub;
+  - `795ba89da`: the URL rule;
+  - `420c66ef6`: the invisible characters;
+  - `a993aafd7`: the outer-frame tests;
+  - `5800a0206` and `94b4febec`: the runner and its results;
+  - `e2af521cd`: the contract;
+  - this report's commit.
+
+**Did not run.** Time ran out at this load. Of the 50 test files that import
+`daemon_log` or `handoff` (`git grep -l`), these ran:
+- in full: the three worker-failure files and `test_handler_refusals.py`;
+- to about 99%, with no failure: runs 10 and 11 above.
+
+These did not run:
+- `tests/fake`: `test_daemon_launch`, `test_reset_credit_incident` and
+  `test_sessions_end_to_end`;
+- `test_conversation_handoff_dispatch_races`, `test_conversation_service`;
+- `test_daemon_log_cut_windows`, `_first_pass`, `_mutation_tool` and `_sites`;
+- `test_daemon_verbs`, `test_launch_env_round7` and `_round8`,
+  `test_lockwatch`, `test_outcome_unknown`, `test_protocol_secrecy`;
+- `test_scrub_inline_headers`, `_key_order`, `_no_new_leak`,
+  `_release_frozen`, `_review_r10`, `r2` to `r7` and `_review_r9b`;
+- `test_sessions_cli`, `test_sessions_handoff_excerpts`,
+  `test_sessions_transcripts`, `test_status_hold_source`, `test_store_ids`
+  and `test_task_hold_cas_wire`.
+
+`tests/reference_*.py` and `tests/scrub_work.py` are helpers, not test
+modules. CI runs the whole suite.
+
+### Deviations
+
+- The URL tests run on all ten of r1's routes, not just the five the brief
+  names.
+- `run_control` gained an `exports` keyword and calls a callable outcome, for
+  the control-site outer-frame test.
+- C-5.10's "reads at most that many" now says exceptions, each with every
+  frame. The code isn't changed for that P3.
+- Format characters are read as invisible but written as they are, not
+  escaped.
+- `_SHOWN_RUN` joins a run across `\x1c` to `\x1f`. That isn't in the brief; it
+  keeps words a separator joins from being over-redacted, and G6 and the
+  separator test cover it.
+- G4 survived its first run (above).
+- Two commands ran past the harness's 120 s default and were moved to its
+  background, where both finished: the first `git status` (about 10 minutes,
+  load about 156) and a `grep -r` that followed an edit. I started nothing in
+  the background myself.
+
+Folders outside scratch:
+- `$TMPDIR/uv-cache` existed before this job (created 2026-11-14) and is
+  shared, so I left it.
+- `uv sync` created `.venv` in the workspace.
+- pytest's own `sf-test-homes-*` folders (`tests/conftest.py`) are removed by
+  its session teardown. Others' are there too, so I touched none.
+
+Scratch `$TMPDIR/sf-wcp-fix2` holds the probes, the run outputs, the mutant
+copies' results and the basetemps. It is removed at the end with a guarded
+`shutil.rmtree` that asserts `sf-wcp-fix2` is in the path. No live state,
+credential store or caller file was read or changed.
+
+Head built: the commit holding this section, on top of `e2af521cd`.
