@@ -32,6 +32,17 @@ parallel." (same page, fetched again 2026-09-28). So the position of an
 entry among an event's matcher groups changes nothing, and `daemon install
 --hooks` never treats position as drift (C-23.25).
 
+The same page, fetched again 2026-11-15 (`code.claude.com/docs/en/hooks.md`,
+section "Hook handler fields"), words it: "When an event fires, its matching
+hooks run in parallel." The next paragraph reads: "If you define the same
+handler in more than one settings file, it runs once. A plugin's or skill's
+copy of the same handler stays separate." That promise covers copies across
+settings files; the page says nothing about one file that lists a handler
+twice. Either way two v2 entries are not what `--hooks` writes, and two with
+different commands (an old path beside the current one) are two handlers that
+both run, so `daemon install --hooks` treats two or more as drift
+(`duplicated`, C-23.25).
+
 Settings files and precedence: `~/.claude/settings.json` (all projects, not
 shared), `.claude/settings.json` (one project, committable),
 `.claude/settings.local.json` (one project, gitignored), managed policy
