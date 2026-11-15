@@ -111,6 +111,7 @@ def run_control(service, outcomes):
     service._recovery_complete = threading.Event()
     service._recover_then_start_timers = lambda: None
     service._schedule = lambda *args, **kwargs: None
+    service._retention_due = lambda: False
     service._last_maintenance, service.tick_s = float("inf"), 0
     Daemon._control.__wrapped__(service)
     assert state.waits == len(outcomes)
@@ -262,6 +263,9 @@ def test_control_cause_deduplication_resets_after_completed_iteration():
     assert [bool(record.exc_info) for record in service.recording.records] == [True, False, True]
     assert [record.getMessage() for record in service.recording.records] == [
         "control iteration failed: RuntimeError"] * 3
+    # The logged causes are the fixture's own errors, so an iteration that fails on
+    # something the fixture never set up shows here by name, not as a count.
+    assert [str(record.exc_info[1]) for record in causes(service)] == ["one", "three"]
 
 
 def test_first_trace_holds_at_most_256_and_starts_again_when_full():
