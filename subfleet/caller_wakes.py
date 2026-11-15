@@ -6,17 +6,41 @@ terminal: this inbox cannot deduplicate a repeated message after a crash.
 """
 from __future__ import annotations
 
+import bisect
 from collections import defaultdict
 from datetime import datetime, timezone
+import os
 import time
+from time import monotonic as _monotonic
 
 from . import notice_claims, notify_push, protocol, render
 from .sessions import nudge, transcripts
 
 RETRY_WINDOW_S = 24 * 60 * 60
 RETRY_MAX_S = 300
-PREFLIGHT_FAILURES = frozenset({"no-inbox-socket", "no-peer-token"})
+#: Refusals proved to come before any message byte. The notice goes back to
+#: unread, where the prompt hooks still show it, and retries on the backoff.
+#: `push_to_session` refuses a lane session before it reads a token or opens a
+#: socket (review r1, finding 4).
+PREFLIGHT_FAILURES = frozenset({"no-inbox-socket", "no-peer-token", notify_push.LANE_REFUSAL})
+#: No registry row, or one naming a dead pid: an app restart or an account
+#: switch looks like this. These retry on the same clock and end undeliverable
+#: only when it runs out (review r1, finding 6).
 CLOSED_FAILURES = frozenset({"session-not-registered", "session-not-running"})
+#: Callers one pass examines, woken or not (review r1, finding 8). The next pass
+#: starts after the last caller this one examined, so every caller is reached.
+MAX_GROUPS_PER_PASS = 32
+#: A caller found held is not judged again (no transcript tail read, no session
+#: facts) until its notices, registry row, transcript file or wake clock change,
+#: its earliest time gate lapses, or this long has passed.
+HELD_RECHECK_S = 60.0
+#: Judge a held caller again this much before a time gate lapses: the gate is
+#: decided on microsecond datetimes, the memo on float seconds.
+_GATE_MARGIN_S = 1e-3
+#: `wake_reason` of a notice already older than the retry window at its first
+#: attempt (review r1, finding 3). Its `state` stays `pending` for the hooks.
+STALE_REASON = "older-than-retry-window"
+_BATCH = 500
 
 
 def _instant(stamp: str) -> float:
@@ -24,16 +48,61 @@ def _instant(stamp: str) -> float:
     return value.replace(tzinfo=value.tzinfo or timezone.utc).timestamp()
 
 
-def surface(daemon, args: protocol.NoticePendingArgs) -> dict:
+def _instant_or_none(stamp) -> float | None:
+    try:
+        return _instant(stamp) if isinstance(stamp, str) else None
+    except (ValueError, OverflowError):
+        return None
+
+
+def _deadline(row: dict, now: float) -> float:
+    """When a notice's retry window ends; an unreadable creation time has none left."""
+    try:
+        return _instant(row["created_at"]) + RETRY_WINDOW_S
+    except (ValueError, TypeError, OverflowError, AttributeError):
+        return now
+
+
+def _stat(path) -> tuple | None:
+    try:
+        info = os.stat(path) if path else None
+    except OSError:
+        return None
+    return None if info is None else (info.st_ino, info.st_size, info.st_mtime_ns)
+
+
+def _abandoned(args: protocol.NoticePendingArgs, arrived: float | None, client_gone) -> bool:
+    """Whether nobody is left to print what a surface claim would return.
+
+    The hook's client gives up after its own timeout and prints offline, so a
+    claim that runs later, queued on the request pool, must mark nothing
+    (review r1, finding 5). `deadline_s` counts from `arrived`, when the daemon
+    read the request, as `wait`'s deadline does (C-15.4).
+    """
+    if client_gone is not None and client_gone():
+        return True
+    budget = args.deadline_s
+    if arrived is None or isinstance(budget, bool) or not isinstance(budget, (int, float)):
+        return False
+    return _monotonic() >= arrived + budget
+
+
+def surface(daemon, args: protocol.NoticePendingArgs, *, arrived: float | None = None,
+            client_gone=None) -> dict:
     """Reserve the hook's rows and activity atomically, before it prints them.
 
     Plain notice.pending remains read-only. This opt-in shape preserves older
     clients and notice.ack's wire payload. The hook's later mark is harmless.
+    A claim whose client has gone, or whose deadline has passed, still records
+    the activity but marks no notice. A prompt that is Subfleet's own inbox
+    envelope (`own_envelope`) is activity, not personal input, so it resets no
+    unattended bound (review r1, finding 2).
     """
     session, event = args.session_id, args.surface
     if event not in ("SessionStart", "UserPromptSubmit"):
         raise protocol.ProtocolError("unknown notice state", reason="notice-state")
     now = time.time()
+    personal = event == "UserPromptSubmit" and args.own_envelope is not True
     with notice_claims.delivery_lock(daemon.root, session) as held:
         if not held:
             return {"notices": []}
@@ -45,7 +114,7 @@ def surface(daemon, args: protocol.NoticePendingArgs) -> dict:
                        "wake_streak=CASE WHEN ? THEN 0 ELSE wake_streak END,"
                        "last_wake_at=CASE WHEN ? THEN NULL ELSE last_wake_at END",
                        (session, now, args.source if event == "SessionStart" else None,
-                        event == "UserPromptSubmit", event == "UserPromptSubmit"))
+                        personal, personal))
             rows = [dict(row) for row in tx.execute(
                 "SELECT * FROM notices WHERE session_id=? AND state IN ('pending','offered') ORDER BY notice_id",
                 (session,))]
@@ -57,6 +126,9 @@ def surface(daemon, args: protocol.NoticePendingArgs) -> dict:
                      for row in service]
             if args.jobs_only:
                 rows = [row for row in rows if row.get("job_id")]
+            if _abandoned(args, arrived, client_gone):
+                daemon.store.audit_as("notice.hook_abandoned", {"session_id": session, "event": event})
+                return {"notices": []}
             stamp = datetime.fromtimestamp(now, timezone.utc).isoformat()
             for row in rows:
                 table, row_id = protocol.notice_row(row["notice_id"])
@@ -71,6 +143,11 @@ class CallerWakeEngine:
         self.daemon = daemon
         self.store = daemon.store
         self.now = now or time.time
+        #: The last caller a pass examined; the next pass starts after it.
+        self._cursor: str | None = None
+        #: session -> (inputs, transcript path, its stat, recheck time) of a
+        #: caller last found held. Memory only: a restart judges everyone again.
+        self._held: dict[str, tuple] = {}
         self.recover()
 
     def recover(self) -> None:
@@ -83,37 +160,90 @@ class CallerWakeEngine:
         result = self.daemon.sessions(protocol.SessionsArgs(action="state", session_ids=[session]))
         return (result.get("sessions") or {}).get(session) or {}
 
-    def _eligibility(self, session: str, entry: dict, state, limits: dict, now: float) -> tuple[bool, str]:
-        clock = self.store.one("SELECT * FROM caller_wake_sessions WHERE session_id=?", (session,)) or {}
-        facts = self._facts(session)
+    def _clock(self, session: str) -> dict:
+        return self.store.one("SELECT * FROM caller_wake_sessions WHERE session_id=?", (session,)) or {}
+
+    def _eligibility(self, session: str, entry: dict, state, limits: dict, now: float
+                     ) -> tuple[bool, str, float]:
+        """Whether to wake, why, and the earliest time a hold could lapse unaided."""
+        clock = self._clock(session)
         # The app publishes these in milliseconds. Busy remains busy even
         # during a long tool call that writes no new transcript records.
         if entry.get("activity_invalid"):
-            return False, "session activity is invalid"
+            return False, "session activity is invalid", now + HELD_RECHECK_S
         if entry.get("status") == "busy":
-            return False, "session is busy"
+            return False, "session is busy", now + HELD_RECHECK_S
+        facts = self._facts(session)
         active_at = max(clock.get("active_at") or 0,
                         (entry.get("status_updated_at") or 0) / 1000,
                         (entry.get("updated_at") or 0) / 1000)
-        return nudge.notice_decide(
+        allowed, reason = nudge.notice_decide(
             state, limits=limits, active_at=active_at, source=clock.get("source"),
             retired=facts.get("retired"), last_nudge=facts.get("last_nudge"),
             wake_streak=clock.get("wake_streak") or 0, last_wake_at=clock.get("last_wake_at"),
             now=datetime.fromtimestamp(now, timezone.utc))
+        return allowed, reason, self._lapse(state, clock, facts, active_at, limits, now)
+
+    @staticmethod
+    def _lapse(state, clock: dict, facts: dict, active_at: float, limits: dict, now: float) -> float:
+        """The earliest time gate still ahead (quiet, cooldowns, streak), capped."""
+        from .conversations.wakes import COOLDOWN_S, MAX_STREAK
+        gates = []
+        latest = max(_instant_or_none(state.timestamp) or 0, active_at or 0)
+        if latest:
+            gates.append(latest + limits["notice_quiet_s"])
+        last_wake = clock.get("last_wake_at")
+        if last_wake is not None:
+            gates.append(last_wake + limits["cooldown_s"])
+            if (clock.get("wake_streak") or 0) >= MAX_STREAK:
+                gates.append(last_wake + COOLDOWN_S)
+        nudged = _instant_or_none((facts.get("last_nudge") or {}).get("at"))
+        if nudged is not None:
+            gates.append(nudged + limits["cooldown_s"])
+        return min([now + HELD_RECHECK_S] + [gate - _GATE_MARGIN_S for gate in gates if gate > now])
+
+    def _held_key(self, session: str, entry: dict, rows: list[dict]) -> tuple:
+        """Everything a held caller's judgement reads, except the transcript and the clock time."""
+        clock = self._clock(session)
+        return (tuple(sorted((row["notice_id"], row["created_at"]) for row in rows)),
+                tuple(entry.get(key) for key in ("pid", "alive", "socket_present", "socket", "status",
+                                                 "status_updated_at", "updated_at", "activity_invalid",
+                                                 "started_at")),
+                tuple(clock.get(key) for key in ("active_at", "source", "wake_streak", "last_wake_at")))
+
+    def _current(self, session: str, candidates: list[dict]) -> list[dict]:
+        """The candidates still unread and unclaimed, by full identity, in one read per batch."""
+        live = set()
+        for start in range(0, len(candidates), _BATCH):
+            batch = candidates[start:start + _BATCH]
+            for row in self.store.query(
+                    "SELECT notice_id,job_id,created_at,text FROM notices WHERE session_id=? "
+                    "AND state='pending' AND wake_state IS NULL "
+                    f"AND notice_id IN ({','.join('?' * len(batch))})",
+                    (session, *(row["notice_id"] for row in batch))):
+                live.add((row["notice_id"], row["job_id"], row["created_at"], row["text"]))
+        return [row for row in candidates
+                if (row["notice_id"], row["job_id"], row["created_at"], row["text"]) in live]
+
+    def _stale(self, rows: list[dict], now: float) -> None:
+        """First attempt after the retry window: never wake; the hooks still show it."""
+        with self.store.transaction("notice.wake_stale", data={"notices": len(rows)}) as tx:
+            tx.executemany("UPDATE notices SET wake_state='stale',wake_reason=?,wake_at=? "
+                           "WHERE notice_id=? AND job_id=? AND session_id IS ? AND created_at=? AND text=? "
+                           "AND state='pending' AND wake_state IS NULL AND wake_attempts=0",
+                           [(STALE_REASON, now, row["notice_id"], row["job_id"], row["session_id"],
+                             row["created_at"], row["text"]) for row in rows])
 
     def _failure(self, rows: list[dict], reason: str, now: float, *, retry: bool) -> None:
         with self.store.transaction("notice.wake_failed", data={"reason": reason}) as tx:
             for row in rows:
-                try:
-                    deadline = _instant(row["created_at"]) + RETRY_WINDOW_S
-                except (ValueError, TypeError, OverflowError):
-                    deadline = now
+                deadline = _deadline(row, now)
                 again = retry and now < deadline
                 attempts = row["wake_attempts"] + 1
                 next_at = min(deadline, now + min(RETRY_MAX_S, 2 ** min(attempts, 9))) if again else None
                 tx.execute("UPDATE notices SET wake_state=?,wake_attempts=?,wake_next_at=?,wake_at=?,wake_reason=? "
                            "WHERE notice_id=? AND job_id=? AND session_id IS ? AND created_at=? AND text=? "
-                           "AND state IN ('pending','offered') AND wake_state IS NULL",
+                           "AND state='pending' AND wake_state IS NULL",
                            (None if again else "undeliverable", attempts, next_at, now,
                             reason if again or not retry else "retry-expired", row["notice_id"], row["job_id"],
                             row["session_id"], row["created_at"], row["text"]))
@@ -121,132 +251,161 @@ class CallerWakeEngine:
     def pass_once(self) -> dict:
         policy = self.daemon.policy
         limits = nudge.caps(policy)
-        result = {"delivered": 0, "sessions": 0}
+        result = {"delivered": 0, "sessions": 0, "examined": 0}
         if not policy.get("sessions", {}).get("notice_wake_enabled", True) or not nudge.enabled():
             return result
         now = self.now()
-        pending = self.store.query(
-            "SELECT n.* FROM notices n JOIN jobs j USING(job_id) "
-            "WHERE n.state IN ('pending','offered') AND n.wake_state IS NULL AND j.kind<>'turn' "
-            "AND (n.wake_next_at IS NULL OR n.wake_next_at<=?) ORDER BY n.created_at,n.notice_id", (now,))
+        # `offered` is left out: PostToolUse (layer 2) or `wait` already showed it
+        # to the caller, and the prompt hooks still show it (review r1, finding 1).
+        due, stale, expired = [], [], []
+        for row in self.store.query(
+                "SELECT n.* FROM notices n JOIN jobs j USING(job_id) "
+                "WHERE n.job_id IS NOT NULL AND n.state='pending' AND n.wake_state IS NULL "
+                "AND j.kind<>'turn' AND (n.wake_next_at IS NULL OR n.wake_next_at<=?) "
+                "ORDER BY n.created_at,n.notice_id", (now,)):
+            if now < _deadline(row, now):
+                due.append(row)
+            elif row["wake_attempts"]:
+                expired.append(row)
+            else:
+                stale.append(row)
+        if stale:
+            self._stale(stale, now)
+        if expired:
+            self._failure(expired, "retry-expired", now, retry=False)
         groups = defaultdict(list)
-        for row in pending:
-            groups[row["session_id"]].append(row)
-        for session, candidates in groups.items():
-            if result["sessions"] >= limits["max_sessions"]:
+        for row in due:
+            groups[row["session_id"] or ""].append(row)
+        self._held = {session: memo for session, memo in self._held.items() if session in groups}
+        order = sorted(groups)
+        start = bisect.bisect_right(order, self._cursor) if self._cursor is not None else 0
+        for session in order[start:] + order[:start]:
+            if result["sessions"] >= limits["max_sessions"] or result["examined"] >= MAX_GROUPS_PER_PASS:
                 break
-            if not session:
-                self._failure(candidates, "no-caller-session", now, retry=False)
-                continue
-            if self.daemon._conversation_binding(session):
-                continue  # C-24.10 is the only wake path for this session.
-            with notice_claims.delivery_lock(self.daemon.root, session) as held:
-                if not held:
-                    continue
-                try:
-                    notice_claims.reconcile(self.daemon, session)
-                except (OSError, ValueError, KeyError):
-                    continue  # a bad receipt fences only its own caller
-                # Hooks and other passes may have consumed the candidate read.
-                rows = [row for row in candidates if self.store.one(
-                    "SELECT 1 FROM notices WHERE notice_id=? AND job_id=? AND session_id=? AND created_at=? AND text=? "
-                    "AND state IN ('pending','offered') AND wake_state IS NULL",
-                    (row["notice_id"], row["job_id"], session, row["created_at"], row["text"]))]
-                if not rows:
-                    continue
-                expired = [row for row in rows if row["wake_attempts"] and
-                           now >= _instant(row["created_at"]) + RETRY_WINDOW_S]
-                if expired:
-                    self._failure(expired, "retry-expired", now, retry=False)
-                    rows = [row for row in rows if row not in expired]
-                if not rows:
-                    continue
-                entry = notify_push.find_session(session)
-                if entry is None or not entry["alive"]:
-                    self._failure(rows, "session-not-registered" if entry is None else "session-not-running",
-                                  now, retry=False)
-                    continue
-                path = transcripts.transcript_path(session)
-                before = transcripts.turn_state(path, now=datetime.fromtimestamp(now, timezone.utc))
-                if not self._eligibility(session, entry, before, limits, now)[0]:
-                    continue
-                if not entry["socket_present"]:
-                    self._failure(rows, "no-inbox-socket", now, retry=True)
-                    continue
-                after = transcripts.turn_state(path, now=datetime.fromtimestamp(now, timezone.utc))
-                if before.fingerprint != after.fingerprint:
-                    continue
-                # Account switches replace the registry row; a fresh busy
-                # status can also arrive without changing the transcript.
-                entry = notify_push.find_session(session)
-                if entry is None or not entry["alive"]:
-                    self._failure(rows, "session-not-registered" if entry is None else "session-not-running",
-                                  now, retry=False)
-                    continue
-                if not entry["socket_present"]:
-                    self._failure(rows, "no-inbox-socket", now, retry=True)
-                    continue
-                claimed = []
-                with self.store.transaction("notice.wake_claimed", data={"session_id": session}) as tx:
-                    if self.daemon._conversation_binding(session) or not self._eligibility(
-                            session, entry, after, limits, now)[0]:
-                        continue
-                    previous_clock = self.store.one(
-                        "SELECT wake_streak,last_wake_at FROM caller_wake_sessions WHERE session_id=?", (session,)) or {}
-                    for row in rows:
-                        if tx.execute("UPDATE notices SET state='surfaced',transport='caller-wake',"
-                                      "wake_state='claimed',wake_attempts=wake_attempts+1,wake_at=?,wake_next_at=NULL "
-                                      "WHERE notice_id=? AND job_id=? AND session_id=? AND created_at=? AND text=? "
-                                      "AND state IN ('pending','offered') AND wake_state IS NULL",
-                                      (now, row["notice_id"], row["job_id"], session,
-                                       row["created_at"], row["text"])).rowcount:
-                            claimed.append(row)
-                    if claimed:
-                        tx.execute("INSERT INTO caller_wake_sessions(session_id,last_wake_at,wake_streak) VALUES(?,?,1) "
-                                   "ON CONFLICT(session_id) DO UPDATE SET last_wake_at=excluded.last_wake_at,"
-                                   "wake_streak=wake_streak+1", (session, now))
-                if not claimed:
-                    continue
-                # Only header fields are read for the wake. Notice summaries,
-                # attempts' output and deliverable file contents never enter it.
-                headers = [render.notice_header(self.store.get_job(row["job_id"]), self.daemon.root)
-                           for row in claimed]
-                result["sessions"] += 1
-                try:
-                    outcome = notify_push.push_to_session(session, "\n".join(headers),
-                                                          lane_sessions=self.daemon._lane_session_ids())
-                except Exception:
-                    outcome = {"delivered": False, "reason": "send-uncertain"}
-                if outcome.get("delivered"):
-                    with self.store.transaction("notice.woken", data={"session_id": session,
-                                                                       "notice_ids": [r["notice_id"] for r in claimed]}) as tx:
-                        tx.executemany("UPDATE notices SET wake_state='delivered',wake_reason=NULL "
-                                       "WHERE notice_id=? AND job_id=? AND session_id=? AND created_at=? AND text=? "
-                                       "AND wake_at=? AND wake_state='claimed'",
-                                       [(row["notice_id"], row["job_id"], session, row["created_at"], row["text"], now)
-                                        for row in claimed])
-                    result["delivered"] += len(claimed)
-                else:
-                    retryable = outcome.get("retryable") is True
-                    # Connect failures prove no message bytes were attempted.
-                    # Persist fixed words, never the transport exception text.
-                    reason = "inbox-unavailable" if retryable else outcome.get("reason")
-                    safe = retryable or reason in PREFLIGHT_FAILURES or reason in CLOSED_FAILURES
-                    with self.store.transaction("notice.wake_unsent") as tx:
-                        for row in claimed:
-                            tx.execute("UPDATE notices SET state=?,transport=?,wake_state=?,wake_reason=? "
-                                       "WHERE notice_id=? AND job_id=? AND session_id=? AND created_at=? AND text=? "
-                                       "AND wake_at=? AND wake_state='claimed'",
-                                       (row["state"] if safe else "surfaced", row["transport"] if safe else "caller-wake",
-                                        None if safe else "undeliverable", reason if safe else "send-uncertain",
-                                        row["notice_id"], row["job_id"], session, row["created_at"], row["text"], now))
-                        if safe:
-                            # No bytes were attempted. Give back the session
-                            # slot too, without undoing newer human activity.
-                            tx.execute("UPDATE caller_wake_sessions SET wake_streak=?,last_wake_at=? "
-                                       "WHERE session_id=? AND last_wake_at=?",
-                                       (previous_clock.get("wake_streak") or 0, previous_clock.get("last_wake_at"),
-                                        session, now))
-                    if safe:
-                        self._failure(claimed, reason, now, retry=retryable or reason in PREFLIGHT_FAILURES)
+            result["examined"] += 1
+            self._cursor = session
+            self._wake(session, groups[session], limits, now, result)
         return result
+
+    def _wake(self, session: str, candidates: list[dict], limits: dict, now: float, result: dict) -> None:
+        if not session:
+            self._failure(candidates, "no-caller-session", now, retry=False)
+            return
+        if self.daemon._conversation_binding(session):
+            return  # C-24.10 is the only wake path for this session.
+        with notice_claims.delivery_lock(self.daemon.root, session) as held:
+            if not held:
+                return
+            try:
+                notice_claims.reconcile(self.daemon, session)
+            except (OSError, ValueError, KeyError):
+                return  # a bad receipt fences only its own caller
+            # Hooks and other passes may have consumed the candidate read.
+            rows = self._current(session, candidates)
+            if not rows:
+                return
+            entry = notify_push.find_session(session)
+            if entry is None or not entry["alive"]:
+                self._failure(rows, "session-not-registered" if entry is None else "session-not-running",
+                              now, retry=True)
+                return
+            key = self._held_key(session, entry, rows)
+            memo = self._held.pop(session, None)
+            if memo is not None and memo[0] == key and now < memo[3] and _stat(memo[1]) == memo[2]:
+                self._held[session] = memo
+                return  # known held, and nothing it was judged on has changed
+            path = transcripts.transcript_path(session)
+            stat = _stat(path)
+            before = transcripts.turn_state(path, now=datetime.fromtimestamp(now, timezone.utc))
+            allowed, _reason, until = self._eligibility(session, entry, before, limits, now)
+            if not allowed:
+                self._held[session] = (key, path, stat, until)
+                return
+            if not entry["socket_present"]:
+                self._failure(rows, "no-inbox-socket", now, retry=True)
+                return
+            after = transcripts.turn_state(path, now=datetime.fromtimestamp(now, timezone.utc))
+            if before.fingerprint != after.fingerprint:
+                return
+            # Account switches replace the registry row; a fresh busy
+            # status can also arrive without changing the transcript.
+            entry = notify_push.find_session(session)
+            if entry is None or not entry["alive"]:
+                self._failure(rows, "session-not-registered" if entry is None else "session-not-running",
+                              now, retry=True)
+                return
+            if not entry["socket_present"]:
+                self._failure(rows, "no-inbox-socket", now, retry=True)
+                return
+            # Only header fields are read for the wake. Notice summaries,
+            # attempts' output and deliverable file contents never enter it.
+            # Rendered before the claim, so nothing between the claim's commit
+            # and the send can raise and leave a claim behind.
+            try:
+                headers = {row["notice_id"]: render.notice_header(self.store.get_job(row["job_id"]),
+                                                                  self.daemon.root) for row in rows}
+            except Exception:                           # noqa: BLE001 - retried, never sent
+                self._failure(rows, "header-unavailable", now, retry=True)
+                return
+            claimed = []
+            with self.store.transaction("notice.wake_claimed", data={"session_id": session}) as tx:
+                if self.daemon._conversation_binding(session) or not self._eligibility(
+                        session, entry, after, limits, now)[0]:
+                    return
+                previous_clock = self.store.one(
+                    "SELECT wake_streak,last_wake_at FROM caller_wake_sessions WHERE session_id=?", (session,)) or {}
+                for row in rows:
+                    if tx.execute("UPDATE notices SET state='surfaced',transport='caller-wake',"
+                                  "wake_state='claimed',wake_attempts=wake_attempts+1,wake_at=?,wake_next_at=NULL "
+                                  "WHERE notice_id=? AND job_id=? AND session_id=? AND created_at=? AND text=? "
+                                  "AND state='pending' AND wake_state IS NULL",
+                                  (now, row["notice_id"], row["job_id"], session,
+                                   row["created_at"], row["text"])).rowcount:
+                        claimed.append(row)
+                if claimed:
+                    tx.execute("INSERT INTO caller_wake_sessions(session_id,last_wake_at,wake_streak) VALUES(?,?,1) "
+                               "ON CONFLICT(session_id) DO UPDATE SET last_wake_at=excluded.last_wake_at,"
+                               "wake_streak=wake_streak+1", (session, now))
+            if not claimed:
+                return
+            result["sessions"] += 1
+            try:
+                outcome = notify_push.push_to_session(session, "\n".join(headers[row["notice_id"]] for row in claimed),
+                                                      lane_sessions=self.daemon._lane_session_ids())
+            except Exception:
+                outcome = {"delivered": False, "reason": "send-uncertain"}
+            if outcome.get("delivered"):
+                with self.store.transaction("notice.woken", data={"session_id": session,
+                                                                   "notice_ids": [r["notice_id"] for r in claimed]}) as tx:
+                    tx.executemany("UPDATE notices SET wake_state='delivered',wake_reason=NULL "
+                                   "WHERE notice_id=? AND job_id=? AND session_id=? AND created_at=? AND text=? "
+                                   "AND wake_at=? AND wake_state='claimed'",
+                                   [(row["notice_id"], row["job_id"], session, row["created_at"], row["text"], now)
+                                    for row in claimed])
+                result["delivered"] += len(claimed)
+                return
+            retryable = outcome.get("retryable") is True
+            reason = outcome.get("reason")
+            if isinstance(reason, str) and reason.split(":", 1)[0] == notify_push.LANE_REFUSAL:
+                reason = notify_push.LANE_REFUSAL      # fixed words; the rest is advice
+            # Connect failures prove no message bytes were attempted.
+            # Persist fixed words, never the transport exception text.
+            reason = "inbox-unavailable" if retryable else reason
+            safe = retryable or reason in PREFLIGHT_FAILURES or reason in CLOSED_FAILURES
+            with self.store.transaction("notice.wake_unsent") as tx:
+                for row in claimed:
+                    tx.execute("UPDATE notices SET state=?,transport=?,wake_state=?,wake_reason=? "
+                               "WHERE notice_id=? AND job_id=? AND session_id=? AND created_at=? AND text=? "
+                               "AND wake_at=? AND wake_state='claimed'",
+                               (row["state"] if safe else "surfaced", row["transport"] if safe else "caller-wake",
+                                None if safe else "undeliverable", reason if safe else "send-uncertain",
+                                row["notice_id"], row["job_id"], session, row["created_at"], row["text"], now))
+                if safe:
+                    # No bytes were attempted. Give back the session
+                    # slot too, without undoing newer human activity.
+                    tx.execute("UPDATE caller_wake_sessions SET wake_streak=?,last_wake_at=? "
+                               "WHERE session_id=? AND last_wake_at=?",
+                               (previous_clock.get("wake_streak") or 0, previous_clock.get("last_wake_at"),
+                                session, now))
+            if safe:
+                self._failure(claimed, reason, now, retry=True)

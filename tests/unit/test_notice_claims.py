@@ -19,6 +19,9 @@ from subfleet.store import Store
 
 SESSION = "receipt-session"
 TEXT = "job-done succeeded; rc=0; -o /fake/result.md"
+#: When the `wake_engine` clock starts (1,800,000,000 s): a notice from then is
+#: inside the 24 h window, where C-15.9 may wake for it.
+CREATED = "2027-01-15T08:00:00Z"
 
 
 class OfflineClient:
@@ -39,7 +42,7 @@ def core(tmp_path):
         daemon.store.close()
 
 
-def add_notice(core, *, service=False, text=TEXT, created_at="2026-11-11T12:00:00Z"):
+def add_notice(core, *, service=False, text=TEXT, created_at=CREATED):
     with core.store.transaction() as tx:
         table = "service_notices" if service else "notices"
         if service:
@@ -53,10 +56,10 @@ def add_notice(core, *, service=False, text=TEXT, created_at="2026-11-11T12:00:0
     return -row_id if service else row_id
 
 
-def offline_hook(core, *, event="UserPromptSubmit", source=None):
+def offline_hook(core, *, event="UserPromptSubmit", source=None, prompt=None):
     stream = io.StringIO()
-    assert hooks.session_event(event, {"session_id": SESSION, "source": source}, core.root,
-                               client=OfflineClient(), stdout=stream, env={}) == 0
+    assert hooks.session_event(event, {"session_id": SESSION, "source": source, "prompt": prompt},
+                               core.root, client=OfflineClient(), stdout=stream, env={}) == 0
     return stream.getvalue()
 
 
@@ -208,17 +211,33 @@ def test_c15_9_offline_prompt_activity_holds_a_new_notice_until_the_gate(core, m
     assert core.store.one("SELECT wake_state FROM notices WHERE notice_id=?", (fresh,))["wake_state"] == "delivered"
 
 
-@pytest.mark.parametrize("source", ["compact", "clear"])
-def test_c15_9_offline_session_start_source_fences_a_later_notice(core, monkeypatch, source):
+@pytest.mark.parametrize("source,woken", [("clear", False), ("compact", True)])
+def test_c15_9_offline_session_start_source_fences_a_later_notice(core, monkeypatch, source, woken):
+    """A `clear` holds the notice; an autocompaction does not (review r1, finding 7)."""
     clock = [1800000000.0]
     engine, sent = wake_engine(core, monkeypatch, clock)
     assert offline_hook(core, event="SessionStart", source=source) == ""
     add_notice(core)
     clock[0] += 301
     engine.pass_once()
-    assert sent == []
+    assert len(sent) == int(woken)
     assert core.store.one("SELECT source FROM caller_wake_sessions WHERE session_id=?", (SESSION,)) == {
         "source": source}
+
+
+def test_c15_9_an_offline_wake_prompt_is_activity_but_not_personal_input(core, monkeypatch):
+    """Review r1, finding 2, offline: the turn a wake starts moves the quiet clock but
+    keeps the unattended bounds; a person's prompt resets them."""
+    clock = [1800000000.0]
+    wake_engine(core, monkeypatch, clock)
+    wake = notify_push.envelope("job-done: succeeded; rc=0; deliverable=-; out=-")
+    assert offline_hook(core, prompt=wake) == ""
+    assert notice_claims.read_activity(core.root, SESSION) == {
+        "at": clock[0], "source": None, "human_at": None}
+    clock[0] += 1
+    assert offline_hook(core, prompt="And the next one?") == ""
+    assert notice_claims.read_activity(core.root, SESSION) == {
+        "at": clock[0], "source": None, "human_at": clock[0]}
 
 
 def test_c15_9_offline_human_prompt_resets_bounds_even_before_a_later_restart(core, monkeypatch):
@@ -267,7 +286,7 @@ def test_c15_9_a_corrupt_receipt_does_not_starve_another_quiet_caller(core, monk
     path.write_text("{}")
     with core.store.transaction() as tx:
         tx.execute("INSERT INTO notices(job_id,session_id,text,state,created_at) "
-                   "VALUES ('job-done','other-caller','other notice','pending','2026-11-11T12:00:00Z')")
+                   "VALUES ('job-done','other-caller','other notice','pending',?)", (CREATED,))
     engine.pass_once()
     assert [session for session, _body in sent] == ["other-caller"]
     assert core.store.one("SELECT state FROM notices WHERE session_id=?", (SESSION,)) == {"state": "pending"}

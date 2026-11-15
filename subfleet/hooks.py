@@ -489,12 +489,24 @@ def session_event(event: str, payload: dict[str, Any], root: Path,
             pass    # Exit 2 here blocks the session from starting; a missed
                     # nudge is recoverable and a blocked session is not.
     marked = True
+    # C-15.9: the turn an inbox push starts fires this hook with the pushed text
+    # as its prompt; Subfleet's own envelope is not personal input (review r1, finding 2).
+    own_envelope = False
+    if event == "UserPromptSubmit" and isinstance(payload, dict):
+        from .notify_push import is_own_envelope
+        own_envelope = is_own_envelope(payload.get("prompt"))
     try:
         # C-15.6: no lock check. C-16.7: a busy daemon is read offline below at
         # once; waiting out busy answers would only delay the prompt or the start.
         client = Client(root, verify_lock=False, retry_busy=False) if client is None else client
+        # C-15.9: the claim marks nothing once this client has stopped waiting,
+        # since the offline read below then prints instead (review r1, finding 5).
+        timeout = getattr(client, "timeout", None) or DEFAULT_TIMEOUT_S
         result = client.call("notice.pending", {"session_id": session, "surface": event,
-                                               "jobs_only": launched, "source": payload.get("source")})
+                                               "jobs_only": launched, "source": payload.get("source"),
+                                               "own_envelope": own_envelope,
+                                               "deadline_s": max(0.0, timeout - SURFACE_REPLY_MARGIN_S)},
+                             timeout=timeout)
         rows = result.get("notices")
         rows = [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
     except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
@@ -507,7 +519,7 @@ def session_event(event: str, payload: dict[str, Any], root: Path,
                     if launched:
                         pending = [row for row in pending if names_a_job(row)]
                     rows = reserve_offline(root, session, pending, event=event,
-                                           source=payload.get("source"))
+                                           source=payload.get("source"), personal=not own_envelope)
         except (OSError, ValueError, KeyError):
             pass  # without a durable claim, printing could race a restart wake
     if launched:
@@ -629,6 +641,9 @@ _RETRY_FLOOR_S = 0.25
 #: remaining after candidates when it is shorter. Pending gets at most half
 #: the delivery time left, so it cannot consume mark's allocation.
 _NOTICE_RESERVE_S = 2.0
+#: C-15.9: a session hook's surface claim must commit at least this long
+#: before its client gives up, so its reply can still reach the hook.
+SURFACE_REPLY_MARGIN_S = 2.0
 
 
 def _wait_and_deliver(client: Client, session: str, job_id: str, deadline: float,

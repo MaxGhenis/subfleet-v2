@@ -110,9 +110,10 @@ def test_notice_wake_uses_the_latest_transcript_or_recorded_activity():
 
 def test_notice_wake_off_switch_source_and_retirement_are_respected(monkeypatch):
     assert not decide(retired={"reason": "replaced"})[0]
-    for source in ("compact", "clear", "other"):
+    # Review r1 of #307, finding 7: an autocompaction keeps the caller's work, a clear does not.
+    for source in ("clear", "other"):
         assert not decide(source=source)[0]
-    for source in (None, "startup", "resume"):
+    for source in (None, "startup", "resume", "compact"):
         assert decide(source=source)[0]
     for off in ("off", "0", "false", "no"):
         monkeypatch.setenv(nudge.TICKLE_ENV, off)
@@ -208,7 +209,8 @@ def test_notice_wake_real_registry_older_live_sibling_activity_blocks_delivery(
 
 
 def test_notice_hook_claim_is_not_read_only_but_plain_pending_is():
-    """C-15.9: a disconnected hook claim must retain its durable reservation."""
+    """C-15.9: a hook claim still runs after its client leaves, to record the activity;
+    it then marks no notice (review r1, finding 5)."""
     assert descriptors.read_only("notice.pending", {"session_id": "caller"})
     assert not descriptors.read_only("notice.pending", {
         "session_id": "caller", "surface": "UserPromptSubmit"})

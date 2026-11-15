@@ -227,7 +227,7 @@ CREATE TABLE IF NOT EXISTS notices (
   created_at TEXT NOT NULL,
   offered_at TEXT,
   acknowledged_at TEXT,
-  wake_state TEXT CHECK (wake_state IS NULL OR wake_state IN ('claimed','delivered','undeliverable')),
+  wake_state TEXT CHECK (wake_state IS NULL OR wake_state IN ('claimed','delivered','undeliverable','stale')),
   wake_attempts INTEGER NOT NULL DEFAULT 0,
   wake_next_at REAL,
   wake_at REAL,
@@ -236,7 +236,7 @@ CREATE TABLE IF NOT EXISTS notices (
 CREATE INDEX IF NOT EXISTS notices_session ON notices(session_id, state);
 CREATE INDEX IF NOT EXISTS notices_job ON notices(job_id, state);
 CREATE INDEX IF NOT EXISTS notices_caller_wake ON notices(created_at, notice_id)
-  WHERE job_id IS NOT NULL AND state IN ('pending','offered');
+  WHERE job_id IS NOT NULL AND state='pending' AND wake_state IS NULL;
 
 -- C-15.1: activity and the existing conversation wake bounds for quiet callers.
 CREATE TABLE IF NOT EXISTS caller_wake_sessions (

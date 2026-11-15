@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from subfleet.store import NOTICE_WAKE_MIGRATION, SCHEMA_VERSION, Store
+from subfleet.store import NOTICE_WAKE_MIGRATION, NOTICE_WAKE_PREDATES, SCHEMA_VERSION, Store
 
 from test_store_migration_2 import _migration_adding, _schema_before_migration
 
@@ -46,9 +46,13 @@ def test_d_wake_caller1_notice_delivery_is_a_numbered_additive_migration(tmp_pat
         after = store.query("SELECT * FROM notices ORDER BY notice_id")
         assert [[row[column] for column in columns] for row in after] == [list(row) for row in before]
         assert [row["state"] for row in store.list_notices("caller", pending=True)] == ["pending", "offered"]
-        assert all({key: row[key] for key in WAKE_COLUMNS} == {
-            "wake_state": None, "wake_attempts": 0, "wake_next_at": None,
-            "wake_at": None, "wake_reason": None} for row in after)
+        # Review r1 of #307, finding 3: an unread notice from before the feature is
+        # stale, never a reason to wake; its state is untouched, so hooks show it.
+        assert [{key: row[key] for key in WAKE_COLUMNS} for row in after] == [
+            {"wake_state": wake_state, "wake_attempts": 0, "wake_next_at": None,
+             "wake_at": None, "wake_reason": reason}
+            for wake_state, reason in (("stale", NOTICE_WAKE_PREDATES), ("stale", NOTICE_WAKE_PREDATES),
+                                       (None, None), (None, None))]
         assert store.query("SELECT * FROM caller_wake_sessions") == []
         assert store.query("SELECT version FROM schema_version ORDER BY version") == [
             {"version": NOTICE_WAKE_MIGRATION - 1}, {"version": NOTICE_WAKE_MIGRATION}]
@@ -81,11 +85,11 @@ def test_d_wake_caller1_fresh_and_migrated_stores_have_the_same_delivery_schema(
             assert migrated.query(f'PRAGMA table_info("{table}")') == fresh.query(f'PRAGMA table_info("{table}")')
         assert migrated.one("SELECT sql FROM sqlite_master WHERE name='notices_caller_wake'") == fresh.one(
             "SELECT sql FROM sqlite_master WHERE name='notices_caller_wake'")
-        assert "job_id IS NOT NULL AND state IN ('pending','offered')" in fresh.one(
+        assert "job_id IS NOT NULL AND state='pending' AND wake_state IS NULL" in fresh.one(
             "SELECT sql FROM sqlite_master WHERE name='notices_caller_wake'")["sql"]
 
 
-@pytest.mark.parametrize("wake_state", [None, "claimed", "delivered", "undeliverable"])
+@pytest.mark.parametrize("wake_state", [None, "claimed", "delivered", "undeliverable", "stale"])
 def test_d_wake_caller1_delivery_states_and_session_defaults_are_constrained(tmp_path, wake_state):
     with Store(old_store(tmp_path / "old.sqlite3")) as store:
         store.update_notice(1, wake_state=wake_state)

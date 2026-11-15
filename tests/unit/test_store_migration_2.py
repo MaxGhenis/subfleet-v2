@@ -7,6 +7,7 @@ it moved — and the same code must produce an identical shape on a fresh store.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 import json
 from pathlib import Path
@@ -224,6 +225,13 @@ def _schema_before_migration(conn, migration):
                     conn.execute(f'DROP TABLE "{parts[5]}"')
                 else:
                     assert parts[:2] == ['ALTER', 'TABLE'] and parts[3:5] == ['ADD', 'COLUMN']
+                    # An index naming the column came with it: the schema file builds
+                    # the newest indexes after migrating (C-3.1), so the old store had none.
+                    for index, sql in conn.execute(
+                            "SELECT name,sql FROM sqlite_master WHERE type='index' AND tbl_name=? "
+                            "AND sql IS NOT NULL", (parts[2],)).fetchall():
+                        if re.search(rf'\b{re.escape(parts[5])}\b', sql):
+                            conn.execute(f'DROP INDEX "{index}"')
                     conn.execute(f'ALTER TABLE "{parts[2]}" DROP COLUMN "{parts[5]}"')
     conn.execute("INSERT INTO schema_version VALUES (?,'2026-10-14T00:00:00Z')", (migration - 1,))
 

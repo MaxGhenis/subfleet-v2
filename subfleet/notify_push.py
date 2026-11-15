@@ -49,6 +49,9 @@ _TRANSCRIPT_TAIL = 1024 * 1024
 _TRANSCRIPT_MAX = 64 * 1024 * 1024
 _MODE_RE = re.compile(rb'"permissionMode"\s*:\s*"([A-Za-z]+)"')
 _ENVELOPE_CLOSE = "</cross-session-message>"
+#: The fixed first words of `push_to_session`'s lane refusal, made before any
+#: token or socket use, so a caller can tell it from a failed send (C-15.9).
+LANE_REFUSAL = "lane-session"
 
 #: v1's lane-session markers. `notify.push_to_session` refuses a lane session by
 #: asking `lanes.is_lane_session`, which reads the v1 run ledger; v2 has no such
@@ -286,6 +289,25 @@ def envelope(body: str, *, from_name: str = FROM_NAME,
     return f"<cross-session-message{attrs}>\n{safe_body.strip()}\n{_ENVELOPE_CLOSE}"
 
 
+def is_own_envelope(prompt: object) -> bool:
+    """Whether a prompt is the envelope `envelope` writes under Subfleet's own name.
+
+    The turn an inbox push starts fires UserPromptSubmit with the pushed text
+    as its prompt, so a completion wake would otherwise read as personal input
+    and reset the bounds that limit unattended wakes (C-15.9; review r1 of #307,
+    finding 2). Any other prompt, another session's message included, is not.
+    """
+    if not isinstance(prompt, str):
+        return False
+    text = prompt.strip()
+    head = f'<cross-session-message from-name="{_clean_name(FROM_NAME)}"'
+    if not text.startswith(head) or not text.endswith(_ENVELOPE_CLOSE):
+        return False
+    rest = text[len(head):]
+    return any(rest.startswith(attrs + ">\n") for attrs in
+               ("", *(f' from-mode="{mode}"' for mode in MODE_CLASSES)))
+
+
 def send_to_socket(socket_path: str, token: str | None, content: str, *,
                    timeout: float = DEFAULT_TIMEOUT_S) -> None:
     """Deliver one user message into a session inbox. Raises OSError on failure."""
@@ -344,7 +366,7 @@ def push_to_session(session_id: str, body: str, *, from_name: str = FROM_NAME,
     if not force and session_id in set(lane_sessions):
         # A lane's deliverable is its last message; a pushed notice would become
         # that message. Relay to the lane's orchestrator instead (v1 rule).
-        result["reason"] = ("lane-session: headless run, a notice would overwrite "
+        result["reason"] = (f"{LANE_REFUSAL}: headless run, a notice would overwrite "
                             "its deliverable (relay to its orchestrator)")
         return result
     if not entry["socket_present"]:

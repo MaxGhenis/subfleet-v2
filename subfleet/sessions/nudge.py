@@ -144,6 +144,18 @@ def source_allows(source: str | None) -> bool:
     return source is None or source in RESTART_SOURCES
 
 
+#: C-15.9 (review r1 of #307, finding 7): a completion wake also follows an
+#: autocompaction, whose summary still carries the work the caller dispatched.
+#: A `clear` starts a context with none of that work, so its notices wait for
+#: the session's next prompt.
+NOTICE_WAKE_SOURCES = RESTART_SOURCES | {"compact"}
+
+
+def notice_source_allows(source: str | None) -> bool:
+    """C-15.9: whether a session's last SessionStart source permits a completion wake."""
+    return source is None or source in NOTICE_WAKE_SOURCES
+
+
 def spawn(session_id: str, *, source: str | None, transcript: str | Path | None,
           delay_s: float, root: str | Path | None = None,
           popen=None) -> int | None:
@@ -252,8 +264,8 @@ def notice_decide(state: TurnState, *, limits: dict[str, float],
     now = now or datetime.now(timezone.utc)
     if not enabled():
         return False, f"disabled ({TICKLE_ENV}=off)"
-    if not source_allows(source):
-        return False, f"source {source!r} is not a restart"
+    if not notice_source_allows(source):
+        return False, f"source {source!r} started a context without the caller's work"
     if retired:
         return False, f"retired by the operator ({retired.get('reason') or 'no reason recorded'})"
     if state.state not in ("interrupted", "completed"):
@@ -487,5 +499,6 @@ def lane_ids_of(facts: dict[str, Any]) -> set[str]:
     return set(facts.get("lane_sessions") or [])
 
 
-__all__ = ["Outcome", "Report", "SCOPES", "caps", "decide", "lane_ids_of",
-           "muster_text", "notice_decide", "nudge_text", "render", "source_allows", "sweep", "wake"]
+__all__ = ["NOTICE_WAKE_SOURCES", "Outcome", "Report", "SCOPES", "caps", "decide", "lane_ids_of",
+           "muster_text", "notice_decide", "notice_source_allows", "nudge_text", "render",
+           "source_allows", "sweep", "wake"]

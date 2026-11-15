@@ -84,14 +84,19 @@ def read_activity(root: Path, session: str) -> dict | None:
     return value
 
 
-def record_offline_activity(root: Path, session: str, *, event: str, source: str | None) -> None:
-    """Keep the quiet clock even when this hook has no new notices to print."""
+def record_offline_activity(root: Path, session: str, *, event: str, source: str | None,
+                            personal: bool = True) -> None:
+    """Keep the quiet clock even when this hook has no new notices to print.
+
+    Only a personal prompt is personal input: Subfleet's own inbox envelope
+    moves the quiet clock but not `human_at` (review r1 of #307, finding 2).
+    """
     if event not in ("SessionStart", "UserPromptSubmit"):
         raise ValueError("invalid notice activity event")
     previous = read_activity(root, session) or {}
     now = time.time()
     human_at = previous.get("human_at")
-    if event == "UserPromptSubmit":
+    if event == "UserPromptSubmit" and personal:
         human_at = max(now, human_at or 0)
     value = {"at": max(now, previous.get("at") or 0),
              "source": source if event == "SessionStart" and isinstance(source, str) else None,
@@ -110,9 +115,9 @@ def record_offline_activity(root: Path, session: str, *, event: str, source: str
 
 
 def reserve_offline(root: Path, session: str, rows: list[dict], *,
-                    event: str, source: str | None = None) -> list[dict]:
+                    event: str, source: str | None = None, personal: bool = True) -> list[dict]:
     """Called under delivery_lock, before an offline hook prints anything."""
-    record_offline_activity(root, session, event=event, source=source)
+    record_offline_activity(root, session, event=event, source=source, personal=personal)
     receipts = read_receipts(root, session)
     seen = {(item["notice_id"], item["fingerprint"]) for item in receipts}
     fresh = [row for row in rows if

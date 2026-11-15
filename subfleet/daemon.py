@@ -4365,7 +4365,7 @@ class Daemon:
                 args)
             if op == "notice.pending" and a.surface:
                 from .caller_wakes import surface
-                return surface(self, a)
+                return surface(self, a, arrived=arrived, client_gone=client_gone)
             # C-15.3: a negated id is a service notice, on every op that takes
             # ids back (`protocol.notice_row`), and `acknowledged` is terminal
             # in both tables: a notice is acknowledged once.

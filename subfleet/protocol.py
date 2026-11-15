@@ -306,11 +306,18 @@ class NoticeArgs:
 
 @dataclass
 class NoticePendingArgs(NoticeArgs):
-    """C-15.9: a session hook atomically claims the rows it will print."""
+    """C-15.9: a session hook atomically claims the rows it will print.
+
+    `own_envelope`: the prompt is Subfleet's own inbox envelope, which is not
+    personal input. `deadline_s`: counted from when the daemon read the request,
+    after which the claim marks nothing, since the hook has stopped waiting.
+    """
 
     surface: str | None = None
     jobs_only: bool = False
     source: str | None = None
+    own_envelope: bool = False
+    deadline_s: float | None = None
 
 
 @dataclass

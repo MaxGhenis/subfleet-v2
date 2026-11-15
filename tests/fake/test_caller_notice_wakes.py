@@ -13,18 +13,23 @@ import itertools
 import json
 from pathlib import Path
 import re
+import time
 from types import SimpleNamespace
 
 from hypothesis import HealthCheck, given, settings, strategies as st
 import pytest
 
-from subfleet import hooks, notify_push, render
+from subfleet import caller_wakes, hooks, notify_push, render
+from subfleet.caller_wakes import MAX_GROUPS_PER_PASS, RETRY_WINDOW_S, STALE_REASON
 from subfleet.conversations.wakes import COOLDOWN_S, MAX_STREAK
 from subfleet.sessions import nudge, transcripts
 from subfleet.sessions.transcripts import TurnState
 from subfleet.store import Store
-from tests.fake.test_notice_delivery import job_notice, pending_ids, surface
+from tests.fake.test_notice_delivery import InProcess, job_notice, pending_ids, surface
 from tests.fake.test_state_contract import state_daemon  # noqa: F401 - fixture
+
+#: The real inbox transport, taken before the `callers` fixture replaces it.
+REAL_PUSH = notify_push.push_to_session
 
 
 EPOCH = datetime(2026, 11, 12, 12, tzinfo=timezone.utc).timestamp()
@@ -451,12 +456,20 @@ def test_c15_9_retry_deadline_expires_even_when_the_caller_became_busy(callers):
 
 @pytest.mark.parametrize("entry", [None, {"alive": False, "socket_present": False}])
 def test_c15_9_absent_or_closed_session_is_undeliverable_without_starting_it(callers, entry):
+    """Review r1, finding 6: an app restart or account switch looks like this, so the
+    notice backs off and retries for the 24 h window, then ends undeliverable."""
     callers.register("closed")
     notice = callers.finish("closed")
     if entry is None:
         callers.entries.pop("closed")
     else:
         callers.entries["closed"].update(entry)
+    callers.pass_once()
+    row = callers.row(notice)
+    assert row["state"] == "pending" and row["wake_state"] is None and row["wake_attempts"] == 1
+    assert row["wake_reason"] == ("session-not-registered" if entry is None else "session-not-running")
+    assert callers.now < row["wake_next_at"] <= callers.now + 300
+    callers.now += 24 * 3600
     callers.pass_once()
     assert callers.row(notice)["wake_state"] == "undeliverable"
     assert callers.attempts == []
@@ -495,7 +508,7 @@ def test_c15_9_off_switches_source_and_zero_cap_hold_notices(callers, monkeypatc
         callers.daemon.policy["sessions"]["nudge_max_sessions"] = 0
     else:
         with callers.daemon.store.transaction() as tx:
-            tx.execute("INSERT INTO caller_wake_sessions(session_id,source) VALUES ('held','compact')")
+            tx.execute("INSERT INTO caller_wake_sessions(session_id,source) VALUES ('held','clear')")
     callers.pass_once()
     assert callers.counts()[notice] == 0
     assert callers.row(notice)["state"] == "pending"
@@ -627,3 +640,309 @@ def test_c15_9_late_transport_result_never_changes_a_reused_notice_id(callers, m
     callers.pass_once()
     assert len(replacement) == 1
     assert callers.row(old_id) == replacement[0], "the old transport result belongs only to the old claim"
+
+
+# --- review r1 of #307: probes A to E and findings 4 to 8 ---------------------
+
+
+def hook_prompt(callers, sid, prompt, *, client=None):
+    """The UserPromptSubmit hook for `prompt`; the context it gave Claude ("" for none)."""
+    stdout = io.StringIO()
+    assert hooks.session_event("UserPromptSubmit", {"session_id": sid, "prompt": prompt},
+                               callers.harness.root, client=client or InProcess(callers.daemon),
+                               stdout=stdout, env={}) == 0
+    printed = stdout.getvalue()
+    return json.loads(printed)["hookSpecificOutput"]["additionalContext"] if printed else ""
+
+
+def test_c15_9_a_notice_posttooluse_offered_is_never_woken(callers):
+    """Review r1, probe A1: layer 2 showed the result and marked it `offered`; the
+    caller then went quiet. No completion wake may repeat it."""
+    sid = "post-tool-use"
+    callers.register(sid)
+    notice = callers.finish(sid)
+    job = callers.daemon.store.get_job(callers.notices[notice])
+    stderr = io.StringIO()
+    assert hooks._deliver(InProcess(callers.daemon), sid, dict(job), stderr=stderr,
+                          deadline=time.monotonic() + 60, now=time.monotonic) == 2
+    assert callers.mentioned(notice, stderr.getvalue())
+    assert callers.row(notice)["state"] == "offered"
+    callers.activity[sid] = callers.now
+    callers.now += 301
+    callers.pass_once()
+    assert callers.counts()[notice] == 0
+    assert callers.row(notice)["wake_state"] is None
+    # Layer 3 still shows an offered notice at the next prompt (C-15.2).
+    assert callers.mentioned(notice, surface(callers.daemon, callers.harness.root, sid))
+
+
+@pytest.mark.parametrize("launched", [False, True], ids=["ordinary", "subfleet-launched"])
+def test_c15_9_a_result_wait_printed_is_never_woken(callers, monkeypatch, capsys, launched):
+    """Review r1, probe A2: `subfleet wait` (as an attached `run`) printed the terminal
+    result. It marks the caller's own notice `offered`, never acknowledged (C-15.3), and
+    inside a process Subfleet launched it marks nothing, for C-24.10's repair."""
+    from subfleet import cli
+    sid = f"waited-{launched}"
+    callers.register(sid)
+    notice = callers.finish(sid)
+    job = callers.notices[notice]
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", sid)
+    for name in hooks.LAUNCH_MARKERS:
+        monkeypatch.delenv(name, raising=False)
+    if launched:
+        monkeypatch.setenv("SUBFLEET_JOB", "a-conversation-turn")
+    monkeypatch.setattr(cli, "_client", lambda *args, **kwargs: InProcess(callers.daemon))
+    cli.wait_jobs(cli.build_parser().parse_args(["wait", job]), [job], timeout=30)
+    assert job in capsys.readouterr().err
+    row = callers.row(notice)
+    if launched:
+        assert row["state"] == "pending" and row["transport"] is None
+        return
+    assert row["state"] == "offered" and row["transport"] == "wait"
+    callers.activity[sid] = callers.now
+    callers.now += 301
+    callers.pass_once()
+    assert callers.counts()[notice] == 0
+
+
+def streak_cycles(callers, monkeypatch, prompt):
+    """Review r1, probe B: finish, 5 minutes of quiet, a pass, and the prompt hook the
+    pushed turn fires (`wake`), a person's prompt (`person`), or no hook (`None`)."""
+    monkeypatch.setattr(caller_wakes, "time", SimpleNamespace(time=lambda: callers.now))
+    sid = f"streak-{prompt}"
+    callers.register(sid)
+    wakes = []
+    for _ in range(MAX_STREAK + 3):
+        callers.finish(sid)
+        callers.now += 301
+        before = len(callers.sent)
+        callers.pass_once()
+        wakes.append(len(callers.sent) - before)
+        if prompt is not None and wakes[-1]:
+            text = notify_push.envelope(callers.sent[-1][1]) if prompt == "wake" else "Thanks, carry on."
+            assert hook_prompt(callers, sid, text) == ""
+    return wakes
+
+
+@pytest.mark.parametrize("prompt", ["wake", None], ids=["wake-prompt", "no-hook-control"])
+def test_c15_9_the_wakes_own_prompt_leaves_the_streak_bound_in_force(callers, monkeypatch, prompt):
+    """Review r1, probe B and its control: the wake's own envelope is not personal
+    input, so at most MAX_STREAK wakes land before C-24.10's COOLDOWN_S."""
+    wakes = streak_cycles(callers, monkeypatch, prompt)
+    assert wakes == [1] * MAX_STREAK + [0] * 3
+    clock = callers.daemon.store.one("SELECT * FROM caller_wake_sessions WHERE session_id=?",
+                                     (f"streak-{prompt}",))
+    assert clock["wake_streak"] == MAX_STREAK and clock["last_wake_at"] is not None
+
+
+def test_c15_9_a_persons_prompt_still_resets_the_streak(callers, monkeypatch):
+    """Any prompt other than Subfleet's own envelope is personal input (C-15.9)."""
+    assert streak_cycles(callers, monkeypatch, "person") == [1] * (MAX_STREAK + 3)
+
+
+def test_c15_9_a_notice_older_than_the_window_is_stale_on_its_first_attempt(callers):
+    """Review r1, probe C: a month-old notice must not wake its quiet caller; the
+    window's edge is stale too, and the hooks still show both."""
+    sid = "month-old"
+    callers.register(sid)
+    old = callers.finish(sid, created=callers.now - 30 * 86400)
+    edge = callers.finish(sid, created=callers.now - RETRY_WINDOW_S)
+    fresh = callers.finish(sid, created=callers.now - RETRY_WINDOW_S + 60)
+    callers.pass_once()
+    assert callers.counts() == Counter({fresh: 1})
+    for notice in (old, edge):
+        row = callers.row(notice)
+        assert (row["state"], row["wake_state"], row["wake_reason"], row["wake_attempts"]) == (
+            "pending", "stale", STALE_REASON, 0)
+    context = surface(callers.daemon, callers.harness.root, sid)
+    assert callers.mentioned(old, context) and callers.mentioned(edge, context)
+    callers.now += COOLDOWN_S
+    callers.pass_once()
+    assert callers.counts() == Counter({fresh: 1})
+
+
+def test_c15_9_a_backlog_never_wakes_for_stale_notices_and_wakes_at_most_the_cap_per_pass(callers):
+    """Review r1, probe E: 96 callers with old notices, 32 of them live and quiet, as on
+    install. Only fresh notices wake, at most `max_sessions` callers in each pass."""
+    live = [f"backlog-live-{index:02d}" for index in range(32)]
+    gone = [f"backlog-gone-{index:02d}" for index in range(64)]
+    for sid in live:
+        callers.register(sid)
+    # One finished job stands behind every old notice: the engine reads a notice's
+    # job only to render a wake, so 96 more submissions would add time, not cover.
+    origin = callers.finish("backlog-origin", created=callers.now - 40 * 86400)
+    old = {origin}
+    with callers.daemon.store.transaction() as tx:
+        for index, sid in enumerate(live + gone):
+            old.add(tx.execute(
+                "INSERT INTO notices(job_id,session_id,text,state,created_at) VALUES (?,?,?,'pending',?)",
+                (callers.notices[origin], sid, f"an old notice ({index})",
+                 stamp(callers.now - (2 + index % 28) * 86400))).lastrowid)
+    callers.notices.update(dict.fromkeys(old, callers.notices[origin]))
+    fresh = {}
+    for index, sid in enumerate(live + gone):
+        if (sid in live and index % 2 == 0) or (sid in gone and index % 4 == 0):
+            fresh[callers.finish(sid, created=callers.now - 600)] = sid
+    assert len(fresh) == 32
+    cap = int(nudge.caps(callers.daemon.policy)["max_sessions"])
+    per_pass = []
+    for _ in range(8):
+        before = len(callers.sent)
+        result = callers.pass_once()
+        per_pass.append(len(callers.sent) - before)
+        assert result["sessions"] <= cap and result["examined"] <= MAX_GROUPS_PER_PASS
+        callers.now += 3
+    assert max(per_pass) == cap and sum(per_pass) == 16
+    counts = callers.counts()
+    assert set(counts) == {notice for notice, sid in fresh.items() if sid in live}
+    assert set(counts.values()) == {1}
+    assert {callers.row(notice)["wake_state"] for notice in old} == {"stale"}
+    away = [callers.row(notice) for notice, sid in fresh.items() if sid in gone]
+    assert {(row["state"], row["wake_state"], row["wake_reason"]) for row in away} == {
+        ("pending", None, "session-not-registered")}
+
+
+def test_c15_9_a_lane_refusal_leaves_the_notice_for_the_hook(callers, monkeypatch):
+    """Review r1, probe D: the real transport refuses a lane before any token or socket
+    use, so the notice is unread again and retries on the backoff."""
+    sid = "lane"
+    callers.register(sid)
+    notice = callers.finish(sid)
+
+    def never(*_args, **_kwargs):
+        raise AssertionError("a lane refusal reads no token and opens no socket")
+
+    monkeypatch.setattr(notify_push, "push_to_session", REAL_PUSH)
+    monkeypatch.setattr(notify_push, "peer_token", never)
+    monkeypatch.setattr(notify_push, "send_to_socket", never)
+    monkeypatch.setattr(callers.daemon, "_lane_session_ids", lambda: [sid])
+    callers.pass_once()
+    row = callers.row(notice)
+    assert (row["state"], row["transport"], row["wake_state"], row["wake_reason"]) == (
+        "pending", None, None, notify_push.LANE_REFUSAL)
+    assert row["wake_attempts"] == 1 and callers.now < row["wake_next_at"] <= callers.now + 300
+    clock = callers.daemon.store.one("SELECT * FROM caller_wake_sessions WHERE session_id=?", (sid,))
+    assert clock["wake_streak"] == 0 and clock["last_wake_at"] is None
+    assert callers.mentioned(notice, surface(callers.daemon, callers.harness.root, sid))
+
+
+def test_c15_9_a_surface_claim_after_its_client_gave_up_marks_nothing(callers):
+    """Review r1, finding 5: the hook's client times out and prints offline; a notice
+    that arrives before its queued claim runs must stay unread, not be marked shown."""
+    sid = "late-claim"
+    callers.register(sid)
+    first = callers.finish(sid)
+    asked = []
+
+    class GaveUp:
+        timeout = 15.0
+
+        def call(self, op, args=None, **kwargs):
+            asked.append((op, dict(args or {}), kwargs))
+            raise OSError("timed out waiting for the daemon")
+
+    assert callers.mentioned(first, hook_prompt(callers, sid, "go on", client=GaveUp()))
+    [(op, args, kwargs)] = asked
+    assert args["deadline_s"] == 15.0 - hooks.SURFACE_REPLY_MARGIN_S and kwargs["timeout"] == 15.0
+    second = callers.finish(sid)                    # after the offline read
+    late = callers.daemon.dispatch(op, args, arrived=time.monotonic() - 15.0)
+    assert late["notices"] == []
+    assert callers.row(second)["state"] == "pending"
+    assert callers.row(first)["transport"] == "hook:offline"     # its receipt reconciled
+    gone = callers.daemon.dispatch(op, args, arrived=time.monotonic(), client_gone=lambda: True)
+    assert gone["notices"] == [] and callers.row(second)["state"] == "pending"
+    in_time = callers.daemon.dispatch(op, args, arrived=time.monotonic())
+    assert [row["notice_id"] for row in in_time["notices"]] == [second]
+    assert callers.row(second)["state"] == "surfaced"
+
+
+def test_c15_9_a_caller_back_from_an_app_restart_is_woken_within_the_window(callers):
+    """Review r1, finding 6: a missing registry row is retried, not terminal at once."""
+    sid = "restarted"
+    callers.register(sid)
+    notice = callers.finish(sid)
+    entry = callers.entries.pop(sid)
+    for _ in range(5):
+        callers.pass_once()
+        callers.now = callers.row(notice)["wake_next_at"]
+    assert callers.row(notice)["wake_attempts"] == 5
+    callers.entries[sid] = {**entry, "pid": 23456}
+    callers.pass_once()
+    assert callers.counts()[notice] == 1
+    assert callers.row(notice)["wake_state"] == "delivered"
+
+
+@pytest.mark.parametrize("source,woken", [("compact", True), ("startup", True), ("resume", True),
+                                          ("clear", False)])
+def test_c15_9_compaction_keeps_completion_wakes_and_clear_holds_them(callers, source, woken):
+    """Review r1, finding 7: an autocompacted session is still the caller; a cleared
+    context has none of the work, so its notices wait for the next prompt."""
+    sid = f"after-{source}"
+    callers.register(sid)
+    with callers.daemon.store.transaction() as tx:
+        tx.execute("INSERT INTO caller_wake_sessions(session_id,source) VALUES (?,?)", (sid, source))
+    notice = callers.finish(sid)
+    callers.pass_once()
+    assert callers.counts()[notice] == int(woken)
+    assert callers.row(notice)["state"] == ("surfaced" if woken else "pending")
+
+
+def test_c15_9_a_held_caller_is_not_read_again_until_something_changes(callers, monkeypatch):
+    """Review r1, finding 8: no transcript tail read for a caller already known to be
+    held until its notices, registry row, transcript or clock change, or a gate lapses."""
+    sid = "held-memo"
+    callers.register(sid, age=0)
+    notice = callers.finish(sid)
+    reads = []
+
+    def counted(path, **kwargs):
+        reads.append(path)
+        return callers.turn_state(path, **kwargs)
+
+    monkeypatch.setattr(transcripts, "turn_state", counted)
+    callers.pass_once()
+    assert len(reads) == 1
+    for _ in range(5):
+        callers.now += 10
+        callers.pass_once()
+    assert len(reads) == 1, "held and unchanged: no tail read"
+    callers.entries[sid] = {**callers.entries[sid], "status_updated_at": (callers.now - 3600) * 1000}
+    callers.pass_once()
+    assert len(reads) == 2, "a registry change"
+    second = callers.finish(sid)
+    callers.pass_once()
+    assert len(reads) == 3, "a new notice"
+    (callers.harness.root / f"{sid}.jsonl").write_text("{}\n")
+    callers.pass_once()
+    assert len(reads) == 4, "the transcript changed"
+    callers.now = callers.activity[sid] + 300
+    callers.pass_once()
+    assert callers.counts() == Counter({notice: 1, second: 1}), "the quiet gate lapsed"
+
+
+def test_c15_9_a_pass_examines_a_bounded_number_of_callers_and_reaches_them_all(callers, monkeypatch):
+    """Review r1, finding 8: one pass examines at most MAX_GROUPS_PER_PASS callers, and
+    the next starts after the last it examined."""
+    monkeypatch.setattr(caller_wakes, "MAX_GROUPS_PER_PASS", 3)
+    sids = [f"rotate-{index}" for index in range(7)]
+    for sid in sids:
+        callers.register(sid, age=0)                # all held by the quiet gate
+        callers.finish(sid)
+    reads = []
+
+    def counted(path, **kwargs):
+        reads.append(Path(path).stem)
+        return callers.turn_state(path, **kwargs)
+
+    monkeypatch.setattr(transcripts, "turn_state", counted)
+    seen = []
+    for _ in range(3):
+        before = len(reads)
+        assert callers.pass_once()["examined"] == 3
+        seen.append(reads[before:])
+    assert seen == [sids[:3], sids[3:6], sids[6:]]
+    callers.now += 300
+    for _ in range(3):
+        callers.pass_once()
+    assert len(callers.sent) == len(sids)
+
