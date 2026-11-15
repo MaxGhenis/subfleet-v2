@@ -139,6 +139,20 @@ ENV_REMOVE: tuple[str, ...] = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
 #: user settings; this sets the variable back on all of them (C-12.4, C-26.11).
 LANE_SETTINGS_ENV: Mapping[str, str] = MappingProxyType({"CLAUDE_CODE_RETRY_WATCHDOG": "0"})
 
+#: D-LANE-STARTUP1: the `env` a writable job launch's settings add, with
+#: `autoMemoryEnabled: false`, so the lane loads no auto-memory (Claude Code 2.1.318's
+#: `Lh()` reads the variable, `hI()` the setting; setting sources gate neither).
+JOB_STARTUP_ENV: Mapping[str, str] = MappingProxyType({"CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"})
+#: The instruction files Claude Code 2.1.318 reads in each folder of its startup walk
+#: (`CLAUDE.md`, `.claude/CLAUDE.md`, `.claude/rules/`, `CLAUDE.local.md`) and through
+#: the built-in `cc-plugin-agents-md` fallback (`AGENTS.md`, `.claude/AGENTS.md`).
+STARTUP_FILE_NAMES = ("CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md", "AGENTS.md",
+                      ".claude/AGENTS.md", ".claude/rules/**")
+#: The cap on the one `git rev-parse --show-toplevel` a writable job launch runs.
+JOB_STARTUP_GIT_TIMEOUT_S = 10.0
+#: `glob_literal`'s escapes: picomatch reads each as the one character.
+_GLOB_ESCAPES = MappingProxyType({**{char: f"[{char}]" for char in "*?[]{}()|+"}, ",": "[,-,]"})
+
 HEADLESS_BLOCK = f"""{HEADLESS_MARKER}
 ## HEADLESS EXECUTION (binding — read before anything else)
 You are running as a headless `claude -p` session: there are NO task notifications,
@@ -352,6 +366,59 @@ def lane_settings(settings: Mapping[str, Any] | None = None) -> dict[str, Any]:
 def lane_settings_args(settings: Mapping[str, Any] | None = None) -> list[str]:
     """`--settings` with `lane_settings(settings)`, as compact JSON."""
     return ["--settings", json.dumps(lane_settings(settings), separators=(",", ":"))]
+
+
+def glob_literal(path: str) -> str:
+    """`path` as a `claudeMdExcludes` pattern that matches only itself (D-LANE-STARTUP1).
+
+    Claude Code 2.1.318's matcher (`v8t`, through `FWo`) turns every backslash in a
+    pattern into `/` before picomatch reads it, so a backslash cannot escape. A
+    one-character bracket can, where the character is a regex metacharacter:
+    picomatch compiles `[*]` to the class `[*]`. For any other character it also
+    matches the bracket's own text (`[!]` compiles to `(?:\\[!\\]|[!])`), so `!`, `@`
+    and the rest stay as they are; with `(` bracketed they start no extglob. A
+    comma, which would split the negation's alternatives, becomes the range `[,-,]`.
+    """
+    return "".join(_GLOB_ESCAPES.get(char, char) for char in path)
+
+
+def job_startup_settings(workdir: str | Path, env: Mapping[str, str]) -> dict[str, Any]:
+    """The keys a writable job launch adds to its one `--settings` (D-LANE-STARTUP1).
+
+    A writable lane keeps the user setting source, so the never-rules guard loads
+    as before, and `disableAllHooks: false` outranks a checkout's own `true`. Its
+    `claudeMdExcludes` keep every instruction file outside the job's repository
+    root `R` from loading: `<C>/CLAUDE.md` and `<C>/rules/**`, the six
+    `STARTUP_FILE_NAMES` under every ancestor `A` of `R` and of `R_real` but `/`,
+    and under `$HOME`, then one negation sparing `R` in both spellings (two
+    negations would together match every path). `R` is `git rev-parse
+    --show-toplevel` in `workdir`, as git spells it; outside a checkout, or when
+    git fails or passes `JOB_STARTUP_GIT_TIMEOUT_S`, it is `workdir` itself, and a
+    subfolder job then also excludes its repository's top-level files. `R_real` is
+    `realpath(R)`, `$HOME` the launch's (`_launch_home`), and `C` its config home:
+    `$HOME/.claude`, and also `CLAUDE_CONFIG_DIR` when `env` sets one. Auto-memory
+    is off (`JOB_STARTUP_ENV`, `autoMemoryEnabled`).
+    """
+    from ..salvage import _git_bytes
+    try:
+        raw = _git_bytes(workdir, "rev-parse", "--show-toplevel", timeout_s=JOB_STARTUP_GIT_TIMEOUT_S)
+    except Exception:       # any failure: R is the workdir (fewer files kept, none added)
+        raw = None
+    top = os.fsdecode(raw[:-1] if raw and raw.endswith(b"\n") else raw or b"")
+    root = top if os.path.isabs(top) else os.path.abspath(workdir)
+    spellings = list(dict.fromkeys((root, os.path.realpath(root))))
+    home = str(_launch_home(dict(env)))
+    configs = [str(Path(env["CLAUDE_CONFIG_DIR"]).expanduser())] if env.get("CLAUDE_CONFIG_DIR") else []
+    configs.append(str(Path(home) / ".claude"))
+    excludes = [f"{glob_literal(config)}/{name}" for config in configs if os.path.isabs(config)
+                for name in ("CLAUDE.md", "rules/**")]
+    folders = [parent for spelling in spellings for parent in map(str, Path(spelling).parents) if parent != "/"]
+    for folder in dict.fromkeys([*folders, *([home] if os.path.isabs(home) else [])]):
+        excludes += [f"{glob_literal(folder)}/{name}" for name in STARTUP_FILE_NAMES]
+    spared = [glob_literal(spelling.rstrip("/")) for spelling in spellings]
+    excludes.append("!" + (spared[0] if len(spared) == 1 else "{" + ",".join(spared) + "}") + "/**")
+    return {"env": dict(JOB_STARTUP_ENV), "autoMemoryEnabled": False, "disableAllHooks": False,
+            "claudeMdExcludes": list(dict.fromkeys(excludes))}
 
 
 def apply_headless_block(prompt: str) -> str:
@@ -1408,7 +1475,9 @@ class ClaudeAdapter(Adapter):
         never-rules hook in `~/.claude/settings.json`, and `doctor` reports when that
         hook is missing (C-14.3). The one per-launch hook is a writable review's
         publish rule, merged into the launch's one `--settings` with
-        `LANE_SETTINGS_ENV` (C-12.4, `claude_settings_args`, D-WATCHDOG1).
+        `LANE_SETTINGS_ENV` (C-12.4, `claude_settings_args`, D-WATCHDOG1). A
+        writable launch's settings, here and on resume, also carry
+        `job_startup_settings` (C-12.9, D-LANE-STARTUP1).
         """
         attempt_dir = Path(attempt_dir)
         attempt_dir.mkdir(parents=True, exist_ok=True)
@@ -1431,9 +1500,11 @@ class ClaudeAdapter(Adapter):
                                          review_root=job.review_root,
                                          mcp_config=self.mcp_config_arg(job, sandbox, attempt_dir),
                                          tmpdir=credential_env.get("TMPDIR")))
-        argv += claude_settings_args(job, sandbox, attempt_dir, settings=lane_settings())  # C-12.4, D-WATCHDOG1
+        startup = (job_startup_settings(job.workdir, self.provider_environment.assemble(credential_env))
+                   if sandbox == Sandbox.WORKSPACE_WRITE.value else None)  # D-LANE-STARTUP1
+        argv += claude_settings_args(job, sandbox, attempt_dir, settings=lane_settings(startup))  # C-12.4, D-WATCHDOG1
         from .isolation import claude_env_remove
-        env_remove = (*ENV_REMOVE, *claude_env_remove(os.environ.keys() | credential_env.keys())) if sandbox == "read-only" else ENV_REMOVE
+        env_remove = (*ENV_REMOVE, *claude_env_remove(os.environ.keys() | credential_env.keys()))  # C-23.2, D-LANE-STARTUP1
 
         stdin_path = self._write_prompt_sent(attempt_dir, Path(prompt_path))
         transcript = self.expected_transcript_path(job.workdir, session_id, credential_env)
@@ -1481,9 +1552,11 @@ class ClaudeAdapter(Adapter):
         argv += list(self.permission_args(
             sandbox, mcp_config=self.mcp_config_arg(job, sandbox, attempt_dir),
             tmpdir=credential_env.get("TMPDIR")))
-        argv += claude_settings_args(job, sandbox, attempt_dir, settings=lane_settings())  # C-12.4, D-WATCHDOG1
+        startup = (job_startup_settings(job.workdir, self.provider_environment.assemble(credential_env))
+                   if sandbox == Sandbox.WORKSPACE_WRITE.value else None)  # D-LANE-STARTUP1
+        argv += claude_settings_args(job, sandbox, attempt_dir, settings=lane_settings(startup))  # C-12.4, D-WATCHDOG1
         from .isolation import claude_env_remove
-        env_remove = (*ENV_REMOVE, *claude_env_remove(os.environ.keys() | credential_env.keys())) if sandbox == "read-only" else ENV_REMOVE
+        env_remove = (*ENV_REMOVE, *claude_env_remove(os.environ.keys() | credential_env.keys()))  # C-23.2, D-LANE-STARTUP1
 
         stdin_path = self._write_prompt_sent(attempt_dir, Path(prompt_path))
         transcript = self.expected_transcript_path(
@@ -2181,6 +2254,8 @@ __all__ = [
     "encode_project_dir",
     "iso_from_epoch",
     "iso_utc",
+    "glob_literal",
+    "job_startup_settings",
     "lane_settings",
     "lane_settings_args",
     "link_raw_stream",
