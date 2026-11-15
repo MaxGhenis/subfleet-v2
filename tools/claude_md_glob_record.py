@@ -10,7 +10,12 @@ from the binary, run under node) for each verdict. The same cases go through
 bundle's verdicts as a fixture, which `tests/unit/test_lane_startup_glob.py` replays
 without node.
 
-    uv run python tools/claude_md_glob_record.py BINARY WORK_DIR OUT.json [--sets N]
+    uv run python tools/claude_md_glob_record.py BINARY WORK_DIR OUT.json [--sets N] [--nfd]
+
+With `--nfd` (review r1 of #326, P2 2) every repository folder name also holds a
+decomposed letter (NFD), and each root's files and ancestors are asked for in the
+NFC spelling as well: Claude Code normalizes its cwd to NFC, while git and
+`realpath` give the name as it is stored.
 
 WORK_DIR receives the extracted matcher (third-party code, not for commit). Paths
 are synthetic, under `/sf-lsb-glob`, and never touched: symlinks are a map that the
@@ -25,6 +30,7 @@ import os
 import random
 import subprocess
 import sys
+import unicodedata
 from pathlib import Path
 from unittest import mock
 
@@ -41,6 +47,9 @@ BASE = "/sf-lsb-glob"
 ALPHABET = list("abcxyz") + [" ", "é", "ß", "名", "*", "?", "[", "]", "{", "}", "(", ")", "!", "|", ",",
                              "+", "@", "^", "$", ".", "-", "#", "~", "'", "\\", "&", "=", '"', "`", "<",
                              ">", "%", ";", ":", "\t"]
+#: `--nfd`: letters NFC spells otherwise. Decomposed accents, a singleton (U+212B,
+#: which NFC writes as U+00C5) and conjoining Hangul jamo (NFC: U+AC00).
+DECOMPOSED = ["e\u0301", "a\u0308", "o\u0302", "n\u0303", "\u212b", "\u1100\u1161"]
 
 HARNESS = r"""
 const m = require(process.argv[1]);
@@ -54,8 +63,11 @@ process.stdout.write(JSON.stringify(out));
 """
 
 
-def name(rng: random.Random, low: int = 1, high: int = 6) -> str:
+def name(rng: random.Random, low: int = 1, high: int = 6, decomposed: bool = False) -> str:
     text = "".join(rng.choice(ALPHABET) for _ in range(rng.randint(low, high)))
+    if decomposed:                      # one NFD letter at a random place
+        at = rng.randint(0, len(text))
+        text = text[:at] + rng.choice(DECOMPOSED) + text[at:]
     # A folder name is never `.` or `..`, and holds no `/`.
     return text if text not in (".", "..") else text + "a"
 
@@ -70,14 +82,15 @@ def mutations(text: str) -> list[str]:
     return sorted(item for item in out if item and "/" not in item)
 
 
-def build_set(rng: random.Random, number: int) -> dict:
+def build_set(rng: random.Random, number: int, nfd: bool = False) -> dict:
     depth = rng.randint(1, 4)
-    parts = [name(rng) for _ in range(depth)]
-    workdir = "/".join([BASE, f"s{number:03d}", *parts, "repo" + name(rng, 0, 3)])
+    parts = [name(rng, decomposed=nfd) for _ in range(depth)]
+    tag = f"{'n' if nfd else 's'}{number:03d}"
+    workdir = "/".join([BASE, tag, *parts, "repo" + name(rng, 0, 3, decomposed=nfd)])
     links: dict[str, str] = {}
     real = workdir
     if number % 3 == 0:                 # a symlinked spelling: R_real differs from R
-        real = "/".join([BASE, "real", f"s{number:03d}", name(rng)])
+        real = "/".join([BASE, "real", tag, name(rng, decomposed=nfd)])
         links[workdir] = real
     home = "/".join([BASE, f"home{number:03d}", name(rng)])
     env = {"HOME": home}
@@ -87,6 +100,8 @@ def build_set(rng: random.Random, number: int) -> dict:
         settings = claude.job_startup_settings(workdir, env)
     patterns = settings["claudeMdExcludes"]
     roots = list(dict.fromkeys((workdir, real)))
+    if nfd:                              # the spellings Claude Code's NFC cwd gives
+        roots = list(dict.fromkeys((*roots, *(unicodedata.normalize("NFC", root) for root in roots))))
     expect: dict[str, str] = {}
     folded = [root.replace("\\", "/") for root in roots]
 
@@ -131,9 +146,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("out")
     parser.add_argument("--sets", type=int, default=30)
     parser.add_argument("--seed", type=int, default=20261115)
+    parser.add_argument("--nfd", action="store_true", help="repository names hold NFD letters")
     args = parser.parse_args(argv)
     rng = random.Random(args.seed)
-    sets = [build_set(rng, number) for number in range(args.sets)]
+    sets = [build_set(rng, number, nfd=args.nfd) for number in range(args.sets)]
     module = Path(args.work) / "claude-picomatch-record.cjs"
     module.write_text(extract(args.binary), encoding="utf-8")
     payload = json.dumps({"sets": [{key: item[key] for key in ("patterns", "links", "paths")} for item in sets]})
@@ -160,7 +176,7 @@ def main(argv: list[str] | None = None) -> int:
         "bundle": os.path.basename(args.binary), "binary_sha256": digest,
         "node": subprocess.run(["node", "--version"], capture_output=True, text=True, check=True).stdout.strip(),
         "recorded_by": f"uv run python tools/claude_md_glob_record.py <claude {os.path.basename(args.binary)}> "
-                       f"<work> <out> --sets {args.sets} --seed {args.seed}",
+                       f"<work> <out> --sets {args.sets} --seed {args.seed}" + (" --nfd" if args.nfd else ""),
         "sets": sets,
     }
     with open(args.out, "x", encoding="utf-8") as handle:

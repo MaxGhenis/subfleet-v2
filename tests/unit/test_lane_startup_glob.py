@@ -5,13 +5,17 @@ picomatch syntax `job_startup_settings` writes. `tests/fixtures/lane_startup/pic
 holds generated cases (workdirs and homes whose names carry spaces, non-ASCII letters
 and every glob metacharacter, paths inside and outside each root) with the verdicts of
 the bundle's own picomatch and `FWo`, run under node by `tools/claude_md_glob_record.py`.
-These tests need no node: they replay the recording.
+These tests need no node: they replay the recording. `picomatch-2.1.318-nfd.json`
+(`--nfd`, review r1 of #326, P2 2) does the same for repository names holding NFD
+letters, with each root's files and ancestors asked for in NFC too, as Claude Code's
+NFC cwd spells them.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import unicodedata
 from pathlib import Path
 from unittest import mock
 
@@ -26,6 +30,10 @@ REPO = Path(__file__).resolve().parents[2]
 RECORDING = json.loads((REPO / "tests" / "fixtures" / "lane_startup" / "picomatch-2.1.318.json")
                        .read_text(encoding="utf-8"))
 SETS = RECORDING["sets"]
+NFD_RECORDING = json.loads((REPO / "tests" / "fixtures" / "lane_startup" / "picomatch-2.1.318-nfd.json")
+                           .read_text(encoding="utf-8"))
+#: Every recorded set, the NFD ones after (ids `s000`… and `n000`…).
+ALL_SETS = SETS + NFD_RECORDING["sets"]
 METACHARACTERS = "*?[]{}()!|,+@^$.-#~'\"\\&=`<>%;: \té名"
 
 
@@ -40,7 +48,7 @@ def test_the_recording_has_more_than_a_thousand_paths_and_every_label():
     assert any(len(item["links"]) for item in SETS) and any("CLAUDE_CONFIG_DIR" in item["env"] for item in SETS)
 
 
-@pytest.mark.parametrize("item", SETS, ids=lambda item: item["workdir"].split("/")[2])
+@pytest.mark.parametrize("item", ALL_SETS, ids=lambda item: item["workdir"].split("/")[2])
 def test_the_oracle_gives_the_bundles_verdict_on_every_recorded_path(item):
     """Claude Code's own matcher and `claude_md_glob` agree on every path, and on what
     `FWo` adds to the pattern list."""
@@ -50,7 +58,7 @@ def test_the_oracle_gives_the_bundles_verdict_on_every_recorded_path(item):
     assert [test(path) for path in item["paths"]] == item["verdicts"]
 
 
-@pytest.mark.parametrize("item", SETS, ids=lambda item: item["workdir"].split("/")[2])
+@pytest.mark.parametrize("item", ALL_SETS, ids=lambda item: item["workdir"].split("/")[2])
 def test_i3_by_the_bundles_own_verdicts(item):
     """I3 as the bundle judged it: every file of the root, in either spelling, is kept;
     every outside path is excluded. The residue is pinned: a folder name holding a
@@ -62,7 +70,7 @@ def test_i3_by_the_bundles_own_verdicts(item):
         assert verdict is expected, (label, path)
 
 
-@pytest.mark.parametrize("item", SETS, ids=lambda item: item["workdir"].split("/")[2])
+@pytest.mark.parametrize("item", ALL_SETS, ids=lambda item: item["workdir"].split("/")[2])
 def test_job_startup_settings_still_writes_the_recorded_patterns(item):
     """The recording judges what this tree's `job_startup_settings` writes: for each
     case's (absent) workdir, home and link, it writes the recorded patterns again."""
@@ -70,6 +78,21 @@ def test_job_startup_settings_still_writes_the_recorded_patterns(item):
     with mock.patch.object(claude.os.path, "realpath", lambda path, **_: links.get(path, path)):
         written = job_startup_settings(item["workdir"], item["env"])
     assert written["claudeMdExcludes"] == item["patterns"]
+
+
+def test_the_nfd_recording_asks_for_each_roots_nfc_spelling_and_the_bundle_keeps_it():
+    """Each NFD set's root differs from its NFC spelling, the recording asks for the
+    root's files in both, and the bundle kept every one: before R's NFC spellings
+    were spared, it excluded the NFC ones (144 of the 320 root files in this seed)."""
+    assert NFD_RECORDING["bundle"] == RECORDING["bundle"] == "2.1.318"
+    assert NFD_RECORDING["binary_sha256"] == RECORDING["binary_sha256"]
+    assert len(NFD_RECORDING["sets"]) == 12
+    for item in NFD_RECORDING["sets"]:
+        nfc = unicodedata.normalize("NFC", item["workdir"])
+        assert nfc != item["workdir"]
+        kept = {path for path, label in zip(item["paths"], item["expect"]) if label == "keep"}
+        assert f"{nfc}/CLAUDE.md" in kept and f"{item['workdir']}/CLAUDE.md" in kept
+        assert all(not verdict for label, verdict in zip(item["expect"], item["verdicts"]) if label == "keep")
 
 
 # --- glob_literal ---------------------------------------------------------------
