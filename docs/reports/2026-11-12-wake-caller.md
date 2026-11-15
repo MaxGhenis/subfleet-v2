@@ -210,3 +210,129 @@ Across `039c6f169..1f52e85f0`, 20 files changed (+958, −182). Every commit add
 [`cleanup.py.txt`](2026-11-12-wake-caller-data/fix-r1/cleanup.py.txt) moved seven folders into `sf-wcall-f1/outside` and removed each with `shutil.rmtree`, guarded by an assertion that `sf-wcall-f1` is in the path. Before moving each one, it checked that no tracked file is inside and, for the caches, that every file is a `.pyc`. Six were bytecode caches that this job's runs made in the worktree from 06:00Z on: `subfleet/__pycache__` (25 files), `subfleet/adapters/__pycache__` (2), `subfleet/sessions/__pycache__` (11), `subfleet/conversations/__pycache__` (5), `tests/__pycache__` (1) and `tests/fake/__pycache__` (2). The seventh was `/tmp/sf-failed/834`, the state root the e2e harness kept for e2eE's failure: its pid folder held only that test. `/tmp/sf-failed` itself predates this job and stays. The scratch folder stays, with its logs, mutant tree and venv. No process this job started is still running, and no live state was read or changed.
 
 Head built: the commit that adds this section, on top of `1f52e85f0`.
+
+## Fix round 2
+
+This round fixes review r2's two P1s on #307 (`~/reviews/subfleet-hub/wake-caller-2026-11-11/review-r2.md`), under the hub's rulings in the brief. One headless job did the work, from 19:31:38Z (`date -u`, first command) to about 22:35Z on 2026-11-15. It worked in a detached checkout of `feat/wake-caller-217` at `02ae7d1ed`, with scratch `$TMPDIR/sf-wcall-fix2` and `TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)`. The run ledger, the base failures, the runner, the files not run or only partly run, and the cleanup record are in [fix-r2](2026-11-12-wake-caller-data/fix-r2/). Line numbers below are at `1df275e14`.
+
+### P1 1: PostToolUse and the inbox could deliver the same result
+
+**Cause.** `hooks._deliver` read the job's unread rows with a plain `notice.pending`, printed them, then marked them `offered`. The wake's claim (`caller_wakes.py:358` at `02ae7d1ed`) shared nothing with that read. In one ordering, the hook read the row, the wake claimed and sent it, and the hook then printed it too. In the other, the wake claimed first, the hook's read found no unread row, and the hook printed its job-row line, which describes the same result.
+
+**Change.** Every delivery path now takes one reservation per notice.
+- `caller_wakes.reserve` (`subfleet/caller_wakes.py:107`) is that reservation. It is one conditional update, matched on the notice's full identity, that moves the notice out of `pending`. The path whose update matched delivers the notice; every other path delivers nothing. The wake claims through it (`:478`, as `surfaced`, claimed, and also only while `wake_state` is NULL). PostToolUse claims through it as `offered`, with transport `hook:PostToolUse`.
+- The PostToolUse claim is `notice.pending` with `surface="PostToolUse"`, `job_id` and `deadline_s` (`NoticePendingArgs` gains `job_id` and `release`, `subfleet/protocol.py:324-325`). The daemon takes it as the wake takes its own (`_post_tool_use`, `caller_wakes.py:148`). It takes the caller's delivery lock, waiting at most `CLAIM_LOCK_WAIT_S` (2 s) within its deadline (`notice_claims.delivery_lock(wait_s=, gone=)`, `subfleet/notice_claims.py:32`). It then reconciles the offline receipts, reads the session's notices for the job, applies r1 finding 5's abandonment check, and reserves the `pending` ones. Its answer holds `notices`, the rows it reserved, and `absent`, which is true only when the session has no notice for the job at all.
+- The hook (`subfleet/hooks.py:690`) prints only the rows it reserved. It prints its line from the job row only when `absent` is true: C-15.1 writes the notice in the transaction that makes the job terminal, so then no other path can deliver the result. Otherwise it exits 0 and prints nothing. It no longer marks anything after printing. `hooks._pending` was left unused and is removed.
+- **A crash between the claim and the print leaves the notice retryable.** Nothing between the claim and the print can fail except the print itself: the rows' text is joined from the answer, and the job-row line is rendered only when nothing was reserved. A print that raises exits 0, which shows the harness nothing. It then gives the claim back (`_give_back`, `hooks.py:738`): `release` with the reserved ids returns each row still `offered` through `hook:PostToolUse` to `pending`, clearing its transport and `offered_at` (`caller_wakes.py:166`). The wake and the prompt hooks can then deliver it. A hook killed after its claim leaves the notice `offered`. The prompt hooks show it at the next prompt, and the wake never takes it, as for the wake's own claim-before-send (at most once).
+- The time split is unchanged. The claim gets at most half the delivery reserve, as `notice.pending` did, and the give-back gets the rest, as `notice.mark` did. `deadline_s` is the claim's timeout less the smaller of 2 s and half that timeout.
+
+**Tests.** `test_posttooluse_pending_read_then_engine_send_never_both` (`tests/fake/test_caller_notice_wakes.py:1002`) runs a wake pass after the hook's first daemon call returns. `test_engine_claim_then_posttooluse_delivery_never_both` (`:1019`) runs the hook on a real thread while the wake holds the caller mid-send, after its claim has committed. On `02ae7d1ed` both failed at `never both: one inbox wake or one hook print`. At the head both pass, 20 times each (40 of 40). Four further fake tests cover the rest of the ruling:
+- `test_c15_9_a_posttooluse_print_that_fails_gives_its_claim_back` (`:1093`): the notice is `pending` again, and the wake then delivers it once. On the base, the hook raised `BrokenPipeError`.
+- `test_c15_9_posttooluse_prints_its_job_line_only_when_the_session_has_no_notice` (`:1114`): after a prompt hook showed the notice, PostToolUse prints nothing; with no notice row it prints the job-row line. On the base it printed `(2, True)`.
+- `test_c15_9_a_posttooluse_claim_after_its_client_gave_up_marks_nothing` (`:1132`). On the base, the daemon refused the surface.
+- `test_c15_9_posttooluse_honours_an_offline_hooks_receipt` (`:1148`): a notice an offline prompt hook printed is neither printed again nor woken. On the base it was printed `(2, True)`.
+
+At the head, the offline-receipt and late-claim tests ran 20 times each. The give-back and job-line tests are sequential and ran once in each of fix-new, step1 and step2-a1. A mutant that never gives a claim back (`_give_back` returns at once) fails the give-back test: the notice stays `offered`. The unit test `test_post_tool_use_that_lost_the_claim_prints_nothing` (`tests/unit/test_hooks.py:611`) has three cases: nothing reserved, `absent` false, and `absent` not a boolean. On the base all three printed the fallback.
+
+### P1 2: a human prompt before the claim could be missed
+
+**Cause.** When the delivery lock was taken, `surface` returned without recording activity (`caller_wakes.py:107` at `02ae7d1ed`). The claim at `:353` then judged eligibility on the registry row and transcript state read before rendering.
+
+**Change.** A SessionStart or UserPromptSubmit claim that finds the lock taken now records its activity in its own transaction (`notice.hook_activity`), with the same SQL as the claim path, and claims nothing (`_record_activity`, `caller_wakes.py:138`, `:221`). Inside its claim transaction, after rendering, the wake now re-reads the conversation binding, a fresh registry row and a fresh transcript (`:462-478`). The transcript's last turn must be the one judged before. It then runs `_eligibility`, which re-reads the activity clock. A caller found unreachable at that point is left for the next pass, which records why.
+
+**Test.** `test_human_prompt_during_header_render_prevents_wake[all|prompt-hook|registry|transcript]` (`:1053`). `all` is the review's probe: during header rendering it advances the transcript, makes the registry row `busy` and runs the real UserPromptSubmit hook. Each other case moves one signal alone. All four failed on `02ae7d1ed` at `the caller was active before the claim`. All pass at the head, 20 times each (80 of 80). The `prompt-hook` case also checks that the activity was recorded. The cases that leave the registry idle then wake once after 301 s of quiet.
+
+**Left, for the hub.** An offline hook (no daemon) still records activity in its spool only once it holds the lock. The spool is read-modify-write, and reconciliation unlinks it, so writing it without the lock could lose a record. With the lock taken it records nothing, and only the in-claim transcript and registry re-reads hold the wake. A fix needs per-write activity files that reconciliation consumes by name. The online path, which the finding cites, records activity unconditionally.
+
+### Schema, scope and contract
+
+- **Schema.** Unchanged: `git diff 02ae7d1ed -- subfleet/store.py subfleet/store_schema.sql` is empty. Migration 11's columns, table and index are as #314 and #330 carry them.
+- **Out of scope.** r1's finding 11 (the push frame carries no inbox `priority`, `notify_push.py:317`, pre-existing) is unchanged, for the hub to file.
+- **Contract.** A change-log line for this round now heads "Changes in version 3" (`docs/acceptance-contract.md:9`). C-15.9 now says:
+  - every path takes one reservation;
+  - the wake judges the caller again inside its claim;
+  - a prompt or start hook that finds the lock taken records its activity;
+  - what PostToolUse's claim, its `absent`-only line and its give-back do;
+  - the offline residual above;
+  - what a crash after a claim leaves.
+
+  C-15.2's time split names the claim and the give-back. C-15.6 says the hook's notice claims write and run on the request pool. C-16.5 names PostToolUse's claim among the surface claims. No clause was renumbered.
+
+### Tests changed because they encoded the old rule
+
+- `tests/unit/test_hooks.py`: the delivery, remaining-deadline, six-second and terminal-poll tests now expect `notice.pending`'s claim and no `notice.mark`. The six-second test is renamed `test_post_tool_six_second_timeout_keeps_its_notice_claim`. The terminal-poll test also gives back a claim whose print fails, inside the deadline. The job-row line's fake now answers `absent`.
+- `tests/unit/test_notice_rendering.py::test_c15_1_the_hook_fallback_never_offers_a_cancelled_jobs_o_path`: its fake now answers `absent`.
+- `tests/fake/test_notice_delivery.py`: two docstrings no longer say the PostToolUse hook marks `offered` from a read. No assertion changed.
+
+### Commands and results
+
+Python 3.14.7 ran in a scratch venv: `uv sync --group dev`, with `UV_CACHE_DIR=$TMPDIR/uv-cache` and `UV_PROJECT_ENVIRONMENT` in scratch, exited 0 (20:10:55 to 20:11:51). Every run used `uv run --no-sync --with 'pytest-xdist>=3.6'`, plus `pytest-repeat` for the repeats. Each run had a fresh `--basetemp=$S/pytest-<name>`, `HYPOTHESIS_STORAGE_DIRECTORY` and `PYTHONDONTWRITEBYTECODE=1`, and `SUBFLEET_HOME`, `SUBFLEET_JOB`, `SUBFLEET_ATTEMPT`, `SUBFLEET_ROOT`, `CLAUDE_CODE_SESSION_ID` and `PYTHONPATH` unset. The runner is [run.sh.txt](2026-11-12-wake-caller-data/fix-r2/run.sh.txt). "Base" runs used a `git archive` of `02ae7d1ed` in scratch, with the new test files copied in and `PYTHONPATH` pointing at it. Times are Z; load is the one-minute `uptime` figure at the start and the end of each run.
+
+| Run | Selection | Result | Time | Load |
+| --- | --- | --- | --- | --- |
+| base-probes | the three review probes (six cases), on `02ae7d1ed` | 6 failed, as intended | 20:16:37 to 20:20:08 | 111 to 119 |
+| fix-probes | the probes, the r1 offered and late-claim tests | 8 passed | 20:34:33 to 20:39:38 | 203 to 159 |
+| fix-new | the four further PostToolUse tests | 4 passed | 20:50:31 to 20:53:11 | 173 to 147 |
+| base-new | the same four, on the base tree | 4 failed, as above | 20:54:32 to 20:56:26 | not taken |
+| base-unit | the changed and new `test_hooks.py` and rendering tests, on the base tree | 8 failed, 1 passed (the cancelled-job line test, whose rule both trees keep) | about 20:57 to 20:59 | not taken |
+| step1 | every new and changed test, once | 22 passed | 21:04:32 to 21:08:54 | 33 to 115 |
+| rep20-p1 | the two P1 1 probes, `--count 20` | 40 passed | 21:09:55 to 21:15:22 | 136 to 146 |
+| rep20-p2a | `[all]` and `[prompt-hook]` by node id | no tests ran: `pytest-repeat` renames the ids | 21:16:01 to 21:18:56 | 118 to 82 |
+| rep20-p2a2 | the same two cases by `-k`, `--count 20` | 40 passed | 21:19:50 to 21:22:27 | 113 to 187 |
+| rep20-p2b | `[registry]`, `[transcript]`, the offline-receipt and late-claim tests, `--count 20` | 80 passed | 21:22:53 to 21:26:10 | 203 to 111 |
+| collect | the 146 importer files, `--collect-only` | 6,760 collected | 21:26:52 to 21:33:05 | 114 to 100 |
+| step2-a1 | `tests/fake/test_caller_notice_wakes.py`, in full | 63 passed | 21:33:49 to 21:36:23 | 102 to 104 |
+| step2-a2 | twelve unit importers of `hooks`, `caller_wakes`, `notice_claims` | 499 passed | 21:36:39 to 21:42:25 | 101 to 27 |
+| step2-a3 | four fake notice files, `tests/e2e/test_conversations.py`, two live-store guard files | 385 passed; 8 failed and 35 errors, all in the e2e file | 21:42:58 to 21:56:18 | 25 to 111 |
+| step2-a4 | `test_compat.py`, `test_protocol_registry.py`, `test_protocol_secrecy.py` | **did not finish**: the 560 s cap stopped it at about 97%, with 1,939 passed and none failed or erred | 21:57:51 to 22:07:13 | 115 to 270 |
+| step3 | the four guard files | 435 passed | 22:07:53 to 22:11:57 | 266 to 206 |
+| e2e recheck | three of the 43 e2e failures | 2 passed, 1 failed (below) | 22:12:12 to 22:13:14 | 212 to 185 |
+| mut-m1 | the give-back test on a head export whose `_give_back` returns at once | 1 failed: killed | 22:16:41 to 22:17:02 | not taken |
+| step2-b1 | 45 unit files among the importers not yet run (1,556 tests; [partial-run-files.txt](2026-11-12-wake-caller-data/fix-r2/partial-run-files.txt)) | **did not finish**: the 500 s cap stopped it at about 93%, with about 1,471 passed and none failed or erred | 22:17:32 to 22:25:52 | 249 to 303 |
+
+Each concurrency test ran at least 20 times: each P1 1 probe 20 times, each of the four P1 2 cases 20 times, and the offline-receipt and late-claim tests 20 times each, 160 runs in all, every one passed. The `real_lsof` and `real_cwd` markers were deselected in the importer runs, as round 1 did, since the brief bars inspecting live processes.
+
+**The e2e file.** 42 of its 43 problems were `condition timed out after 10s`, the harness waiting for its daemon; the other was a 20 s `daemon status` timeout. Load rose from 25 to 111 during that run, and round 1's e2eE recorded the same symptom. At recheck, `test_the_daemon_keeps_the_catalog_and_the_list_reports_it` and `test_receipts_carry_the_persons_text_for_other_clients` passed. `test_a_person_can_cancel_a_steer_before_handover` failed on `person-only: ... the caller carries Subfleet's attempt markers`: this job runs inside a lane, and a person-only check sees those markers. It does not touch notices or hooks. The other 40 e2e cases were not rerun.
+
+### What didn't run
+
+- **76 of the 146 importer files never started** ([not-run-files.txt](2026-11-12-wake-caller-data/fix-r2/not-run-files.txt), 1,855 tests). About the last 7% of step2-b1's 45 files and the last 3% of step2-a4's three files did not run either. Each of these files imports only `protocol.py`, whose change adds two defaulted fields to `NoticePendingArgs`. The files that run the protocol registry, secrecy, compatibility and refusal checks ran (`test_handler_refusals.py` in full as a guard). At a load of 100 to 300, all 146 files would not fit the time box. CI runs the whole suite.
+- The 40 e2e cases not rechecked, and the whole suite.
+- One mutant ran (mut-m1, the give-back). For every other new test, its failure on `02ae7d1ed` stands in for a mutant. The give-back test needed the mutant because its only base failure was the crash itself: the base claimed nothing before printing.
+
+### Deviations
+
+1. The three review probes keep the brief's exact names, without the file's `test_c15_9_` prefix.
+2. The give-back is `notice.pending` with `release`, not a new op. A new op would have changed `protocol.OPS` and the op-registry tests, outside the finding.
+3. PostToolUse now claims only the job's `notices` rows. An `offered` pin notice naming the job is no longer printed again by layer 2; layer 3 still shows it. A `pending` pin notice is withdrawn at the job's end anyway (`daemon._withdraw_pin_notice`).
+4. Version skew. A daemon from before #307 ignores the claim's fields and returns its unread rows unmarked; the hook prints the job's rows, and that daemon has no wake. A daemon at `02ae7d1ed` refuses `surface="PostToolUse"`, so the hook prints nothing and layer 3 delivers.
+5. Commits carry the author email `max@optiqal.ai`. Git ran with `GIT_CONFIG_GLOBAL=/dev/null` because global config stalls git here, and earlier commits use another of Max's addresses.
+6. **Process.**
+   - One run (step2-a3) exceeded the tool's 595 s call limit. The tool moved it to its background mode, and I polled its log until it finished. Later runs carried a 560 s or 500 s cap inside the call.
+   - Two early read-only commands also outran the tool's default 120 s limit and were moved to the background; I stopped both. One was the first command: its `git status` took 23 s to list untracked files, and `git branch -a` stalled on global git config. The other was a recursive `grep` over the worktree, replaced by `git grep`.
+   - The test runs also unset `SUBFLEET_HOME`, which pointed at the live root. The conftest isolates the home anyway.
+   - No subagents and no workflows ran, though ultracode was on. Delegation goes through `subfleet`, which the brief bars against live state.
+   - No independent review ran here: hub review r3 is next.
+
+### Commits
+
+- `f2bb4bdc4` Tests: review r2 probes for #307, failing on 02ae7d1ed
+- `3fed9272d` Fix review r2 of #307: one reservation per notice; activity under the lock
+- `1df275e14` Contract: C-15.2, C-15.6, C-15.9, C-16.5 after review r2 of #307
+- This report and its data follow in their own commit.
+
+Across `02ae7d1ed..1df275e14`, 9 files changed (+496, −91). Every commit added named files only. Nothing was pushed, and no branch was created, moved or deleted. HEAD stays detached.
+
+### Folders outside scratch
+
+The runs left six bytecode caches in the worktree, from the e2e subprocesses, whose environment drops `PYTHONDONTWRITEBYTECODE`:
+- `subfleet/__pycache__` (27 files)
+- `subfleet/adapters/__pycache__` (2)
+- `subfleet/sessions/__pycache__` (11)
+- `subfleet/conversations/__pycache__` (5)
+- `tests/__pycache__` (1)
+- `tests/fake/__pycache__` (3)
+
+Each was checked to hold only `.pyc` files and no tracked file. Each was then moved into `sf-wcall-fix2/outside` and removed with `shutil.rmtree`, guarded by an assertion that `sf-wcall-fix2` is in the path ([cleanup.json](2026-11-12-wake-caller-data/fix-r2/cleanup.json)). `$TMPDIR/uv-cache`, the brief's cache, existed before this job and stays. It holds the `--with` overlay environments. The scratch folder stays, with its logs, base tree and venv. No process this job started is still running, and no live state was read or changed.
+
+Head built: the commit that adds this section, on top of `1df275e14`.
