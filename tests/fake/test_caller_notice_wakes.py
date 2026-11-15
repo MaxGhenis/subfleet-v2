@@ -968,3 +968,123 @@ def test_c15_9_a_header_that_cannot_render_leaves_no_claim_behind(callers, monke
     callers.pass_once()
     assert callers.counts()[notice] == 1
 
+
+
+# --- review r2 of #307: one reservation per notice, and activity under the lock ---
+
+
+def post_tool_use(callers, sid, notice, client):
+    """Layer 2's delivery of `notice`'s job, as `_wait_and_deliver` makes it once the job
+    is terminal: (exit code, whether Claude was shown the result)."""
+    stderr = io.StringIO()
+    job = callers.daemon.store.get_job(callers.notices[notice])
+    code = hooks._deliver(client, sid, dict(job), stderr=stderr,
+                          deadline=time.monotonic() + 60, now=time.monotonic)
+    return code, code == 2 and callers.mentioned(notice, stderr.getvalue())
+
+
+class HookClient(InProcess):
+    """The hook's daemon client, with the attributes `hooks.Client` has."""
+
+    def __init__(self, callers, *, after_first_notice_call=None):
+        super().__init__(callers.daemon)
+        self.root, self.timeout = callers.daemon.root, 30.0
+        self.after = after_first_notice_call
+
+    def call(self, op, args=None, **kwargs):
+        answer = super().call(op, args, **kwargs)
+        if op == "notice.pending" and self.after is not None:
+            after, self.after = self.after, None
+            after()
+        return answer
+
+
+def test_posttooluse_pending_read_then_engine_send_never_both(callers, monkeypatch):
+    """Review r2 of #307, P1 1, first ordering: PostToolUse asks the daemon for the job's
+    notice, a wake pass runs before it prints, and the result reaches the caller once."""
+    monkeypatch.setattr(caller_wakes, "CLAIM_LOCK_WAIT_S", 0.05, raising=False)
+    sid = "post-tool-use-then-wake"
+    callers.register(sid)
+    notice = callers.finish(sid)
+    code, printed = post_tool_use(callers, sid, notice,
+                                  HookClient(callers, after_first_notice_call=callers.pass_once))
+    assert callers.counts()[notice] + int(printed) == 1, "never both: one inbox wake or one hook print"
+    assert printed and code == 2, "PostToolUse claimed it first, so PostToolUse shows it"
+    assert callers.row(notice)["wake_state"] is None
+    callers.now += COOLDOWN_S + 600
+    callers.pass_once()
+    assert callers.counts()[notice] == 0
+
+
+def test_engine_claim_then_posttooluse_delivery_never_both(callers, monkeypatch):
+    """Review r2 of #307, P1 1, second ordering: the wake has claimed the notice and is
+    sending when PostToolUse delivers; PostToolUse lost the claim, so it shows nothing,
+    not even its no-notice fallback."""
+    import threading
+    monkeypatch.setattr(caller_wakes, "CLAIM_LOCK_WAIT_S", 30.0, raising=False)
+    sid = "wake-then-post-tool-use"
+    callers.register(sid)
+    notice = callers.finish(sid)
+    push = callers.push
+    hook = {}
+
+    def deliver():
+        hook["result"] = post_tool_use(callers, sid, notice, HookClient(callers))
+
+    def sending(session, body, **kwargs):
+        # The claim has committed; the hook runs while the wake holds the caller.
+        assert callers.row(notice)["wake_state"] == "claimed"
+        hook["thread"] = threading.Thread(target=deliver)
+        hook["thread"].start()
+        hook["thread"].join(0.5)
+        return push(session, body, **kwargs)
+
+    monkeypatch.setattr(notify_push, "push_to_session", sending)
+    callers.pass_once()
+    hook["thread"].join(60)
+    assert not hook["thread"].is_alive()
+    code, printed = hook["result"]
+    assert callers.counts()[notice] + int(printed) == 1, "never both: one inbox wake or one hook print"
+    assert callers.counts()[notice] == 1 and (code, printed) == (0, False)
+    assert callers.row(notice)["wake_state"] == "delivered"
+
+
+@pytest.mark.parametrize("signal", ["all", "prompt-hook", "registry", "transcript"])
+def test_human_prompt_during_header_render_prevents_wake(callers, monkeypatch, signal):
+    """Review r2 of #307, P1 2: a person types while the pass renders the wake's headers.
+    The prompt hook ran before the claim, so no wake may follow: its activity is recorded
+    though the pass holds the delivery lock, and the claim judges the registry and the
+    transcript as they are after rendering. `all` is the review's probe; each other case
+    moves one signal alone."""
+    monkeypatch.setattr(caller_wakes, "time", SimpleNamespace(time=lambda: callers.now))
+    sid = f"typing-{signal}"
+    callers.register(sid)
+    notice = callers.finish(sid)
+    header = render.notice_header
+    typed = []
+
+    def person_types(*args, **kwargs):
+        if not typed:
+            typed.append(signal)
+            if signal in ("all", "transcript"):
+                callers.activity[sid] = callers.now                 # the prompt's record
+            if signal in ("all", "registry"):
+                callers.entries[sid] = {**callers.entries[sid], "status": "busy"}
+            if signal in ("all", "prompt-hook"):
+                # The real UserPromptSubmit hook; the pass holds the lock, so it prints nothing.
+                assert hook_prompt(callers, sid, "one more thing, please") == ""
+        return header(*args, **kwargs)
+
+    monkeypatch.setattr(render, "notice_header", person_types)
+    callers.pass_once()
+    assert typed == [signal]
+    assert callers.counts()[notice] == 0, "the caller was active before the claim"
+    row = callers.row(notice)
+    assert (row["state"], row["transport"], row["wake_state"]) == ("pending", None, None)
+    if signal == "prompt-hook":
+        clock = callers.daemon.store.one("SELECT * FROM caller_wake_sessions WHERE session_id=?", (sid,))
+        assert clock["active_at"] == callers.now
+    if signal != "registry" and signal != "all":
+        callers.now += 301                                          # quiet again: one wake
+        callers.pass_once()
+        assert callers.counts()[notice] == 1
