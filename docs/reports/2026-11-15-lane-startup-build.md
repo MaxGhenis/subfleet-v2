@@ -11,8 +11,9 @@ keys still rests on its 2.1.318 source, as the design note quotes it.
 
 - Every workspace-write `build_launch` and `resume_launch`, review or not, now merges
   `job_startup_settings(workdir, env)` into its one `--settings`. Read-only launches, isolated
-  reviews, `lane_settings()` and `claude_turn.argv` are byte-for-byte what adf66f2e5 built (237
-  recorded cases).
+  reviews, `lane_settings()` and `claude_turn.argv` are byte-for-byte what adf66f2e5 built (189
+  recorded cases). The other 48 recorded cases are writable, and they differ only by the startup
+  keys.
 - I1-I9 are tests. All 17 mutants (M1-M15, with M6, M9 and M10 split in two) are killed, each
   run alone in a copy of the tree.
 - Claude Code's own matcher (picomatch and `FWo` extracted from the 2.1.318 binary, run under
@@ -47,8 +48,8 @@ keys still rests on its 2.1.318 source, as the design note quotes it.
   - `claude_settings_args(..., settings=lane_settings(startup))`: one `--settings` still,
     merged by the existing `lane_settings`. `lane_settings(None) == lane_settings()`, so the
     read-only path is unchanged.
-  - `env_remove` is now `(*ENV_REMOVE, *claude_env_remove(...))` for every sandbox. Before, it was
-    read-only only. Read-only's value is the same as before.
+  - `env_remove` is now `(*ENV_REMOVE, *claude_env_remove(...))` for every sandbox. Before, only
+    read-only launches removed the memory variables; their value is the same as before.
 - `:1483-1485`: a docstring sentence. `:2262-2263`: `__all__` gains `glob_literal` and
   `job_startup_settings`.
 - Untouched: the read-only `--setting-sources ""`, the guard, `lane_settings`,
@@ -108,7 +109,7 @@ Tests (stub git on `PATH`):
    `CLAUDE_COWORK_MEMORY_*` name, the set C-23.2 already removes from read-only launches. The
    brief named only `MEMORY_ENV`.
 3. Escapes are brackets and ranges, not backslashes: `FWo` turns every `\` into `/`.
-4. Ancestors stop above `/`, and `$HOME` is listed even when it is not an ancestor. A `/`-level
+4. The ancestor list leaves out `/` itself, and `$HOME` is listed even when it is not an ancestor. A `/`-level
    `CLAUDE.md` is still excluded, because the negation spares only R.
 
 ## Matcher evidence
@@ -130,9 +131,10 @@ the bundle, decided the escapes:
 - Two raw dots inside braces make a range (`dots=!0`). So `.` is bracketed: a folder named
   `..!x` broke the first recording.
 - Once glob syntax appears, `"` toggles quoting and is dropped. So `"` becomes `["-"]`.
-- `[c]` holding a character that is not a regex metacharacter compiles to `(?:\[c\]|[c])`, which
-  also matches the bracket's own text. So `!`, `@`, `^`, `$`, `#`, `~` and the like stay raw.
-  Raw, they are inert in this position: no leading `!`, and a `(` is always bracketed.
+- A bracket holding `!` compiles to `(?:\[!\]|[!])`, which also matches the bracket's own text.
+  So `!`, `@`, `^`, `$`, `#`, `~` and every other character outside the bracketed set stay raw.
+  picomatch reads them literally where `glob_literal` puts them: no leading `!`, and `(` is
+  always bracketed. The recording confirms this; its alphabet holds each of them.
 - `[,]` widens in the same way, so the comma is the range `[,-,]`.
 - A negation compiles to `^(?!^(?:BODY)$).*$`, and JavaScript's `.` matches no line terminator.
 
@@ -218,7 +220,7 @@ lists are in `mutants.json`.
 | M2 `disableAllHooks:false` dropped | 60 | same as M1 |
 | M3 `--safe-mode` added | 60 | same as M1 |
 | M4 `claudeMdExcludes` dropped | 83 | `test_i2_i3_each_fixture_workdir` (6), recorded patterns (18), writable differential (48), git fallbacks (4), and 7 more |
-| M5 ancestors from `job.workdir`, not R | 8 | `test_i2_i3_each_fixture_workdir` (2: subdirectory, linked-worktree), recorded patterns (6) |
+| M5 ancestors from `job.workdir`, not R | 8 | `test_i2_i3_each_fixture_workdir` (2: subdirectory, symlinked), recorded patterns (6) |
 | M6a ancestor walk includes R | 32 | `test_i2_i3_each_fixture_workdir` (5), recorded patterns (18), git fallbacks (4), size (2), and 3 more |
 | M6b ancestor walk stops before the top folder | 29 | `test_i2_i3_each_fixture_workdir` (6), recorded patterns (18), size (2), home lane (1), and 2 more |
 | M7 R_real dropped | 8 | `test_i2_i3_each_fixture_workdir[symlinked]`, `test_i3_a_git_spelling_through_a_symlink_spares_both`, recorded patterns (6) |
@@ -277,8 +279,11 @@ and in `env_remove`, and the daemon writes both into `launch.json` (`daemon.py:9
 `tests` for every reader of `launch.json`, `env_remove`, `--settings`, `claudeMdExcludes` or
 `ENV_REMOVE`: 44 files.
 
-- 26 of them are in run 1, which passed.
-- Of the other 18, the exact compares are on conversation turns:
+- 24 of them are in run 1 (23 from the brief's list and the new glob module), which passed.
+- `tests/fake/test_state_contract.py` is in run 2, which passed.
+- `tests/unit/test_claude_v1_parity.py` passed in dev3 but was left out of the formal runs (see below).
+- `tests/live/test_claude_live.py` did not run, since it needs a real CLI.
+- Among the other 17 files, the exact compares are on conversation turns:
   - `tests/unit/test_claude_turn.py:59` and `tests/e2e/test_conversations.py:232` (its `ultracode` key).
 - The rest check membership or absence:
   - `test_launch_env_round2.py:142`, `CLAUDE_MEMORY_STORES` in `env_remove`, which stays true.
@@ -295,7 +300,7 @@ come from `runs.log`, which records `uptime` at each start and end.
 
 | Run | Files | Start → end (load) | Result |
 |---|---|---|---|
-| dev1 | the two lane-startup modules | 03:14:24 → 03:15:17 (183 → 194) | 1 failed, 344 passed (I9, the attempt folder; fixed) |
+| dev1 | the two lane-startup modules | 03:14:24 → 03:15:17 (183 → 194) | 1 failed, 344 passed (fixed before dev2) |
 | dev2 | same | 03:15:31 → 03:15:54 | 348 passed |
 | dev3-unit | run-1 unit files, including `test_claude_v1_parity.py` | 03:16:44 → 03:20:47 (175 → 186) | 104 failed, 2130 passed, 3 xfailed. Older tests pinned the writable `--settings`; fixed in add5ae3b4 and 728decba6 |
 | dev4-unit | run-1 unit files without v1-parity | 03:23:19 → 03:29:07 (172 → 186) | 2228 passed, 3 xfailed |
@@ -339,8 +344,9 @@ Non-test commands:
 - **Background work.** Three commands, `run3-records`, `run3a` and a collect-only count, passed
   the Bash tool's cap and the harness moved them to the background:
   - I stopped two of them with TaskStop; the harness stopped `run3a` at its limit.
-  - `run3-conversations` also passed the cap; it finished in the background, inside the session.
-  - The cleanup's `rmtree` too.
+  - `run3-conversations` also passed the cap and finished in the background, inside the session.
+  - So did the cleanup's `rmtree` of `$TMPDIR/sf-lsb`. The `/tmp/sf-failed` folders were
+    removed in a separate foreground step.
   - Nothing was started with `&`, `nohup` or the like. After each stop I checked for processes
     with this worktree as their cwd and found none.
 - **Commit order.** 87d8cb798 (the adapter) comes before the older tests' fixes in add5ae3b4 and
@@ -373,7 +379,13 @@ path:
 `/tmp/sf-failed` itself predates this job (created 2026-11-14 14:56 UTC), so it stays. The shared
 `$TMPDIR/uv-cache` stays.
 
-Status: the removal was still running when this report was first committed; the next commit records how it ended.
+Status: done at 05:33:04 UTC. Afterwards `$TMPDIR/sf-lsb` no longer exists and `/tmp/sf-failed` is empty.
+
+Left in place: `/tmp/sf-e2e-yege7njs`, an e2e harness state root created at 04:17:34 UTC, the moment
+I stopped run3-records (`tests/e2e/conftest.py:372` makes these, and a killed test leaves one
+behind). It is almost certainly mine, and no process has it open. Its name falls outside the
+`sf-lsb`/`sf-failed` guard, so I did not remove it; it can be deleted. The `/tmp/sf-st-*`
+folders come from `tests/frontend/test_core_store.py`, which I did not run, so they are not mine.
 
 ## Commits
 
