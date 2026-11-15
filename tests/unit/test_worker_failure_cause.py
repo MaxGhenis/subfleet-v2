@@ -422,3 +422,192 @@ def test_exception_message_notes_chain_and_source_are_scrubbed(site, monkeypatch
     for offset in range(len(MARKER) - 11):
         assert MARKER[offset:offset + 12] not in written
     assert "REDACTED" in written
+
+
+# --- review r1 of #308: hostile types, re-raised objects and the signature's parts --------
+
+class ListQualname(type):
+    """A metaclass whose `__qualname__` reads as an unhashable list."""
+
+    def __getattribute__(cls, name):
+        if name == "__qualname__":
+            return ["fixture", "qualname"]
+        return super().__getattribute__(name)
+
+
+class UnhashableName(str):
+    def __hash__(self):
+        raise RuntimeError("fixture name cannot be hashed")
+
+
+class RaisingHashQualname(type):
+    """A metaclass whose `__qualname__` reads as a str whose hash raises."""
+
+    def __getattribute__(cls, name):
+        if name == "__qualname__":
+            return UnhashableName("fixture")
+        return super().__getattribute__(name)
+
+
+class RaisingName(type):
+    """A metaclass whose `__name__` cannot be read."""
+
+    def __getattribute__(cls, name):
+        if name == "__name__":
+            raise RuntimeError("fixture name cannot be read")
+        return super().__getattribute__(name)
+
+
+HOSTILE_TYPES = {
+    "list-qualname": ListQualname("ListQualnameError", (RuntimeError,), {}),
+    "raising-hash-qualname": RaisingHashQualname("RaisingHashError", (RuntimeError,), {}),
+    "raising-name": RaisingName("RaisingNameError", (RuntimeError,), {}),
+}
+
+
+def raise_hostile(kind):
+    """The same raise site every time, so its causes share one signature."""
+    raise HOSTILE_TYPES[kind]("fixture hostile type")
+
+
+@pytest.mark.parametrize("kind", sorted(HOSTILE_TYPES))
+@pytest.mark.parametrize("site", ["control", "request"])
+def test_hostile_exception_types_never_raise_into_control_or_request(kind, site, monkeypatch, capsys):
+    """Review r1, P2: a metaclass's `__qualname__` (a list, a str whose hash raises) or
+    `__name__` (raising) leaves the loop running and the request answered, and the
+    signature still deduplicates: two raises from one place log one cause."""
+    service = core()
+    if site == "control":
+        errors = []
+        for _ in range(2):
+            try:
+                raise_hostile(kind)
+            except RuntimeError as exc:
+                errors.append(exc)
+        run_control(service, errors)
+    else:
+        service.dispatch = lambda *args, **kwargs: raise_hostile(kind)
+        for _ in range(2):
+            request(service, monkeypatch)
+    assert [bool(record.exc_info) for record in service.recording.records] == [True, False]
+    name = type.__dict__["__name__"].__get__(HOSTILE_TYPES[kind])
+    assert all(record.getMessage().endswith(f"failed: {name}") for record in service.recording.records)
+    assert capsys.readouterr().err == ""
+
+
+@pytest.mark.parametrize("kind", sorted(HOSTILE_TYPES))
+def test_raise_signature_of_a_hostile_type_is_plain_and_hashable(kind):
+    try:
+        raise_hostile(kind)
+    except RuntimeError as exc:
+        signature = daemon_module.raise_signature(exc)
+    hash(signature)
+    assert signature[0][0] == type.__dict__["__qualname__"].__get__(HOSTILE_TYPES[kind])
+
+    def parts(value):
+        if isinstance(value, tuple):
+            for item in value:
+                yield from parts(item)
+        else:
+            yield value
+
+    assert {type(part) for part in parts(signature)} <= {str, int, type(None)}
+
+
+def test_first_trace_treats_an_uncomparable_signature_as_new():
+    traced = {("fixture",)}
+    assert Daemon._first_trace(traced, (["unhashable"],))
+    assert Daemon._first_trace(traced, (UnhashableName("fixture"),))
+    assert traced == {("fixture",)}
+
+
+def test_one_object_raised_on_three_control_ticks_logs_one_cause():
+    """Review r1, P2: each raise of the same object adds frames to its traceback (a
+    stored failure raised again each tick); the signature keys on the frames it was
+    first raised in and caught at, so three ticks log one cause."""
+    service, stored = core(), RuntimeError("fixture failure stored and raised again")
+    run_control(service, [stored, stored, stored])
+    assert [bool(record.exc_info) for record in service.recording.records] == [True, False, False]
+
+
+def test_one_object_raised_from_three_requests_logs_one_cause(monkeypatch):
+    service, stored = core(), RuntimeError("fixture failure stored and raised again")
+
+    def dispatch(*args, **kwargs):
+        raise stored
+
+    service.dispatch = dispatch
+    for _ in range(3):
+        request(service, monkeypatch)
+    assert [bool(record.exc_info) for record in service.recording.records] == [True, False, False]
+
+
+def raised_after(raise_inner, *, suppress):
+    """A RuntimeError raised at one line while handling what `raise_inner` raised:
+    `from None` when `suppress`, else with it as its context."""
+    try:
+        try:
+            raise_inner()
+        except Exception:
+            if suppress:
+                raise RuntimeError("outer") from None
+            raise RuntimeError("outer")
+    except RuntimeError as exc:
+        return exc
+
+
+def inner_value_error():
+    raise ValueError("inner")
+
+
+def inner_key_error():
+    raise KeyError("inner")
+
+
+def test_raise_signature_honours_raise_from_none():
+    """Kills r1's R1: a suppressed context is not part of the chain the signature reads."""
+    one = raised_after(inner_value_error, suppress=True)
+    two = raised_after(inner_key_error, suppress=True)
+    assert len(daemon_module.raise_signature(one)) == 1
+    assert daemon_module.raise_signature(one) == daemon_module.raise_signature(two)
+    shown = raised_after(inner_value_error, suppress=False), raised_after(inner_key_error, suppress=False)
+    assert len(daemon_module.raise_signature(shown[0])) == 2
+    assert daemon_module.raise_signature(shown[0]) != daemon_module.raise_signature(shown[1])
+
+
+def raised_on_one_of_two_lines(first):
+    try:
+        if first:
+            raise RuntimeError("same function, first line")
+        raise RuntimeError("same function, second line")
+    except RuntimeError as exc:
+        return exc
+
+
+def test_raise_signature_reads_line_numbers():
+    """Kills r1's R2: two raises in one function differ only by their lines."""
+    one, two = raised_on_one_of_two_lines(True), raised_on_one_of_two_lines(False)
+    assert daemon_module.raise_signature(one) != daemon_module.raise_signature(two)
+    assert daemon_module.raise_signature(one) == daemon_module.raise_signature(raised_on_one_of_two_lines(True))
+
+
+def raised_from(raise_inner):
+    try:
+        try:
+            raise_inner()
+        except Exception as inner:
+            raise RuntimeError("outer") from inner
+    except RuntimeError as exc:
+        return exc
+
+
+def inner_value_error_elsewhere():
+    raise ValueError("inner")
+
+
+def test_raise_signature_reads_the_whole_chain():
+    """Kills r1's R3: one outer raise site, causes of one type raised at two places, two
+    signatures."""
+    one, two = raised_from(inner_value_error), raised_from(inner_value_error_elsewhere)
+    assert daemon_module.raise_signature(one)[0] == daemon_module.raise_signature(two)[0]
+    assert daemon_module.raise_signature(one) != daemon_module.raise_signature(two)

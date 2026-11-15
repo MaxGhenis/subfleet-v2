@@ -33,7 +33,6 @@ import subprocess
 import sys
 import threading
 import time
-import traceback
 import weakref
 from uuid import uuid4
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -620,11 +619,36 @@ WORKER_CAUSE_EVERY = 32
 TRACED_CAUSES_MAX = 256
 
 
+#: `type`'s own `__qualname__`, read past any metaclass's attribute hooks.
+_TYPE_QUALNAME = type.__dict__["__qualname__"]
+
+
+def _plain(value: object) -> str | int | None:
+    """`value` as an exact str or int (None for anything else), so a signature
+    hashes and compares without running a subclass's methods."""
+    if isinstance(value, str):
+        return str.__str__(value)
+    if isinstance(value, int):
+        return int.__index__(value)
+    return None
+
+
+def _frame_location(tb) -> tuple:
+    code = tb.tb_frame.f_code
+    return (_plain(code.co_filename), _plain(tb.tb_lineno), _plain(code.co_name))
+
+
 def raise_signature(exc: BaseException) -> tuple:
     """C-5.10: exception types and raise locations, independent of their words.
 
-    Read no source files or exception messages. Cyclic chains terminate and
-    unreadable exception metadata has a fixed fallback: this runs inside the
+    Each link of the chain is its type's qualified name and two frames of its
+    traceback: the innermost, where it was first raised, and the outermost, where
+    the handler caught it. Raising the same object again adds frames between them
+    and keeps both, so a stored failure re-raised each tick keeps one signature.
+    Read no source files or exception messages, and no attribute a metaclass or an
+    exception subclass can hook; every part is an exact str, int or None, so the
+    signature hashes without running a subclass's code. Cyclic chains terminate
+    and unreadable exception metadata has a fixed fallback: this runs inside the
     control loop's exception handler, which another raise would leave.
     """
     try:
@@ -634,16 +658,30 @@ def raise_signature(exc: BaseException) -> tuple:
             # Read stored metadata, bypassing exception subclasses' hooks: a
             # hostile __traceback__ must not merge distinct raise locations.
             tb = BaseException.__traceback__.__get__(link)
-            frames = tuple((frame.f_code.co_filename, lineno, frame.f_code.co_name)
-                           for frame, lineno in traceback.walk_tb(tb))
-            links.append((type(link).__qualname__, frames))
+            outer = inner = None
+            if tb is not None:
+                outer = _frame_location(tb)
+                while tb.tb_next is not None:
+                    tb = tb.tb_next
+                inner = _frame_location(tb)
+            links.append((_plain(_TYPE_QUALNAME.__get__(type(link))), inner, outer))
             cause = BaseException.__cause__.__get__(link)
             link = (cause if cause is not None else None
                     if BaseException.__suppress_context__.__get__(link)
                     else BaseException.__context__.__get__(link))
         return tuple(links)
     except Exception:                       # noqa: BLE001 - never render a failed signature
-        return (("exception", ()),)
+        return (("exception", None, None),)
+
+
+def failure_class(exc: BaseException) -> str:
+    """C-5.10: an exception's class name for a failure's summary line, read past any
+    metaclass hook, as an exact str; `Exception` where it cannot be read."""
+    try:
+        name = type.__dict__["__name__"].__get__(type(exc))
+        return str.__str__(name) if isinstance(name, str) else "Exception"
+    except Exception:                       # noqa: BLE001 - the summary line never raises
+        return "Exception"
 
 
 def utcnow() -> str:
@@ -5511,7 +5549,7 @@ class Daemon:
                 if not paced:
                     # True uses the active exception without Logger._log reading
                     # an exception subclass's overridden __traceback__ attribute.
-                    self.log.error("worker %s failed: %s", key, type(exc).__name__, exc_info=True)
+                    self.log.error("worker %s failed: %s", key, failure_class(exc), exc_info=True)
                     return
                 # C-5.10: the control loop offers every live key again each tick,
                 # so a worker that raises at once would otherwise be retried, and
@@ -5521,11 +5559,11 @@ class Daemon:
                     delay = worker_retry_delay(count)
                     self._worker_retry_at[key] = time.monotonic() + delay
                 if key == "retention":
-                    self.timers.mark("retention", error=type(exc).__name__, next_due=after(delay))
+                    self.timers.mark("retention", error=failure_class(exc), next_due=after(delay))
                 cause = count % WORKER_CAUSE_EVERY == 1          # 1, 33, 65, ...
                 if cause or count & (count - 1) == 0:     # powers of two and each cause
                     self.log.error("worker %s failed: %s (%d in a row, next try in %g s)",
-                                   key, type(exc).__name__, count, delay, exc_info=cause)
+                                   key, failure_class(exc), count, delay, exc_info=cause)
             finally:
                 # Waiters read only the store, so a pass during which nothing
                 # was committed (a running attempt's tick, an idle admission
@@ -5820,18 +5858,23 @@ class Daemon:
                 self._control_traced.clear()
             except Exception as exc:
                 first = self._first_trace(self._control_traced, raise_signature(exc))
-                self.log.error("control iteration failed: %s", type(exc).__name__,
+                self.log.error("control iteration failed: %s", failure_class(exc),
                                exc_info=first)
             self.stopping.wait(self.tick_s)
 
     @staticmethod
     def _first_trace(traced: set[tuple], signature: tuple) -> bool:
-        """C-5.10: remember a new signature, starting again when the set is full."""
-        if signature in traced:
-            return False
-        if len(traced) >= TRACED_CAUSES_MAX:
-            traced.clear()
-        traced.add(signature)
+        """C-5.10: remember a new signature, starting again when the set is full.
+        A signature that cannot be compared is new: the cause is logged, and the
+        handler that asked never raises."""
+        try:
+            if signature in traced:
+                return False
+            if len(traced) >= TRACED_CAUSES_MAX:
+                traced.clear()
+            traced.add(signature)
+        except Exception:                   # noqa: BLE001 - never raise into the failure handler
+            pass
         return True
 
     def _timer_notice(self, notice: dict) -> bool:
@@ -12432,7 +12475,7 @@ class Daemon:
         except Exception as exc:
             with self._request_traced_lock:
                 first = self._first_trace(self._request_traced, (req.op, raise_signature(exc)))
-            self.log.error("request %s failed: %s", req.op, type(exc).__name__,
+            self.log.error("request %s failed: %s", req.op, failure_class(exc),
                            exc_info=first)
             response = protocol.fail(req.id, 1, "operation failed; inspect daemon status")
         send_reply(conn, write_lock, response, end_stream=self._end_stream)

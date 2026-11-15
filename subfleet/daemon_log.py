@@ -81,7 +81,9 @@ import logging
 import re
 import sys
 import threading
+import traceback
 import warnings
+from collections import deque
 from typing import Any, Callable
 
 from . import refusals
@@ -98,6 +100,15 @@ SCRUB_FAILED = "[scrub failed]"
 RECORD_SCRUB_MAX = 16_384
 #: What logging's report of a record it could not write becomes.
 WRITE_FAILED = "[log write failed]"
+#: The most exceptions, chained or grouped, a record's traceback is rendered with as
+#: Python renders it (C-5.10). Python's renderer reads every one, its frames' source lines
+#: included, before the handler's cut keeps `RECORD_SCRUB_MAX` characters of them all.
+EXCEPTIONS_RENDERED_MAX = 64
+#: A traceback with more is rendered as this many links of its chain from each end: the
+#: exception logged and those nearest it, and the first raised, with no group's members.
+CHAIN_ENDS_RENDERED = 16
+#: The most links of one chain read to find its first raised.
+CHAIN_READ_MAX = 100_000
 #: What the handler writes, and what a person reads of daemon.log shows, in place of a
 #: reminder tag (C-25.7, review r4 of #233). One run with no whitespace, quote, `,`, `;`,
 #: `:`, `=`, `/` or `@` and no key's ending, so every scrub rule reads it as it reads a tag,
@@ -126,6 +137,59 @@ _GROUP_MARGIN = re.compile(r"(?:  )+[|+](?: |$)")
 _GROUP_MARGIN_LINE = re.compile(r"(?m)^(?:  )+[|+](?: |$)")
 #: A whitespace-free run, as a value is.
 _RUN = re.compile(r"\S+")
+
+#: The control characters a terminal acts on rather than shows, but for tab, line feed and
+#: carriage return: C0, DEL and C1 (C-5.10, C-25.7). What the handler writes and what a
+#: person reads of daemon.log show each as its `\xNN` escape (`_controls_shown`).
+_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+#: Those that are not whitespace to the scrubber (`\s`), which a terminal's reading of a
+#: text drops (`_rendered`); the others separate runs in either reading.
+_HIDDEN_CONTROL = re.compile(r"[\x00-\x08\x0e-\x1b\x7f-\x84\x86-\x9f]")
+#: A terminal control sequence, which a terminal shows nothing of (ECMA-48): CSI (`ESC [`
+#: or C1 `\x9b`) with its parameters, intermediates and final byte; a string (OSC `ESC ]`,
+#: DCS `ESC P`, SOS `ESC X`, PM `ESC ^`, APC `ESC _`, or their C1 forms) to its BEL or ST
+#: terminator, else to its line's end; any other escape with its intermediates and final.
+_TERMINAL_SEQUENCE = re.compile(
+    r"(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]?"
+    r"|(?:\x1b[\]PX^_]|[\x90\x98\x9d\x9e\x9f])[^\x07\x1b\x9c\n]*(?:\x07|\x1b\\|\x9c)?"
+    r"|\x1b[ -/]*[0-~]?")
+
+
+def _rendered(text: str) -> str:
+    """`text` as a terminal shows it: its control sequences and the control characters
+    that are not whitespace left out, so a key a sequence splits (`pass\\x1b[0mword=`)
+    reads whole, as a person reading the terminal sees it."""
+    return _HIDDEN_CONTROL.sub("", _TERMINAL_SEQUENCE.sub("", text))
+
+
+def _visible(text: str) -> str:
+    """`text` with each control character `_CONTROL` names written as its `\\xNN` escape."""
+    return _CONTROL.sub(lambda match: f"\\x{ord(match.group()):02x}", text)
+
+
+def _terminal_safe(source: str, scrubbed: str, scrub: Callable[[str], str]) -> str:
+    """`scrubbed`, the scrub of `source`, as written for a terminal: unchanged when
+    `source` holds no control character, else with `source` read as a terminal shows it
+    and scrubbed by `scrub` too (`_controls_shown`)."""
+    if not _CONTROL.search(source):
+        return scrubbed
+    return _controls_shown(scrubbed, scrub(_rendered(source)))
+
+
+def _controls_shown(text: str, rendered: str) -> str:
+    """`text`, a scrubbed record or tail holding control characters, as written (C-5.10,
+    C-25.7): each control character as its `\\xNN` escape, so no escape sequence reaches
+    daemon.log or a person's terminal and a reader still sees where one was; and each
+    whitespace-free run whose terminal reading (`_rendered`) `rendered`, the same text read
+    so and then scrubbed, does not hold as a run, `[REDACTED]`: what either reading hides
+    stays hidden. A run that is only control sequences reads as nothing and is kept."""
+    shown = set(_RUN.findall(rendered))
+
+    def run(match: re.Match) -> str:
+        plain = _rendered(match.group())
+        return match.group() if not plain or plain in shown else REDACTED
+
+    return _visible(_RUN.sub(run, text))
 
 
 def scrubbed_block(text: str, *, group: bool = False, keep_lines: bool = False) -> str:
@@ -283,6 +347,18 @@ class ScrubbingFormatter(logging.Formatter):
         # never less.
         groups = [_GROUP_MARK in part for part in parts]
         (line, *blocks), message = _within(parts, RECORD_SCRUB_MAX), parts[0]
+        text = self._scrubbed_parts(record, line, blocks, message, groups)
+        if any(_CONTROL.search(part) for part in (line, *blocks)):
+            # The cut parts read as a terminal shows them, scrubbed alike (C-5.10).
+            rendered = self._scrubbed_parts(record, _rendered(line), [_rendered(block) for block in blocks],
+                                            message, groups)
+            text = _controls_shown(text, rendered)
+        return text
+
+    @staticmethod
+    def _scrubbed_parts(record: logging.LogRecord, line: str, blocks: list[str], message: str,
+                        groups: list[bool]) -> str:
+        """The record's cut line and blocks, scrubbed: the line form or the block form."""
         if line != message and line == cut_marker(len(message)) + "\n":
             # Nothing of the line is kept: the marker names the record's level and
             # logger, fixed metadata, never its words.
@@ -300,11 +376,95 @@ class ScrubbingFormatter(logging.Formatter):
         # Formatted from `exc_info` each time: an `exc_text` another formatter cached
         # on the record is used only when the record has nothing else.
         if record.exc_info:
-            yield self.formatException(record.exc_info)
+            yield self._exception_text(record.exc_info)
         elif record.exc_text:
             yield record.exc_text
         if record.stack_info:
             yield self.formatStack(record.stack_info)
+
+
+    def _exception_text(self, exc_info: Any) -> str:
+        """`formatException(exc_info)`, its cost bounded before Python renders it (C-5.10):
+        a traceback of at most `EXCEPTIONS_RENDERED_MAX` exceptions as Python renders it,
+        a longer one as its chain's two ends (`_chain_ends`, `_ends_text`)."""
+        value = exc_info[1] if type(exc_info) is tuple and len(exc_info) == 3 else None
+        ends = _chain_ends(value) if isinstance(value, BaseException) else None
+        if ends is None:
+            return self.formatException(exc_info)
+        return _ends_text(exc_info[2], *ends)
+
+
+def _chain_ends(exc: BaseException) -> tuple[list[BaseException], list[BaseException], int] | None:
+    """None when `exc` and the exceptions Python's renderer reads with it (`__cause__`, else
+    `__context__` unless suppressed, and each group's members) number at most
+    `EXCEPTIONS_RENDERED_MAX`, or cannot be read. Otherwise its chain's first
+    `CHAIN_ENDS_RENDERED` links from the exception logged, its last as many (the first
+    raised), and how many links between them are left out. Stored attributes are read past
+    any exception class's hooks, cycles end, and at most `CHAIN_READ_MAX` links are read."""
+    try:
+        count, seen, queue = 0, set(), [exc]
+        while queue:
+            link = queue.pop()
+            if link is None or id(link) in seen:
+                continue
+            seen.add(id(link))
+            count += 1
+            if count > EXCEPTIONS_RENDERED_MAX:
+                break
+            queue.append(_next_link(link))
+            if issubclass(type(link), BaseExceptionGroup):
+                queue.extend(BaseExceptionGroup.exceptions.__get__(link)[:EXCEPTIONS_RENDERED_MAX + 1])
+        else:
+            return None
+        nearest, last, seen, link, length = [], deque(maxlen=CHAIN_ENDS_RENDERED), set(), exc, 0
+        while link is not None and id(link) not in seen and length < CHAIN_READ_MAX:
+            seen.add(id(link))
+            length += 1
+            if len(nearest) < CHAIN_ENDS_RENDERED:
+                nearest.append(link)
+            else:
+                last.append(link)
+            link = _next_link(link)
+        first_raised = list(last) if link is None or id(link) in seen else []
+        return nearest, first_raised, length - len(nearest) - len(first_raised)
+    except Exception:                       # noqa: BLE001 - unreadable: Python's own rendering decides
+        return None
+
+
+def _next_link(link: BaseException) -> BaseException | None:
+    """The exception Python's renderer prints before `link`, read past its class's hooks."""
+    cause = BaseException.__cause__.__get__(link)
+    if cause is not None or BaseException.__suppress_context__.__get__(link):
+        return cause
+    return BaseException.__context__.__get__(link)
+
+
+def _ends_text(tb: Any, nearest: list[BaseException], first_raised: list[BaseException], omitted: int) -> str:
+    """A traceback of `nearest` (the exception logged, with `tb`, then those chained before
+    it) and `first_raised`, each part as Python renders that much of a chain, with a line
+    between them saying how many links it leaves out. Each link is read alone (CPython's
+    `_seen` reads no chain) and linked to the next as Python's renderer would link it; a
+    group is rendered without its members."""
+    def rendered(links: list[BaseException], first_tb: Any) -> str:
+        if not links:
+            return ""
+        parts = []
+        for index, link in enumerate(links):
+            link_tb = first_tb if index == 0 else BaseException.__traceback__.__get__(link)
+            part = traceback.TracebackException(type(link), link, link_tb, compact=True, _seen=set())
+            part.__cause__ = part.__context__ = part.exceptions = None
+            parts.append(part)
+        for link, part, following in zip(links, parts, parts[1:]):
+            if BaseException.__cause__.__get__(link) is not None:
+                part.__cause__ = following
+            else:
+                part.__context__ = following
+        return "".join(parts[0].format())
+
+    marker = (f"… [{omitted:,} chained exceptions not rendered; at most "
+              f"{EXCEPTIONS_RENDERED_MAX} are, and no group's members] …\n")
+    first = rendered(first_raised, BaseException.__traceback__.__get__(first_raised[0])) if first_raised else ""
+    return first + ("\n" if first else "") + marker + "\n" + rendered(nearest, tb)
 
 
 class ScrubbingStreamHandler(logging.StreamHandler):
@@ -444,7 +604,9 @@ def scrubbed_tail(text: str, count: int) -> list[str]:
             resolved = _reminders_resolved(text)
             if resolved is not None:        # else the marker rule: a tag keeps only the marker
                 text = resolved
-        block = scrubbed_block(cut_whole(text, _tail_limit(text, count)), group=group, keep_lines=True)
+        cut = cut_whole(text, _tail_limit(text, count))
+        block = _terminal_safe(cut, scrubbed_block(cut, group=group, keep_lines=True),
+                               lambda rendered: scrubbed_block(rendered, group=group, keep_lines=True))
         return neutralised(block).splitlines()[-count:]
     except Exception as exc:                # noqa: BLE001 - the marker alone, never the text
         return [failed_line(_record("", logging.INFO), exc)]
@@ -688,6 +850,8 @@ class LogFollower:
                 shown = neutralised(scrubbed_block(around, group=_GROUP_MARK in around, keep_lines=True))
                 # A margin's mark alone is no value; `shown` may be written without margins.
                 own = _only(own, set(_RUN.findall(shown)) | {"|", "+"})
+            own = _terminal_safe(written, own, lambda rendered: neutralised(
+                scrubbed_block(rendered, group=_GROUP_MARK in rendered, keep_lines=True)))
             lines = own.splitlines()
         except Exception as exc:            # noqa: BLE001 - the marker alone, never the text
             lines = [failed_line(_record("", logging.INFO), exc)]

@@ -1,7 +1,8 @@
 """C-5.10's causes use release/217's real daemon.log handler (C-25.7).
 
-The C-23.14 probes deliberately leave sessions/handoff.py unchanged. The URL
-case records the remaining scrubber limitation for the hub to route separately.
+The C-23.14 probes put each row of #26's table through the handler. The URL row
+leaked until fix r1 of #308 widened the head's URL rule (`handoff._URL_PASSWORD_RE`);
+`test_worker_failure_url_and_terminal.py` checks review r1's forms on every route.
 Single-call timing measurements are checked in beside the implementation report.
 """
 from __future__ import annotations
@@ -76,14 +77,14 @@ def test_c2314_adversarial_records_are_bounded(message):
     assert 0 < len(output) <= WRITTEN_BOUND
 
 
-@pytest.mark.documented_limitation
-def test_c2314_underscore_url_password_still_reaches_handler_output_documented_limitation():
-    """Release/217's URL rule does not recognize an underscore scheme. C-5.10
-    reports this to the hub; D-SCRUB-BOUNDARY1 owns the pending scrubber changes.
-    A local exception helper using the same scrubber would keep this value too.
-    """
-    message = f"my_postgres://app:{MARKER}@db"
-    assert _write(message) == message + "\n"
+def test_c2314_underscore_url_password_is_hidden_by_the_handler():
+    """Review r1 of #308, P1: release/217's URL rule read no underscore in a scheme, so
+    this value reached daemon.log whole. The head's rule reads one (fix r1); release's
+    frozen copy still does not, and the run it keeps is replaced (`shown_by_both`)."""
+    message = f"my_postgres://app:{MARKER}@db and https://example.test:8443/status"
+    output = _write(message)
+    _hidden(output, MARKER)
+    assert output == "[REDACTED] and https://example.test:8443/status\n"
 
 
 def _exception_with(marker: str, location: str) -> BaseException:
