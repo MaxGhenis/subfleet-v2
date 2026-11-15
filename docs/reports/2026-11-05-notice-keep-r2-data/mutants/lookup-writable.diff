@@ -1,0 +1,11 @@
+--- subfleet/retention_notices.py
++++ subfleet/retention_notices.py
+@@ -212,7 +212,7 @@
+         raise ValueError("state.sqlite3 is outside the state root")
+     report: dict[str, Any] = {"session_id": session_id, "read_only": True, "read_only_scope": "records",
+                               "outcomes": [], "errors": []}
+-    with Store(database, read_only=True) as store:
++    with Store(database) as store:
+         events = store.query("SELECT event_id, ts, job_id, data_json FROM events WHERE kind=? ORDER BY event_id",
+                              (RETIRED_EVENT,))
+     for event in events:

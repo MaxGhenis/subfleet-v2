@@ -1,0 +1,34 @@
+{
+  "exitstatus": 1,
+  "phases": [
+    {
+      "nodeid": "tests/unit/test_pin_notice_identity.py::test_retirement_association_requires_all_four_fields[text]",
+      "when": "setup",
+      "outcome": "passed",
+      "exception": null,
+      "assertion": false,
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_pin_notice_identity.py::test_retirement_association_requires_all_four_fields[text]",
+      "when": "call",
+      "outcome": "failed",
+      "exception": "AssertionError",
+      "assertion": true,
+      "failure": "field = 'text'\n\n    @pytest.mark.parametrize(\"field\", [None, \"notice_id\", \"session_id\", \"created_at\", \"text\"])\n    def test_retirement_association_requires_all_four_fields(field):\n        original = notice()\n        row = {**original}\n        if field is not None:\n            row[field] = 2 if field == \"notice_id\" else f\"different {field}\"\n        found = pin_notice_jobs(query_for([event(1, original)]), [row])\n>       assert found == ({1: \"job-1\"} if field is None else {})\nE       AssertionError: assert {1: 'job-1'} == {}\nE         \nE         Left contains 1 more item:\nE         {1: 'job-1'}\nE         Use -v to get more diff\n\ntests/unit/test_pin_notice_identity.py:54: AssertionError"
+    },
+    {
+      "nodeid": "tests/unit/test_pin_notice_identity.py::test_retirement_association_requires_all_four_fields[text]",
+      "when": "teardown",
+      "outcome": "passed",
+      "exception": null,
+      "assertion": false,
+      "failure": null
+    }
+  ],
+  "collection_errors": [],
+  "imported_sources": {
+    "subfleet.store": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/notice-keep-r2-mutants-4pyjkzkc/three-field-retirement/subfleet/store.py",
+    "subfleet.retention_notices": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/notice-keep-r2-mutants-4pyjkzkc/three-field-retirement/subfleet/retention_notices.py"
+  }
+}

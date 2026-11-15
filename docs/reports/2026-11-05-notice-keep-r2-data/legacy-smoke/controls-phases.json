@@ -1,0 +1,78 @@
+{
+  "exitstatus": 0,
+  "phases": [
+    {
+      "nodeid": "tests/unit/test_notice_keep.py::test_the_outcome_pins_nothing",
+      "when": "setup",
+      "outcome": "passed",
+      "exception": null,
+      "assertion": false,
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_notice_keep.py::test_the_outcome_pins_nothing",
+      "when": "call",
+      "outcome": "passed",
+      "exception": null,
+      "assertion": false,
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_notice_keep.py::test_the_outcome_pins_nothing",
+      "when": "teardown",
+      "outcome": "passed",
+      "exception": null,
+      "assertion": false,
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_retention_outcomes.py::test_outcomes_allocates_no_temporary_database_copy",
+      "when": "setup",
+      "outcome": "passed",
+      "exception": null,
+      "assertion": false,
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_retention_outcomes.py::test_outcomes_allocates_no_temporary_database_copy",
+      "when": "call",
+      "outcome": "passed",
+      "exception": null,
+      "assertion": false,
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_retention_outcomes.py::test_outcomes_allocates_no_temporary_database_copy",
+      "when": "teardown",
+      "outcome": "passed",
+      "exception": null,
+      "assertion": false,
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_notice_keep.py::test_reused_same_second_ping_is_not_expired",
+      "when": "setup",
+      "outcome": "passed",
+      "exception": null,
+      "assertion": false,
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_notice_keep.py::test_reused_same_second_ping_is_not_expired",
+      "when": "call",
+      "outcome": "passed",
+      "exception": null,
+      "assertion": false,
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_notice_keep.py::test_reused_same_second_ping_is_not_expired",
+      "when": "teardown",
+      "outcome": "passed",
+      "exception": null,
+      "assertion": false,
+      "failure": null
+    }
+  ],
+  "collection_errors": []
+}
