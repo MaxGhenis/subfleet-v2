@@ -1,0 +1,102 @@
+{
+  "phase": "after",
+  "measured_at": "2026-11-07T13:50:35.421840+00:00",
+  "python": "3.14.7 (main, Sep  1 2026, 14:05:28) [Clang 22.1.3 ]",
+  "samples": 5,
+  "association": {
+    "listing": {
+      "fixture": "2000 unresolved service notices: 1600 pings, 200 pin notices, 200 retirement outcomes; 2 KiB text",
+      "samples": [
+        {
+          "rows": 2000,
+          "total_s": 0.1821786670043366,
+          "write_s": 0,
+          "write_transactions": 0,
+          "read_queries": 10
+        },
+        {
+          "rows": 2000,
+          "total_s": 0.11651633300061803,
+          "write_s": 0,
+          "write_transactions": 0,
+          "read_queries": 10
+        },
+        {
+          "rows": 2000,
+          "total_s": 0.10118004199466668,
+          "write_s": 0,
+          "write_transactions": 0,
+          "read_queries": 10
+        },
+        {
+          "rows": 2000,
+          "total_s": 0.6653843749954831,
+          "write_s": 0,
+          "write_transactions": 0,
+          "read_queries": 10
+        },
+        {
+          "rows": 2000,
+          "total_s": 0.1013100830023177,
+          "write_s": 0,
+          "write_transactions": 0,
+          "read_queries": 10
+        }
+      ],
+      "median_s": 0.11651633300061803
+    },
+    "expiry": {
+      "fixture": "10000 due retirement outcomes; text='outcome'; 68 sessions",
+      "samples": [
+        {
+          "rows": 10000,
+          "total_s": 1.2819419580046088,
+          "write_s": 0.2053766659955727,
+          "write_transactions": 1,
+          "read_queries": 21
+        },
+        {
+          "rows": 10000,
+          "total_s": 2.3143877499969676,
+          "write_s": 1.5073131669923896,
+          "write_transactions": 1,
+          "read_queries": 21
+        },
+        {
+          "rows": 10000,
+          "total_s": 2.3121569579961943,
+          "write_s": 0.6870557910006028,
+          "write_transactions": 1,
+          "read_queries": 21
+        },
+        {
+          "rows": 10000,
+          "total_s": 0.8328766249906039,
+          "write_s": 0.20249674998922274,
+          "write_transactions": 1,
+          "read_queries": 21
+        },
+        {
+          "rows": 10000,
+          "total_s": 1.1015623330022208,
+          "write_s": 0.49136995800654404,
+          "write_transactions": 1,
+          "read_queries": 21
+        }
+      ],
+      "median_s": 1.2819419580046088,
+      "median_write_s": 0.49136995800654404
+    }
+  },
+  "lookup": {
+    "database_bytes": 1075372032,
+    "lookup_s": 0.19750379100150894,
+    "lookup_with_writer_s": 0.031072874990059063,
+    "writer": {
+      "committed": true,
+      "seconds": 0.010595125000691041
+    },
+    "review_1GB_lookup_s": 124.19,
+    "writer_waited_for_lookup_to_close": false
+  }
+}

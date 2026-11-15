@@ -350,6 +350,15 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     "login-busy": ("lane still has live work or an execution lease", None),
     "cards-target": ("cards: the only target is 'refresh'", None),
     "operations-command": ("unknown operator command", None),
+    # Retention's delete path (C-8.7, d2660).
+    "retention-delete-action": ("retention delete: action must be dry-run, apply, status or stop", None),
+    "retention-delete-dormant": ("retention delete: retention is dormant (SUBFLEET_RETENTION_DORMANT=1)", None),
+    "retention-delete-limit": ("retention delete: --limit must be a positive integer", None),
+    "retention-delete-request": ("retention delete: the request is invalid",
+                                 "check it with subfleet retention delete --request FILE --dry-run, "
+                                 "which names the field"),
+    "retention-delete-busy": ("retention delete: a request is already running",
+                              "wait for it, or stop it with subfleet retention delete --stop"),
     # Notices, pings and sessions (C-15.8, C-23.39).
     "notice-ack-fingerprints": ("notice.ack: give one fingerprint per id, or none", None),
     "notice-ack-fingerprint-type": ("notice.ack: every fingerprint is a string, as the listing gives it", None),
@@ -557,8 +566,9 @@ def render(reason: Any, details: Any = None) -> tuple[str, str | None]:
         checked_hold = task_hold_condition_details(details)
         if checked_hold is not None:
             hold = checked_hold["task_hold"]
-            message += (f": task {hold['task']}, until {hold['until']}, "
-                        f"note {hold['note']!r}, since {hold['since']}")
+            message += f": task {hold['task']}, until {hold['until']}, note {hold['note']!r}"
+            if hold['since'] is not None:
+                message += f", since {hold['since']}"
     if reason == "guard-preflight" and checked("guard_kind", details.get("guard_kind")):
         kind = details["guard_kind"]
         if kind == "trust":
