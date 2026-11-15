@@ -265,3 +265,122 @@ The completion plumbing writes this report/evidence, stages those named files on
 ## Paragraph for #86
 
 Rebased the two original commits onto release/217 at `b51f08f961e1b1dcfb93347eb080f9ddd9a9260d`. The contract resolution preserves all release change-log entries, prepends #86's dated C-23.25 amendment, takes PR C-23.25 and release C-23.26 verbatim, and records both resolutions in the documentation commit. A separate Hypothesis differential test freezes release's old install loop, proves install/uninstall agreement where it was correct, and pins the intended non-list uninstall preservation difference. All nine mutants are killed; equality/differential and contract checks pass. The targeted run passed 2,204 tests with 10 conditional skips; three skips in the unchanged core files need native process/boot-identity access in CI.
+
+## Fix r1
+
+Review r1 approved #86 at ae95ae451 with one P2 and several P3s. This round fixes the P2 and every P3 but two, which are explained below. Job start 2026-11-15T04:38:21Z (first `date -u`); write-up started 06:02Z. Load stayed between 86 and 169 throughout. Built on d0f0c5c27 (ae95ae451 plus the hub's merge of release/217 at 82d3dd819). Mutants ran in a scratch copy of the source, never in the worktree.
+
+### Step 0: merge release/217
+
+- **Commit:** 3fc4b2c6a merges `origin/release/217` at `c8b61c95f4f5772e3ce8c85365b4335e07309c34` (PR #90, notify off screen) as its own commit. `docs/acceptance-contract.md` auto-merged with no conflict.
+- **What release brought:** 16 files, mostly notification work. Of the PR's files, it touches only the contract: two new C-29.9 log entries and an amended C-29.9 clause. It changes no line of `hooks.py`, `doctor.py`, `cli.py`, the hooks reference or the hook tests (`git diff --stat 82d3dd819 c8b61c95f`).
+- **The merge holds only the PR's own changes:** `git diff --name-only c8b61c95f 3fc4b2c6a` lists the six code, test and doc files, the build report, and the report's 66 evidence files.
+- **The contract:** the log keeps release's 350 entries in their order, with #86's C-23.25 entry first (351 in all). C-23.25 hashes the same as at d0f0c5c27, and C-23.26 the same as at c8b61c95f.
+
+### The P2: `duplicated` for two v2 hooks inside one group
+
+- **The test:** `tests/unit/test_hooks_install_equality.py:269-298`, `test_two_v2_hooks_are_duplicated_in_one_group_or_two`, with its helpers at lines 249-266. It takes `live_shape()`, swaps v2's PreToolUse group for each shape below, and asserts the same results for all three:
+  - **The shapes:**
+    - one group holding v2's hook twice (`_twice_in_one_group`);
+    - one group holding v2's hook under an old path, then as written (`_old_path_and_current_in_one_group`);
+    - the control: two groups holding one each (`_once_in_each_of_two_groups`).
+  - **What it asserts:**
+    - `plan()` and `installed()` report `{"PreToolUse": "duplicated"}`;
+    - `doctor` fails with `<path>: PreToolUse (duplicated) would change`;
+    - the dry run says `would write <path>: PreToolUse (duplicated)`;
+    - `apply` writes, leaving one entry where the group was.
+- **The mutant, M1** (review r1's R3): `_drift` counts the groups that hold v2's hook, not the hooks (`ours = sum(_holds_ours(group, event, command) for group in groups)`, `subfleet/hooks.py:914-917`).
+  - **Without the new test it survives:** under M1 the equality file's other 18 tests pass, and so does the new test's control: 2 failed, 19 passed.
+  - **Killer:** `test_two_v2_hooks_are_duplicated_in_one_group_or_two[_twice_in_one_group]` and `[_old_path_and_current_in_one_group]`, both with `assert {'PreToolUse': 'differs'} == {'PreToolUse': 'duplicated'}`.
+
+### The P3s
+
+1. **The differential test checked only agreement.**
+   - **The fix:** `tests/unit/test_hooks_install_differential.py:149-220` adds `test_install_differs_from_release_only_where_release_was_wrong`, with six cases in `INTENDED_DIFFERENCES`. Every other owned event holds v2's exact entry alone. Each case asserts both sides' `changed_events`, head's `drift`, and the list each side proposes, compared through `canonical`. It also asserts that the two sides differ.
+   - **Exact entry not last** (release changes it, head does not): first; in the middle; before malformed groups; in the middle with keys reversed and `timeout` 600.0.
+   - **Changed entry not last:** both change it, head in place and release last.
+   - **`asyncRewake: 1` for `true`, last:** head reports `differs`; release, using Python's `1 == True`, reports nothing.
+   - **Mutant M2:** the frozen release loop takes #86's placement and equality (`_place_ours`, `_same`) inside `release_plan`. Under it the three existing differential tests still pass, and all six new cases fail.
+   - **Killer:** `test_install_differs_from_release_only_where_release_was_wrong`, all six cases.
+2. **The "duplicated" reasoning and the hooks page.** I fetched the page on 2026-11-15 (`https://code.claude.com/docs/en/hooks.md`, 293,539 bytes, SHA-256 `cf74269e…b764af5e`). Under "Hook handler fields" it says: "When an event fires, its matching hooks run in parallel." The next paragraph says: "If you define the same handler in more than one settings file, it runs once. A plugin's or skill's copy of the same handler stays separate." No other sentence on the page has "dedup", "duplicate" or "identical".
+   - **What follows:** review r1's memory was partly right. The page promises a single run across settings files only, and says nothing about one file that lists a handler twice.
+   - **The fix:** `test_a_duplicate_is_drift_and_install_keeps_the_first`'s docstring (`test_hooks_install_equality.py:230-235`) no longer claims two equal entries deliver every notice twice. It now says two v2 entries are not what `--hooks` writes, and that two with different commands both run.
+   - **The reference:** `docs/reference/claude-hooks.md:35-44` quotes both sentences with the fetch date.
+   - **Mutant:** none; a docstring and a reference page have no behaviour to mutate.
+3. **The quote's attribution.** Done by the same reference paragraph: today's wording, its section and the 2026-11-15 date sit beside the 2026-09-28 quote. Mutant: none (prose).
+4. **Nits.**
+   - **"As the file spelled it":** C-23.25 (`docs/acceptance-contract.md:737`) now says an event without drift keeps "the JSON value the file gave it, key order included (a rewrite renders the whole file again, so whitespace, escapes and number spellings such as `1e3` change)". A probe confirmed this. On a file whose drift-free PreToolUse says `"timeout": 5e0` while another event is missing, `apply` keeps PreToolUse's value but writes `5.0`; `é` comes back as `é` and the whitespace changes. The differential test's non-list docstring (line 227) now uses the same wording.
+   - **Module list:** C-23.25 now names `subfleet/cli.py` alongside `hooks.py` and `doctor.py`. `test_invariants_index.py` doesn't compare module lists and still passes.
+   - **Formats:** the dry run now prints the same `Event (reason)` list as `doctor`: `would write <path>: PreToolUse (duplicated)` (`subfleet/cli.py:3299-3303`). Only `test_hooks_install_equality.py` pinned the old `(Event: reason)` form, and it now asserts the full new note (line 160, and the P2 test). Elsewhere tests check only the substring "would write", which is unchanged.
+     - **Mutant M3:** the dry run goes back to `(Event: reason)`.
+     - **Killers:** `test_a_missing_entry_is_drift_and_is_appended` and all three P2 cases. `test_hooks.py` and `test_the_cli_says_it_already_matches` pass under M3 (4 failed, 82 passed).
+   - **Stale report instruction:** line 7 of this report now marks the bundle import as done. a84182d58, 511322701, aacdfeac9 and a0da4be0e are ancestors of this head, and no `.gitbundle` is in the tree. Mutant: none (prose).
+5. **Pre-existing: "three" entries.** `cmd_daemon_install_hooks`'s docstring (`subfleet/cli.py:3274`) and `--hooks`'s help text (line 3870) now say four. No test pins either string. Mutant: none (prose).
+
+**Not fixed:**
+- **The evidence folder:** review r1 scanned it and found no secrets. Deleting the build's record of its runs is the hub's call, not a fix round's.
+- **Pre-existing: a non-list owned event:** install replaces it with `[ours]` and reports `missing`, exactly as release/217 does. Changing that is a behaviour change outside #86's scope, and it belongs in its own PR.
+
+### Review r1's unrun mutants
+
+Applied in the scratch copy like the rest:
+- **R1** (`_same` loses its list length check): killed by `test_a_missing_entry_is_drift_and_is_appended` (`assert [] == ['PostToolUse']`).
+- **R2** (`kept.insert(at or len(kept), group)`): killed by `test_an_entry_shared_with_another_tools_hook_differs`.
+
+Both match review r1's predictions.
+
+### Mutant procedure
+
+- **The copy:** `git archive cd5682fcc subfleet tests pyproject.toml` into scratch `src/`. The pristine copies of `subfleet/hooks.py` (`83907562…f567812`, review r1's hash), `subfleet/cli.py` (`5d5ccb7b…8c08788b`) and `tests/unit/test_hooks_install_differential.py` (`dcb2fbc2…9a08ff77`) went to `pristine/`, hashed.
+- **For each mutant:** check all three hashes, apply one exact-string edit (count asserted 1), run, restore from pristine, and recheck the hashes. All five restores matched.
+- **Was the copy really what ran?** Pytest's `pythonpath = ["."]` imports the copy. M1's run printed `.../sf-hor-f1/src/subfleet/hooks.py` and "mutated" before starting. The worktree's `hooks.py` hash was unchanged throughout.
+
+### Commands and results
+
+The runs used `TMPDIR=<scratch>/tmp-<label>/`, `UV_CACHE_DIR=$TMPDIR/uv-cache`, `HYPOTHESIS_STORAGE_DIRECTORY` and `PYTHONPYCACHEPREFIX` in scratch, and `env -u PYTHONPATH`. Each ran `<scratch>/venv/bin/python -m pytest -q -p no:cacheprovider --basetemp <scratch>/pytest-bt-<label>` under an internal `timeout`. All ten runs below finished; none timed out.
+
+| Run | Start–end (UTC) | Load at start → end (1 min) | Files | Result |
+|---|---|---|---|---|
+| r1-new (head) | 05:27:58–05:29:33 | 110 → 117 | new P2 test, missing-entry, duplicate, new difference test, non-list uninstall (`-n 4`) | 12 passed, rc 0 |
+| m1 (copy, M1) | 05:31:10–05:34:21 | 96 → 117 | equality file (`-n 4`) | 2 failed, 19 passed, rc 1 (killed) |
+| m2 (copy, M2) | 05:34:51–05:37:46 | 130 → 132 | differential file (`-n 4`) | 6 failed, 3 passed, rc 1 (killed) |
+| m3 (copy, M3) | 05:38:09–05:40:15 | 127 → 121 | missing-entry, P2 test, already-matches, `test_hooks.py` (`-n 4`) | 4 failed, 82 passed, rc 1 (killed) |
+| r1mut (copy, R1) | 05:40:52–05:41:48 | 129 → 169 | missing-entry, unchanged-spelling (`-n 2`) | 1 failed, 1 passed, rc 1 (killed) |
+| r2mut (copy, R2) | 05:41:55–05:42:36 | 168 → 153 | shared-group, reordered-equal (`-n 2`) | 1 failed, 1 passed, rc 1 (killed) |
+| head-install | 05:43:03–05:46:19 | 141 → 110 | `test_hooks_install_equality.py`, `test_hooks_install_differential.py` (`-n 4`) | 30 passed, rc 0 |
+| head-callers1 | 05:46:34–05:48:44 | 110 → 134 | `test_hooks.py`, `test_doctor.py`, `test_hooks_native_guard.py` (`-n 4`) | 146 passed, rc 0 |
+| head-callers2 | 05:49:00–05:55:25 | 107 → 104 | `test_daemon_verbs.py`, `test_compat.py`, `test_live_store_guard_round4.py` (`-n 4`) | 1,643 passed, rc 0 |
+| head-contract | 05:55:54–05:57:11 | 86 → 101 | `tests/fake/test_state_contract.py`, `tests/unit/test_test_module_names.py`, `tests/unit/test_invariants_index.py` (`-n 4`) | 63 passed, rc 0 |
+
+The runs in the worktree were at cd5682fcc, whose code and tests match this section's commit.
+
+Other commands:
+- **Git:**
+  - `git update-index -q --refresh`: rc 0 in 6 min 7 s at load ~150.
+  - `git merge --no-ff c8b61c95f`: rc 0, giving 3fc4b2c6a.
+  - Three commits of named files: c4540f961 (P2 test, dry-run format, docstrings), 183b38427 (differential differences) and cd5682fcc (contract, reference, report line 7).
+- **Environment:**
+  - `uv sync --locked --group dev --python /opt/homebrew/bin/python3.14` with `UV_PROJECT_ENVIRONMENT=<scratch>/venv`: rc 0 in 10 s.
+  - `uv pip install pytest-xdist` into that venv: rc 0.
+  - `py_compile` of the three edited Python files: rc 0.
+- **The hooks page:**
+  - WebFetch of `https://code.claude.com/docs/en/hooks`: five calls, two of them on the part past character 200,000.
+  - `curl -sS -L --max-time 60 https://code.claude.com/docs/en/hooks.md` into scratch: rc 0, then `grep` for the quoted sentences.
+- **The spelling probe:** `<scratch>/probe/spelling.py` (`hooks.apply` on a scratch file), rc 0, output as quoted under nit 1.
+
+### Deviations
+
+- **`git status` under load:** the first `git status` hung past the tool's 120 s limit and was moved to the background. I stopped it, and a retry under `timeout 60` exited 124. Refreshing the index fixed it. A recursive `grep` was also moved to the background and stopped; `git grep` replaced it. All three were read-only.
+- **The venv:** it lives in scratch, built with `--locked --group dev` and no `--extra api`, as the build found, since release defines no `api` extra. xdist went into the scratch venv only; the lock file is unchanged. Python was 3.14 only; I skipped 3.12.
+- **The network:** I fetched the public hooks page, as the build brief's step 0.6 allowed for this quote. The tool saved two oversized WebFetch results in its own session folder. I did not read them, and used the `curl` copy in scratch instead.
+- **Scope:**
+  - **Beyond the P2:** I fixed every P3 but two, including one user-visible change: the dry-run note's format.
+  - **Extra mutants:** I also ran review r1's R1 and R2.
+  - **The full suite:** not run; CI runs it.
+  - **The suite lock:** none, since the build brief's rules use none. Load is recorded per run instead.
+- **Cleanup outside scratch:** test subprocesses wrote `subfleet/__pycache__/`, `subfleet/adapters/__pycache__/` and `subfleet/sessions/__pycache__/` into the worktree (39 `.pyc` files, ignored, untracked) during the callers runs.
+  - **How:** each was moved under `<scratch>/moved-pycache/` and removed by `shutil.rmtree` after an assertion that `sf-hor-f1` is in the path. `git status --porcelain --ignored` is empty afterwards.
+  - **Other jobs' folders:** six `sf-test-homes-*` folders in the shared temp root date from this window, among other live jobs' folders. My runs pointed `TMPDIR` into scratch, so I left them.
+- **No branch** was created, moved or deleted. Nothing was pushed, and no live state was read.
+
+Head built: this section's commit, whose parent is cd5682fcc86e662742af0ce9c0cb554fad5e8bd0.
