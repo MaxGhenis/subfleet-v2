@@ -136,8 +136,13 @@ def pytest(tree: Path, tests: list[str], scratch: Path, label: str) -> tuple[dic
                    else "skipped" if "skipped" in kinds else "passed")
         name = case.get("classname").replace(".", "/") + ".py::" + case.get("name").split("[", 1)[0]
         outcomes[name] = max(outcomes.get(name, "passed"), outcome, key=rank.index)
-    reasons = [line.replace(str(tree) + "/", "")[:240] for line in run.stdout.splitlines()
-               if ".py:" in line and "Error" in line]
+    prefixes = sorted({str(tree) + "/", str(tree.resolve()) + "/"}, key=len, reverse=True)
+    reasons = []
+    for line in run.stdout.splitlines():
+        if ".py:" in line and "Error" in line:
+            for prefix in prefixes:
+                line = line.replace(prefix, "")
+            reasons.append(line[:240])
     return outcomes, reasons
 
 
