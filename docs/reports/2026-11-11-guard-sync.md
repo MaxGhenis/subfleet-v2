@@ -407,3 +407,122 @@ I found nothing wrong and made no fix commit. Its WIP test file needed the two d
 - I kept `$TMPDIR/uv-cache` (shared) and the worktree's git-ignored `.venv`.
 
 Head built: the commit that adds this section, on top of code head `17e70955e6efc811987a92af371788e31d9f217f`.
+
+---
+
+## Merge r1: release/217 into #303
+
+Brief: `~/reviews/subfleet-hub/guard-sync-2026-11-11/brief-merge-r1.md`. Lane job 20261114-174616-gs-merge-r1, detached at `1dd95f551`, started 2026-11-14T23:27:53Z. `origin/release/217` was still at `82d3dd819117ce308abb9279f2c518327ef0e602` when fetched, and that commit was merged.
+
+Commits: `349af1bcf` (the merge), `cb118c684` (merge fix), `60d40d028` and `a6991c343` (`tools/gs_mutants.py`), then this report.
+
+### Conflicts
+
+| File | Resolution |
+| --- | --- |
+| `private/guard/TRUST` | `hook_sha256` = sha256 of the merged hook (below). The other four fields equal release/217's. `provenance` is release/217's with this branch's two dated guard-sync sentences appended. |
+| `tools/guard_subfleet_root_mutations.py` | `NEW_HOOK_SHA256` = the merged hook's hash (its `trust-hash-stale` mutant must find it once in TRUST). |
+| `tests/unit/test_guard_overlay.py` | Pins the merged pair. Its docstring names D-SEARCH-REL1, then the guard sync and r2, then the merge. |
+| `tests/unit/test_guard_subfleet_root.py` | Keeps every real hook as a constant: `R12D` e869dd4c, `SR` af5e7239 (release/217), `GS` 34682488, `GS2` 6c1beb64 (#303). `NEW_HOOK_SHA256` = merged. The undo chain keeps both lines: GS2_TEXT, GS_TEXT, SR_TEXT, then R6_TEXT (the two lines edit disjoint text). |
+| `docs/private-guard-overlay.md` | Release's parser section, the guard sync as its own section (it now names the eleven rules, nine of them Bash blocks), and a merged-pair section with the one table. |
+
+`never-rules-hook.sh` and `docs/acceptance-contract.md` merged without a textual conflict.
+
+**The merged hook is the base plus both sides' hunks, and nothing else.** I checked this hunk for hunk: the merged hook minus ours equals release minus base, and the merged hook minus release equals ours minus base. `bash -n` passes.
+
+**Semantic merge fix (`cb118c684`).** `test_guard_search_rel.py`'s `r12d_hook` fixture removes the parser and pinned `R12D_HOOK_SHA256`. On the merged hook that removal gives #303's hook, `6c1beb64`, the hook before the parser on this line.
+- R3 compares against that hook over a corpus that includes `security dump-keychain -d`. Against the real r12d it would differ by the guard sync's sentence, which is not a parser difference.
+- The pin moved to `GS2_HOOK_SHA256`. The names stay, because test ids and the 2026-11-05 report cite them.
+- `test_gs_undoing_the_r2_step_gives_the_guard_sync_hook` now removes D-SEARCH-REL1 first, using the parser tests' own `rebuild_r12d`, and gets GS2. It then undoes the r2 step and gets GS.
+- The new `test_merge_undoing_the_guard_sync_gives_the_d_search_rel1_hook` undoes GS2 and GS and gets release/217's hook, af5e7239.
+
+### How the parser and the two blocks interact
+
+They share no state. The Axiom blocks run before the region:
+- They read `$command`, `$cwd` and `$HOME`, assign only their own names, and never write `$command` or `$cwd`.
+- Release changed only header comments above them.
+
+The parser block reads `$command`, `$cwd`, `$HOME`, `$SHELL`, `us_*` and `pw_*`.
+- A script scan found that every shell-level read of `f` or `m` in the region is a function `local`. The other hits are awk variables inside `pw_lib_awk` and `pw_prep_awk`.
+- `corpus-push` assigns `seg` and `origin_url` before it reads them.
+
+The parser runs only when `pw_named` sets `us_ask`.
+- `pw_named`'s four terms are the prefilter's terms 3 to 6, byte for byte, and neither line changed them. So whatever reaches the parser passes the prefilter under either first literal.
+- The wider first literal only lets more non-search commands (`git commit`, `pgrep`, `subfleet run`, `fd`) reach the Bash branch. There they pay the region's walk and the heredoc's parse, but they do not start Python.
+- A command an Axiom block denies never reaches the parser, as with every earlier block.
+
+### TRUST
+
+- `hook_sha256` = `ed31bcaca0800e611cda54642abd8245a8316e3fc11638be30cf1effca3d65f3`. It is `hashlib.sha256(HOOK.read_bytes()).hexdigest()`, as `test_trust_pins_the_new_hook_bytes` computes it, and `shasum -a 256` agrees.
+- TRUST's own sha256 = `990dcbb8c1eefad6d4db8f710a83f8c41759c0df59d5e4307df74accaca0d31c`.
+- `codex_version` stays `codex-cli 0.159.0`.
+- `provenance` differs from release/217's value only by the guard sync's two appended sentences. They record the keychain sentence and the Axiom blocks, which are bytes the merged hook carries. Release added no provenance sentence for D-SEARCH-REL1, and I did not add one.
+
+### Contract
+
+The merged `docs/acceptance-contract.md` equals release/217's byte for byte, because this branch never touched it.
+- **Clause ids.** 260 `- **C-x.y**` clauses and 262 bold heads. None is duplicated.
+- **Change log.** No entry from the base, release/217 or #303 is missing, and release's 5 new entries are present.
+- **Already in the base.** One entry appears twice, "C-20.6, C-23.28 (2026-10-15, D-ST1, PR #198 round 8)". Blank lines between entries are normal there (69 of them).
+- `merge_contract.py` was not needed.
+
+### Mutants
+
+All 139 mutants of the three tools apply exactly once on the merged hook and change it. This was a static pass over git-archive copies, with no pytest.
+
+| Mutant | Killed by |
+| --- | --- |
+| gs 1 (drop hand-authored-rulespec) | `DriftTests::test_every_pinned_block_is_in_the_overlay_byte_for_byte` |
+| gs 2 (`This brief` → `this brief`) | `DriftTests::test_every_pinned_block_is_in_the_overlay_byte_for_byte` |
+| gs 3 (commit term out of the first prefilter literal) | `DriftTests::test_the_first_prefilter_literal_is_the_claude_hooks_line` |
+| gs 4 (swap the two blocks) | `DriftTests::test_the_overlay_keeps_its_nine_rule_blocks_in_order` |
+| sr a, b | `test_fallback_a_nonzero_exit_is_no_answer` |
+| sr c, d | `test_r4_the_interpreter_starts_only_when_a_searcher_is_named_and_the_regex_passed` |
+| sr e | `test_fallback_an_interpreter_that_cannot_run_is_none` |
+| sr f | `test_r5_the_heredoc_holds_the_hub_parser_byte_for_byte` |
+| sr g | `test_fallback_no_answer_within_5_s_is_no_answer` |
+| sfr trust-hash-stale | `test_trust_pins_the_new_hook_bytes` |
+| sfr trust-built-on-repo-copy | `test_trust_keeps_the_installed_lane_pin` |
+| sfr r5-doc-duplicated | `test_r5_the_overlay_doc_holds_one_copy_of_its_body` |
+| sfr r7-known-form-unlisted | `test_r7_known_differences_name_the_open_forms` |
+| sfr r8-known-form-unlisted | `test_r8_known_differences_name_the_stricter_and_open_forms` |
+| sfr r12d-xargs-pipe-charge-dropped | `test_r12d_text_under_xargs_costs_steps_of_the_shared_budget` |
+
+Controls passed:
+- **gs:** the three named DriftTests.
+- **sfr:** the FENCE test and both TRUST tests. Every other named test above also passed on HEAD.
+- **sr:** each named test passed in the file runs.
+
+`tools/gs_mutants.py` re-creates the four gs mutants from the r2 table. I ran it `--named-only`, so each mutant ran only its named test, not the r2 table's full kill lists.
+
+The other 122 sfr mutants were not run; there was no time at this load. Each edits only the unscoped-search region, which is byte-identical to release/217's. A region mutant can be killed only by a command that passed release's prefilter. That command passes the merged prefilter too, because the old first literal admits a subset of what the new one admits and terms 2 to 6 are unchanged. No Axiom block fires on a search command. So each such mutant meets the same code on the same commands as on release/217.
+
+### Test runs
+
+All runs used `TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)`, `UV_CACHE_DIR=$TMPDIR/uv-cache`, `PYTHONPATH` unset, `-p no:cacheprovider` and `--basetemp $TMPDIR/pytest-gsm-<label>`.
+- There were 10 rounds of at most 4 concurrent serial jobs, each capped at 540 s or less by macOS `timeout`. Capped files resumed by deselecting node ids that had already passed.
+- Load was 145 to 305 for rounds 1 to 7 and 66 to 141 for rounds 8 to 10. Each job's start and end `uptime` is in the attempt folder's `results.jsonl`.
+
+| File | Result |
+| --- | --- |
+| `test_guard_sync.py` | **51/51 passed**, over 7 runs. The Hypothesis staged-file test finished alone in 234 s at load 75-79. |
+| `test_guard_overlay.py`, `test_invariants_index.py`, `test_test_module_names.py` | **48 passed** in one run at load 247-267 |
+| `test_handler_refusals.py` | **372/372 passed**, over 2 runs |
+| `test_guard_search_rel.py` | 79 passed and 1 skipped (drift: `SUBFLEET_CLAUDE_UNSCOPED_SEARCH` unset). **Not finished:** R3 and the two R2 corpus tests (R3 was running at the last cap), plus the cost test, which is skip-gated. |
+| `test_guard_subfleet_root.py` | 61 passed and 2 skipped (S4, gated the same way). That covers S1 ×2, S2, S3 ×2, S5, every pin, rebuild and TRUST test, both merge tests and the doc tests. **100 of 163 not run.** |
+| whole unit suite | not run |
+
+One transient failure: `test_r1_each_interpreter_the_hook_may_take_runs_the_parser[/usr/bin/python3]` failed once at load ~300.
+- The parser's loader arms a 5 s alarm, and Apple's Python can miss it at that load.
+- A direct differential (`diag_rows.py`: the merged and release/217 hooks on the 17 rows, commands as stdin data) gave both hooks the expected verdict on every row at load 110-150. Single hook runs took 5-60 s.
+- The test passed on re-run at load ~110.
+
+### Deviations
+
+- Not run or not finished: as listed above. CI runs the rest.
+- I added the semantic fix commit, a test in `test_guard_subfleet_root.py`, and the `--no-control`/`--named-only` flags to the new tool.
+- The scripts outside the repository (the runner, the static mutant check, the sfr no-control driver and the row differential) are in the job's attempt folder.
+
+### Cleanup
+
+I removed 11 folders with a guarded `shutil.rmtree`, which accepts only `pytest-gsm-*` names directly under `$TMPDIR`: `pytest-gsm-cache`, `-diag`, `-hr`, `-mut`, `-scratch`, `-sfr`, `-sfrS`, `-small`, `-sr`, `-sync` and `-syncden`. I kept `$TMPDIR/uv-cache` (shared) and the worktree's ignored `.venv`.
