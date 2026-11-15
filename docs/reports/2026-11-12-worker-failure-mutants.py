@@ -16,7 +16,7 @@ mutated files are hashed before and after: the runner never writes to them.
 
 Fix r1 replaced the build round's runner, which rewrote `subfleet/daemon.py` in place
 (review r1 of #308, P3). The build round's seven mutants (B1 to B7) are here with their
-anchors as the code reads now; fix r1's follow.
+anchors as the code reads now; fix r1's (F1 to F16) and fix r2's (G1 to G6) follow.
 """
 from __future__ import annotations
 
@@ -38,8 +38,10 @@ DAEMON = "subfleet/daemon.py"
 DAEMON_LOG = "subfleet/daemon_log.py"
 ONE_SHOT = ('                    self.log.error("worker %s failed: %s", key, failure_class(exc), '
             'exc_info=True)')
-URL_HEAD = 'r"(?i)([a-z0-9+._-]+://[^\\s/:]*:)"'
-URL_PASSWORD = 'r"([^\\s/@]*(?:@[^\\s/@]*)*(?=@)|(?:(?!://)\\S)*(?=@))(@)")'
+#: Fix r2 made the URL rule one line, its password one branch: to the last `@` before
+#: whitespace or the next `://`. Fix r1's mutants below narrow that line back.
+URL_HEAD = 'r"(?i)([a-z0-9+._-]+://[^\\s/:]*:)'
+URL_PASSWORD = '((?:(?!://)\\S)*(?=@))(@)")'
 URL_SCHEME = '_URL_SCHEME_RE = re.compile(r"[a-z0-9+._-]+", re.IGNORECASE)'
 URL_TRY = "                    match = pattern.match(text, token.start())"
 FIRST_TRACE = '''        try:
@@ -112,11 +114,11 @@ MUTANTS = [
            [f"{ROUTES}::test_r1_url_forms_are_hidden_on_every_route", "-k", "empty-user"],
            "a user must hold a character"),
     mutant("F5-url-raw-slash", HANDOFF,
-           [(URL_PASSWORD, 'r"([^\\s/@]*(?:@[^\\s/@]*)*(?=@))(@)")')],
+           [(URL_PASSWORD, '([^\\s/]*(?=@))(@)")')],
            [f"{ROUTES}::test_r1_url_forms_are_hidden_on_every_route", "-k", "raw-slash"],
            "no `/` in a password"),
     mutant("F6-url-second-at", HANDOFF,
-           [(URL_PASSWORD, URL_PASSWORD.replace("[^\\s/@]*(?:@[^\\s/@]*)*(?=@)|", "[^\\s/@]*(?=@)|"))],
+           [(URL_PASSWORD, '([^\\s@]*(?=@))(@)")')],
            [f"{ROUTES}::test_r1_url_forms_are_hidden_on_every_route", "-k", "second-at"],
            "a password ends at the first `@`"),
     # Finding 2: the qualified name read through the metaclass, unguarded.
@@ -157,8 +159,8 @@ MUTANTS = [
            [f"{CAUSE}::test_raise_signature_reads_the_whole_chain"], "the chain's first link only"),
     # Finding 5: escapes reach the output.
     mutant("F14-escapes-not-neutralized", DAEMON_LOG,
-           [("        if any(_CONTROL.search(part) for part in (line, *blocks)):", "        if False:  # MUTANT"),
-            ("    if not _CONTROL.search(source):\n        return scrubbed",
+           [("        if any(_UNSHOWN.search(part) for part in (line, *blocks)):", "        if False:  # MUTANT"),
+            ("    if not _UNSHOWN.search(source):\n        return scrubbed",
              "    if True:  # MUTANT\n        return scrubbed")],
            [f"{ROUTES}::test_osc52_and_screen_clear_are_written_as_visible_escapes",
             f"{ROUTES}::test_no_control_character_but_tab_and_line_breaks_is_ever_written"],
@@ -173,6 +175,40 @@ MUTANTS = [
            [("        ends = _chain_ends(value) if isinstance(value, BaseException) else None",
              "        ends = None  # MUTANT")],
            [f"{ROUTES}::test_a_longer_chain_renders_only_its_two_ends"], "every link rendered"),
+    # Fix r2 (review r2 of #308). P1: fix r1's two-branch password, the first `/` first.
+    mutant("G1-url-first-slash-branch-first", HANDOFF,
+           [(URL_PASSWORD, '([^\\s/@]*(?:@[^\\s/@]*)*(?=@)|(?:(?!://)\\S)*(?=@))(@)")')],
+           [f"{ROUTES}::test_r2_a_password_with_an_at_and_then_a_raw_slash_is_hidden_on_every_route",
+            f"{ROUTES}::test_r2_an_at_in_a_path_hides_what_comes_before_it_on_every_route"],
+           "fix r1's rule: to the last `@` before the first `/` when there is one"),
+    # P2: review r2's M1, the outermost frame dropped from each link.
+    mutant("G2-M1-outer-frame-dropped", DAEMON,
+           [("                outer = _frame_location(tb)\n", "                outer = None  # MUTANT\n")],
+           [f"{CAUSE}::test_raise_signature_reads_the_outermost_frame",
+            f"{CAUSE}::test_one_helper_reached_from_two_control_lines_logs_two_causes"],
+           "each link keyed on its innermost frame only"),
+    # P2: what a terminal draws nothing for, each part of fix r2 undone alone.
+    mutant("G3-format-characters-shown", DAEMON_LOG,
+           [('_INVISIBLE = re.compile(r"[\\x00-\\x08\\x0e-\\x1f\\x7f-\\x84\\x86-\\x9f" + _FORMAT + "]")',
+             '_INVISIBLE = re.compile(r"[\\x00-\\x08\\x0e-\\x1f\\x7f-\\x84\\x86-\\x9f]")  # MUTANT')],
+           [f"{ROUTES}::test_r2_a_key_an_invisible_character_splits_is_still_a_password",
+            f"{ROUTES}::test_r2_the_format_characters_are_unicode_cf"],
+           "the terminal reading keeps format characters"),
+    mutant("G4-separators-shown", DAEMON_LOG,
+           [('_INVISIBLE = re.compile(r"[\\x00-\\x08\\x0e-\\x1f\\x7f-\\x84\\x86-\\x9f" + _FORMAT + "]")',
+             '_INVISIBLE = re.compile(r"[\\x00-\\x08\\x0e-\\x1b\\x7f-\\x84\\x86-\\x9f" + _FORMAT + "]")')],
+           [f"{ROUTES}::test_r2_a_key_an_invisible_character_splits_is_still_a_password"],
+           "the terminal reading keeps the information separators (fix r1's reading)"),
+    mutant("G5-format-characters-not-read", DAEMON_LOG,
+           [('_UNSHOWN = re.compile(r"[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f-\\x9f" + _FORMAT + "]")',
+             '_UNSHOWN = re.compile(r"[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f-\\x9f]")  # MUTANT')],
+           [f"{ROUTES}::test_r2_a_key_an_invisible_character_splits_is_still_a_password",
+            f"{ROUTES}::test_r2_the_format_characters_are_unicode_cf"],
+           "a text with format characters and no control is not read as a terminal shows it"),
+    mutant("G6-run-split-at-separators", DAEMON_LOG,
+           [('_SHOWN_RUN = re.compile(r"(?:[^\\s]|[\\x1c-\\x1f])+")', '_SHOWN_RUN = re.compile(r"\\S+")  # MUTANT')],
+           [f"{ROUTES}::test_r2_words_a_separator_joins_are_one_run_that_hides_nothing"],
+           "a run ends at an information separator"),
 ]
 
 

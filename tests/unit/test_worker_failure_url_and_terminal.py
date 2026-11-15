@@ -196,6 +196,20 @@ def test_r2_a_key_an_invisible_character_splits_is_still_a_password(name, route,
     assert CONTROL_URL in written
 
 
+@pytest.mark.parametrize("separator", ["\x1c", "\x1d", "\x1e", "\x1f"])
+def test_r2_words_a_separator_joins_are_one_run_that_hides_nothing(separator):
+    """A run is read across an information separator, as a terminal draws it, so words
+    it joins that hide nothing are written (the separator escaped). One cost is pinned:
+    a one-line record folds `\\x1f` to a space (`\\x1c` to `\\x1e` break its line, so it
+    keeps them), and each word alone is not a run of the terminal reading."""
+    text = f"alpha{separator}beta gamma"
+    escaped = f"alpha\\x{ord(separator):02x}beta gamma"
+    assert daemon_log.scrubbed_tail(f"earlier\n{text}\n", 5) == ["earlier", escaped]
+    follower = daemon_log.LogFollower("earlier\n")
+    assert follower.feed(f"{text}\n") + follower.flush() == [escaped]
+    assert daemon_log.scrubbed(text) == (escaped if separator != "\x1f" else "[REDACTED] [REDACTED] gamma")
+
+
 def test_r2_the_format_characters_are_unicode_cf():
     """`_FORMAT` is Unicode's category Cf: every format character the running Python
     knows is read as invisible, and every character it names is one, or is unassigned
