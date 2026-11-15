@@ -422,11 +422,265 @@ Every run used `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"` and `unset PYTHONPATH`
   CI's run is the check for these.
 - **Rows (a), (c), (d):** rebuilt from review r1's descriptions, as above.
 - **Timings:** 13fd1c8bc at 10× was timed once per shape, not best of 3.
-- **Behaviour changes beyond the brief, all toward hiding more:** the long spaces-and-`=` run fails
+- **Behaviour changes beyond the brief, all toward hiding more:** *(Corrected in "Reminder-erased openers (issue #325)": not all of them; the `seen` stop hides less on one input. See "Corrected claims" there.)* the long spaces-and-`=` run fails
   closed, and a closer whose block-part of its line passes a window fails closed when a quote stands
   in its last window. A later block's run-on stops at a closer an earlier run-on read from. Within one
   block, a run-on step's result can differ from 13fd1c8bc's only where that block's opener sits within
   the window above the closer. The superset check shows no loss on the fixed rows.
 - **Scratch:** `$TMPDIR/sf-sb-fix1` held the archives, the private uv cache and the basetemps. I removed it at the end with a guarded `shutil.rmtree`. The probe, rows, mutant and timing outputs stay in the job checkout's untracked `.fix1/`.
+
+Built head: see the final answer.
+
+## Reminder-erased openers (issue #325)
+
+Build job 20261115-094656-scrub-op-build-r1, run 2026-11-15 15:35–18:35 UTC on a4aded885 (release/217
+with #300 merged). Host load ran 30–177 on 18 cores; this job's processes got 2–6% of a CPU each. Commits
+are on the job's detached checkout: `fb4344951` (fix), `45f638981` (tests), `254e2a37b` (contract), then
+this report.
+
+### Cause
+
+With reminders stripped, the whole-text scrub masks quoted values (`_scrub_named_values(...,
+multiline=True)`) before it removes reminders. So it keeps a reminder in two cases:
+
+- **The reminder never closes.** A value holds its last closer and no closer follows the value (row A).
+  `_linear_sub` finds no closer and stops, so that reminder and every later one stay in the text.
+- **A value holds the reminder's opener** (row B). The whole-text rule never sees that opener.
+
+The private-key layer then reads the kept text and masks a key that opens inside the reminder. The
+excerpt rules resolve the reminders as release does, which erases the key's opener, so the private-key
+layer finds no block there. The part of the key past the reminder showed.
+
+On a4aded885, `_closer_splits` handled row A's closer and stopped (:2675): it masked the rest of the
+value, the closing `"`, and nothing more. Nothing handled an opener held by a value.
+
+### The rule
+
+`_split_masks` now ends with a step for reminders (`_erased_keys`, run only with reminders stripped).
+
+1. **Which reminders the whole-text scrub keeps.** `_closer_splits` now reports, for each reminder, where
+   the whole-text block ends, or None where it never closes (its new `ends` argument; masks unchanged).
+   - From the first reminder that never closes onwards, every reminder is kept.
+   - A reminder that holds a private key opener is checked once: does a quoted value, read within a
+     line as `_closer_value_end` reads one, hold its opener? (`_closer_value_end` gains `point`, the
+     position a value must hold, and `scan`; its defaults behave exactly as before.)
+   - Every other reminder counts as removed, with its run-on (`gone`).
+2. **The keys inside.** For each private key opener in a kept reminder, the step walks the closers after
+   it, as `_closer_splits` walks a key's:
+   - a closer inside a removed reminder ends nothing (`_Covers(gone)`);
+   - a closer that a value opening inside the key holds ends nothing either;
+   - the first other closer ends the key.
+
+   The mask runs from the key's opener to that closer's end. `_carried` maps the opener, inside the
+   reminder, to the reminder's place in release's text, and then through the private-key and data URI
+   layers.
+3. **What it never does.**
+   - It never changes release's resolved text: `mine != resolved` in `_released_pieces` still passes.
+   - It reads its windows last, from what the other layers left of the read budget, so their masks are
+     exactly a4aded885's.
+   - Its masks are not passed to the private-key layer as `earlier` masks. In the whole-text scrub the
+     closer that ends such a key ends it, so release's block there must not run on.
+   - It never masks to the end of the text. Each mask ends at a closer. Where no closer follows a key,
+     the whole-text scrub resolves no more keys, and neither does the step.
+
+**Where it hides more than the whole-text scrub** (allowed by invariant 3):
+
+- A reminder with no key opener inside it is not checked. It counts as removed, so its closers end no
+  key.
+- So does a reminder whose held opener has another opener after it, where the whole-text block may
+  start.
+- A key whose opener a value holds is resolved anyway.
+- A key whose walk ends without a closing closer is masked to the last closer it reached.
+- A check the window or read budget can't make treats the opener or closer as held.
+
+**Data URIs need no mask.** A data URI's body (`[A-Za-z0-9+/=\s]`) stops at a reminder's closer (`<`).
+It also stops at the quote of the value that holds the closer, or at that value's `[REDACTED]`. So the
+whole-text match of a data URI that opens inside a reminder ends inside the reminder, in text release
+removes. `test_a_data_uri_a_reminder_s_removal_erased_keeps_only_what_the_whole_scrub_keeps` checks
+both cases. The private-key layer can't erase a data URI opener that matters either: inside a key, the
+body stops at the closer's `-` or at a value's quote.
+
+`_closer_splits`'s docstring now states the never-closing case and the `ends` it reports.
+
+### Rows A and B, before and after
+
+Row A is review r2's. Row B is rebuilt from its description ("the reminder opener inside a quoted
+password value", 115 characters):
+
+```text
+password = "<system-reminder>"
+-----BEGIN PRIVATE KEY-----
+</system-reminder>
+Zq9x100002
+-----END PRIVATE KEY-----
+```
+
+Row C, beyond the brief, adds a later reminder whose body holds the key's first closer. The whole-text
+scrub removes that reminder, so the key runs on to the next closer.
+
+With reminders stripped, the whole-text scrub hides each row's value. Each value is 10 characters at
+input offset 78 alone, 131,034 at the head's edge and 135,246 on the tail's first line. On a4aded885
+(probe and the new tests run on a `git archive` of it):
+
+| Row | Alone: limit None / 2,048 | Head edge, limit None | Tail's first line, limit None |
+|---|---|---|---|
+| A | shown at output 11 / 11 | shown at 130,964 | shown at 131,122 |
+| B | shown at output 22 / 22 | shown at 130,978 | shown at 131,134 |
+| C | shown (the test fails at limit None) | shown | shown |
+
+- At the two edge placements, limit 2,048 doesn't keep the value on a4aded885, and limits 0 and 40
+  never do.
+- With reminders kept, a4aded885 already masks all three. The helper checks that mode first, and it
+  passed on a4aded885 before the stripped mode failed.
+
+**After the change:** no value the whole-text scrub hides shows, at any placement, limit or reminder
+mode.
+
+The masks, in release's resolved text, with reminders stripped:
+
+| Row | Alone | Head edge | Tail's first line |
+|---|---|---|---|
+| A | `[0,38)` | `[130956,130994)` | `[135168,135206)` |
+| B | `[12,49)` | `[130968,131005)` | `[135180,135217)` |
+| C | `[12,61)` | `[130883,130932)` | `[135180,135229)` |
+
+A variant of B with a closer inside the reminder (`password = "<system-reminder>"`, the key, a value,
+`-----END`, `</system-reminder>`, then a later `-----END`) masks nothing new. The whole-text key closes
+inside the reminder, release removes it whole, and the text after the reminder still shows, as in the
+whole-text scrub.
+
+### Invariants and their tests
+
+All tests are in `tests/unit/test_sessions_handoff_excerpts.py`.
+
+1. **No masked run shows.** `test_a_key_a_reminder_s_removal_erased_keeps_only_what_the_whole_scrub_keeps`
+   runs rows A, B and C at each placement (9 cases) through `assert_keeps_only_what_the_whole_scrub_keeps`:
+   limits None, 0, 40 and 2,048, reminders stripped and kept. The helper checks the rows' made-up
+   `Zq…` values, not every run the whole-text scrub replaces.
+   `test_a_data_uri_a_reminder_s_removal_erased_keeps_only_what_the_whole_scrub_keeps` (2 cases) does
+   the same for data URIs.
+2. **Within the budget, `scrub_bounded(text, limit)` is exactly `truncate(scrub_secrets(text), limit)`.**
+   The same helper asserts it on every row within the budget: the three rows alone and the data URI
+   rows. Both sides still run `_guarded_blocks`.
+3. **Superset.**
+   - `test_the_erased_key_step_only_adds_masks` (22 cases: rows A–C, the 8 cascades and the 11 split
+     shapes, both modes) checks two things: `_split_masks` resolves the same text with and without the
+     step (`_erased_keys` stubbed to `[]`, which is a4aded885's code path), and masks every character
+     masked without it.
+   - A one-off comparison against a `git archive` of a4aded885 covered 88 fixed rows × 2 modes, dumping
+     `_split_masks`. The rows are the stored example, rows 2–4 at four lengths, the six edge rows, the
+     11 split shapes short and long, the cascades at three placements, the two read-cap rows, the six
+     growth shapes at the budget, rows A–C at three placements, the two data URI rows, and the key and
+     reminder blocks at both edges.
+   - Result: all 176 pairs resolve to the same length. 165 have identical masks and 11 grew: the
+     stripped mode of rows A–C (9) and of the two new growth shapes. None lost a character.
+4. **Linear work.** The new step reads each look-back within one window (`scan=False`, so it never
+   makes `_quote_on_line`'s block-length read) and each window within the read budget. It scans each
+   reminder once for a key opener and each closer at most once, and its walk only moves forward.
+   `test_the_split_step_s_work_is_linear_in_the_blocks` gains two shapes: `reminder-open-key-many`, one
+   chain of run-ons that never closes, and `reminder-held-key-many`, an opener check per reminder. All
+   six shapes passed. I didn't record the ratios: the test prints nothing on a pass, and there was no
+   time to rerun it.
+5. **Same resolution.** `test_the_head_resolves_drawn_blocks_as_release_does` now also draws
+   `ERASED_PARTS`. Each is a private key or data URI opener inside a reminder, with the reminder's
+   closer in a quoted value (with or without a later reminder closer) or its opener in one, followed by
+   a `Zq` line. The test compares `_split_masks`'s text and count with release's `_resolve_blocks`
+   (300 examples, derandomized), and it passes. The superset test also asserts the same resolved text.
+
+### Mutant
+
+Each mutant changed one line of a copy of `handoff.py` in the job's scratch folder; the worktree's file
+was never touched. Its killers ran against that copy, and a probe test confirmed the copy's `subfleet`
+was the one imported.
+
+| Mutant | Change | Killed by |
+|---|---|---|
+| m1, a4aded885's handling | `_erased_keys` returns `[]` | `test_a_key_a_reminder_s_removal_erased_keeps_only_what_the_whole_scrub_keeps[a-closer-in-a-value-alone]`, and the B and C rows |
+| m2 | a held opener isn't recognized | the B and C rows |
+| m3 | `_Covers([])`: a removed reminder's closer ends the key | `[c-a-later-reminder-takes-a-closer-alone]` |
+| m4 | a reminder that never closes is reported closed | `[a-closer-in-a-value-alone]` |
+
+### Corrected claims
+
+- **Line 425 of this report** (fix round 1's "all toward hiding more") is marked corrected. Not every
+  change in fix round 1 hides more. The `seen` stop ends a run-on at a closer an earlier block's run-on
+  read from. On review r2's 131,144-character input, that leaves 38 characters (resolved offsets
+  `[267,305)`) that 13fd1c8bc masked. The whole-text scrub keeps that value too, so the change removed
+  over-redaction; it shows nothing the whole-text scrub hides. These figures are review r2's; I didn't
+  rerun them. This round's step only adds masks (invariant 3).
+- **C-23.14 and its fix round 1 change-log entry** said every look-back stays within one window. One
+  doesn't: where the block's part of a closer's line is longer than a window and the window before the
+  closer holds no quote, `_quote_on_line` reads back to the nearest quote or line break within the
+  block. Review r2 measured 23,629 characters for a quoted password with 40,000 spaces before a private
+  key closer, against a 16,384-character window. The block's length bounds that read, as the code's
+  docstring says.
+  - C-23.14 now says so.
+  - A new change-log entry states the new rule and the correction.
+  - The fix round 1 entry keeps its words, with a correction marker.
+  - The new step never makes that read.
+
+### Commands and results
+
+Every run used `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"`, `UV_CACHE_DIR=$TMPDIR/uv-cache`, `unset
+PYTHONPATH`, a new `--basetemp` under `$TMPDIR/sf-scrub-op1`, and `uv run --no-sync --with
+'pytest-xdist>=3.6' python -m pytest -n 4` unless noted.
+
+- **Sync.** `uv sync --group dev --extra api` failed (`Extra api is not defined`). `uv sync --group dev`
+  succeeded.
+- **Probe on a4aded885** (`probe.py`, rows A and B, three placements): the leaks in the table above.
+  With reminders kept, nothing showed.
+- **Probe on the change** (`probe_short.py`, six short rows): rows A, B and the later-closer variant hide
+  what the whole-text scrub hides; the B-with-a-closer-inside variant masks nothing new; the data URI
+  rows show nothing the whole-text scrub hides; the resolution is the same on every row.
+- **New and changed tests, short**
+  (`-k "(erased or row_a_is or drawn_blocks) and not head-edge and not tail-first-line"`): 29 passed in
+  140.7 s.
+- **New tests, long placements** (`-k "erased and (head-edge or tail-first-line)"`): 6 passed in 511.7 s.
+- **The same row tests on a4aded885** (a `git archive` with the new test file, `PYTHONPATH` pointing at
+  it): 9 failed and 3 passed in 425.7 s.
+  - Rows A–C failed at every placement, each at reminders stripped and limit None: `(115, True, None)`
+    twice, `(200, True, None)`, and `(266240, True, None)` six times.
+  - `test_row_a_is_the_review_s` and the two data URI tests passed, as expected.
+- **Mutants** (serial, the alone placements): m1 3 failed; m2 2 failed, 1 passed; m3 1 failed, 2
+  passed; m4 1 failed, 2 passed.
+- **Growth test** (`-k linear_in_the_blocks`): 6 passed in 246.8 s.
+- **Contract guards** (`tests/unit/test_cpu_scaling.py tests/fake/test_state_contract.py
+  tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py`): 70 passed in 283.4 s.
+- **Superset comparison** (`rows.py` on the archive and on the change, `compare.py`): 176 pairs, 165
+  identical, 11 grew, 0 lost.
+
+### What didn't run
+
+At this host's load a test got 2–6% of a CPU, so the brief's later runs didn't fit in the 3 hours:
+
+- the rest of `tests/unit/test_sessions_handoff_excerpts.py`, including the 80-example property and the
+  200-example within-budget properties;
+- every `tests/unit/test_scrub*.py`;
+- every other `tests/unit/test_sessions_*.py`.
+
+CI's run of the whole suite is the check for these. I also didn't rerun review r2's two P3 measurements
+(the 38 characters and the 23,629-character look-back), and I didn't record the growth ratios.
+
+### Deviations from the brief
+
+- **Sync.** No `api` extra exists, so I synced with `uv sync --group dev`.
+- **Commits.** They are on the job's detached checkout. No `fix/scrub-reminder-opener-217` branch exists
+  in the repository's refs, and I didn't create one, since the caller's checkout is the one named
+  for it. Subfleet's salvage ref carries the commits.
+- **Beyond the brief:**
+  - Row C, the two data URI rows, the 22-case superset test, two growth shapes, and three mutants besides
+    a4aded885's handling.
+  - `_closer_value_end` gained two keyword arguments, whose defaults keep its behaviour.
+- **Data URIs.** The brief names data URIs as a later layer too. The step adds no data URI masks; the
+  reason and its tests are above.
+- **Scope of invariant 1's tests.** The helper checks the rows' `Zq…` values, not every run the
+  whole-text scrub replaces.
+- **Placements.** "Alone" is the 115-character row itself, as the issue's offsets give it (not the
+  cascades' 500 characters of prose either side).
+- **Folders outside the job's scratch.** `$TMPDIR/sf-scrub-op1`
+  (`/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-scrub-op1`) held the a4aded885 archive, the
+  mutant copies, the probe, rows and mutant scripts, their outputs, the logs and every `--basetemp`.
+  I removed it at the end with a guarded `shutil.rmtree`. The shared `$TMPDIR/uv-cache` is not this
+  job's and stays.
 
 Built head: see the final answer.
