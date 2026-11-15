@@ -330,7 +330,7 @@ def test_a_retry_that_finds_another_read_running_keeps_its_backoff(daemon, monke
     monkeypatch.setattr(procs, "_read", ps)
     failures = failing_record(daemon, monkeypatch)
     logged = []
-    monkeypatch.setattr(daemon.log, "error", lambda msg, *args: logged.append(msg % args))
+    monkeypatch.setattr(daemon.log, "error", lambda msg, *args, **kwargs: logged.append(msg % args))
     counts = [scheduled(daemon)]                           # the inspection raises
     daemon._table = (daemon._table[0], 0.0)                # the table has expired ...
     assert daemon._table_lock.acquire(blocking=False)      # ... and another attempt is reading `ps`

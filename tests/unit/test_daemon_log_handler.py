@@ -117,11 +117,16 @@ def _text(parts) -> tuple[str, list[str]]:
 @given(message=st.text(max_size=300).filter(lambda text: len(text.splitlines()) <= 1))
 def test_a_one_line_record_is_exactly_its_line_form(message):
     """Differential: what the handler writes for a one-line record is
-    `refusals.scrubbed_line` of its message, whatever the message."""
+    `refusals.scrubbed_line` of its message, whatever the message; one holding a control
+    character also hides what the line form of its terminal reading hides, and writes each
+    control character as its escape (#308 fix r1)."""
     log = Written("subfleet.daemon.test-differential")
     try:
         log.log.warning("%s", message)
-        assert log.text() == refusals.scrubbed_line(message) + "\n"
+        expected = refusals.scrubbed_line(message)
+        if daemon_log._UNSHOWN.search(message):
+            expected = daemon_log._controls_shown(expected, refusals.scrubbed_line(daemon_log._rendered(message)))
+        assert log.text() == expected + "\n"
     finally:
         log.close()
 

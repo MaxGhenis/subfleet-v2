@@ -1,0 +1,395 @@
+{
+  "checkout_sha256": {
+    "subfleet/daemon.py": "9e4bf85ed1928eb3b9658b2def9e2008cddff9d012f499f86defec433d894b96",
+    "subfleet/daemon_log.py": "192e2adeac3e5aa257d1f072d0c19f39bf41e85a0637a68c4ba0318b34e7d1bf",
+    "subfleet/sessions/handoff.py": "cefe4e108aa4ff12ea763efeb40adc0f81b1ef1df82916acc75a68710ca5e230"
+  },
+  "results": [
+    {
+      "name": "B4-control-set-never-clears",
+      "file": "subfleet/daemon.py",
+      "what": "a completed iteration keeps the control set",
+      "tests": [
+        "tests/unit/test_worker_failure_cause.py::test_control_cause_deduplication_resets_after_completed_iteration"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "summary": "1 failed in 67.61s (0:01:07)",
+      "failed": [
+        "tests/unit/test_worker_failure_cause.py::test_control_cause_deduplication_resets_after_completed_iteration"
+      ],
+      "restored_sha256": "9e4bf85ed1928eb3b9658b2def9e2008cddff9d012f499f86defec433d894b96",
+      "seconds": 96.7,
+      "load_start": 124.8,
+      "load_end": 136.4
+    },
+    {
+      "name": "G1-url-first-slash-branch-first",
+      "file": "subfleet/sessions/handoff.py",
+      "what": "fix r1's rule: to the last `@` before the first `/` when there is one",
+      "tests": [
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_password_with_an_at_and_then_a_raw_slash_is_hidden_on_every_route",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_an_at_in_a_path_hides_what_comes_before_it_on_every_route"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "summary": "20 failed in 68.15s (0:01:08)",
+      "failed": [
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_password_with_an_at_and_then_a_raw_slash_is_hidden_on_every_route[message]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_password_with_an_at_and_then_a_raw_slash_is_hidden_on_every_route[note]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_password_with_an_at_and_then_a_raw_slash_is_hidden_on_every_route[cause]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_password_with_an_at_and_then_a_raw_slash_is_hidden_on_every_route[context]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_password_with_an_at_and_then_a_raw_slash_is_hidden_on_every_route[source]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_password_with_an_at_and_then_a_raw_slash_is_hidden_on_every_route[group-member]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_password_with_an_at_and_then_a_raw_slash_is_hidden_on_every_route[control]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_password_with_an_at_and_then_a_raw_slash_is_hidden_on_every_route[request]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_password_with_an_at_and_then_a_raw_slash_is_hidden_on_every_route[tail]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_password_with_an_at_and_then_a_raw_slash_is_hidden_on_every_route[follow]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_an_at_in_a_path_hides_what_comes_before_it_on_every_route[message]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_an_at_in_a_path_hides_what_comes_before_it_on_every_route[note]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_an_at_in_a_path_hides_what_comes_before_it_on_every_route[cause]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_an_at_in_a_path_hides_what_comes_before_it_on_every_route[context]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_an_at_in_a_path_hides_what_comes_before_it_on_every_route[source]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_an_at_in_a_path_hides_what_comes_before_it_on_every_route[group-member]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_an_at_in_a_path_hides_what_comes_before_it_on_every_route[control]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_an_at_in_a_path_hides_what_comes_before_it_on_every_route[request]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_an_at_in_a_path_hides_what_comes_before_it_on_every_route[tail]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_an_at_in_a_path_hides_what_comes_before_it_on_every_route[follow]"
+      ],
+      "restored_sha256": "cefe4e108aa4ff12ea763efeb40adc0f81b1ef1df82916acc75a68710ca5e230",
+      "seconds": 112.7,
+      "load_start": 136.4,
+      "load_end": 165.7
+    },
+    {
+      "name": "G2-M1-outer-frame-dropped",
+      "file": "subfleet/daemon.py",
+      "what": "each link keyed on its innermost frame only",
+      "tests": [
+        "tests/unit/test_worker_failure_cause.py::test_raise_signature_reads_the_outermost_frame",
+        "tests/unit/test_worker_failure_cause.py::test_one_helper_reached_from_two_control_lines_logs_two_causes"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "summary": "2 failed in 43.68s",
+      "failed": [
+        "tests/unit/test_worker_failure_cause.py::test_raise_signature_reads_the_outermost_frame",
+        "tests/unit/test_worker_failure_cause.py::test_one_helper_reached_from_two_control_lines_logs_two_causes"
+      ],
+      "restored_sha256": "9e4bf85ed1928eb3b9658b2def9e2008cddff9d012f499f86defec433d894b96",
+      "seconds": 65.1,
+      "load_start": 165.7,
+      "load_end": 158.1
+    },
+    {
+      "name": "G3-format-characters-shown",
+      "file": "subfleet/daemon_log.py",
+      "what": "the terminal reading keeps format characters",
+      "tests": [
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_the_format_characters_are_unicode_cf"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "summary": "21 failed, 20 passed in 48.58s",
+      "failed": [
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[byte-order-mark-message]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[byte-order-mark-control]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[byte-order-mark-request]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[byte-order-mark-tail]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[byte-order-mark-follow]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[soft-hyphen-message]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[soft-hyphen-control]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[soft-hyphen-request]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[soft-hyphen-tail]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[soft-hyphen-follow]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[word-joiner-message]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[word-joiner-control]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[word-joiner-request]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[word-joiner-tail]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[word-joiner-follow]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[zero-width-space-message]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[zero-width-space-control]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[zero-width-space-request]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[zero-width-space-tail]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[zero-width-space-follow]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_the_format_characters_are_unicode_cf"
+      ],
+      "restored_sha256": "192e2adeac3e5aa257d1f072d0c19f39bf41e85a0637a68c4ba0318b34e7d1bf",
+      "seconds": 76.4,
+      "load_start": 158.1,
+      "load_end": 150.0
+    },
+    {
+      "name": "F1-url-underscore",
+      "file": "subfleet/sessions/handoff.py",
+      "what": "no `_` in a scheme, which starts at a word boundary (release/217's reading)",
+      "tests": [
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route",
+        "-k",
+        "underscore"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "summary": "20 failed, 50 deselected in 44.02s",
+      "failed": [
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[underscore-cluster-message]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[underscore-cluster-note]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[underscore-cluster-cause]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[underscore-cluster-context]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[underscore-cluster-source]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[underscore-cluster-group-member]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[underscore-cluster-control]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[underscore-cluster-request]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[underscore-cluster-tail]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[underscore-cluster-follow]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[underscore-scheme-message]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[underscore-scheme-note]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[underscore-scheme-cause]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[underscore-scheme-context]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[underscore-scheme-source]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[underscore-scheme-group-member]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[underscore-scheme-control]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[underscore-scheme-request]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[underscore-scheme-tail]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[underscore-scheme-follow]"
+      ],
+      "restored_sha256": "cefe4e108aa4ff12ea763efeb40adc0f81b1ef1df82916acc75a68710ca5e230",
+      "seconds": 67.4,
+      "load_start": 117.4,
+      "load_end": 101.0
+    },
+    {
+      "name": "F5-url-raw-slash",
+      "file": "subfleet/sessions/handoff.py",
+      "what": "no `/` in a password",
+      "tests": [
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route",
+        "-k",
+        "raw-slash"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "summary": "10 failed, 60 deselected in 24.30s",
+      "failed": [
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[raw-slash-message]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[raw-slash-note]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[raw-slash-cause]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[raw-slash-context]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[raw-slash-source]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[raw-slash-group-member]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[raw-slash-control]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[raw-slash-request]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[raw-slash-tail]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[raw-slash-follow]"
+      ],
+      "restored_sha256": "cefe4e108aa4ff12ea763efeb40adc0f81b1ef1df82916acc75a68710ca5e230",
+      "seconds": 39.9,
+      "load_start": 101.0,
+      "load_end": 66.3
+    },
+    {
+      "name": "F6-url-second-at",
+      "file": "subfleet/sessions/handoff.py",
+      "what": "a password ends at the first `@`",
+      "tests": [
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route",
+        "-k",
+        "second-at"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "summary": "10 failed, 60 deselected in 34.40s",
+      "failed": [
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[second-at-message]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[second-at-note]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[second-at-cause]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[second-at-context]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[second-at-source]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[second-at-group-member]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[second-at-control]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[second-at-request]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[second-at-tail]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[second-at-follow]"
+      ],
+      "restored_sha256": "cefe4e108aa4ff12ea763efeb40adc0f81b1ef1df82916acc75a68710ca5e230",
+      "seconds": 50.8,
+      "load_start": 66.3,
+      "load_end": 46.6
+    },
+    {
+      "name": "F14-escapes-not-neutralized",
+      "file": "subfleet/daemon_log.py",
+      "what": "the handler, the tail and the follower write control characters as they are",
+      "tests": [
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_osc52_and_screen_clear_are_written_as_visible_escapes",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_no_control_character_but_tab_and_line_breaks_is_ever_written"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "summary": "6 failed in 70.64s (0:01:10)",
+      "failed": [
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_osc52_and_screen_clear_are_written_as_visible_escapes[message]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_osc52_and_screen_clear_are_written_as_visible_escapes[control]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_osc52_and_screen_clear_are_written_as_visible_escapes[request]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_osc52_and_screen_clear_are_written_as_visible_escapes[tail]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_osc52_and_screen_clear_are_written_as_visible_escapes[follow]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_no_control_character_but_tab_and_line_breaks_is_ever_written"
+      ],
+      "restored_sha256": "192e2adeac3e5aa257d1f072d0c19f39bf41e85a0637a68c4ba0318b34e7d1bf",
+      "seconds": 95.7,
+      "load_start": 46.6,
+      "load_end": 141.4
+    },
+    {
+      "name": "F2-url-digit-first",
+      "file": "subfleet/sessions/handoff.py",
+      "what": "a scheme must start with a letter",
+      "tests": [
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route",
+        "-k",
+        "digit"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "summary": "20 failed, 50 deselected in 43.15s",
+      "failed": [
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[digit-first-scheme-message]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[digit-first-scheme-note]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[digit-first-scheme-cause]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[digit-first-scheme-context]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[digit-first-scheme-source]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[digit-first-scheme-group-member]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[digit-first-scheme-control]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[digit-first-scheme-request]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[digit-first-scheme-tail]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[digit-first-scheme-follow]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[scheme-after-digit-message]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[scheme-after-digit-note]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[scheme-after-digit-cause]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[scheme-after-digit-context]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[scheme-after-digit-source]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[scheme-after-digit-group-member]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[scheme-after-digit-control]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[scheme-after-digit-request]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[scheme-after-digit-tail]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[scheme-after-digit-follow]"
+      ],
+      "restored_sha256": "cefe4e108aa4ff12ea763efeb40adc0f81b1ef1df82916acc75a68710ca5e230",
+      "seconds": 66.2,
+      "load_start": 56.5,
+      "load_end": 34.1
+    },
+    {
+      "name": "F4-url-empty-user",
+      "file": "subfleet/sessions/handoff.py",
+      "what": "a user must hold a character",
+      "tests": [
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route",
+        "-k",
+        "empty-user"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "summary": "10 failed, 60 deselected in 99.10s (0:01:39)",
+      "failed": [
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[empty-user-message]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[empty-user-note]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[empty-user-cause]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[empty-user-context]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[empty-user-source]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[empty-user-group-member]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[empty-user-control]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[empty-user-request]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[empty-user-tail]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r1_url_forms_are_hidden_on_every_route[empty-user-follow]"
+      ],
+      "restored_sha256": "cefe4e108aa4ff12ea763efeb40adc0f81b1ef1df82916acc75a68710ca5e230",
+      "seconds": 141.0,
+      "load_start": 34.1,
+      "load_end": 98.7
+    },
+    {
+      "name": "G4-separators-shown",
+      "file": "subfleet/daemon_log.py",
+      "what": "the terminal reading keeps the information separators (fix r1's reading)",
+      "tests": [
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_words_a_separator_joins_are_one_run_that_hides_nothing"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "summary": "4 failed, 40 passed in 77.60s (0:01:17)",
+      "failed": [
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_words_a_separator_joins_are_one_run_that_hides_nothing[\\x1c]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_words_a_separator_joins_are_one_run_that_hides_nothing[\\x1d]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_words_a_separator_joins_are_one_run_that_hides_nothing[\\x1e]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_words_a_separator_joins_are_one_run_that_hides_nothing[\\x1f]"
+      ],
+      "restored_sha256": "192e2adeac3e5aa257d1f072d0c19f39bf41e85a0637a68c4ba0318b34e7d1bf",
+      "seconds": 123.7,
+      "load_start": 100.1,
+      "load_end": 137.0
+    },
+    {
+      "name": "G5-format-characters-not-read",
+      "file": "subfleet/daemon_log.py",
+      "what": "a text with format characters and no control is not read as a terminal shows it",
+      "tests": [
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_the_format_characters_are_unicode_cf"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "summary": "21 failed, 20 passed in 82.51s (0:01:22)",
+      "failed": [
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[byte-order-mark-message]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[byte-order-mark-control]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[byte-order-mark-request]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[byte-order-mark-tail]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[byte-order-mark-follow]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[soft-hyphen-message]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[soft-hyphen-control]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[soft-hyphen-request]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[soft-hyphen-tail]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[soft-hyphen-follow]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[word-joiner-message]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[word-joiner-control]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[word-joiner-request]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[word-joiner-tail]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[word-joiner-follow]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[zero-width-space-message]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[zero-width-space-control]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[zero-width-space-request]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[zero-width-space-tail]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_a_key_an_invisible_character_splits_is_still_a_password[zero-width-space-follow]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_the_format_characters_are_unicode_cf"
+      ],
+      "restored_sha256": "192e2adeac3e5aa257d1f072d0c19f39bf41e85a0637a68c4ba0318b34e7d1bf",
+      "seconds": 112.6,
+      "load_start": 146.2,
+      "load_end": 181.7
+    },
+    {
+      "name": "G6-run-split-at-separators",
+      "file": "subfleet/daemon_log.py",
+      "what": "a run ends at an information separator",
+      "tests": [
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_words_a_separator_joins_are_one_run_that_hides_nothing"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "summary": "4 failed in 39.79s",
+      "failed": [
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_words_a_separator_joins_are_one_run_that_hides_nothing[\\x1c]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_words_a_separator_joins_are_one_run_that_hides_nothing[\\x1d]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_words_a_separator_joins_are_one_run_that_hides_nothing[\\x1e]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r2_words_a_separator_joins_are_one_run_that_hides_nothing[\\x1f]"
+      ],
+      "restored_sha256": "192e2adeac3e5aa257d1f072d0c19f39bf41e85a0637a68c4ba0318b34e7d1bf",
+      "seconds": 69.2,
+      "load_start": 181.7,
+      "load_end": 95.9
+    }
+  ]
+}

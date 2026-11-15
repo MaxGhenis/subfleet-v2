@@ -102,9 +102,18 @@ _DATA_URI_RE = re.compile(
 _LONG_BASE64_RE = re.compile(
     r"(?<![A-Za-z0-9+/])(?:[A-Za-z0-9+/]{160,}={0,2})(?![A-Za-z0-9+/])"
 )
-_URL_PASSWORD_RE = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://[^\s/:@]+:)([^\s/@]+)(@)")
-_URL_SCHEME_RE = re.compile(r"[a-z0-9+.-]+", re.IGNORECASE)
-_URL_START_RE = re.compile(r"\b[a-z]", re.IGNORECASE)
+#: A URL's password (C-23.14): a scheme of letters, digits, `+`, `.`, `_` and `-`, any of
+#: them first (`9p://`, `my_postgres://`, `retry=2postgres://`), `://`, a user up to the
+#: first `:`, which may be empty (`redis://:pw@cache`) or hold an `@` (`user@server`, as
+#: Azure's database URLs name one), then the password. It runs to the last `@` before
+#: whitespace or the next `://`, so it may hold an `@` (`ftp://anon:p@ss@host`), a raw
+#: `/` (`https://alice:pa/ss@host`) or both (`https://alice:p@ss/x@host`). A later `@`
+#: in a path is read as the userinfo's end too: `https://alice:pw@host/users/@me` hides
+#: the host and the path before that `@`, and `https://host:8080/users/@me` the port on,
+#: as no password is told from a path. `_linear_sub` tries it once from the start of each
+#: run of scheme characters that `://` follows, and skips an empty password.
+_URL_PASSWORD_RE = re.compile(r"(?i)([a-z0-9+._-]+://[^\s/:]*:)((?:(?!://)\S)*(?=@))(@)")
+_URL_SCHEME_RE = re.compile(r"[a-z0-9+._-]+", re.IGNORECASE)
 #: A header's name: an identifier ending in `authorization` or `cookie` (`Authorization`,
 #: `Proxy-Authorization`, `X-Authorization`, `Cookie`, `Set-Cookie`). One that starts its
 #: line is `_HEADER_RE`'s; any other, before `[ \t]*:`, is an inline header's
@@ -285,11 +294,12 @@ def _linear_sub(pattern: re.Pattern, replacement, text: str) -> str:
 
     def matches():
         if pattern is _URL_PASSWORD_RE:
+            # Each run of scheme characters is read once, whole, and tried only where
+            # `://` follows it; a try reads at most to the next `://`.
             for token in _URL_SCHEME_RE.finditer(text):
-                start = _URL_START_RE.search(text, token.start(), token.end())
-                if start is not None:
-                    match = pattern.match(text, start.start())
-                    if match is not None:
+                if text.startswith("://", token.end()):
+                    match = pattern.match(text, token.start())
+                    if match is not None and match.group(2):
                         yield match
             return
         opening, closing = ((_PEM_START_RE, _PEM_END_RE) if pattern is _PEM_RE
