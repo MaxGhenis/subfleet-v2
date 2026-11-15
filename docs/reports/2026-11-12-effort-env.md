@@ -88,3 +88,149 @@ Commands/setup/deviations:
 Cleanup: both scratch roots, their config/cache/venv/pristine copies, and generated worktree caches were removed after durable evidence was copied. Generated folders outside scratch were `build/`, `docs/reports/2026-11-12-effort-env-data/__pycache__/`, and `subfleet/{__pycache__,adapters/__pycache__,conversations/__pycache__,sessions/__pycache__}/`, all under this assigned workspace. They were moved into scratch before guarded `shutil.rmtree` calls asserting `sf-eff-b1` in each removal path. `cleanup.json` records absolute paths, time, zero remaining bootstraps and final source hashes. All probe/test commands exited.
 
 Head built (working-tree changes; commits denied): b51f08f961e1b1dcfb93347eb080f9ddd9a9260d
+
+## Fix r1
+
+Review r1 of #310 (`~/reviews/subfleet-hub/effort-env-2026-11-10/review-r1.md`) found the fix working and raised three P2s, the resume path and three P3s. This round fixes all of them in a detached checkout of 120f606ed. It started at **2026-11-15 01:42:42 UTC** (`date -u`, first command) and wrote this section at 03:21 UTC, inside the three-hour limit. Commits: `e6ddae8d1` (code and tests), `a7dab1a75` (contract), then this report. Evidence is in `docs/reports/2026-11-12-effort-env-data/fix-r1/`.
+
+### Findings and what changed
+
+1. **P2, v1 source parity was off by default.** `tests/unit/test_claude_v1_parity.py:30-36` looks for v1's runner at the base's path again (`~/chief-of-staff/subfleet/bin/subfleet-claude`, found through `pwd`) and runs whenever that file exists. A non-empty `SUBFLEET_V1_RUNNER` overrides the path; a path that does not exist skips the tests. The module docstring is the base's again.
+   - New `test_a_named_effort_is_the_fifth_documented_change` (`:147`), 10 cases (both sandboxes, five efforts). It reads v1's source and checks four things:
+     - v1's launch line goes straight from `--output-format json` to `PERM_ARGS`;
+     - neither `PERM_ARGS` array carries `--effort`;
+     - v1 assigns no `CLAUDE_CODE_EFFORT_LEVEL`;
+     - `reconstruct_v1_argv(effort=E)` is the effort-free line plus `--effort E` right after `--verbose` and the pin in the settings env, and its permission flags are still v1's arrays.
+   - New `test_v1_source_parity_runs_by_default_where_the_v1_runner_exists` (`tests/unit/test_effort_env.py:294`). It loads the parity module under a stand-in home (patched `pwd.getpwuid`, scratch files only) and checks four cases: with no variable it skips when the runner is absent and runs when it is present; an empty variable counts as unset; and the override wins. It runs in CI and never touches the real v1 tree.
+   - **I could not run the parity file against v1**: `~/chief-of-staff` is off limits, so I wrote it against the base's detection. Every run of mine set `SUBFLEET_V1_RUNNER` to a missing scratch path (16 skipped). As a mechanics check only, I ran it against a **synthetic** runner (`fix-r1/synthetic-v1-subfleet-claude.SYNTHETIC`), written from nothing but the patterns the tests parse: 16 passed. That proves the test code runs, not that v2 matches v1.
+   - The one assumption in the new test is that v1 assigns no `CLAUDE_CODE_EFFORT_LEVEL`. If it fails on that line, v1 pins effort itself and the fifth documented difference needs rewording.
+2. **P2, no change-log entry.** `docs/acceptance-contract.md:9` adds one line for C-12.4 and C-26.8 at the top of the list (newest first), with no blank line inside the list.
+3. **P2, ultracode against the real CLI.** New opt-in `test_real_claude_ultracode_turn_keeps_ultracode_with_the_effort_pin` (`tests/unit/test_effort_env.py:415`), 4 cases. It builds the turn argv with `claude_turn.argv` itself on `claude-opus-5-5` (`SUBFLEET_REAL_CLAUDE_OPUS` can name another model) and asks only `get_settings`.
+   - The premise test now shares the helper `_real_applied` (`:350`). Its command, environment and assertions are unchanged.
+   - The variable does not break ultracode, so no code fix was needed. Results are under "Real-CLI result" below.
+4. **The resume path (r1's first "outside this PR" point).**
+   - `ClaudeAdapter.resume_launch` (`subfleet/adapters/claude.py:1465-1499`) takes `effort`. It adds `--effort` right after `--verbose` (`:1491`), the same place a fresh launch puts it, and pins `lane_settings(effort=effort)` in the one `--settings` (`:1499`).
+   - The daemon passes `effort=model.get("effort")`, the same value `build_launch` gets (`subfleet/daemon.py:9797-9801`).
+   - The base signature gains the keyword with a docstring (`subfleet/adapters/base.py:120-133`). Codex accepts and ignores it (`subfleet/adapters/codex.py:626-632`), so Codex launches are unchanged. `tests/fake_adapter.py:125-139` accepts it and passes it through.
+   - Tests:
+     - `test_property_resume_effort_pins_settings_and_preserves_argv` (`test_effort_env.py:196`): 120 generated examples plus 2 explicit ones over every resume shape and effort, checked against the 676906f85 recording with only the watchdog restored;
+     - review r1's probe P2 as `test_resumed_attempt_pins_the_effort_its_fresh_launch_pins` (`:208`): both sandboxes and all three tasks, where the fresh launch and its resume carry the same `--effort medium` and byte-identical `--settings`;
+     - `test_c12_resume_invokes_native_launch_on_original_lane` (`tests/fake/test_resume_contract.py:34`), now run with no effort and with `medium`: the daemon hands the model entry's effort to `resume_launch` for both providers.
+   - C-12.4 (`:575`) now covers resumes and revives.
+5. **P3s.**
+   - **C-12.4 (`:575`).** The base's watchdog sentence, with its October 22 peer-probe clause, is restored word for word, so the clause again follows the watchdog pin. The effort sentences come after it: the pin covers resumes, and for the effort variable both conflicts are verified (user, project and local settings, and the process environment: the build's case 4 and r1's K2). Managed settings were not present to test.
+   - **C-26.8 (`:781`).** A turn that runs at an effort pins it, whether the effort is the person's or the policy default `service.py:2962-2965` writes into the turn. Only a turn left with no effort is unchanged. The clause also records the ultracode result.
+   - **MH.** `test_an_empty_effort_pins_nothing_on_any_path` (`test_effort_env.py:260`): `lane_settings(effort="")` adds no variable, and a job (both sandboxes), a resume (both sandboxes) and a turn (all four permissions) naming `""` build the argv they build for None.
+6. **Not this round.** I did not change `launch.json` (r1's second "outside" point).
+
+### Real-CLI result (Claude Code 2.1.318, `/Users/maxghenis/.local/bin/claude`)
+
+All isolated cases used the argv `claude_turn.argv` builds for a writable (bypass) ultracode turn on `claude-opus-5-5`: `--effort xhigh` and `{"disableAllHooks":false,"env":{…},"ultracode":true}`. Each had a fresh HOME and config folder, every `CLAUDE_*` and `ANTHROPIC_*` variable removed, no credential and no message; only `get_settings` was asked.
+
+| Case | Settings env | User settings | `applied` |
+| --- | --- | --- | --- |
+| u0, the base's turn | watchdog only | none | ultracode true, effort xhigh |
+| u1, this head's turn | watchdog, pin xhigh | none | ultracode true, effort xhigh |
+| u2 | watchdog, pin xhigh | effort low | ultracode true, effort xhigh |
+| u3, control | watchdog, pin high | none | ultracode true, effort **high** |
+| u4, control, the base's turn | watchdog only | effort low | ultracode true, effort **low** |
+
+Every answer also held `ultracodeAvailable: true`, `ultracodeRequested: true`, `model: claude-opus-5-5`, every child exited 0, and stderr was empty.
+
+- **The pin is compatible with ultracode.** `applied.ultracode` stays true with the variable set beside the flag, and the effort is xhigh even under a user `low`.
+- **The controls show the probe can tell the difference.** The variable sets the effort that applies (u3). At the base, a user `low` silently ran an ultracode turn at `low` (u4).
+- **Side finding for the hub's defects file.** The driver records the served effort as `ultracode` whenever `applied.ultracode` is true (`claude_turn.py:548`), whatever `applied.effort` says. So at the base, the u4 turn would have recorded `ultracode` while running at `low`. The pin makes that record true for pinned turns, but the record still never checks `applied.effort`.
+- **The lane run.** I ran the CLI once with my own environment: inherited HOME, no `CLAUDE_CONFIG_DIR`, the session's `CLAUDE_*` and `SUBFLEET_*` markers removed, `--no-session-persistence`, and the tiny prompt "Reply with OK." followed by `get_settings`.
+  - `applied` came back ultracode true, effort xhigh, model `claude-opus-5-5`.
+  - The turn itself ended `is_error: true`, rc 1.
+  - An `initialize`-only call (no message) showed why: `account` held only `apiProvider` and `tokenSource: none`, with no email. This job's environment carries no lane credential (no `CLAUDE_CODE_OAUTH_TOKEN` and no `CLAUDE_CONFIG_DIR`), and the default config has no login a child can use.
+  - **So no credentialed result was obtained, and no model request reached the API.** Getting one would mean reading a secret, which the rules forbid. The `applied` answer is the CLI's local resolution and matches the isolated cases.
+- The opt-in test run (`SUBFLEET_REAL_CLAUDE=1`) passed all 8 real-CLI cases: the 4 premise cases and the 4 ultracode cases (u1, u2, an `ask` turn under a user `low`, and the u4 control).
+
+### Mutants
+
+Each mutant was applied alone to a `git archive HEAD` copy in scratch, never the worktree, with its killers run from the copy. The file was then restored from a pristine copy; every restored file's SHA-256 equals HEAD's blob (`fix-r1/mutants*.json`). Control: the same killers passed on the unmutated copy (13 passed).
+
+| Mutant | Change | Killed by | Run |
+| --- | --- | --- | --- |
+| MH | `if effort:` becomes `if effort is not None:` in `lane_settings` (`claude.py:353`) | `test_an_empty_effort_pins_nothing_on_any_path` | 1 failed |
+| Resume pin dropped | `resume_launch` passes `lane_settings()` | `test_property_resume_effort_pins_settings_and_preserves_argv`; alone, also `test_resumed_attempt_pins_the_effort_its_fresh_launch_pins[read-only-build]` | 1 failed each |
+| Resume flag dropped (pin kept) | no `--effort` on resume | the same two tests | 1 failed each |
+| Daemon drops the effort | `resume_launch(…, model["id"])` | `test_c12_resume_invokes_native_launch_on_original_lane[codex-astra-medium]` | 1 failed, 1 passed |
+| Parity default back to env-only | 120f606ed's `V1_RUNNER` and skip | `test_v1_source_parity_runs_by_default_where_the_v1_runner_exists` | 1 failed |
+
+The hub verifies the parity-default mutant locally as well (see below).
+
+### Commands and results
+
+Setup:
+- `TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)`; scratch was `$TMPDIR/sf-eff-f1`.
+- `UV_CACHE_DIR=$TMPDIR/uv-cache` (shared and already present, so I didn't delete it); `UV_PROJECT_ENVIRONMENT=<scratch>/venv`.
+- `uv sync --group dev` installed 9 packages, with load 74.6 at the start and 80.6 at the end. The venv runs CPython 3.15.2.
+- Every pytest run went through `fix-r1/pt.sh`, which does five things:
+  - sets `PYTHONDONTWRITEBYTECODE=1` and unsets `PYTHONPATH`;
+  - adds `-p no:cacheprovider` and a new `--basetemp=<scratch>/pytest-<label>`;
+  - wraps the run in `timeout 560`;
+  - adds the scratch-venv plugin `sf_eff_f1_safety`, which points `failed_keep.ROOT` into scratch;
+  - sets `HYPOTHESIS_STORAGE_DIRECTORY=<scratch>/hypothesis` and `SUBFLEET_V1_RUNNER=<scratch>/no-such-v1-runner` (both added before chunk c1).
+- `-n 4` runs used `uv run --no-sync --with 'pytest-xdist>=3.6'`. Load figures are the one-minute averages from `uptime` at each run's start and end. Every run listed finished; none hit the timeout. `fix-r1/runs.json` holds each run's arguments, times, exit code and result line.
+
+| Run | What | Result | Load start → end |
+| --- | --- | --- | --- |
+| t01 | `tests/unit/test_effort_env.py`, serial (before the v1-default test existed) | 11 passed, 8 skipped, 104 s | 112.5 → 78.0 |
+| t02 | same file, `-k real_claude`, `SUBFLEET_REAL_CLAUDE=1 SUBFLEET_CLAUDE_BIN=/Users/maxghenis/.local/bin/claude` | 8 passed, 11 deselected, 88 s | 67.7 → 67.5 |
+| t03 | `test_claude_v1_parity.py`, override to a missing path | 16 skipped | 72.4 → 83.4 |
+| t04 | `test_claude_v1_parity.py`, override to the synthetic runner | 16 passed | 83.4 → 94.4 |
+| t05 | `test_effort_env.py -k "v1_source or empty_effort"` | 2 passed, 18 deselected | 77.4 → 93.3 |
+| t06 | `tests/fake/test_resume_contract.py` | 25 passed, 72 s | 93.3 → 80.4 |
+| t07 | contract guards, `-n 4`: `test_invariants_index.py`, `test_protocol_registry.py`, `test_desktop_ledger.py`, `test_retention_turn_contract.py`, `test_test_module_names.py` and the four contract-quoting tests in `test_live_store_guard_round8/9/10.py` | 40 passed, 38 s | 101.5 → 91.6 |
+| probes | ultracode u0 to u2 / u3 and u4 / lane run | as above | 74.8 → 78.2 / 73.7 → 86.0 / 94.0 → 112.3 |
+| m01 | mutant killers on the unmutated copy | 13 passed | 141.9 → 110.5 |
+| mutants | MH, the resume pin, the daemon effort, the resume flag, the parity default; then the two resume mutants against the P2 test alone | 7 of 7 killed | 99.8 → 142.5; 148.8 → 161.2 |
+| c1 to c6b | 76 files (below), 11 chunks, `-n 4` | 4,193 passed, 2 failed, 39 skipped, 3 xfailed | see below |
+| t08 | `tests/fake/test_state_contract.py tests/unit/test_handler_refusals.py tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py`, `-n 4` | 425 passed, 98 s | 180.3 → 184.1 |
+| t09 | c1's two failures, serial | 2 passed, 22 s | 186.7 → 184.7 |
+
+The 76 files are every test file naming `lane_settings`, `claude_settings_args`, `reconstruct_v1_argv`, `build_launch`, `resume_launch`, `PERMISSION_FLAGS`, `ULTRACODE` or `effort`. That is the build's 75 plus `tests/unit/test_codex_turn_completed.py`, which calls `resume_launch` (`fix-r1/selected-tests.txt`, chunk lists `fix-r1/chunk-c*.txt`).
+
+| Chunk | Files | Result | Seconds | Load start → end |
+| --- | --- | --- | --- | --- |
+| c1 | 11 | 518 passed, 2 failed, 8 skipped | 467 | 157.0 → 163.4 |
+| c2a | 6 | 1,383 passed | 270 | 171.4 → 173.0 |
+| c2b | 6 | 86 passed | 106 | 169.5 → 180.6 |
+| c3a | 7 | 615 passed | 452 | 184.2 → 110.3 |
+| c3b | 6 | 82 passed, 3 xfailed | 121 | 118.5 → 99.3 |
+| c4a | 7 | 393 passed | 142 | 99.3 → 173.0 |
+| c4b | 6 | 155 passed | 257 | 175.9 → 176.1 |
+| c5a | 7 | 370 passed, 15 skipped | 225 | 184.4 → 166.5 |
+| c5b | 7 | 64 passed | 161 | 168.3 → 167.8 |
+| c6a | 7 | 456 passed | 152 | 166.0 → 167.4 |
+| c6b | 6 | 71 passed, 16 skipped (the parity file, overridden) | 50 | 167.1 → 182.5 |
+
+c1's two failures are timing failures under load. Both passed alone in t09.
+- `tests/unit/test_cli.py::test_suggest_open_pipe_is_bounded`: 0.85 s against a 0.75 s bound.
+- `tests/fake/test_gate_end_to_end.py::test_plan_peer_process_finalizes_through_real_daemon`: `subprocess.TimeoutExpired` on `python -m subfleet gate plan`. Its kept state root went to scratch.
+
+`git diff --check 120f606ed..HEAD` is clean. The contract diff against 120f606ed has three hunks: the change log (line 9), C-12.4 and C-26.8.
+
+### What the hub must run locally
+
+1. **The v1 source parity, on this Mac, with no `SUBFLEET_V1_RUNNER`:** `tests/unit/test_claude_v1_parity.py`. Expect 16 passed (6 old, 10 new). A skip means the default is still off. A failure on the `CLAUDE_CODE_EFFORT_LEVEL` assignment check means v1 pins effort itself, and the fifth documented difference needs rewording.
+2. **The parity-default mutant:** put 120f606ed's env-only `V1_RUNNER` and skip back. The same file should then skip all 16 here, and `test_v1_source_parity_runs_by_default_where_the_v1_runner_exists` should fail.
+3. **A credentialed ultracode turn, if wanted:** one real conversation turn on an Opus lane with effort `ultracode`. Its `get_settings` answer should report `ultracode: true` with effort `xhigh`. My authenticated run had no credential (see above).
+4. **CI at this head, and the full round-2 review.**
+
+### Deviations
+
+- **The real-CLI run.** I couldn't make a credentialed run, for the reason above. I started the CLI twice in lane mode, not once: the turn with the tiny prompt, then an `initialize`-only call (no message) to diagnose the error. Neither reached a model. The lane-mode CLI used the default config folder, which it may update with its own state; I neither read nor inspected it. I didn't record the load for the `initialize` call.
+- **Tests ran in 11 chunks of `-n 4`, not one run,** because each tool call is capped at 10 minutes and nothing may run in the background. t01 to t06 ran before the safety plugin, the Hypothesis directory and the `SUBFLEET_V1_RUNNER` override were in `pt.sh`. None of those runs collected the parity file without an explicit override: t03 and t04 set one, and the v1-default test patches `pwd`.
+- **Generated folders.** The probes ran `python3 -I`, which ignores `PYTHONDONTWRITEBYTECODE`, and test subprocesses dropped it. So `__pycache__/`, `.hypothesis/` and `build/` appeared in the worktree. The repo's frontend fixtures (`tests/frontend/test_core_outbox.py:28`, `test_core_protocol.py:43`) call `mkdtemp(dir="/tmp")` and never remove the folder. That left 12 `sf-ob-*` folders, inside my c2a window and one per fixture user, and 4 `sf-app-h-*` folders, inside my c4b window and one per `harness` user. That leak is the tests' own and I didn't fix it here.
+- **Cleanup.** Each folder below was moved into scratch and removed with `shutil.rmtree` after asserting `sf-eff-f1` is in its path (`fix-r1/removed-outside.json`):
+  - in this worktree: `.hypothesis`, `build`, `subfleet/__pycache__`, `subfleet/adapters/__pycache__`, `subfleet/conversations/__pycache__`, `subfleet/gate/__pycache__`, `subfleet/sessions/__pycache__`, `tests/__pycache__` and `tests/fake/__pycache__`;
+  - in `/private/tmp`: `sf-ob-20ot5ye5`, `sf-ob-2_hzdhc6`, `sf-ob-9_cq55ah`, `sf-ob-9tud62y4`, `sf-ob-cp4auiqr`, `sf-ob-dwn0zldf`, `sf-ob-igy_6kz3`, `sf-ob-n69quh91`, `sf-ob-wep8b4la`, `sf-ob-xol4io1s`, `sf-ob-xorp7xzs`, `sf-ob-zww9mm0q`, `sf-app-h-82zaj5sy`, `sf-app-h-jjchlcyr`, `sf-app-h-qlv0o16p` and `sf-app-h-r__hgevj`.
+  - I left two `sf-test-homes-*` folders in the user temp root (22:13 local) because I can't attribute them. Every run of mine exited normally, so conftest's own cleanup ran for mine.
+  - The scratch folder `$TMPDIR/sf-eff-f1` (its venv, mutant copy, logs and probe folders) is removed the same way after this commit; the durable evidence is in `fix-r1/`.
+- **Not changed, for the hub's defects file:**
+  - Codex's `resume_launch` passes no effort either: it calls `_launch(…, None, None, thread)`. I haven't checked whether a resumed Codex thread keeps its effort.
+  - The ultracode served-effort record (`claude_turn.py:548`) ignores `applied.effort`.
+- **No other process.** None of mine outlives the session. I ran nothing against live state; I didn't read `~/chief-of-staff`, `~/.claude` or `~/.subfleet`, or any key. I pushed nothing, and I created, moved or deleted no branch. Commits added named files only.
