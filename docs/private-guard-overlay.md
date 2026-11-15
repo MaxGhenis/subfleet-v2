@@ -564,10 +564,57 @@ the code as it stands, with review r5's check 8 forms marked (snapshot-5 read fr
     'for d in ~/*; do du -sh "$d"; done; for d in src tests; do rg -n foo "$d"; done'`). Neither shell
     walks a root on any (`R11_STRICTER`, `REVIEW_R11_STRICTER`).
 
+### Relative roots: the embedded parser (D-SEARCH-REL1, 2026-11-05)
+
+The regex judgment above reads the command's words. It resolves an absolute root, and `.` when
+the cwd itself is a broad root, but it never resolved a relative root against the cwd: from a job
+worktree (`~/.subfleet/worktrees/<job>`), `find ..` walks every job worktree, and the rule let it
+run. On 11/04 one lane's `find ..` did that for 38 minutes. The Claude session's hook has no such
+gap: it calls `unscoped_search.py`, a parser that splits the command as the shell does, follows
+`cd` and resolves every root against the cwd.
+
+The hook now carries that parser byte for byte (SHA-256
+`0ec2f7aa2cbdc1718e1424c18c8f46dac2bdafdc70faa16c9e03c7d079fdb207`, the hub's copy read on
+2026-11-05) as the body of a quoted heredoc in the region's `unscoped-search: parser` block, so
+TRUST's `hook_sha256` covers the parser's bytes and nothing new is staged. What judges the rule
+now:
+
+- **The regex judgment** runs first, as before. Every block it makes stays, with its message.
+- **The parser** runs next, when the rule's prefilter (`pw_named`) found a searcher in the command
+  and the regex judgment did not block. A hit (searcher, root as written, root resolved) becomes
+  the rule's block message, which names the root as written and the root resolved:
+  `Matched broad root: '.. (/Users/<user>/.subfleet/worktrees)'`. So the hook blocks when either
+  judgment blocks.
+- **The interpreter** is the session hook's: `/opt/homebrew/bin/python3` when it is executable,
+  else `/usr/bin/python3`, isolated (`-I -S`), with the command on stdin and the cwd, `$HOME` and
+  `$SHELL` as its arguments.
+- **The fallback:** with no interpreter, a nonzero exit, or no answer within 5 s (the loader arms
+  an alarm whose signal ends the parser), the regex judgment decides alone, as it did before this
+  revision.
+
+The parser is not run as `python3 -I -S /dev/fd/3`. Apple's Python 3.9 (`/usr/bin/python3`) run
+that way, with descriptor 3 a file (bash 3.2 writes a heredoc to a temporary file), ran nothing and
+exited 0, so every command would have passed in silence: on macOS an open of `/dev/fd/3` shares the
+descriptor's offset, and Python 3.9's zip-archive probe of the path leaves it at the end of the
+file (observed 2026-11-05; Homebrew's Python 3.14 is not affected). A loader given to `-c` reads
+descriptor 3 itself, arms the alarm and runs the bytes as `__main__`.
+
+The parser starts Python only for a command that names a searcher, and only when the regex
+judgment let it pass. Bash parses the heredoc, under 1 ms of CPU, for every command that reaches
+the region; a command the prefilter turns away never reaches it. One test seam, which the daemon's
+launch environment never carries to a lane: `CODEX_GUARD_TEST_PYTHON` names the interpreter
+instead (a path that is not executable is no interpreter). `tests/unit/test_guard_search_rel.py`
+holds the hub's 17 rows, the corpus comparison, the fallback, the alarm, the drift check against
+`~/.claude/hooks/unscoped_search.py` (skipped where that file is absent) and the cost;
+`docs/reports/2026-11-05-search-rel-parser.md` has the measurements. A change to the session
+parser comes here in one reviewed step, between the heredoc's lines, with `hook_sha256` moved.
+The rollback is the previous pair: hook `e869dd4cac5402112c3a135531de861c84089290ee31779f52145474f678dfed` with TRUST
+`36267abbee6e414805defd0672138f0be9b8dd2fd8675f739c77df90332bafc0`.
+
 | File | SHA-256 |
 | --- | --- |
-| `never-rules-hook.sh` | `e869dd4cac5402112c3a135531de861c84089290ee31779f52145474f678dfed` |
-| `TRUST` | `36267abbee6e414805defd0672138f0be9b8dd2fd8675f739c77df90332bafc0` |
+| `never-rules-hook.sh` | `af5e723943b1f7462c19a4cbc5007e70b3c228c050c30f470f204d2f81c1398f` |
+| `TRUST` | `4ff9cb8603f9e84e3fe1870a07c71a7616b08384909b2bc4900035054607cf14` |
 
 TRUST is the installed TRUST of 2026-09-29 (`b3193b97…`), changing only `hook_sha256` and
 appending four dated provenance additions (D-LANE-SCOPE1's three sentences, r2's one, r3's one

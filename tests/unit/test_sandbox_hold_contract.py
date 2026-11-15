@@ -171,7 +171,8 @@ def test_sandbox_condition_wire_rejects_invalid_or_mixed_discriminators(invalid)
                                    details=details)
     response = protocol.decode_response(protocol.encode(protocol.refuse("sandbox-condition", error)))
     assert response.error.code == 7
-    assert response.error.reason is None and response.error.details is None
+    # #304: an unshowable blocking row keeps the reason and omits only the details.
+    assert response.error.reason == "task-hold-condition" and response.error.details is None
     assert response.error.message == "tasks: hold note does not match --if-note-prefix"
 
 

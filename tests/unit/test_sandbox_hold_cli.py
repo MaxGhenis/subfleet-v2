@@ -78,10 +78,12 @@ def test_hold_success_and_both_list_targets_are_named(monkeypatch, capsys):
 
 @pytest.mark.parametrize("argv", [HOLD_ARGV, RELEASE_ARGV], ids=["hold", "release"])
 def test_sandbox_condition_reuses_note_prefix_capability(monkeypatch, capsys, argv):
+    # #304: a conditional call goes as `hold-if`/`release-if`, with no condition preflight.
     calls = client_for(monkeypatch, {"task_hold": HOLD},
-                       capabilities=[protocol.TASKS_IF_NOTE_PREFIX_CAPABILITY])
-    assert cli.main([*argv, "--if-note-prefix", " disk: ", "--json"]) == 0
-    assert [op for op, _ in calls] == ["capabilities", "tasks"]
+                       capabilities=[protocol.TASKS_IF_NOTE_PREFIX_V2_CAPABILITY])
+    assert cli.main([*argv, "--if-note-prefix", "disk:", "--json"]) == 0
+    assert [op for op, _ in calls] == ["tasks"]
+    assert calls[-1][1]["action"] == f"{argv[1]}-if"
     assert calls[-1][1]["sandbox"] == "workspace-write"
     assert calls[-1][1]["if_note_prefix"] == "disk:"
     assert json.loads(capsys.readouterr().out) == {"task_hold": HOLD}

@@ -1,0 +1,34 @@
+{
+  "exitstatus": 1,
+  "phases": [
+    {
+      "nodeid": "tests/unit/test_retention_outcomes.py::test_outcomes_allocates_no_temporary_database_copy",
+      "when": "setup",
+      "outcome": "passed",
+      "exception": null,
+      "assertion": false,
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_retention_outcomes.py::test_outcomes_allocates_no_temporary_database_copy",
+      "when": "call",
+      "outcome": "failed",
+      "exception": "AssertionError",
+      "assertion": true,
+      "failure": "retired = (PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs...gone-one.md; out=/tmp/out.md', 'gone-two': 'gone-two: succeeded; rc=0; deliverable=/tmp/gone-two.md; out=/tmp/out.md'})\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109f169e0>\n\n    def test_outcomes_allocates_no_temporary_database_copy(retired, monkeypatch):\n        root, store, headers = retired\n        store.close()\n        monkeypatch.setenv(\"TMPDIR\", str(root))\n        real_query = Store.query\n    \n        def refuse_copy(*args, **kwargs):\n            raise AssertionError(\"lookup must not allocate a temporary database copy\")\n    \n        for name in (\"TemporaryDirectory\", \"TemporaryFile\", \"NamedTemporaryFile\", \"mkdtemp\", \"mkstemp\"):\n            monkeypatch.setattr(tempfile, name, refuse_copy)\n        for name in (\"copy\", \"copy2\", \"copyfile\", \"copyfileobj\", \"copytree\"):\n            monkeypatch.setattr(shutil, name, refuse_copy)\n    \n        def query_original(reader, sql, params=()):\n            assert reader.path == root / \"state.sqlite3\", \"lookup must read the original database\"\n            return real_query(reader, sql, params)\n    \n        monkeypatch.setattr(Store, \"query\", query_original)\n        before = {str(path.relative_to(root)) for path in root.rglob(\"*\")}\n>       report = rnotices.archived_outcomes(root, \"s-one\")\n                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\ntests/unit/test_retention_outcomes.py:136: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \nsubfleet/retention_notices.py:217: in archived_outcomes\n    with tempfile.TemporaryDirectory(prefix='mutant-outcomes-copy-') as scratch:\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nargs = (), kwargs = {'prefix': 'mutant-outcomes-copy-'}\n\n    def refuse_copy(*args, **kwargs):\n>       raise AssertionError(\"lookup must not allocate a temporary database copy\")\nE       AssertionError: lookup must not allocate a temporary database copy\n\ntests/unit/test_retention_outcomes.py:123: AssertionError"
+    },
+    {
+      "nodeid": "tests/unit/test_retention_outcomes.py::test_outcomes_allocates_no_temporary_database_copy",
+      "when": "teardown",
+      "outcome": "passed",
+      "exception": null,
+      "assertion": false,
+      "failure": null
+    }
+  ],
+  "collection_errors": [],
+  "imported_sources": {
+    "subfleet.store": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/notice-keep-r2-mutants-4pyjkzkc/lookup-copies-database/subfleet/store.py",
+    "subfleet.retention_notices": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/notice-keep-r2-mutants-4pyjkzkc/lookup-copies-database/subfleet/retention_notices.py"
+  }
+}
