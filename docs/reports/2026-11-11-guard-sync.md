@@ -692,7 +692,7 @@ CI runs the suite.
 
 - `$TMPDIR/sf-gs-fix1` (`/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-gs-fix1`) held the probes, the logs and the basetemps.
   - Its logs and scripts are copied to the attempt folder's `gs-fix-r1-evidence/`.
-  - A guarded `shutil.rmtree` that asserts `sf-gs-fix1` is in the path removes it. It was still running when I committed this.
+  - A guarded `shutil.rmtree` that asserts `sf-gs-fix1` is in the path removed it. It finished at about 19:22Z, after this section's first commit (`bc9c74d72`), and the folder is gone.
 - I kept `$TMPDIR/uv-cache` (shared) and the worktree's ignored `.venv`.
 
 Head built: the commit that adds this section, on top of code head `e908a6892`.
