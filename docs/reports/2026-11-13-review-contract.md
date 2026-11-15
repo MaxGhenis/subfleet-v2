@@ -203,7 +203,7 @@ Head built: 85769b8269162806513030094b362cb3554cbf5a
 
 ## Fix r1
 
-Fix round 1 for review r1 (`review-a1-r1.md`, head reviewed 7b92ad50) of PR #313, on `feat/review-verdict-217` from 316675986 (r1's head plus the hub's merge of release/217 at 82d3dd819). Started 2026-11-15 01:42:42 UTC (`date -u`, first command); the deadline was 05:12:42 UTC. Line numbers below are at code head 0689f895b.
+Fix round 1 for review r1 (`review-a1-r1.md`, head reviewed 7b92ad50) of PR #313, on `feat/review-verdict-217` from 316675986 (r1's head plus the hub's merge of release/217 at 82d3dd819). Started 2026-11-15 01:42:42 UTC (`date -u`, first command); completed 03:54:20 UTC, before the 05:12:42 UTC deadline. Line numbers below are at code head 0689f895b.
 
 Commits, named files only, none pushed:
 
@@ -213,7 +213,8 @@ Commits, named files only, none pushed:
 | fcdb4e52f | Revert the route-isolation stabilization (P3) |
 | b15796347 | C-12.11, C-6.7, change-log line, README |
 | 0689f895b | `review_result.py`: zero-width, dash and middle-dot characters written as `\u` escapes, not literal characters |
-| (this commit) | This section |
+| 22f52e0ed | This section, as a draft |
+| (the commit after it) | This section, completed with the long runs and the cleanup |
 
 ### Findings and what changed
 
@@ -432,6 +433,8 @@ Files ran one at a time through `runfiles.py`, which records `uptime` before and
 | `python3 -I corpus.py` (before; after twice, the second at 0689f895b) | table above; the two after runs agree |
 | `python3 -I spot.py` (four batches of 10) | above |
 | `python3 -I timing.py` (eight shapes × mode, then 2 MB × 3 × 2); cProfile of the 2 MB case | above |
+| `uv run --no-sync pytest -q -p no:cacheprovider --collect-only --basetemp …/pytest-collect-<file>` for latency, liveness and stateful; `split -l 7/6/3 -d` | 14, 32 and 17 ids; 2, 6 and 6 chunks |
+| `python3 -I runfiles.py WORKTREE SCRATCH <label> 570–575 <files or @ids>` (labels a to m) | one pytest per file or chunk; results below |
 
 Test files, one per run, all finished (`label-NN` is the basetemp `pytest-label-NN`):
 
@@ -467,7 +470,62 @@ Test files, one per run, all finished (`label-NN` is the basetemp `pytest-label-
 | e-01 | `tests/unit/test_review_result.py` (after the escape commit) | 619 passed in 34.42 s | 0 | 02:56:10–02:56:52 | 125.17 → 145.02 |
 | e-02 | `tests/unit/test_review_result_storage.py` (after the escape commit) | 15 passed in 20.61 s | 0 | 02:56:52–02:57:22 | 145.02 → 175.92 |
 
-Long admission files: in progress at the time of this draft (see the final version of this section).
+The three long admission files could not run whole inside one tool call, which is capped at 600 s. I collected their test ids with `pytest -q --collect-only`: latency 14, liveness 32, stateful 17. I split the ids in collection order (`split -l 7`, `-l 6` and `-l 3`) and passed each chunk to one pytest run as `@<ids file>`. Every id ran exactly once. Later runs covered:
+- every remaining file that names `gate-review`, `REVIEW_PREAMBLE` or `prompt.prepared`;
+- the files the build left uninvoked.
+
+| Run | File | Result | rc | UTC | Load (1 min), start → end |
+| --- | --- | --- | ---: | --- | --- |
+| f-01 | `tests/fake/test_admission_latency.py`, ids chunk-latency-00 (7) | 7 passed in 42.09s | 0 | 03:05:44–03:06:28 | 166.92 → 161.22 |
+| f-02 | `tests/fake/test_admission_latency.py`, ids chunk-latency-01 (7) | 7 passed in 9.00s | 0 | 03:06:28–03:06:39 | 161.22 → 151.09 |
+| g-01 | `tests/fake/test_admission_liveness.py`, ids chunk-liveness-00 (6) | 6 passed in 11.48s | 0 | 03:06:46–03:07:00 | 148.84 → 155.72 |
+| g-02 | `tests/fake/test_admission_liveness.py`, ids chunk-liveness-01 (6) | 6 passed in 19.55s | 0 | 03:07:00–03:07:23 | 155.72 → 157.35 |
+| g-03 | `tests/fake/test_admission_liveness.py`, ids chunk-liveness-02 (6) | 6 passed in 17.47s | 0 | 03:07:23–03:07:44 | 157.35 → 155.33 |
+| g-04 | `tests/fake/test_admission_liveness.py`, ids chunk-liveness-03 (6) | 6 passed in 18.37s | 0 | 03:07:44–03:08:07 | 155.33 → 164.46 |
+| g-05 | `tests/fake/test_admission_liveness.py`, ids chunk-liveness-04 (6) | 6 passed in 16.69s | 0 | 03:08:07–03:08:29 | 164.46 → 167.05 |
+| g-06 | `tests/fake/test_admission_liveness.py`, ids chunk-liveness-05 (2) | 2 passed in 221.52s (0:03:41) | 0 | 03:08:29–03:12:16 | 167.05 → 173.38 |
+| h-01 | `tests/fake/test_admission_stateful.py`, ids chunk-stateful-00 (3) | 3 passed in 125.23s (0:02:05) | 0 | 03:12:26–03:14:35 | 177.28 → 183.29 |
+| h-02 | `tests/fake/test_admission_stateful.py`, ids chunk-stateful-01 (3) | 3 passed in 16.11s | 0 | 03:14:35–03:14:56 | 183.29 → 184.74 |
+| h-03 | `tests/fake/test_admission_stateful.py`, ids chunk-stateful-02 (3) | 3 passed in 17.37s | 0 | 03:14:56–03:15:18 | 184.74 → 193.97 |
+| h-04 | `tests/fake/test_admission_stateful.py`, ids chunk-stateful-03 (3) | 3 passed in 10.49s | 0 | 03:15:18–03:15:32 | 193.97 → 185.87 |
+| h-05 | `tests/fake/test_admission_stateful.py`, ids chunk-stateful-04 (3) | 3 passed in 11.32s | 0 | 03:15:32–03:15:46 | 185.87 → 188.11 |
+| h-06 | `tests/fake/test_admission_stateful.py`, ids chunk-stateful-05 (2) | 2 passed in 9.20s | 0 | 03:15:46–03:16:00 | 188.11 → 188.10 |
+| i-01 | `tests/unit/test_capacity_steer_route.py` | 22 passed in 15.40s | 0 | 03:16:12–03:16:30 | 180.47 → 176.58 |
+| i-02 | `tests/unit/test_admission_uncapped.py` | 27 passed in 243.83s (0:04:03) | 0 | 03:16:30–03:20:38 | 176.58 → 181.99 |
+| i-03 | `tests/unit/test_host_push_intake.py` | 13 passed in 18.60s | 0 | 03:20:38–03:21:02 | 181.99 → 191.57 |
+| i-04 | `tests/unit/test_launch_qos_property.py` | 10 passed in 24.33s | 0 | 03:21:02–03:21:31 | 191.57 → 186.54 |
+| i-05 | `tests/unit/test_placement_ramp.py` | 26 passed in 19.58s | 0 | 03:21:31–03:21:54 | 186.54 → 185.28 |
+| i-06 | `tests/unit/test_policy_sandbox_resolution.py` | 42 passed in 12.32s | 0 | 03:21:54–03:22:11 | 185.28 → 177.43 |
+| i-07 | `tests/unit/test_retention_archive.py` | stopped at the call's budget after 200.5 s, no failure shown; rerun below | killed | 03:22:11–03:25:32 | 177.43 → 194.05 |
+| j-01 | `tests/unit/test_retention_archive.py` | 109 passed in 189.93s (0:03:09) | 0 | 03:26:01–03:29:18 | 185.90 → 184.65 |
+| j-02 | `tests/unit/test_scheduler_priority_callers.py` | 9 passed in 39.55s | 0 | 03:29:18–03:30:01 | 184.65 → 189.18 |
+| j-03 | `tests/fake/test_launch_qos_review_r1.py` | 6 passed in 14.28s | 0 | 03:30:01–03:30:19 | 189.18 → 187.98 |
+| j-04 | `tests/fake/test_reserve_authorization_validation.py` | 11 passed in 12.47s | 0 | 03:30:19–03:30:34 | 187.98 → 180.21 |
+| k-01 | `tests/unit/test_daemon_refusals_cli.py` | 8 passed in 11.00s | 0 | 03:30:45–03:31:00 | 175.91 → 177.32 |
+| k-02 | `tests/unit/test_mcp_cli_contract.py` | 6 passed in 11.45s | 0 | 03:31:00–03:31:15 | 177.32 → 174.44 |
+| k-03 | `tests/unit/test_notice_rendering.py` | 40 passed in 12.09s | 0 | 03:31:15–03:31:33 | 174.44 → 173.19 |
+| k-04 | `tests/unit/test_operator_notices.py` | 79 passed in 22.68s | 0 | 03:31:33–03:31:59 | 173.19 → 168.25 |
+| k-05 | `tests/unit/test_outcome_unknown.py` | 58 passed in 18.39s | 0 | 03:31:59–03:32:26 | 168.25 → 178.19 |
+| k-06 | `tests/unit/test_prune_decisions.py` | 48 passed in 53.62s | 0 | 03:32:26–03:33:27 | 178.19 → 193.28 |
+| k-07 | `tests/unit/test_sessions_cli.py` | 142 passed in 31.42s | 0 | 03:33:27–03:34:06 | 193.28 → 207.44 |
+| k-08 | `tests/unit/test_status_hold_source.py` | stopped at the call's budget after 359.1 s, no failure shown; rerun below | killed | 03:34:06–03:40:05 | 207.44 → 187.70 |
+| l-01 | `tests/unit/test_status_hold_source.py` | 135 passed in 375.18s (0:06:15) | 0 | 03:40:14–03:46:33 | 187.41 → 182.40 |
+| l-02 | `tests/unit/test_store_ids.py` | 27 passed in 11.84s | 0 | 03:46:33–03:46:48 | 182.40 → 182.42 |
+| l-03 | `tests/unit/test_store_qos_migration.py` | 13 passed in 11.89s | 0 | 03:46:48–03:47:02 | 182.42 → 179.78 |
+| m-01 | `tests/unit/test_census_boot_seeds.py` | 36 passed in 38.10s | 0 | 03:47:13–03:47:57 | 174.42 → 172.13 |
+| m-02 | `tests/unit/test_hooks.py` | 81 passed in 16.16s | 0 | 03:47:57–03:48:18 | 172.13 → 172.19 |
+| m-03 | `tests/unit/test_compat.py` | 1615 passed in 76.34s (0:01:16) | 0 | 03:48:18–03:49:36 | 172.19 → 124.58 |
+| m-04 | `tests/fake/test_capacity_steer_daemon.py` | 72 passed in 26.93s | 0 | 03:49:36–03:50:05 | 124.58 → 114.12 |
+| m-05 | `tests/fake/test_admission_ramp.py` | 19 passed in 31.64s | 0 | 03:50:05–03:50:38 | 114.12 → 122.31 |
+| m-06 | `tests/fake/test_admission_ramp_retention.py` | 11 passed in 6.80s | 0 | 03:50:38–03:50:47 | 122.31 → 123.41 |
+
+**Which runs finished.** Every run finished except i-07 and k-08, which the driver stopped at its per-call budget. Their process groups were killed, no failure had printed, and no process of mine remained. Both files were rerun whole and passed: j-01, 109 passed; l-01, 135 passed.
+
+**Totals.**
+- The 69 finished runs of the 71 covered 57 distinct test files, including the three chunked files, with 4,937 passed, 1 xfailed and 1 failed. These counts exclude the two runs outside the driver, `pytest-01` and `pytest-02`.
+- The only failure is d-01, the route-isolation race described above, on the file as release/217 has it.
+- Every file in the build rules' end list ran: capacity wait backoff, latency, properties, stateful, visibility, liveness, route isolation, task hold, reset credit, unadmittable pin, probe cancel, unrun worktrees, daemon verbs, state contract, test module names and the invariants index.
+- So did every file the A1 build listed as uninvoked.
 
 ### Deviations
 
@@ -484,11 +542,36 @@ Long admission files: in progress at the time of this draft (see the final versi
 - **Suite lock.** Tests ran directly with `-n 4`, not under `suite_hold.sh`, as this brief's Tests rule says.
 - **Load.** It was 57 to 218 throughout.
 - **Route-isolation test.** With the stabilization reverted, the file fails its known race under load. That is release/217's state, not a change of this round.
+- **Long files chunked.** Latency, liveness and stateful ran as id chunks, not as whole files, because of the tool's 600 s cap per call.
+- **Two reruns.** Two runs (`test_retention_archive.py`, `test_status_hold_source.py`) hit the driver's budget, were stopped, and were rerun whole.
+- **No full suite.** CI runs it.
 
 ### Cleanup
 
 Scratch was `/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-rv-f1` (`$(getconf DARWIN_USER_TEMP_DIR)sf-rv-f1`). During the work I removed its `mut/` copy once, with a guarded `shutil.rmtree`, before the final mutant run.
 
-Final cleanup: pending at the time of this draft.
+**Folders outside scratch.** These were made in the worktree by `uv sync` and the test runs. Each was renamed into `sf-rv-f1/cleanup/` and removed with `shutil.rmtree` after asserting `sf-rv-f1` was in its resolved path:
+- `/Users/maxghenis/.subfleet/worktrees/20261114-190014-rv-a1-fix-r1/.venv`
+- `…/.hypothesis`
+- `…/subfleet/__pycache__`
+- `…/subfleet/adapters/__pycache__`
+- `…/subfleet/conversations/__pycache__`
+- `…/subfleet/gate/__pycache__`
+- `…/subfleet/guard/__pycache__`
+- `…/subfleet/sessions/__pycache__`
+- `…/tests/__pycache__`
+- `…/tests/fake/__pycache__`
+- `…/tests/unit/__pycache__`
+
+**Scratch.**
+- Removed whole (1.2 GB) by the same guarded `rmtree`.
+- A first try stopped on a read-only directory a retention test's fixture had left under `pytest-j-01`. The retry set owner-only mode 0700 on two directories inside scratch, then deleted them. Its handler asserted every path was inside scratch.
+- The helper scripts named above (`corpus.py`, `spot.py`, `timing.py`, `mutants.py`, `runfiles.py`) went with it. This section records their inputs, rules and edits.
+
+**Left in place.**
+- `$(getconf DARWIN_USER_TEMP_DIR)uv-cache`, the shared uv cache the Tests rule names. It existed before this session (created 2026-11-14 14:13 UTC) and other jobs use it.
+- `/tmp/sf-failed`: empty, and nothing kept there by these runs.
+
+**End state.** No process of mine remained (`ps` showed no pytest under these basetemps). The worktree holds no untracked or ignored files, and HEAD moved only by the commits listed at the top.
 
 Code head: 0689f895b79cc11ea1db5111116751825dd53be5.
