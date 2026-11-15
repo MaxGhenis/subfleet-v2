@@ -157,7 +157,7 @@ def test_a_missing_entry_is_drift_and_is_appended(tmp_path, monkeypatch, capsys)
     assert item["status"] == doctor.FAIL and "PostToolUse (missing)" in item["detail"]
     monkeypatch.setenv(hooks.SETTINGS_ENV, str(path))
     assert cli.main(["daemon", "install", "--hooks", "--dry-run"]) == 0
-    assert "(PostToolUse: missing)" in capsys.readouterr().err
+    assert f"would write {path}: PostToolUse (missing)" in capsys.readouterr().err
     written = hooks.apply(path, command=CMD, timeout=TIMEOUT)
     assert written["written"] is True and len(backups(path)) == 1
     after = json.loads(path.read_text())
@@ -227,8 +227,12 @@ def test_an_entry_shared_with_another_tools_hook_differs(tmp_path):
 
 
 def test_a_duplicate_is_drift_and_install_keeps_the_first(tmp_path):
-    """C-23.25 two equal entries would deliver every notice twice: drift, and
-    install keeps one, at the first one's place."""
+    """C-23.25 two v2 entries are drift, and install keeps one, at the first
+    one's place. Two v2 entries are not what `--hooks` writes; where their
+    commands differ (an old path beside the current one) the harness runs both,
+    and its hooks page promises one run only for the same handler defined in
+    more than one settings file, not for two in one file
+    (`docs/reference/claude-hooks.md` §1)."""
     data = live_shape()
     data["hooks"]["PreToolUse"].append(ours("PreToolUse"))
     path = write(tmp_path, data)
@@ -238,6 +242,58 @@ def test_a_duplicate_is_drift_and_install_keeps_the_first(tmp_path):
     item = doctor.check_hook_entries(path)
     assert item["status"] == doctor.FAIL and "PreToolUse (duplicated)" in item["detail"]
     hooks.apply(path, command=CMD, timeout=TIMEOUT)
+    assert json.loads(path.read_text())["hooks"]["PreToolUse"] == live_shape()[
+        "hooks"]["PreToolUse"]
+
+
+def _twice_in_one_group(event: str) -> list:
+    """One group holding v2's hook twice."""
+    group = ours(event)
+    group["hooks"] = [group["hooks"][0], copy.deepcopy(group["hooks"][0])]
+    return [group]
+
+
+def _old_path_and_current_in_one_group(event: str) -> list:
+    """One group holding v2's hook under an old path, then as written."""
+    group = ours(event)
+    old = {**group["hooks"][0], "command": f"/old/venv/bin/subfleet hook {event}"}
+    group["hooks"] = [old, group["hooks"][0]]
+    return [group]
+
+
+def _once_in_each_of_two_groups(event: str) -> list:
+    """The control: the same two hooks, one group each."""
+    return [ours(event), ours(event)]
+
+
+@pytest.mark.parametrize("v2_groups", [_twice_in_one_group,
+                                       _old_path_and_current_in_one_group,
+                                       _once_in_each_of_two_groups])
+def test_two_v2_hooks_are_duplicated_in_one_group_or_two(tmp_path, monkeypatch,
+                                                         capsys, v2_groups):
+    """C-23.25 drift counts v2's hooks, not the groups that hold them: two v2
+    hooks inside one group are `duplicated`, as two groups holding one each
+    are (the control). `doctor`, `installed()` and the dry run all say so, and
+    install leaves one entry where the group was."""
+    data = live_shape()
+    groups = data["hooks"]["PreToolUse"]
+    at = next(index for index, group in enumerate(groups)
+              if hooks._holds_ours(group, "PreToolUse", CMD))
+    data["hooks"]["PreToolUse"] = [*groups[:at], *v2_groups("PreToolUse"),
+                                   *groups[at + 1:]]
+    path = write(tmp_path, data)
+    report = hooks.plan(path, command=CMD, timeout=TIMEOUT)
+    assert report["changed_events"] == ["PreToolUse"]
+    assert report["drift"] == {"PreToolUse": "duplicated"}
+    assert hooks.installed(path, command=CMD, timeout=TIMEOUT)["drift"] == {
+        "PreToolUse": "duplicated"}
+    item = doctor.check_hook_entries(path)
+    assert item["status"] == doctor.FAIL
+    assert f"{path}: PreToolUse (duplicated) would change" in item["detail"]
+    monkeypatch.setenv(hooks.SETTINGS_ENV, str(path))
+    assert cli.main(["daemon", "install", "--hooks", "--dry-run"]) == 0
+    assert f"would write {path}: PreToolUse (duplicated)" in capsys.readouterr().err
+    assert hooks.apply(path, command=CMD, timeout=TIMEOUT)["written"] is True
     assert json.loads(path.read_text())["hooks"]["PreToolUse"] == live_shape()[
         "hooks"]["PreToolUse"]
 

@@ -3271,7 +3271,7 @@ def _plist(root: Path) -> bytes:
 
 
 def cmd_daemon_install_hooks(args: argparse.Namespace) -> int:
-    """`daemon install --hooks`: the three Claude Code hook entries (C-15.2).
+    """`daemon install --hooks`: the four Claude Code hook entries (C-15.2).
 
     The diff is printed first, always — with `--dry-run` instead of writing and
     without it before writing. `~/.claude/settings.json` is a file the user
@@ -3296,10 +3296,11 @@ def cmd_daemon_install_hooks(args: argparse.Namespace) -> int:
     sys.stdout.write(report["diff"])
     if args.dry_run:
         drift = report.get("drift") or {}
-        events = ", ".join(f"{event}: {drift[event]}" if event in drift else event
+        # The same `Event (reason)` list `doctor` prints (C-23.25).
+        events = ", ".join(f"{event} ({drift[event]})" if event in drift else event
                            for event in report["changed_events"])
         note(f"{PROG} daemon install --hooks --dry-run: would write "
-             f"{report['path']} ({events})")
+             f"{report['path']}: {events}")
         return int(Exit.OK)
     written = hooks.apply()
     if not written.get("written"):
@@ -3866,7 +3867,7 @@ def build_parser() -> argparse.ArgumentParser:
                            help="print instead of writing (the plist, or with "
                                 "--hooks the settings diff)")
     d_install.add_argument("--hooks", action="store_true",
-                           help="install the three Claude Code hook entries into "
+                           help="install the four Claude Code hook entries into "
                                 "~/.claude/settings.json instead of the plist "
                                 "(prints the diff first, always)")
 
