@@ -90,8 +90,10 @@ def causes(service):
     return [record for record in service.recording.records if record.exc_info]
 
 
-def run_control(service, outcomes):
-    """One query per iteration; ``None`` completes and an exception raises."""
+def run_control(service, outcomes, *, exports=lambda: []):
+    """One query per iteration; ``None`` completes, an exception raises and a callable is
+    called (and may raise). ``exports`` stands for the pending exports the loop reads
+    after a query that returns."""
     state = SimpleNamespace(index=0, waits=0)
 
     def query(_):
@@ -99,6 +101,8 @@ def run_control(service, outcomes):
         state.index += 1
         if isinstance(value, Exception):
             raise value
+        if callable(value):
+            value()
         return []
 
     def wait(_):
@@ -107,7 +111,7 @@ def run_control(service, outcomes):
     service.stopping = SimpleNamespace(is_set=lambda: state.waits >= len(outcomes), wait=wait)
     service.store.query = query
     service._forget_paced = service._forget_answers = lambda _: None
-    service._pending_exports = service._pending_worktree_holds = lambda: []
+    service._pending_exports, service._pending_worktree_holds = exports, lambda: []
     service._recovery_complete = threading.Event()
     service._recover_then_start_timers = lambda: None
     service._schedule = lambda *args, **kwargs: None
@@ -532,6 +536,43 @@ def test_one_object_raised_on_three_control_ticks_logs_one_cause():
     service, stored = core(), RuntimeError("fixture failure stored and raised again")
     run_control(service, [stored, stored, stored])
     assert [bool(record.exc_info) for record in service.recording.records] == [True, False, False]
+
+
+def fixture_helper_raises():
+    raise RuntimeError("fixture failure raised in one helper")
+
+
+def caught_at_one_call():
+    try:
+        fixture_helper_raises()
+    except RuntimeError as exc:
+        return exc
+
+
+def caught_at_another_call():
+    try:
+        fixture_helper_raises()
+    except RuntimeError as exc:
+        return exc
+
+
+def test_raise_signature_reads_the_outermost_frame():
+    """Review r2 of #308, P2: two links raised at one line of one helper (the same
+    innermost frame) and caught where two different lines called it (different
+    outermost frames) key apart; the same call keys alike."""
+    one, two = caught_at_one_call(), caught_at_another_call()
+    assert daemon_module.raise_signature(one)[0][1] == daemon_module.raise_signature(two)[0][1]
+    assert daemon_module.raise_signature(one) != daemon_module.raise_signature(two)
+    assert daemon_module.raise_signature(one) == daemon_module.raise_signature(caught_at_one_call())
+
+
+def test_one_helper_reached_from_two_control_lines_logs_two_causes():
+    """The same, at the site: one helper raises when the loop's query calls it and when
+    its pending exports call it, two lines of `_control`, so two causes; the query's
+    again is not new."""
+    service = core()
+    run_control(service, [fixture_helper_raises, None, fixture_helper_raises], exports=fixture_helper_raises)
+    assert [bool(record.exc_info) for record in service.recording.records] == [True, True, False]
 
 
 def test_one_object_raised_from_three_requests_logs_one_cause(monkeypatch):
