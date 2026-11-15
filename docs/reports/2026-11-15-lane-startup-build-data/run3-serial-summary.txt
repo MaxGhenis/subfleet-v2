@@ -1,0 +1,3 @@
+E   AssertionError: condition timed out after 10s
+ERROR tests/e2e/test_conversations.py::test_a_codex_conversation_is_read_only_until_the_guard_is_proven_live
+2 passed, 1 error in 164.29s (0:02:44)

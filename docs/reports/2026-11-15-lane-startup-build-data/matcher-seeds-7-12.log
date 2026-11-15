@@ -1,0 +1,12 @@
+sets 60 paths 4418 agree 4418 disagree 0 (bundle excluded 3321, kept 1097); fwo mismatches 0
+bundle verdicts by label (label, excluded): backslash-fold/False=2, dot-segment/True=160, empty/False=60, exclude/True=3161, keep/False=800, line-terminator/False=235
+sets 60 paths 4389 agree 4389 disagree 0 (bundle excluded 3294, kept 1095); fwo mismatches 0
+bundle verdicts by label (label, excluded): dot-segment/True=160, empty/False=60, exclude/True=3134, keep/False=800, line-terminator/False=235
+sets 60 paths 4288 agree 4288 disagree 0 (bundle excluded 3192, kept 1096); fwo mismatches 0
+bundle verdicts by label (label, excluded): backslash-fold/False=1, dot-segment/True=160, empty/False=60, exclude/True=3032, keep/False=800, line-terminator/False=235
+sets 60 paths 4314 agree 4314 disagree 0 (bundle excluded 3219, kept 1095); fwo mismatches 0
+bundle verdicts by label (label, excluded): dot-segment/True=160, empty/False=60, exclude/True=3059, keep/False=800, line-terminator/False=235
+sets 60 paths 4370 agree 4370 disagree 0 (bundle excluded 3275, kept 1095); fwo mismatches 0
+bundle verdicts by label (label, excluded): dot-segment/True=160, empty/False=60, exclude/True=3115, keep/False=800, line-terminator/False=235
+sets 60 paths 4395 agree 4395 disagree 0 (bundle excluded 3299, kept 1096); fwo mismatches 0
+bundle verdicts by label (label, excluded): backslash-fold/False=1, dot-segment/True=160, empty/False=60, exclude/True=3139, keep/False=800, line-terminator/False=235
