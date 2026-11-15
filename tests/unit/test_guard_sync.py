@@ -266,14 +266,26 @@ def test_same_decisions_on_generated_keychain_commands(tmp_path, words):
 
 #: HARNESS for a block that reads the cwd: it takes the hooks' Bash payload on stdin and reads the
 #: command and the cwd from it as both hooks do (the overlay at its jq lines; the Claude harness's
-#: ``run_bash`` builds the same payload). HOME is the launch's, as in a hook.
-PAYLOAD_HARNESS = """set -u
+#: ``run_bash`` builds the same payload). HOME is the launch's, as in a hook. Right after the input
+#: read comes the git config pin (``claude-blocks/git-config-pin.txt``), where the hub puts it in the
+#: Claude hook and where the overlay has it (fix r1); ``payload_harness(pin=False)`` is the Claude hook
+#: before that edit.
+PAYLOAD_HARNESS_HEAD = """set -u
 export PATH=/usr/bin:/bin
 input=$(cat)
-command=$(printf '%s' "$input" | jq -r '.tool_input.command // empty')
+"""
+PAYLOAD_HARNESS_TAIL = """command=$(printf '%s' "$input" | jq -r '.tool_input.command // empty')
 cwd=$(printf '%s' "$input" | jq -r '.cwd // empty')
 block() { printf '%s' "$1"; exit 0; }
 """
+#: The pin both hooks carry after their input read (fix r1): reading an index makes git run the
+#: repository's core.fsmonitor command, and the hooks run on the host, outside any sandbox.
+PIN_LINE = "export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=false\n"
+
+
+def payload_harness(pin: bool = True) -> str:
+    return PAYLOAD_HARNESS_HEAD + ((BLOCKS / "git-config-pin.txt").read_text(encoding="utf-8") if pin else "") \
+        + PAYLOAD_HARNESS_TAIL
 YAML = "format: rulespec/v1\n"
 SECTION = "il/statutes/income-tax-ordinance/section-121"
 ORIGIN = "https://github.com/TheAxiomFoundation/rulespec-il.git"
@@ -334,23 +346,23 @@ class AxiomFixture:
         if files:
             self.git(repo, "add", "--", *files)
 
-    def claude(self, rule: str, command: str, cwd: Path) -> str:
-        """The pinned Claude block alone (empty: allowed)."""
-        script = self.root / f"harness-{rule}.sh"
+    def claude(self, rule: str, command: str, cwd: Path, pin: bool = True, env: dict | None = None) -> str:
+        """The pinned Claude block alone (empty: allowed). ``env`` adds to the launch's environment."""
+        script = self.root / f"harness-{rule}{'' if pin else '-unpinned'}.sh"
         if not script.exists():
-            script.write_text(PAYLOAD_HARNESS + (BLOCKS / f"{rule}.sh").read_text(encoding="utf-8") + "exit 0\n",
-                              encoding="utf-8")
+            script.write_text(payload_harness(pin) + (BLOCKS / f"{rule}.sh").read_text(encoding="utf-8")
+                              + "exit 0\n", encoding="utf-8")
         out = subprocess.run(["/bin/bash", str(script)], input=payload(command, cwd), capture_output=True,
-                             text=True, timeout=60, env={"PATH": self.env["PATH"], "HOME": str(self.home)},
-                             cwd=self.root)
+                             text=True, timeout=60,
+                             env={"PATH": self.env["PATH"], "HOME": str(self.home), **(env or {})}, cwd=self.root)
         assert out.returncode == 0, out.stderr
         return out.stdout
 
-    def overlay(self, command: str, cwd: Path) -> str:
+    def overlay(self, command: str, cwd: Path, env: dict | None = None) -> str:
         """The overlay hook's reason for the Bash payload (empty: allowed)."""
         (self.root / "fs").mkdir(exist_ok=True)
         env = {"PATH": self.env["PATH"], "HOME": str(self.home), "CODEX_GUARD_LOG": os.devnull,
-               "CODEX_GUARD_TEST_FSROOT": str(self.root / "fs")}
+               "CODEX_GUARD_TEST_FSROOT": str(self.root / "fs"), **(env or {})}
         out = subprocess.run(["/bin/bash", str(HOOK)], input=payload(command, cwd), capture_output=True, text=True,
                              env=env, timeout=120, cwd=self.root)
         assert out.returncode == 0, out.stderr
@@ -400,8 +412,29 @@ BRIEF_CASES = [
      "plain", True),
     ("a brief that does not exist allowed", "subfleet run --task build -C ~/TheAxiomFoundation "
      "-p {briefs}/missing.md -o out.md", "plain", False),
-    ("cd then subfleet run reads the payload cwd", "cd {briefs} && subfleet run --task build "
-     "-C ~/TheAxiomFoundation -p no-regime.md", "plain", False),
+    # fix r1 (2026-11-15): a cd before the run moves the folder a relative -p is read from (it was a gap
+    # both sides shared: the payload cwd alone was read)
+    ("cd then subfleet run reads the folder cd names", "cd {briefs} && subfleet run --task build "
+     "-C ~/TheAxiomFoundation -p no-regime.md", "plain", True),
+    ("-p attached to the path blocked", "subfleet run --task build -C ~/TheAxiomFoundation "
+     "-p{briefs}/no-regime.md -o out.md", "plain", True),
+    ("-p=path blocked", "subfleet run --task build -C ~/TheAxiomFoundation -p={briefs}/no-regime.md", "plain", True),
+    ("-C attached to the path blocked", "subfleet run --task build -C{axiom} -p {briefs}/no-regime.md", "plain", True),
+    ("a relative -C resolves against the cwd", "subfleet run --task build -C . -p no-regime.md -o out.md", "axiom",
+     True),
+    ("every subfleet run is judged, not only the last", "subfleet run --task build -C ~/TheAxiomFoundation "
+     "-p {briefs}/no-regime.md -o a.md; subfleet run --task build -C ~/PolicyEngine -p {briefs}/site-only.md",
+     "plain", True),
+    ("every -p is read, not only the first", "subfleet run --task build -C ~/TheAxiomFoundation "
+     "-p {briefs}/with-regime.md -p {briefs}/no-regime.md", "plain", True),
+    ("a line continuation inside the run blocked", "subfleet run --task build \\\n  -C ~/TheAxiomFoundation "
+     "\\\n  -p {briefs}/no-regime.md", "plain", True),
+    ("a run inside bash -c blocked", "bash -c 'cd {briefs} && subfleet run -C ~/TheAxiomFoundation -p no-regime.md'",
+     "plain", True),
+    # the run's words end at the command's end: a -p in a later command is not its brief (the old block read
+    # the first -p anywhere after the last `subfleet run`, and blocked this)
+    ("a -p in a later command is not the run's", "subfleet run --task build -C ~/TheAxiomFoundation -o out.md; "
+     "echo -p {briefs}/no-regime.md", "plain", False),
 ]
 
 
@@ -409,7 +442,7 @@ BRIEF_CASES = [
 @pytest.mark.parametrize("name,command,cwd,denied", BRIEF_CASES, ids=[case[0] for case in BRIEF_CASES])
 def test_same_decisions_axiom_brief_regime(name, command, cwd, denied, tmp_path):
     fix = AxiomFixture(tmp_path)
-    reason = fix.same("axiom-brief-regime", command.format(briefs=fix.briefs), getattr(fix, cwd))
+    reason = fix.same("axiom-brief-regime", command.format(briefs=fix.briefs, axiom=fix.axiom), getattr(fix, cwd))
     assert bool(reason) == denied, (name, reason)
     if denied:
         assert reason.startswith(BRIEF_REASON), reason
@@ -455,6 +488,38 @@ HAND_CASES = [
     ("add and commit in one command allowed", {}, {}, f"git add {SECTION}.yaml && git commit -m x", "rulespec", []),
     ("git -C then commit after other words blocked", {"rulespec": {f"{SECTION}.yaml": YAML}}, {},
      "cd /tmp; git -C {rulespec} commit -q -m x", "plain", [f"{SECTION}.yaml"]),
+    # fix r1 (2026-11-15): the review's five forms the block's parser missed (both sides allowed each), then
+    # the other spellings its parser now reads
+    ("git -c before commit blocked", {"rulespec": {f"{SECTION}.yaml": YAML}}, {},
+     "git -c core.quotepath=off commit -m x", "rulespec", [f"{SECTION}.yaml"]),
+    ("git --no-pager before commit blocked", {"rulespec": {f"{SECTION}.yaml": YAML}}, {},
+     "git --no-pager commit -m x", "rulespec", [f"{SECTION}.yaml"]),
+    ("git -C then -c before commit blocked", {"rulespec": {f"{SECTION}.yaml": YAML}}, {},
+     "git -C {rulespec} -c a=b commit -m y", "plain", [f"{SECTION}.yaml"]),
+    ("cd into the checkout then commit blocked", {"rulespec": {f"{SECTION}.yaml": YAML}}, {},
+     "cd {rulespec} && git commit -m x", "plain", [f"{SECTION}.yaml"]),
+    ("a relative -C resolves against the payload cwd", {"rulespec": {f"{SECTION}.yaml": YAML}}, {},
+     "git -C rulespec commit -m x", "home", [f"{SECTION}.yaml"]),
+    ("a relative cd resolves against the payload cwd", {"rulespec": {f"{SECTION}.yaml": YAML}}, {},
+     "cd rulespec; git commit -m x", "home", [f"{SECTION}.yaml"]),
+    ("git -p and a path to git blocked", {"rulespec": {f"{SECTION}.yaml": YAML}}, {},
+     "/usr/bin/git -p -C {rulespec} commit -m x", "plain", [f"{SECTION}.yaml"]),
+    ("--git-dir names the checkout blocked", {"rulespec": {f"{SECTION}.yaml": YAML}}, {},
+     "git --git-dir={rulespec}/.git commit -m x", "plain", [f"{SECTION}.yaml"]),
+    ("GIT_DIR names the checkout blocked", {"rulespec": {f"{SECTION}.yaml": YAML}}, {},
+     "GIT_DIR={rulespec}/.git git commit -m x", "plain", [f"{SECTION}.yaml"]),
+    ("every commit in the command is judged", {"rulespec": {f"{SECTION}.yaml": YAML}}, {},
+     "git -C {plain} commit -m a && git -C {rulespec} commit -m b", "plain", [f"{SECTION}.yaml"]),
+    ("a commit inside bash -c blocked", {"rulespec": {f"{SECTION}.yaml": YAML}}, {},
+     "bash -c \"cd {rulespec} && git commit -m x\"", "plain", [f"{SECTION}.yaml"]),
+    ("a line continuation before commit blocked", {"rulespec": {f"{SECTION}.yaml": YAML}}, {},
+     "git \\\n  -C {rulespec} \\\n  commit -m x", "plain", [f"{SECTION}.yaml"]),
+    # a subshell's cd still counts: the block cannot tell where a subshell ends, so it checks every folder
+    # the command may be in (an over-approximation; it errs toward blocking)
+    ("a subshell's cd still counts", {"rulespec": {f"{SECTION}.yaml": YAML}}, {},
+     "(cd {rulespec} && true); git commit -m x", "plain", [f"{SECTION}.yaml"]),
+    ("git log naming commit is not a commit", {"rulespec": {f"{SECTION}.yaml": YAML}}, {},
+     "git -C {rulespec} log --grep commit", "plain", []),
 ]
 
 
@@ -468,7 +533,8 @@ def test_same_decisions_axiom_hand_authored_rulespec(name, staged, head, command
     (fix.rulespec / f"{SECTION}.yaml").write_text(YAML, encoding="utf-8")  # on disk, staged only by a case
     for repo, files in staged.items():
         fix.stage(getattr(fix, repo), files)
-    reason = fix.same("hand-authored-rulespec", command.format(rulespec=fix.rulespec), getattr(fix, cwd))
+    reason = fix.same("hand-authored-rulespec", command.format(rulespec=fix.rulespec, plain=fix.plain),
+                      getattr(fix, cwd))
     assert bool(reason) == bool(missing), (name, reason)
     if missing:
         assert reason.startswith(HAND_PREFIX + " ".join(missing) + ". RuleSpec modules come only from "), reason
@@ -517,7 +583,7 @@ STAGED = st.lists(st.tuples(st.one_of(RULE_FILES, OTHER_FILES), st.booleans()), 
 
 @needs_jq
 @settings(max_examples=40, deadline=None, derandomize=True)
-@given(STAGED, st.sampled_from(["cwd", "-C", "-C ~"]))
+@given(STAGED, st.sampled_from(["cwd", "-C", "-C ~", "-c", "cd", "relative -C"]))
 def test_same_decisions_on_generated_staged_files(staged_fixture, entries, form):
     """I2 over generated staged-file lists: rule paths under <cc>/(statutes|regulations|policies|
     legislation|programs)/ and near misses, companion tests, composed/ and .axiom/ paths, each with or
@@ -536,13 +602,150 @@ def test_same_decisions_on_generated_staged_files(staged_fixture, entries, form)
                 stdin="".join(f"100644 {blob}\t{path}\n" for path in sorted(staged)))
     command, cwd = {"cwd": ("git commit -m x", fix.rulespec),
                     "-C": (f"git -C {fix.rulespec} commit -m x", fix.plain),
-                    "-C ~": ("git -C ~/rulespec commit -m x", fix.plain)}[form]
+                    "-C ~": ("git -C ~/rulespec commit -m x", fix.plain),
+                    "-c": ("git -c a=b --no-pager commit -m x", fix.rulespec),
+                    "cd": (f"cd {fix.rulespec} && git commit -m x", fix.plain),
+                    "relative -C": ("git -C rulespec commit -m x", fix.home)}[form]
     missing = oracle_missing(staged, {f".axiom/encoding-manifests/{TRACKED}.json"})
     reason = fix.same("hand-authored-rulespec", command, cwd)
     if missing:
         assert reason.startswith(HAND_PREFIX + " ".join(missing) + ". "), (sorted(staged), reason)
     else:
         assert reason == "", (sorted(staged), reason)
+
+
+# ---------------------------------------------------------------- I5-I7: fix r1 (2026-11-15)
+
+FSMONITOR = "#!/bin/sh\nprintf 'ran\\n' >> '{marker}'\nexit 0\n"
+#: (name, command, cwd, what is staged, denied): the review's two payloads, the same with nothing staged, and one
+#: that reaches every rule that runs git, which the staged manifest lets past the hand-authored-rulespec block.
+FSMONITOR_CASES = [
+    ("git -C names the checkout", "git -C {rulespec} commit -m x", "plain", "rule", True),
+    ("the payload cwd is the checkout", "git commit -m x", "rulespec", "rule", True),
+    ("nothing staged", "git commit -m x", "rulespec", "", False),
+    # corpus-squash's git call is left out: in a rulespec checkout it denies (remote get-url reads no index)
+    ("the rules that run git", "git -C {rulespec} commit -m x && git stash && git checkout -b f && git push",
+     "rulespec", "rule and manifest", False),
+]
+
+
+@needs_jq
+@pytest.mark.parametrize("name,command,cwd,staged,denied", FSMONITOR_CASES, ids=[c[0] for c in FSMONITOR_CASES])
+def test_no_git_call_runs_the_repositorys_fsmonitor(name, command, cwd, staged, denied, tmp_path):
+    """I5: neither hook makes git run a repository's configured core.fsmonitor command. The rulespec
+    checkout's fsmonitor appends to a marker. git itself runs it for an index read (the control), and so
+    does the Claude block without the pin; with the pin neither side runs it, and the decision stands."""
+    fix = AxiomFixture(tmp_path)
+    marker = tmp_path / "fsmonitor-ran"
+    script = tmp_path / "fsmonitor.sh"
+    script.write_text(FSMONITOR.format(marker=marker), encoding="utf-8")
+    script.chmod(0o755)
+    if staged:
+        files = {f"{SECTION}.yaml": YAML}
+        if "manifest" in staged:
+            files[f".axiom/encoding-manifests/{SECTION}.json"] = "{}"
+        fix.stage(fix.rulespec, files)
+    fix.git(fix.rulespec, "config", "core.fsmonitor", str(script))
+    fix.git(fix.rulespec, "diff", "--cached", "--name-only")
+    assert marker.exists(), "control: git runs the fsmonitor command for an index read"
+    marker.unlink()
+    command, where = command.format(rulespec=fix.rulespec), getattr(fix, cwd)
+    if denied:
+        assert fix.claude("hand-authored-rulespec", command, where, pin=False).startswith(HAND_PREFIX)
+        assert marker.exists(), "control: the Claude block without the pin runs it"
+        marker.unlink()
+    reason = fix.same("hand-authored-rulespec", command, where)
+    assert bool(reason) == denied, reason
+    assert not marker.exists(), marker.read_text()
+
+
+def git_starts(trace: Path) -> int:
+    """The git processes a GIT_TRACE2_EVENT file records (one ``start`` event each)."""
+    if not trace.exists():
+        return 0
+    return sum(json.loads(line).get("event") == "start" for line in trace.read_text().splitlines() if line)
+
+
+@needs_jq
+def test_the_staged_file_count_does_not_multiply_git_processes(tmp_path):
+    """I6: the block's git processes do not grow with the staged rule files (one cat-file --batch-check
+    reads every manifest; it was up to two cat-file calls per file). Both sides name all the files."""
+    fix = AxiomFixture(tmp_path)
+    blob = fix.git(fix.rulespec, "hash-object", "-w", "--stdin", stdin=YAML).strip()
+    starts = {}
+    for count in (2, 60):
+        files = [f"il/statutes/s-{i:03d}.yaml" for i in range(count)]
+        fix.git(fix.rulespec, "read-tree", "HEAD")
+        fix.git(fix.rulespec, "update-index", "--index-info",
+                stdin="".join(f"100644 {blob}\t{path}\n" for path in files))
+        for side in ("claude", "overlay"):
+            trace = tmp_path / f"trace-{side}-{count}.json"
+            env = {"GIT_TRACE2_EVENT": str(trace)}
+            reason = (fix.claude("hand-authored-rulespec", "git commit -m x", fix.rulespec, env=env) if side == "claude"
+                      else fix.overlay("git commit -m x", fix.rulespec, env=env))
+            assert reason.startswith(HAND_PREFIX + " ".join(files) + ". "), reason[:200]
+            starts[side, count] = git_starts(trace)
+    assert starts["claude", 2] == starts["claude", 60] and starts["overlay", 2] == starts["overlay", 60], starts
+    assert 0 < starts["overlay", 60] <= 4, starts
+
+
+@needs_jq
+def test_more_than_16_places_to_check_is_refused(tmp_path):
+    """I6: a command naming more than 16 folders (or briefs) to check is refused on both sides, so the
+    work stays bounded and never runs into the hook's timeout, which allows."""
+    fix = AxiomFixture(tmp_path)
+    hops = "; ".join(f"cd d{i}" for i in range(17))
+    reason = fix.same("hand-authored-rulespec", f"{hops}; git commit -m x", fix.plain)
+    assert reason.startswith("[hand-authored-rulespec] This command commits from more than 16 folders"), reason
+    reason = fix.same("axiom-brief-regime", f"{hops}; subfleet run -C ~/TheAxiomFoundation -p b.md", fix.plain)
+    assert reason.startswith("[axiom-brief-regime] This command names more than 16 briefs"), reason
+    # 16 folders (the payload cwd and 15 more) are each checked; none is a rulespec checkout
+    hops = "; ".join(f"cd d{i}" for i in range(15))
+    assert fix.same("hand-authored-rulespec", f"{hops}; git commit -m x", fix.plain) == ""
+
+
+CORPUS_ORIGIN = "https://github.com/TheAxiomFoundation/axiom-corpus.git"
+#: (rule, command, the folder it is judged in) for the rules after the two Axiom blocks that read the payload cwd
+#: or $HOME, each a denial on its own.
+LATER_RULES = [
+    ("corpus-squash", "gh pr merge 7 --squash", "corpus"),
+    ("corpus-push", "git push origin main", "corpus"),
+    ("stash-shared", "git stash", "shared"),
+    ("local-main", "git checkout -b feat", "mainline"),
+    ("unscoped-search", "find ~ -name y", "plain"),
+]
+#: Commands the Axiom blocks run on and allow, each naming another folder (the review's M3 case is the first).
+AXIOM_PREFIXES = [
+    "git -C {plain} commit -m x && ",
+    "git -c a=b -C {plain} --no-pager commit -m x; ",
+    "cd {plain} && git commit -m x; ",
+    "GIT_DIR={plain}/.git git commit -m x; ",
+    "subfleet run --task build -C ~/TheAxiomFoundation -p {briefs}/with-regime.md -o out.md && ",
+    "subfleet run --task build -C {plain} -p {briefs}/no-regime.md; ",
+]
+
+
+@needs_jq
+@pytest.mark.parametrize("rule,command,cwd", LATER_RULES, ids=[rule for rule, _, _ in LATER_RULES])
+def test_later_rules_decide_alike_after_an_axiom_command(rule, command, cwd, tmp_path):
+    """I7: the two Axiom blocks leave later rules' inputs alone. Each later rule's denial is the same, reason
+    for reason, when an Axiom command the blocks allow comes first in the same command. The review's mutant
+    M3 (corpus-squash reading the hand block's folder as its cwd) turns the first such case into an allow."""
+    fix = AxiomFixture(tmp_path)
+    fix.corpus, fix.shared, fix.mainline = fix.home / "axiom-corpus", fix.home / "shared", fix.home / "mainline"
+    for repo in (fix.corpus, fix.shared, fix.mainline):
+        repo.mkdir()
+        fix.git(repo, "init", "-q", "-b", "main")
+        fix.git(repo, "commit", "-q", "--allow-empty", "-m", "init")
+    fix.git(fix.corpus, "remote", "add", "origin", CORPUS_ORIGIN)
+    fix.git(fix.shared, "worktree", "add", "-q", "-b", "wt", str(fix.home / "shared-wt"))
+    fix.git(fix.mainline, "update-ref", "refs/remotes/origin/main", "HEAD")
+    where = getattr(fix, cwd)
+    alone = fix.overlay(command, where)
+    assert alone.startswith(f"[{rule}] "), (rule, alone)
+    for prefix in AXIOM_PREFIXES:
+        both = prefix.format(plain=fix.plain, briefs=fix.briefs) + command
+        assert fix.overlay(both, where) == alone, both
 
 
 # ---------------------------------------------------------------- I3: the attached-runner denial
