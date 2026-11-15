@@ -2321,5 +2321,6 @@ __all__ = [
     "link_raw_stream",
     "model_matches_requested",
     "parse_reset_clock",
+    "pin_git_config",
     "reconstruct_v1_argv",
 ]
