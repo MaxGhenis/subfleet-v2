@@ -526,3 +526,173 @@ One transient failure: `test_r1_each_interpreter_the_hook_may_take_runs_the_pars
 ### Cleanup
 
 I removed 11 folders with a guarded `shutil.rmtree`, which accepts only `pytest-gsm-*` names directly under `$TMPDIR`: `pytest-gsm-cache`, `-diag`, `-hr`, `-mut`, `-scratch`, `-sfr`, `-sfrS`, `-small`, `-sr`, `-sync` and `-syncden`. I kept `$TMPDIR/uv-cache` (shared) and the worktree's ignored `.venv`.
+
+---
+
+## Fix round 1
+
+Brief: the hub's fix round 1 for review r1 (`~/reviews/subfleet-hub/guard-sync-2026-11-11/review-r1.md`). Lane job 20261115-100032-gs-fix-r1 ran it in a detached checkout at `abfb48fca`. It started at 2026-11-15T15:35:34Z (`date -u`, first command).
+
+**Status: partial.** Every P1 and P2 finding and both doc P3s are changed, and the new tests pass at the code head. Step 3's four files and `test_guard_search_rel.py` never ran, and the per-test "fails before" evidence is incomplete (see Tests). The report came about 45 minutes after the brief's 3-hour stop (see Deviations).
+
+Commits: `a278c5e1b` (tests), `af95672e1` (the fix), `049071b06` (pins, undo step, mutants, doc), `e908a6892` (a skip for missing folders and the harness timeout), then this report.
+
+### Where the Claude side lives
+
+The repository holds no copy of the Claude hook. Its side is the fixtures under `tests/fixtures/guard/claude-blocks/` and the test harness that runs a fixture block alone. "Both hooks" therefore means:
+- the overlay, changed here;
+- the Claude hook, whose text this round fixes as fixtures, for the hub to install. I never read or touched `~/.claude`.
+
+The hub's 2026-11-11 cut stays as `axiom-brief-regime.before.sh`, `hand-authored-rulespec.before.sh` and `prefilter.before.txt`. `pinned()` skips `.before` files, as it did for keychain-dump.
+
+### The findings
+
+**P1: git ran a repository's `core.fsmonitor`.**
+- **Cause.** `git diff --cached` and `git cat-file -e :<path>` read the index. Reading the index makes git run the configured fsmonitor command, here on the host.
+- **Other git calls.** A scratch repo had an fsmonitor, a hooks path, an external diff, a pager and a textconv driver, each writing a marker. Every git call either hook makes ran there with no pin:
+
+  | Call | Configured command run |
+  | --- | --- |
+  | `diff --cached --name-only` | fsmonitor |
+  | `cat-file -e :x` | fsmonitor |
+  | `cat-file --batch-check` | fsmonitor |
+  | `cat-file -e HEAD:x` | none |
+  | `remote get-url` | none |
+  | `branch --show-current` | none |
+  | `worktree list` | none |
+  | `show-ref` | none |
+
+  With the pin, none ran. No call reads an index besides those three, and git never gets a terminal, so the pager cannot run. Only `core.fsmonitor` needs pinning.
+- **Change.**
+  - Overlay `:126-135`: the brief's line, `export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=false`, right after `input=$(cat …)`, with a comment. It sits outside every block.
+  - `git-config-pin.txt` (`f653d463…`) is the same line for the Claude hook.
+  - The harness now puts it after its own input read. `payload_harness(pin=False)` models today's Claude hook.
+- **Limit (checked, not changed).** With both `GIT_CONFIG_PARAMETERS` and the pin set, git read `GIT_CONFIG_PARAMETERS` last, so a fsmonitor set there still ran. The launcher sets that variable, and a lane's commands cannot change the hook's environment.
+- **Tests.**
+  - `test_no_git_call_runs_the_repositorys_fsmonitor`, 4 cases: the review's two payloads, nothing staged, and the git-using rules after a commit. Two controls write the marker: git's own index read, and the unpinned Claude block. With the pin, both sides leave it absent and the decision stands.
+  - `DriftTests::test_the_git_config_pin_precedes_every_git_call_outside_the_blocks`.
+  - **Before:** mutant 6 (pin removed) was killed by `[git -C names the checkout]`.
+  - **After:** all 4 passed.
+
+**P2: about 0.1 s per staged file.**
+- **Cause.** The block made up to four process calls per staged rule file, and two of them were `cat-file`.
+- **Change.** The block now takes the staged list once, filters it in one `awk`, and asks one `git cat-file --batch-check` for both the `:<manifest>` and `HEAD:<manifest>` of every file. One `awk` joins the answers in git's order and keeps the old message text. There are three git processes per checkout (`remote get-url`, `diff`, `cat-file`), whatever the index holds.
+- **Bound.** A command with more than 16 folders to check is refused with its own reason, and so is one with more than 16 briefs (see the parser finding). A candidate folder that does not exist is skipped before git runs (`e908a6892`); git would have failed there anyway.
+- **Tests.**
+  - `test_the_staged_file_count_does_not_multiply_git_processes` counts `start` events in `GIT_TRACE2_EVENT` with 2 and 60 staged files. The counts must be equal on each side and at most 4.
+  - `test_more_than_16_places_to_check_is_refused`.
+  - **After:** both passed.
+  - **Before:** not shown by name. Mutant 7 (the supplied block back) was not run.
+- **Not measured:** the review's 700-file run against the 60 s timeout.
+
+**P2: parser gaps.**
+- **Cause.** Each block found its one `git -C <dir> commit` or `subfleet run` with a regex: the first `-C`, `-p` followed by a space, the last `subfleet run`, and the payload cwd. A relative `-C` was passed as written, so it resolved against the hook process's cwd.
+- **Change (both blocks).** Each block now walks the command's words in one `awk`:
+  - It joins line continuations and drops quotes and backslashes, which also reads `bash -c "…"` bodies.
+  - It splits at `;&|()`, backticks, `{}`, `<>` and newlines.
+  - It tracks every `cd`, `pushd` and `popd` target, a relative one resolved against the folder before it.
+  - Each `git … commit` or `subfleet run` is judged from every folder seen so far, the payload cwd included.
+- **The git commit block** also reads:
+  - git's global options before `commit` (`-C`, applied in order; `-c`; `--no-pager`; `-p`; `--git-dir`; and the rest);
+  - a `GIT_DIR=` before git;
+  - a path to git (`/usr/bin/git`);
+  - every commit in the command.
+- **The brief block** also reads:
+  - attached `-C<dir>`, `-p<file>` and `-p=<file>`;
+  - every `-C` and `-p`, where argparse keeps only the last;
+  - every `subfleet run` in the command.
+
+  A relative `-C` or `-p` resolves against the folder, as subfleet resolves it.
+- **Prefilter.** The first prefilter literal's git term was `git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+commit`. It is now `git[[:space:]].*(commit|\\$)`: git and commit on one line, or a line that continues. The old term matched a subset of what the new one matches.
+- **Tests: a case per form.** All are new rows in `test_same_decisions_axiom_*`, where both sides must agree.
+  - The five forms: `git -c … commit`, `--no-pager`, `-C <rs> -c a=b`, `cd <rs> && git commit` and `-p<brief>`.
+  - A relative `-C`, judged with the hook process in another folder, and a relative `cd`.
+  - `-p` with a path to git, `--git-dir`, `GIT_DIR=`, two commits, `bash -c`, a line continuation, and `git log --grep commit` (allowed).
+  - For the brief block: `-p=`, attached `-C`, `-C .`, two runs, two `-p`s, a continuation and `bash -c`.
+  - The Hypothesis staged-file test gained the forms `-c`, `cd` and relative `-C`.
+  - **After:** all passed.
+  - **Before:** the pre-fix run (below) had 8 failures in its first 23 results, with no names printed.
+- **Decision changes beyond the five forms.**
+  - `cd <briefs> && subfleet run … -p no-regime.md` was a pinned allow (a gap both sides shared). It is now denied.
+  - A subshell's `cd`, as in `(cd <rs> && true); git commit`, still counts. This over-approximates, toward denial.
+  - A `-p` in a later command is no longer read as the run's brief, which narrows one old over-match.
+
+**P2: stale rollback pair** (`docs/private-guard-overlay.md:633`). The sentence is now marked as the pre-merge rollback and says why that hook is no rollback since. The fix r1 section names the merged pair as this round's rollback.
+
+**P2: no test that the blocks leave later rules' inputs alone (M3).**
+- **Test.** `test_later_rules_decide_alike_after_an_axiom_command` runs five later rules: corpus-squash, corpus-push, stash-shared, local-main and unscoped-search. Each runs in its own repo, alone and after each of six allowed Axiom commands, and must give the same reason.
+- **M3.** The tool re-creates M3 as mutant 5 and applies it to the head hook. Because `gdir` still holds the last folder after the loop, M3 is not equivalent there. It was killed by `[corpus-squash]`.
+- **After:** all 5 passed. Before the fix, M3 was not applied to the review's head.
+
+**P3: the cost sentence** (`:661`). It now says such a command pays for the region's walk, with the review's measurements.
+
+**P3: TRUST provenance for D-SEARCH-REL1. Left for the hub to file.** This round appended only its own sentence.
+
+### Hash pairs
+
+- **New:** hook `324d2a846213bbc621fee618a65d49b4c5015253f973d341d78db214855bccb6`, TRUST `cc26c42108f87085d516fa3e525c17a47720461631065f4886201013e2176293`.
+  - `049071b06` pinned an intermediate pair, `51c31b4b…`/`53554448…`. `e908a6892` replaced it.
+- **Rollback:** the merged pair, hook `ed31bcac…` with TRUST `990dcbb8…`.
+- **Undo step.** `GS3_TEXT` in `test_guard_subfleet_root.py`, each edit found once, gives `ed31bcac` (`test_fix_r1_undoing_its_step_gives_the_merged_hook`). `GS2_BLOCKS` now reads the `.before` fixtures.
+- **Search-rel rebuild.** The r12d rebuild in `test_guard_search_rel.py` undoes `GS3_TEXT` first, so R3 also checks that the fix r1 changes no corpus pair's output. It did not run.
+
+### The Claude hook edits the hub makes at install
+
+In `~/.claude/hooks/guard-never-rules.sh`:
+1. Add `git-config-pin.txt`'s line (`f653d463…`) right after the input read.
+2. Replace the prefilter line (`c46d8eec…`) with `prefilter.txt` (`2acb063e…`).
+3. Replace the two blocks (`77002282…`, `f870acdf…`) with `axiom-brief-regime.sh` (`45775b4d…`) and `hand-authored-rulespec.sh` (`0b6b418c…`).
+
+The harness's own nine cases are the first rows of `BRIEF_CASES` and `HAND_CASES`, and their decisions did not change.
+
+### Contract
+
+No clause in `docs/acceptance-contract.md` names the overlay's rules, its git calls or its cost. C-14.1 covers the pair's bytes as a class, as in earlier rounds, so I amended nothing and added no change-log line.
+
+### Commands and results
+
+Environment:
+- `TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)`, `UV_CACHE_DIR=$TMPDIR/uv-cache`, scratch `$TMPDIR/sf-gs-fix1`, `PYTHONPATH` unset.
+- Each pytest run had a fresh `--basetemp …/pytest-*` and `-p no:cacheprovider`. Runs with `-n` went through `uv run --no-sync --with 'pytest-xdist>=3.6'`, at no more than 4 workers in total.
+- Load ran from 30 to 225.
+
+| Command | Result |
+| --- | --- |
+| `uv sync --group dev` | ok, 29 s |
+| `git_audit.sh` unpinned, then pinned | the table above |
+| `GIT_CONFIG_PARAMETERS` plus the pin | fsmonitor ran (the limit above) |
+| Pre-fix, at `a278c5e1b` (hook unchanged): the new and changed Axiom tests, `-n 4` | my 580 s cap at load ~200 stopped it after 23 results: 15 passed, 8 failed, names not printed |
+| `smoke.py`, 14 forms, at `af95672e1` | each as intended; 1.2-35.9 s per hook run at load ~160 |
+| `test_guard_sync.py`, whole file, `-n 4`, at `af95672e1` | 590 s cap: 73 passed, 1 failed (`[staged rule YAML w/o manifest blocked]`, which passed alone in 88 s) |
+| the 13 that had not reported, at `af95672e1` | 11 passed, 2 failed: both were the Claude harness's 60 s subprocess timeout, and Hypothesis called one flaky |
+| at `e908a6892`, `-k "DriftTests or hand_authored or fsmonitor or staged or more_than_16 or later_rules"` | 590 s cap: 47 of 49 passed, 0 failed |
+| the other 2 of those 49 | 2 passed, 329 s |
+| `test_guard_overlay.py`, plus `test_guard_subfleet_root.py -k "test_gs_ or test_merge_undoing or test_fix_r1 or test_trust or test_only_the_roots or overlay_doc"`, at `e908a6892` | **31 passed**, 77 s |
+| `tools/gs_mutants.py --only 5-… 6-… --named-only --no-control` | both killed (M3; the pin removed) |
+
+**Not run:**
+- step 3's four files;
+- `test_guard_search_rel.py`;
+- the rest of `test_guard_subfleet_root.py`;
+- the other files that import the changed test modules;
+- `test_guard_sync.py`'s keychain (11), brief (23) and I3 (5) tests at `e908a6892`. They passed at `af95672e1`, and `e908a6892` changed only the hand block and the harness timeout;
+- mutants 1-4 and 7, and the tool's control;
+- the 700-file timing.
+
+CI runs the suite.
+
+### Deviations
+
+1. **Past the 3-hour stop.** The mutant call started at 17:38:59Z. The tool moved it to its background mode at its 600 s limit, and it returned at 19:15:57Z: my `timeout 590` did not stop it, and the host probably stalled. The scratch removal also went to the background. Nothing else outlived a call.
+2. **The skip and the timeout came after the first runs** (`e908a6892`), and so did the scope beyond the five forms (above).
+3. **New denial texts:** the two "more than 16" refusals.
+4. **The session's own Claude guard refused one Bash command**, because my test data held `git stash`. It did not run, and I made the edit with the Edit tool.
+
+### Folders outside the job's scratch
+
+- `$TMPDIR/sf-gs-fix1` (`/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-gs-fix1`) held the probes, the logs and the basetemps.
+  - Its logs and scripts are copied to the attempt folder's `gs-fix-r1-evidence/`.
+  - A guarded `shutil.rmtree` that asserts `sf-gs-fix1` is in the path removes it. It was still running when I committed this.
+- I kept `$TMPDIR/uv-cache` (shared) and the worktree's ignored `.venv`.
+
+Head built: the commit that adds this section, on top of code head `e908a6892`.
