@@ -142,9 +142,28 @@ _RUN = re.compile(r"\S+")
 #: carriage return: C0, DEL and C1 (C-5.10, C-25.7). What the handler writes and what a
 #: person reads of daemon.log show each as its `\xNN` escape (`_controls_shown`).
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
-#: Those that are not whitespace to the scrubber (`\s`), which a terminal's reading of a
-#: text drops (`_rendered`); the others separate runs in either reading.
-_HIDDEN_CONTROL = re.compile(r"[\x00-\x08\x0e-\x1b\x7f-\x84\x86-\x9f]")
+#: Unicode's format characters (category Cf, as of Unicode 17): the zero-width space
+#: (U+200B), the soft hyphen (U+00AD), the word joiner (U+2060), the byte-order mark,
+#: bidirectional marks and the like. A terminal draws nothing of most of them, so a key
+#: one splits (`pass\u200bword=`) reads whole. They are written as they are.
+#: `test_worker_failure_url_and_terminal` checks this against the running Python's
+#: `unicodedata`.
+_FORMAT = ("\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f"
+           "\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb\U000110bd\U000110cd"
+           "\U00013430-\U0001343f\U0001bca0-\U0001bca3\U0001d173-\U0001d17a\U000e0001"
+           "\U000e0020-\U000e007f")
+#: What a terminal's reading of a text drops (`_rendered`): the control characters that
+#: are not whitespace to the scrubber (`\s`); the information separators `\x1c` to `\x1f`,
+#: which are whitespace to it but which a terminal ignores (ECMA-48); and the format
+#: characters. The controls left (tab, line feed, vertical tab, form feed, carriage
+#: return and NEL) move the cursor, so they separate runs in either reading.
+_INVISIBLE = re.compile(r"[\x00-\x08\x0e-\x1f\x7f-\x84\x86-\x9f" + _FORMAT + "]")
+#: A text holding any of these is also read as a terminal shows it (`_terminal_safe`,
+#: the formatter): a control character or a format character.
+_UNSHOWN = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f" + _FORMAT + "]")
+#: A run as a terminal shows it: a whitespace-free run, joined across the separators
+#: `\x1c` to `\x1f` that the terminal draws nothing for (`_controls_shown`).
+_SHOWN_RUN = re.compile(r"(?:[^\s]|[\x1c-\x1f])+")
 #: A terminal control sequence, which a terminal shows nothing of (ECMA-48): CSI (`ESC [`
 #: or C1 `\x9b`) with its parameters, intermediates and final byte; a string (OSC `ESC ]`,
 #: DCS `ESC P`, SOS `ESC X`, PM `ESC ^`, APC `ESC _`, or their C1 forms) to its BEL or ST
@@ -156,10 +175,11 @@ _TERMINAL_SEQUENCE = re.compile(
 
 
 def _rendered(text: str) -> str:
-    """`text` as a terminal shows it: its control sequences and the control characters
-    that are not whitespace left out, so a key a sequence splits (`pass\\x1b[0mword=`)
-    reads whole, as a person reading the terminal sees it."""
-    return _HIDDEN_CONTROL.sub("", _TERMINAL_SEQUENCE.sub("", text))
+    """`text` as a terminal shows it: its control sequences and what `_INVISIBLE` names
+    left out, so a key a sequence, an information separator or a format character splits
+    (`pass\\x1b[0mword=`, `pass\\x1fword=`, `pass\\u200bword=`) reads whole, as a person
+    reading the terminal sees it."""
+    return _INVISIBLE.sub("", _TERMINAL_SEQUENCE.sub("", text))
 
 
 def _visible(text: str) -> str:
@@ -169,27 +189,29 @@ def _visible(text: str) -> str:
 
 def _terminal_safe(source: str, scrubbed: str, scrub: Callable[[str], str]) -> str:
     """`scrubbed`, the scrub of `source`, as written for a terminal: unchanged when
-    `source` holds no control character, else with `source` read as a terminal shows it
-    and scrubbed by `scrub` too (`_controls_shown`)."""
-    if not _CONTROL.search(source):
+    `source` holds no control or format character (`_UNSHOWN`), else with `source` read
+    as a terminal shows it and scrubbed by `scrub` too (`_controls_shown`)."""
+    if not _UNSHOWN.search(source):
         return scrubbed
     return _controls_shown(scrubbed, scrub(_rendered(source)))
 
 
 def _controls_shown(text: str, rendered: str) -> str:
-    """`text`, a scrubbed record or tail holding control characters, as written (C-5.10,
-    C-25.7): each control character as its `\\xNN` escape, so no escape sequence reaches
-    daemon.log or a person's terminal and a reader still sees where one was; and each
-    whitespace-free run whose terminal reading (`_rendered`) `rendered`, the same text read
-    so and then scrubbed, does not hold as a run, `[REDACTED]`: what either reading hides
-    stays hidden. A run that is only control sequences reads as nothing and is kept."""
+    """`text`, a scrubbed record or tail holding control or format characters, as written
+    (C-5.10, C-25.7): each control character as its `\\xNN` escape, so no escape sequence
+    reaches daemon.log or a person's terminal and a reader still sees where one was; and
+    each run as a terminal shows it (`_SHOWN_RUN`) whose terminal reading (`_rendered`)
+    `rendered`, the same text read so and then scrubbed, does not hold as a run,
+    `[REDACTED]`: what either reading hides stays hidden. A run that is only control
+    sequences or invisible characters reads as nothing and is kept. Format characters
+    are written as they are."""
     shown = set(_RUN.findall(rendered))
 
     def run(match: re.Match) -> str:
         plain = _rendered(match.group())
         return match.group() if not plain or plain in shown else REDACTED
 
-    return _visible(_RUN.sub(run, text))
+    return _visible(_SHOWN_RUN.sub(run, text))
 
 
 def scrubbed_block(text: str, *, group: bool = False, keep_lines: bool = False) -> str:
@@ -348,7 +370,7 @@ class ScrubbingFormatter(logging.Formatter):
         groups = [_GROUP_MARK in part for part in parts]
         (line, *blocks), message = _within(parts, RECORD_SCRUB_MAX), parts[0]
         text = self._scrubbed_parts(record, line, blocks, message, groups)
-        if any(_CONTROL.search(part) for part in (line, *blocks)):
+        if any(_UNSHOWN.search(part) for part in (line, *blocks)):
             # The cut parts read as a terminal shows them, scrubbed alike (C-5.10).
             rendered = self._scrubbed_parts(record, _rendered(line), [_rendered(block) for block in blocks],
                                             message, groups)

@@ -124,7 +124,7 @@ def test_a_one_line_record_is_exactly_its_line_form(message):
     try:
         log.log.warning("%s", message)
         expected = refusals.scrubbed_line(message)
-        if daemon_log._CONTROL.search(message):
+        if daemon_log._UNSHOWN.search(message):
             expected = daemon_log._controls_shown(expected, refusals.scrubbed_line(daemon_log._rendered(message)))
         assert log.text() == expected + "\n"
     finally:

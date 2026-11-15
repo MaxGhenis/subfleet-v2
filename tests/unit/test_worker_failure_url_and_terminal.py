@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import linecache
 import logging
+import re
+import sys
 import traceback
+import unicodedata
 
 import pytest
 from hypothesis import given, settings, strategies as st
@@ -173,6 +176,43 @@ def test_a_key_an_escape_splits_is_still_a_password(route, monkeypatch):
     _no_controls(written)
     _hidden(written, HIDDEN_KEY_MARKER)
     assert CONTROL_URL in written
+
+
+#: Characters a terminal draws nothing for and the scrubber did not drop before fix r2:
+#: format characters (Unicode category Cf), which are not whitespace to it, and the
+#: information separators, which are (review r2 of #308, P2).
+INVISIBLE = {"zero-width-space": "​", "soft-hyphen": "­", "word-joiner": "⁠",
+             "byte-order-mark": "﻿", "fs": "\x1c", "gs": "\x1d", "rs": "\x1e", "us": "\x1f"}
+INVISIBLE_KEY_MARKER = "Fx2InvisMark0013zz"
+
+
+@pytest.mark.parametrize("route", TERMINAL_ROUTES)
+@pytest.mark.parametrize("name", sorted(INVISIBLE))
+def test_r2_a_key_an_invisible_character_splits_is_still_a_password(name, route, monkeypatch):
+    key = f"pass{INVISIBLE[name]}word={INVISIBLE_KEY_MARKER}"
+    written = _written(route, f"login refused {key} for {CONTROL_URL}", monkeypatch)
+    _no_controls(written)
+    _hidden(written, INVISIBLE_KEY_MARKER)
+    assert CONTROL_URL in written
+
+
+def test_r2_the_format_characters_are_unicode_cf():
+    """`_FORMAT` is Unicode's category Cf: every format character the running Python
+    knows is read as invisible, and every character it names is one, or is unassigned
+    in an older Python's Unicode."""
+    named = re.compile(f"[{daemon_log._FORMAT}]")
+    for code in range(sys.maxunicode + 1):
+        char = chr(code)
+        category = unicodedata.category(char)
+        if category == "Cf":
+            assert daemon_log._INVISIBLE.match(char) and daemon_log._UNSHOWN.match(char), hex(code)
+        if named.match(char):
+            assert category in ("Cf", "Cn"), (hex(code), category)
+
+
+def test_r2_format_characters_in_plain_text_are_written_as_they_are():
+    for line in ["soft­hyphen word", "a family \U0001F468‍\U0001F469 emoji", "﻿marked start"]:
+        assert daemon_log.scrubbed(line) == line
 
 
 def test_c1_controls_bell_and_other_c0_controls_are_visible():
