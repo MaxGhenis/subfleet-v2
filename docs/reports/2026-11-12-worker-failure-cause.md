@@ -933,4 +933,4 @@ credential store or caller file was read or changed.
 
 Head built: the commit holding this section's last edit, on top of
 `dc515a2ad` (the section's first commit) and `e2af521cd` (code, tests,
-contract and runner). Finished at 22:17 UTC, 2 h 42 min after the start.
+contract and runner). Finished at 22:16 UTC, 2 h 41 min after the start.
