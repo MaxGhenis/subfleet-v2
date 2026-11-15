@@ -7,6 +7,7 @@ import json
 import tempfile
 from pathlib import Path
 
+import pytest
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
@@ -145,11 +146,85 @@ def test_uninstall_agrees_with_release_for_list_valued_events(data):
         assert_unowned_values_preserved(current, report["proposed"])
 
 
+FIRST = foreign("/home/user/.claude/hooks/guard-never-rules.sh", "Bash")
+SECOND = foreign("/home/user/.claude/hooks/mask-credentials.py")
+
+
+def _entry(event: str, *, keys_reversed: bool = False, **changes) -> dict:
+    """v2's entry for `event`, with its hook's fields changed as given."""
+    group = ours(event)
+    group["hooks"][0].update(changes)
+    if keys_reversed:
+        group = {key: group[key] for key in reversed(group)}
+        group["hooks"] = [{key: hook[key] for key in reversed(hook)}
+                          for hook in group["hooks"]]
+    return group
+
+
+#: Where #86 and the frozen release loop are meant to disagree on install:
+#: (event, its list in the file, head changes it, release changes it, the list
+#: head proposes, the list release proposes). Every other owned event holds
+#: v2's exact entry alone, so both loops leave it be.
+INTENDED_DIFFERENCES = {
+    "exact entry first": (
+        "PreToolUse", [ours("PreToolUse"), FIRST, SECOND], False, True,
+        [ours("PreToolUse"), FIRST, SECOND], [FIRST, SECOND, ours("PreToolUse")]),
+    "exact entry in the middle": (
+        "PostToolUse", [FIRST, ours("PostToolUse"), SECOND], False, True,
+        [FIRST, ours("PostToolUse"), SECOND], [FIRST, SECOND, ours("PostToolUse")]),
+    "exact entry before malformed groups": (
+        "SessionStart", [ours("SessionStart"), "not a group", {"matcher": "Bash"}],
+        False, True,
+        [ours("SessionStart"), "not a group", {"matcher": "Bash"}],
+        ["not a group", {"matcher": "Bash"}, ours("SessionStart")]),
+    "keys reversed and 600.0, in the middle": (
+        "PostToolUse", [FIRST, _entry("PostToolUse", keys_reversed=True,
+                                      timeout=float(TIMEOUT)), SECOND],
+        False, True,
+        [FIRST, ours("PostToolUse"), SECOND], [FIRST, SECOND, ours("PostToolUse")]),
+    "changed entry not last": (
+        "PreToolUse", [FIRST, _entry("PreToolUse", timeout=4), SECOND], True, True,
+        [FIRST, ours("PreToolUse"), SECOND], [FIRST, SECOND, ours("PreToolUse")]),
+    "asyncRewake 1 for true, last": (
+        "PostToolUse", [FIRST, _entry("PostToolUse", asyncRewake=1)], True, False,
+        [FIRST, ours("PostToolUse")], [FIRST, ours("PostToolUse")]),
+}
+
+
+@pytest.mark.parametrize("case", sorted(INTENDED_DIFFERENCES))
+def test_install_differs_from_release_only_where_release_was_wrong(tmp_path, case):
+    """Intended C-23.25 differences on install, each pinned so that the
+    agreement tests above cannot pass only because the frozen loop has come
+    to match #86's.
+
+    Release moves an exact entry that is not last to the end, and takes
+    `asyncRewake: 1` for `true` (Python's `1 == True`). #86 leaves the first
+    alone and rewrites the second; a changed entry not last is rewritten by
+    both, in place by #86 and moved last by release.
+    """
+    event, groups, head_changes, release_changes, head_list, release_list = (
+        copy.deepcopy(INTENDED_DIFFERENCES[case]))
+    data = {"model": "keep", "hooks": {name: [ours(name)] for name in EVENTS}}
+    data["hooks"][event] = groups
+    path = write(tmp_path, data)
+    current = json.loads(path.read_text())
+    report = hooks_module.plan(path, command=CMD, timeout=TIMEOUT)
+    reference = release_plan(current)
+    assert report["changed_events"] == ([event] if head_changes else [])
+    assert reference["changed_events"] == ([event] if release_changes else [])
+    assert report["drift"] == ({event: "differs"} if head_changes else {})
+    assert canonical(report["proposed"]["hooks"][event]) == canonical(head_list)
+    assert canonical(reference["proposed"]["hooks"][event]) == canonical(release_list)
+    assert (head_changes, canonical(head_list)) != (release_changes,
+                                                    canonical(release_list))
+    assert_unowned_values_preserved(current, report["proposed"])
+
+
 def test_uninstall_intentionally_preserves_a_non_list_event_without_drift(tmp_path):
     """Intended C-23.25 difference: another event's removal keeps this value.
 
     Release replaces the non-list event with [] despite reporting no drift for
-    it; #86 leaves an event without drift as the file spelled it.
+    it; #86 keeps the JSON value the file holds for an event without drift.
     """
     data = {"model": "keep", "hooks": {
         "PreToolUse": {"enabled": True}, "SessionStart": [ours("SessionStart")],
