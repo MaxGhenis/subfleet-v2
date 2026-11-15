@@ -703,8 +703,8 @@ undoing its step gives that hook byte for byte
 
 | File | SHA-256 |
 | --- | --- |
-| `never-rules-hook.sh` | `51c31b4b0399426e33ba680f479a17cc089081256b4ddbab872e30e3088d2f2e` |
-| `TRUST` | `53554448083e2e6eeb725ebe2dfcdc694e79b318168bb1c70dc57f351093361e` |
+| `never-rules-hook.sh` | `324d2a846213bbc621fee618a65d49b4c5015253f973d341d78db214855bccb6` |
+| `TRUST` | `cc26c42108f87085d516fa3e525c17a47720461631065f4886201013e2176293` |
 
 TRUST is the installed TRUST of 2026-09-29 (`b3193b97…`), changing only `hook_sha256` and
 appending seven dated provenance additions (D-LANE-SCOPE1's three sentences, r2's one, r3's one,

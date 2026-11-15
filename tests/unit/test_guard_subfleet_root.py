@@ -196,7 +196,7 @@ GS2_HOOK_SHA256 = "6c1beb64d961b0f0225853c7ec3e2434d90026897e3f2dc9627aab5143634
 GSM_HOOK_SHA256 = "ed31bcaca0800e611cda54642abd8245a8316e3fc11638be30cf1effca3d65f3"
 #: The overlay's hook after the guard sync fix r1 (2026-11-15: the git config pin, the batched rulespec reads and
 #: both Axiom blocks' command parsing); TRUST's hook_sha256.
-NEW_HOOK_SHA256 = "51c31b4b0399426e33ba680f479a17cc089081256b4ddbab872e30e3088d2f2e"
+NEW_HOOK_SHA256 = "324d2a846213bbc621fee618a65d49b4c5015253f973d341d78db214855bccb6"
 
 FAKE_HOME = "/Users/tester"
 SCOPED_CWD = FAKE_HOME + "/work/repo"

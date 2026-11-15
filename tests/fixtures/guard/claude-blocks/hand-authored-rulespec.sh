@@ -6,7 +6,8 @@
 # --no-pager, --git-dir, …) may come before `commit`, and GIT_DIR=… before git. Its folder is each one the
 # shell can be in there: the payload cwd and every cd/pushd target before it (a relative one resolved
 # against the folder before it), with each -C applied. One cat-file --batch-check reads every manifest, so a
-# large index costs a few processes, not four per file; more than 16 folders to check is refused.
+# large index costs a few processes, not four per file; a folder that is not there costs none; more than
+# 16 folders to check is refused.
 if printf '%s' "$command" | grep -qE 'git[[:space:]].*(commit|\\$)'; then
   hr_list=$(printf '%s' "$command" | LC_ALL=C awk -v cwd="$cwd" -v home="$HOME" '
     function expand(p) {
@@ -62,7 +63,7 @@ if printf '%s' "$command" | grep -qE 'git[[:space:]].*(commit|\\$)'; then
     block "[hand-authored-rulespec] This command commits from more than 16 folders (each cd/pushd target, with each git -C applied); the guard cannot check every staged index in time. Commit from one checkout per command."
   fi
   while IFS=$'\037' read -r hr_d hr_gd; do
-    [ -n "$hr_d" ] || continue
+    [ -n "$hr_d" ] && [ -d "$hr_d" ] || continue
     gdir=$hr_d
     origin_url=$(git -C "$gdir" ${hr_gd:+"--git-dir=$hr_gd"} remote get-url origin 2>/dev/null)
     printf '%s' "$origin_url" | grep -qiE 'TheAxiomFoundation/rulespec-' || continue

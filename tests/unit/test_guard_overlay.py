@@ -170,7 +170,7 @@ def test_private_overlay_bytes_remain_the_original_reviewed_pair():
     prefilter line. Both were built on hook e869dd4c… and merged on
     2026-11-14 (hook ed31bcac…). The guard sync fix r1 (2026-11-15) pinned
     core.fsmonitor off for the hook's git calls, batched the rulespec index
-    reads and rewrote both Axiom blocks' command parsing (hook 51c31b4b…);
+    reads and rewrote both Axiom blocks' command parsing (hook 324d2a84…);
     TRUST pins those bytes. That TRUST is the
     installed one of 2026-09-29 (b3193b97…, the codex-cli 0.159.0 pin; with
     hook a60d1c51… it is the rollback) with the new hook hash and seven dated provenance
@@ -182,8 +182,8 @@ def test_private_overlay_bytes_remain_the_original_reviewed_pair():
     repo = Path(__file__).resolve().parents[2]
     directory = repo / "private/guard"
     expected = {
-        "never-rules-hook.sh": "51c31b4b0399426e33ba680f479a17cc089081256b4ddbab872e30e3088d2f2e",
-        "TRUST": "53554448083e2e6eeb725ebe2dfcdc694e79b318168bb1c70dc57f351093361e",
+        "never-rules-hook.sh": "324d2a846213bbc621fee618a65d49b4c5015253f973d341d78db214855bccb6",
+        "TRUST": "cc26c42108f87085d516fa3e525c17a47720461631065f4886201013e2176293",
     }
     for name, digest in expected.items():
         assert hashlib.sha256((directory / name).read_bytes()).hexdigest() == digest

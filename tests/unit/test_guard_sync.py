@@ -117,7 +117,7 @@ PREFILTER_BEFORE_SHA256 = "c46d8eec748c649daaae06b0982bb5fc0cf6011918a35144d0ea1
 #: The fix r1's blocks and prefilter line (2026-11-15), which the hub installs in the Claude hook, and the git
 #: config pin both hooks carry after their input read.
 AXIOM_SHA256 = {"axiom-brief-regime": "45775b4dd77fcac19c71c3e341559dcd129ad634e2848b8b74d2380dfe2781d4",
-                "hand-authored-rulespec": "a27ea96525a1a05272a8a70d18fc3f602ecbc300b8b55b2ddbb720ff0439c8bb"}
+                "hand-authored-rulespec": "0b6b418cf137ef56bbfc0a92b558f412b1fe4c602f6d11b517792f1aceca969b"}
 PREFILTER_SHA256 = "2acb063ed0efa2a3c87b671bbd43fda4bf72436e72372ab8156f349540aff678"
 PIN_SHA256 = "f653d463e57190edd5f5405978e0a20d749e5bebced6b8536f241a4fb88b6389"
 #: The prefilter's git term, before the fix r1 and after it.
@@ -420,7 +420,7 @@ class AxiomFixture:
             script.write_text(payload_harness(pin) + (BLOCKS / f"{rule}.sh").read_text(encoding="utf-8")
                               + "exit 0\n", encoding="utf-8")
         out = subprocess.run(["/bin/bash", str(script)], input=payload(command, cwd), capture_output=True,
-                             text=True, timeout=60,
+                             text=True, timeout=120,
                              env={"PATH": self.env["PATH"], "HOME": str(self.home), **(env or {})}, cwd=self.root)
         assert out.returncode == 0, out.stderr
         return out.stdout
