@@ -220,4 +220,4 @@ Switch C-25.6 to the raw `KERN_PROCARGS2` reader. That would retire both `ps_tex
 >
 > 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
-Head built: the commit that adds this report, on top of 24123d6f9 (detached in the job workspace).
+Head built: the commit that last changed this report, on top of 24123d6f9 and 414b0c0b7 (detached in the job workspace).
