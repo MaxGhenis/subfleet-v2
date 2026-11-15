@@ -94,13 +94,15 @@ def mutate(tree: Path, name: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def pytest(tree: Path, scratch: Path) -> dict[str, str]:
-    """{file::test id: passed|failed|error|skipped} from one pytest run of SELECTION in ``tree``."""
+def pytest(tree: Path, scratch: Path, named: list[str] | None = None) -> dict[str, str]:
+    """{file::test id: passed|failed|error|skipped} from one pytest run in ``tree``: of SELECTION, or of the
+    ``named`` node ids alone."""
     report = scratch / f"{tree.name}.xml"
     env = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "GUARD_DIFF_CACHE")}
     env["TMPDIR"] = str(scratch)
     subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", f"--junitxml={report}",
-                    f"--basetemp={scratch / ('pytest-gsm-' + tree.name)}", "-k", SELECTION, *FILES],
+                    f"--basetemp={scratch / ('pytest-gsm-' + tree.name)}",
+                    *(named if named else ["-k", SELECTION, *FILES])],
                    cwd=tree, env=env, capture_output=True)
     outcomes: dict[str, str] = {}
     for case in ElementTree.parse(report).getroot().iter("testcase"):
@@ -120,6 +122,8 @@ def main() -> int:
     parser.add_argument("--scratch", type=Path, required=True)
     parser.add_argument("--only", nargs="*", default=list(MUTATIONS))
     parser.add_argument("--no-control", action="store_true", help="skip the control (it ran in an earlier call)")
+    parser.add_argument("--named-only", action="store_true",
+                        help="run only the named tests (the control: every mutant's), not the whole SELECTION")
     args = parser.parse_args()
     if "/sf-" not in str(args.scratch.resolve()):
         parser.error("--scratch must be a /sf- scratch directory")
@@ -129,8 +133,8 @@ def main() -> int:
         if not args.no_control:
             control = scratch / "control"
             export(control)
-            outcome = pytest(control, scratch)
             named = {MUTATIONS[name][1] for name in MUTATIONS}
+            outcome = pytest(control, scratch, sorted(named) if args.named_only else None)
             control_ok = bool(outcome) and all(value == "passed" for value in outcome.values()) \
                 and named <= set(outcome)
             ok = control_ok
@@ -142,8 +146,8 @@ def main() -> int:
             original = (tree / HOOK).read_bytes()
             mutate(tree, name)
             assert (tree / HOOK).read_bytes() != original
-            outcome = pytest(tree, scratch)
             test = MUTATIONS[name][1]
+            outcome = pytest(tree, scratch, [test] if args.named_only else None)
             killed = outcome.get(test) == "failed"
             ok = ok and killed
             failed = sorted(k for k, v in outcome.items() if v == "failed")
