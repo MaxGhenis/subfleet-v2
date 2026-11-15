@@ -344,3 +344,78 @@ No commit could be created because every named staging step was denied at `/User
 
 Head built (implementation and report remain uncommitted):
 73672254015924df25f4d27ab3e92c836fe687ca
+
+
+Fix round 1 (review r1 of #329), 2026-11-15.
+
+The first command, `date -u`, set the start at 19:31:20Z and the deadline at 22:31:20Z. The workspace was a detached checkout of `fix/worktree-add-c68-217` at 23abb86e2. Round 1 found no P0 or P1. This round fixes all four P2s, answers the first P3 with wording for the PR body, and lists the second P3 for the hub. The code and tests are in a3d15f0a7, the contract in 18613f7fc, and this section in the commit after them.
+
+Findings.
+
+1. **P2: reproducer A's 1 s cap** (`tests/fake/test_worktree_add_c68.py`).
+   - Cause: the test set `worktree_add_timeout_s = 1` and kept that cap for the second `_admit()`. Under load, an add can take more than 1 s even to reach the filter, and the unblocked second add can also take more than 1 s, so the cap killed it and the job waited again.
+   - Change: the test saves the policy cap and restores it before the second pass. A new helper, `cap_from_the_filter`, gives the first pass time to reach the filter. While the gate is held, the daemon's `Popen` of a worktree add returns only once that add's filter has started (bounded by 120 s, or by the add exiting), so the 1 s cap counts from the filter. The filter blocks while the gate stands, so the cap still fires, and it fires while git is mid-checkout. I chose this over a long cap such as 30 s, which would have made every run wait out the whole cap.
+   - Test: the same test. I didn't rerun the old version under load: the failing-before evidence is round 1's (3 of 4 copies failed at load about 150, and all 8 of 8 never reached the filter at load about 200). After the fix it passed in all 9 completed repeat runs below, and in the first run of the changed tests.
+2. **P2: the same flaw in `test_the_cap_stops_a_real_filter_with_a_fake_empty_census`** (`tests/fake/test_worktree_add_census.py`).
+   - Change and test: the same as finding 1. It passed in the same 9 repeat runs; the census file is part of each run.
+3. **P2: the group was signalled once** (`subfleet/daemon.py`, `_add_census` and `_add_worktree`).
+   - Cause: `os.killpg` ran once, in `stop_and_reap`. If it failed, later passes only polled the leader, so a running checkout held the job until `workspace_retry_max` ran out.
+   - Change: `stop_and_reap` records the child it stopped (`_worktree_add_stopped`). Every later census of that job first KILLs the group again while that child is still unreaped (`returncode is None`), then polls it. The child's pid, and so its group id, can't be reused before the reap; that is C-5.4's basis. `ProcessLookupError` means no member is left. Any other `OSError` is logged (scrubbed) and the census goes on, so a live leader still holds the job. The record goes when the child is reaped. Only a stopped add is signalled again; an add still inside its cap only holds. The signal releases nothing, because the census still decides. That includes the census in `_workspace`'s failure handler, so a signal denied once is sent again within the same pass.
+   - I first made the census that sends a signal always hold the job. I dropped that before committing: once the leader has exited, the next pass's signal goes to a zombie leader and would have cost the job a retry for nothing.
+   - Scope: once the leader has been reaped, members left in its group are still not signalled, because C-5.4 gives no basis to signal them then. Members whose leader the daemon has already reaped therefore hold the job until they exit, as before.
+   - Tests: `C::test_a_later_census_stops_a_capped_group_its_first_signal_missed[once]` and `[first-pass]` use real git and a real held filter, with `os.killpg` monkeypatched to raise `PermissionError`. With `[once]`, only the first call is denied; with `[first-pass]`, every call in the first pass is. Each test shows a later census sends KILL to the same leader group, the original filters die, and no attempt is reserved until a later pass. `C::test_each_later_census_signals_a_capped_group_before_it_reaps` pins the order (signal, then poll), the hold while the leader lives, and no signal after the reap. `C::test_a_census_never_signals_an_add_its_cap_did_not_stop` is a guard and passes before the fix by design.
+   - Failing before: the first three failed against the base daemon. `[once]` failed with `AssertionError: [(77477, <Signals.SIGKILL: 9>, True)]` (the only call was the denied one). `[first-pass]` failed with `assert (1 >= 2)` (one denied call, and no later census signalled).
+4. **P2: a detached helper held the job** (`subfleet/worktree_add.py` `pinned`, used at `_add_worktree`).
+   - Change: the add's environment gets `core.fsmonitor=false` appended through `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_<n>`/`GIT_CONFIG_VALUE_<n>`, after any entries already set. `_config_count` reads the count as git's `strtoul` does.
+   - Real git 2.55 accepted `""`, `"0"`, `" 1"`, `"+1"` and `"-0"` (the pin applied wherever the count was at least 1). It refused `"abc"`, `"1 "`, `"-1"` and a non-ASCII digit with exit 128 ("bogus count" or "too many entries"). It refuses counts above INT_MAX too. When git refuses a count, `pinned` leaves the environment as it is: git then reads no config and runs nothing.
+   - The safe direction stays: C-6.8 now says a process that survives the add carrying its marker holds the job until it exits, and that the marker alone never authorizes a signal.
+   - Tests: `C::test_the_add_pins_fsmonitor_off_after_the_config_it_inherits` passes a synthetic inherited entry (`user.name`) through `_git_env`. It checks the add's `Popen` environment (count 2, the pin at index 1), then has real git read `core.fsmonitor` as `false` over a repository set to `true`, with the inherited entry kept. `C::test_the_pin_follows_whatever_count_git_reads` has 11 cases, with real git as the oracle for each count. All 12 failed before the fix. The tail I kept shows only the `FAILED` lines; the cause I infer is that the base module has no `pinned` and its add environment no `GIT_CONFIG_COUNT`.
+5. **P3: "every path is the daemon's own" in the PR body.** No code change. Suggested wording for the hub's rewrite: "Removal needs proof: the tree sits inside its allocation folder; every path in it is, by name and kind, in the recorded commit or named by the job's kept copy; and the index stages no edit or addition beyond the commit. The proof compares names and kinds, not contents (`worktree_add.prove`), so an edit to a tracked file's contents in a never-run tree that is removed is lost."
+6. **P3, pre-existing, listed for the hub to file:** an add that exits 0 inside the kill window still counts as timed out, and its tree is thrown away and cut again. `child.wait(timeout=cap)` raises `TimeoutExpired` even when git exits 0 just as the cap fires; `subprocess.run(timeout=)` behaved the same before this PR. It loses no work: the tree is never run in, the job waits and the tree is rebuilt. Unchanged.
+
+Another change (not a finding): the held-filter fixture's `release` now signals an add's group only while its leader is unreaped. It KILLs a filter pid only while that pid's argument buffer names this test's own `hold-filter.sh` (`HeldFilter.ours`, read in-process with `procs.kernel.arguments`). Before, it KILLed every recorded filter pid, which after the filter's death could be some other process at a load where pids turn over fast. A probe confirmed the read finds the script path in `/bin/sh`'s buffer.
+
+Contract: C-5.4 now lets every later census KILL the group while a capped add's leader is still unreaped. C-6.8 names the pinned `core.fsmonitor=false` (and how a refused count is treated), the re-signal, that only a stopped add is signalled again, and that a marked survivor holds the job until it exits. The 2026-11-15 change-log entry gains three sentences for this round. No clause was renumbered.
+
+Commands and results. `E` = `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)" UV_CACHE_DIR="$TMPDIR/uv-cache"` with `PYTHONPATH` unset. `X` = `E uv run --no-sync --with 'pytest-xdist>=3.6' pytest -p no:cacheprovider`. Scratch `S` = `$TMPDIR/sf-c68-fix1`, and every basetemp is new and named `pytest-*` under it. Load averages ran from 28 to 193 throughout, with other sessions' suites on the host.
+
+| Command | Result |
+|---|---|
+| `git status --short` (twice, 120 s and 60 s caps) | Hung at host load 174; stopped. Not used again |
+| `E uv sync --group dev` | Exit 0, 37.7 s |
+| `/bin/ps -o pid=,pgid= -p $$`; `git --version` | `ps` allowed here, so the real-census reproducer runs rather than skipping; git 2.55.0 |
+| Real-git `GIT_CONFIG_COUNT` probe, 9 values, scratch repo | As in finding 4 |
+| `procs.kernel.arguments` probe on a `/bin/sh` script | Path found with a ctypes buffer; a `bytearray` raises `ArgumentError`, so the fixture uses ctypes |
+| `X -q -n 4 --timeout=300 --basetemp=$S/pytest-new-1 C R -k "later_census or each_later or never_signals or pins_fsmonitor or pin_follows or real_filter or reproducer_a"` (fixed code) | 18 passed in 222.50 s |
+| The 16 new cases on the base `daemon.py`/`worktree_add.py` (written from 23abb86e2, restored from HEAD afterwards, blob hashes checked), `--basetemp=$S/pytest-before-1` | 15 failed, 1 passed (the guard) in 222.38 s |
+| `git add <4 named files>` (120 s cap) | Timed out. Trace2 showed git stalled in `do_write_index`, writing this worktree's index under `/Users/maxghenis/subfleet-v2/.git/worktrees/20261115-142427-c68-fix-r1/`; no lock was left |
+| `GIT_INDEX_FILE=$S/commit-index git read-tree HEAD`, `git update-index -- <named files>`, `write-tree`, `commit-tree -F`, `update-ref HEAD <new> <old>` | a3d15f0a7 (4 files), then 18613f7fc (contract) |
+| `$S/run20.sh 1 2`, `3 6`, `7 12`: each run is `X -q -n 4 --timeout=600 --basetemp=$S/pytest-20run-<i> R::test_reproducer_a_the_cap_stops_the_whole_checkout C` | Runs 1 to 9: 26 passed each (58.70 s to 205.72 s, load 28 to 172). Run 10 was cut off by the call's 595 s cap under a minute after it started, with no output |
+| Set 1, first try: `X -q -n 4 --timeout=580 --basetemp=$S/pytest-set1a Pp R C reuse transient_reads` | Cut off at 590 s after about 103 of about 158 cases, no failure shown |
+| Rerun: `X -q -n 4 --basetemp=$S/pytest-set1b R C reuse transient_reads` | Cut off at 590 s after 57 of 61 cases, no failure shown |
+| `X -v -n 4 --timeout=580 --basetemp=$S/pytest-set2 tests/fake/test_state_contract.py tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py tests/unit/test_handler_refusals.py` | 437 passed in 348.58 s |
+| `X -v -n 4 --basetemp=$S/pytest-set1c tests/fake/test_unrun_worktrees.py tests/fake/test_workspace_transient.py` plus five archive nodes (below) | 134 passed in 379.31 s |
+| `X -v -n 4 --durations=5 --basetemp=$S/pytest-set1d R reuse transient_reads` | 35 passed in 112.85 s (reuse property 85.43 s) |
+| `X -v -n 4 --basetemp=$S/pytest-set1e tests/unit/test_worktree_add_proof.py` | 97 passed in 259.86 s |
+| `ps` lists filtered on `sf-c68-fix1`, on xdist worker command lines and on this worktree's path | None of this job's test processes left; the workers listed belonged to other sessions' runs and were not touched |
+
+So every file in both test sets ran in full after the fix, with no failure: 97 proof, 6 reproducer, 2 reuse and 27 transient-read cases, 25 census cases (with reproducer A, 26 in each repeat run), 105 unrun, 24 workspace-transient, five archive cases and the 437 of set 2. The census file's 25 cases also passed in each of the 9 repeat runs.
+
+What didn't run:
+- Repeat runs 10 to 20 (11 of the 20 the brief asked for). Time ran out; 9 of 9 completed runs passed.
+- 78 of the 83 tests in `tests/unit/test_retention_archive.py`. Its `World` fixture runs `git push` into a local bare repository on setup (`tests/unit/retention_world.py:107`), and `test_a_remote_that_holds_only_unrelated_history_counts_as_none` runs one directly (`:1908`). The brief bars executing `git push` even behind a stub, so I ran only the five push-free tests: `test_a_remote_on_this_machine_is_no_network_remote`, `test_network_url_classification`, `test_discarding_a_broken_allocation_removes_only_its_own_registration`, `test_this_machine_by_any_of_its_names` and `test_this_machine_by_its_short_name`. The earlier lane excluded this file for the same reason.
+- The whole suite, which CI runs.
+
+Deviations:
+- Commits were made with plumbing through a temporary index in scratch, because `git add` stalled writing the worktree's index. Only named files were staged, and history was not rewritten. The worktree's own index is still at 23abb86e2, so `git status` there will show the committed changes as differences until the index is refreshed.
+- The archive deselection above.
+- The cap tests start the cap at the filter rather than using a longer cap (finding 1).
+- The re-signal is bounded by C-5.4 to an unreaped leader (finding 3).
+- The fixture hardening above, which the findings didn't ask for.
+
+Known limits:
+- The pin is appended to `GIT_CONFIG_COUNT`'s entries. Git reads `GIT_CONFIG_PARAMETERS` after those, so a policy that explicitly passes `GIT_CONFIG_PARAMETERS` naming `core.fsmonitor=true` would override the pin. Such a helper would still hold the job, never be removed over, and fail the job after `workspace_retry_max`.
+- Other detached helpers (a hook that daemonizes) still hold the job until they exit, as C-6.8 now says.
+- The group and stop records are memory only, as before.
+
+Housekeeping: everything this job made was under `$S`. The suite's conftest makes one `sf-test-homes-*` folder per test process in `$TMPDIR` and removes it at teardown. The three cut-off pytest sessions (set1a, set1b, repeat run 10) may have left theirs, but their names were never printed. `$TMPDIR` holds dozens of such folders from many sessions, so I can't tell mine apart and left them all; I didn't glob-delete under the shared prefix. `/tmp/sf-failed` held only two other sessions' pid folders when I looked. The kept roots of my before run's 15 failures weren't there, so I infer another suite's startup prune removed them. `$S` is deleted at the end with a guarded `shutil.rmtree` that asserts `sf-c68-fix1` is in the path; the final answer records the result.
