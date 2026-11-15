@@ -2,38 +2,76 @@
 
 from __future__ import annotations
 
+import re
+
+#: The most of an accepted deliverable the daemon reads (C-12.11, review r1 P2).
+#: Hub reviews run to tens of kilobytes; a larger answer is parsed up to its
+#: last line break inside this bound and recorded invalid, never read whole.
+MAX_REVIEW_BYTES = 4 * 1024 * 1024
+
+#: A byte-order mark and zero-width characters an editor or model can put
+#: before the verdict line (review r1 P3). They never make a line non-empty.
+_ZERO_WIDTH = "﻿​‌‍⁠"
+_VISIBLE = str.maketrans("", "", _ZERO_WIDTH)
+
+#: A finding's level at the start of a line (review r1 P2). Up to three spaces
+#: of indentation (four columns or a tab is an indented code block, or content
+#: nested under something else), then any run of containers: a blockquote `>`,
+#: a list marker (`-`, `*`, `+`, `1.`, `1)`), a heading's `#`s, emphasis
+#: (`**`, `*`, `__`, `_`). Then the level, an optional finding number (`P2-1`),
+#: optional closing emphasis and an optional short parenthetical (`P2 (change)`),
+#: then `:`, a `.` before a space, or a space and an em dash, en dash or hyphen.
+#: Possessive repeats keep a run of marks linear in its length, and only a
+#: line's first FINDING_PREFIX_CHARS characters are matched, so no line costs
+#: more than that: a level that far into a line is not at its start.
+FINDING_PREFIX_CHARS = 256
+_FINDING = re.compile(
+    r" {0,3}"
+    r"(?:(?:>|[-*+](?=[ \t])|\d{1,9}[.)](?=[ \t])|#{1,6}|\*{1,2}|_{1,2})[ \t]*)*+"
+    r"(P[0-3])(?:-\d{1,4})?(?![0-9A-Za-z])"
+    r"[*_]*+"
+    r"(?:[ \t]*\([^()\n]{1,80}\)[*_]*+)?"
+    r"(?P<separator>:|\.(?=[ \t])|[ \t]+[—–-])"
+)
+#: What follows a level in a count or tally, not a finding: `P0: 0`,
+#: `P1: none`, `P0: 0, P1: 2`, `P2: no findings`. A number that starts a
+#: sentence (`P1: 2 tests fail`) is a finding's summary.
+_TALLY = re.compile(r"(?:(?:\d+|none|zero)(?:[ \t]+findings?)?|no[ \t]+findings?)\b[ \t*_]*"
+                    r"(?:$|[,;|/·(]|\.(?=[ \t]|$)|P[0-3]\b)", re.IGNORECASE)
+#: A dash between two levels is a range (`P0 - P1: none`), not a finding.
+_RANGE = re.compile(r"P[0-3]\b")
+#: The opening of each level's own definition (C-12.11). A levelled line that
+#: begins with it, case aside, repeats the preamble's legend: it is not a finding.
+DEFINITION_OPENINGS = {
+    "P0": "harm that is live now",
+    "P1": "the change does something wrong",
+    "P2": "right today but fragile",
+    "P3": "style and nits",
+}
+#: A fenced code block's opening or closing line, inside a blockquote or a list
+#: item too: three or more backticks or tildes.
+_FENCE = re.compile(r"[ \t>]*(`{3,}|~{3,})(.*)$")
+_NO_FINDINGS = re.compile(r" {0,3}FINDINGS: none[ \t]*$")
+
 
 def _finding_level(line: str) -> str | None:
-    """Recognize a finding at the start of a possibly Markdown-decorated line.
+    """The level a line opens a finding with, or None.
 
-    Scan prefixes rather than searching for a level in prose. Advancing a
-    cursor also keeps long, malformed runs of Markdown marks linear in size.
+    A level in the middle of a sentence, a tally, a range and an echoed
+    definition are not findings.
     """
-    index = 0
-    length = len(line)
-    while index < length:
-        mark = line[index]
-        if mark in " \t*#":
-            index += 1
-        elif mark == "-" and index + 1 < length and line[index + 1] in " \t":
-            index += 1
-        else:
-            break
-    level = line[index:index + 2]
-    if level not in ("P0", "P1", "P2", "P3"):
+    match = _FINDING.match(line[:FINDING_PREFIX_CHARS])
+    if match is None:
         return None
-    index += 2
-    # An author may bold just the level or the whole summary.
-    while index < length and line[index] == "*":
-        index += 1
-    if index < length and line[index] == ":":
-        return level
-    separator = index
-    while index < length and line[index] in " \t":
-        index += 1
-    if index > separator and index < length and line[index] in "—-":
-        return level
-    return None
+    level = match.group(1)
+    rest = line[match.end():].lstrip(" \t*_")
+    if _TALLY.match(rest):
+        return None
+    if match.group("separator") not in (":", ".") and _RANGE.match(rest):
+        return None
+    if rest.casefold().startswith(DEFINITION_OPENINGS[level]):
+        return None
+    return level
 
 
 def parse_review_result(text: str) -> dict:
@@ -41,23 +79,37 @@ def parse_review_result(text: str) -> dict:
 
     Invalid format and contradictory severity are recorded separately. The
     caller, rather than the parser, decides whether a review counts as a round
-    or blocks merging.
+    or blocks merging. Lines end at `\\n` alone (a `\\r` before it is dropped):
+    a form feed, U+2028 or U+0085 in a paragraph does not start a line. Nothing
+    inside a fenced code block is a finding or a `FINDINGS: none`.
     """
     verdict = None
     first_line_seen = False
     levels = {"P0": 0, "P1": 0, "P2": 0, "P3": 0}
     no_findings = False
-    for line in text.splitlines():
-        if not first_line_seen and line.strip():
+    fence = None
+    for line in text.split("\n"):
+        if line.endswith("\r"):
+            line = line[:-1]
+        if not first_line_seen and line.translate(_VISIBLE).strip():
             first_line_seen = True
             verdict = {
                 "VERDICT: APPROVE": "approve",
                 "VERDICT: REQUEST_CHANGES": "request_changes",
-            }.get(line.rstrip())
+            }.get(line.lstrip(_ZERO_WIDTH).rstrip().rstrip(_ZERO_WIDTH).rstrip())
+        marker = _FENCE.match(line)
+        if fence is not None:
+            if marker and marker.group(1)[0] == fence[0] and len(marker.group(1)) >= len(fence) \
+                    and not marker.group(2).strip():
+                fence = None
+            continue
+        if marker and not (marker.group(1)[0] == "`" and "`" in marker.group(2)):
+            fence = marker.group(1)
+            continue
         level = _finding_level(line)
         if level is not None:
             levels[level] += 1
-        if line.strip() == "FINDINGS: none":
+        elif _NO_FINDINGS.match(line):
             no_findings = True
 
     reasons = []
@@ -76,3 +128,24 @@ def parse_review_result(text: str) -> dict:
         "reason": "; ".join(reasons) if reasons else None,
         "consistent": consistent,
     }
+
+
+def parse_review_deliverable(payload: bytes) -> dict:
+    """Parse an accepted deliverable's bytes, reading at most MAX_REVIEW_BYTES.
+
+    A larger deliverable is read up to its last line break inside the bound
+    (all of the bound if it has none), counted from that, and recorded
+    invalid with the reason, since findings past the bound were never read.
+    """
+    if len(payload) <= MAX_REVIEW_BYTES:
+        return parse_review_result(payload.decode("utf-8", "replace"))
+    head = payload[:MAX_REVIEW_BYTES]
+    cut = head.rfind(b"\n")
+    if cut >= 0:
+        head = head[:cut + 1]
+    result = parse_review_result(head.decode("utf-8", "replace"))
+    over = (f"deliverable is {len(payload)} bytes, over the {MAX_REVIEW_BYTES}-byte bound; "
+            f"only its first {len(head)} bytes were read")
+    result["reason"] = f"{result['reason']}; {over}" if result["reason"] else over
+    result["valid"] = False
+    return result

@@ -66,7 +66,7 @@ from .contracts import (
 )
 from .status_json import closure_row, closure_rows, decision_rows, timestamp
 from .review_record import is_review_job, stored_review_result
-from .review_result import parse_review_result
+from .review_result import parse_review_deliverable
 from .credentials import (env_references, ignored_hooks, reference_repair, resolve_credential, startup_lanes,
                           withheld_references)
 from .provider_env import ProviderEnvironment
@@ -552,11 +552,17 @@ WRITE_PREAMBLE = (
     "Commit each coherent step on the assigned branch; never rewrite history "
     "or push to main or master. Leave a concise report of changes and tests.\n\n"
 )
-#: Every review's format and level definitions (C-12.11). Tests and scratch
-#: stay in its workspace; the verdict is its deliverable (C-12.4).
+#: What only a writable review is told (#221 review r1b, P3-8): a read-only or
+#: isolated review cannot write scratch in its workspace, and a read-only one
+#: may have no shell at all (C-12.4), so it never hears it (A1 review r1, P2).
+REVIEW_WRITABLE = "You may run tests and write scratch files in your own workspace. "
+#: Every `--task review` job's format and level definitions (C-12.11): this
+#: text for a writable review, REVIEW_PREAMBLE_READ_ONLY for any other. A gate
+#: round gets neither: its peer prompt asks for sentinel JSON alone (C-23.9).
+#: The verdict is the deliverable (C-12.4).
 REVIEW_PREAMBLE = (
     "<!-- subfleet:review -->\n"
-    "You may run tests and write scratch files in your own workspace. Do not commit, push or publish.\n"
+    + REVIEW_WRITABLE + "Do not commit, push or publish.\n"
     "First answer line: exactly VERDICT: APPROVE or VERDICT: REQUEST_CHANGES.\n"
     "Each finding: own line starting P0:, P1:, P2: or P3:, one-line summary; detail below.\n"
     "No findings: FINDINGS: none immediately after the verdict.\n"
@@ -567,6 +573,7 @@ REVIEW_PREAMBLE = (
     "P3: style and nits.\n"
     "This format holds whatever the brief below asks.\n\n"
 )
+REVIEW_PREAMBLE_READ_ONLY = REVIEW_PREAMBLE.replace(REVIEW_WRITABLE, "", 1)
 #: What a writable job that is not in place is told about where it works
 #: (C-6.6, C-13.1). Without it a brief's absolute paths lead a writer back into
 #: the caller's checkout, which the job must never touch (review of d261). An
@@ -3421,7 +3428,10 @@ class Daemon:
                          "refuses .github/ changes, submodules, absolute or '..' or chained symlinks, rewritten "
                          "history, and policy size/count limits; a refusal keeps the job accepted for a human or "
                          "hub push.\n\n").encode()
-            review = args.task == "review" or args.kind == "gate-review"
+            # C-12.11: every `--task review` job, whatever its sandbox or
+            # `--no-preamble`. Not a gate round (kind `gate-review`, no task):
+            # its peer prompt allows no text outside the verdict sentinels.
+            review = is_review_job({"task": args.task, "kind": args.kind})
             preamble = review or (sandbox == Sandbox.WORKSPACE_WRITE and not args.no_preamble)
             if review or sandbox == Sandbox.WORKSPACE_WRITE:
                 manifest["preamble"] = preamble
@@ -3429,7 +3439,12 @@ class Daemon:
                 # Review B-3: `--no-preamble` drops the template, never the note on
                 # where the job may write.
                 prepared_path = jobdir / "prompt.prepared.md"
-                template = REVIEW_PREAMBLE if review else WRITE_PREAMBLE
+                if not review:
+                    template = WRITE_PREAMBLE
+                elif sandbox == Sandbox.WORKSPACE_WRITE:
+                    template = REVIEW_PREAMBLE
+                else:
+                    template = REVIEW_PREAMBLE_READ_ONLY
                 self._publish("prompt-prepared", prepared_path,
                               (template.encode() if preamble else b"") + note + prompt)
                 manifest["prepared_prompt_path"] = str(prepared_path)
@@ -4266,7 +4281,7 @@ class Daemon:
             return self.submit(protocol.coerce_args(protocol.SubmitArgs, args))
         if op == "list":
             a = protocol.coerce_args(protocol.ListArgs, args)
-            sql, params = ("SELECT jobs.*, CASE WHEN task='review' OR kind='gate-review' THEN "
+            sql, params = ("SELECT jobs.*, CASE WHEN task='review' THEN "
                            "(SELECT evidence_json FROM attempts WHERE attempts.attempt_id=jobs.accepted_attempt_id) "
                            "END AS _review_evidence_json "
                            "FROM jobs WHERE 1"), []
@@ -11953,6 +11968,14 @@ class Daemon:
             salvage_artifacts, checkpoint, salvage_evidence = self._salvage(job, a)
         artifacts.extend(salvage_artifacts)
         wall_exited = self._wall_exited_descendants(a["job_id"]) if actual.get("killed_by") == "max_wall_s" else set()
+        review_result = None
+        if (is_review_job(job) and not lost and outcome.cls == OutcomeClass.OK and nonblank_deliverable
+                and (rc == 0 or job["kind"] == "turn")):
+            # D-REVIEW-CONTRACT1 (A1 review r1, P2): parse before the store's
+            # write transaction, never inside it, and at most MAX_REVIEW_BYTES.
+            # The transaction keeps it only if it accepts this attempt; it can
+            # only veto an `ok` it would have accepted here, never make one.
+            review_result = parse_review_deliverable(payload)
         with self.store.transaction("attempt.accepted", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
             job = self._job(a["job_id"])
             current = tx.execute("SELECT MAX(seq) FROM attempts WHERE job_id=?", (job["job_id"],)).fetchone()[0]
@@ -12015,10 +12038,10 @@ class Daemon:
             accepted = a["attempt_id"] if ok and not cancel else None
             evidence = json.loads(actual["evidence_json"] or "{}")
             evidence.update(classification=outcome.evidence, checkpoint=checkpoint, **salvage_evidence)
-            if accepted and is_review_job(job):
+            if accepted and review_result is not None:
                 # D-REVIEW-CONTRACT1: the captured accepted deliverable decides;
                 # format and severity never change acceptance or retry policy.
-                evidence["review"] = parse_review_result(payload.decode("utf-8", "replace"))
+                evidence["review"] = review_result
                 tx.execute("INSERT INTO events(ts,kind,job_id,attempt_id,data_json) VALUES(?,?,?,?,?)",
                            (utcnow(), "job.review_result", job["job_id"], accepted, json.dumps(evidence["review"])))
             if census.cwd_pids:

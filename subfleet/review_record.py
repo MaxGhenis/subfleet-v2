@@ -10,7 +10,14 @@ from .contracts import JobState
 
 
 def is_review_job(job: Mapping[str, Any]) -> bool:
-    return job.get("task") == "review" or job.get("kind") == "gate-review"
+    """A `--task review` job: the one kind that gets the review format and parse.
+
+    A gate round (kind `gate-review`) carries no task. Its peer prompt asks
+    for one sentinel-delimited JSON object and nothing else (C-23.9), so it
+    gets neither the format nor the parse (A1 review r1, P1). Publish denial
+    keeps its own wider test (`review_publish.publishing_denied`).
+    """
+    return job.get("task") == "review"
 
 
 def stored_review_result(job: Mapping[str, Any], evidence_json: str | None) -> dict[str, Any] | None:

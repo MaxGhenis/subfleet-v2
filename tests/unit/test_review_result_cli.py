@@ -75,12 +75,26 @@ def test_offline_runs_json_and_show_json_carry_the_same_review(ledger, capsys):
     assert listed["review"] == shown["review"] == results[1]
 
 
-@pytest.mark.parametrize("task,kind", [("review", "dispatch"), ("build", "gate-review")])
-def test_offline_review_task_and_gate_review_kind_expose_the_saved_result(ledger, task, kind):
+@pytest.mark.parametrize("task,kind", [("review", "dispatch"), ("review", "resume")])
+def test_offline_review_tasks_expose_the_saved_result(ledger, task, kind):
     root, conn, results = ledger
     conn.execute("UPDATE jobs SET task=?,kind=?", (task, kind))
     conn.commit()
     assert Offline(root).list_jobs()[0]["review"] == results[1]
+    assert Offline(root).show_job(JOB)["review"] == results[1]
+
+
+@pytest.mark.parametrize("task", [None, "build"])
+def test_offline_gate_rounds_show_no_review(ledger, task):
+    """A1 review r1, P1: a gate round answers in sentinel JSON, not the review
+    format, so even saved review metadata is not shown for one."""
+    root, conn, _ = ledger
+    conn.execute("UPDATE jobs SET task=?,kind='gate-review'", (task,))
+    conn.commit()
+    assert Offline(root).list_jobs()[0]["review"] is None
+    assert Offline(root).show_job(JOB)["review"] is None
+    assert stored_review_result({"task": task, "kind": "gate-review", "state": "succeeded",
+                                 "accepted_attempt_id": "a2"}, json.dumps({"review": {}})) is None
 
 
 @pytest.mark.parametrize("change", ["non-review", "not-finished", "not-accepted", "old-record", "bad-evidence"])

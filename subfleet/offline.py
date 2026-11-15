@@ -211,7 +211,7 @@ class Offline:
           LEFT JOIN lanes l ON l.lane_id = a.lane_id
           LEFT JOIN attempts accepted_review
                  ON accepted_review.attempt_id = j.accepted_attempt_id
-                AND (j.task = 'review' OR j.kind = 'gate-review')
+                AND j.task = 'review'
     """
 
     def list_jobs(self, *, session: str | None = None, running: bool = False,
