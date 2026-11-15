@@ -114,9 +114,9 @@ def mutate(tree: Path, name: str) -> None:
         cached.unlink()
 
 
-def pytest(tree: Path, tests: list[str], scratch: Path, label: str) -> dict[str, str]:
-    """{file::test name: passed|failed|error|skipped} from one pytest run in ``tree``; a parametrized
-    test's cases fold into its name (failed if any failed)."""
+def pytest(tree: Path, tests: list[str], scratch: Path, label: str) -> tuple[dict[str, str], list[str]]:
+    """{file::test name: passed|failed|error|skipped} from one pytest run in ``tree``, and its
+    one-line failure reasons; a parametrized test's cases fold into its name (failed if any failed)."""
     report = scratch / f"{label}.xml"
     env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
     env["PYTHONPATH"] = str(tree)  # Import the export, never an installed or editable copy.
@@ -136,7 +136,9 @@ def pytest(tree: Path, tests: list[str], scratch: Path, label: str) -> dict[str,
                    else "skipped" if "skipped" in kinds else "passed")
         name = case.get("classname").replace(".", "/") + ".py::" + case.get("name").split("[", 1)[0]
         outcomes[name] = max(outcomes.get(name, "passed"), outcome, key=rank.index)
-    return outcomes
+    reasons = [line.replace(str(tree) + "/", "")[:240] for line in run.stdout.splitlines()
+               if ".py:" in line and "Error" in line]
+    return outcomes, reasons
 
 
 def main() -> int:
@@ -156,14 +158,14 @@ def main() -> int:
         pristine = {file: (tree / file).read_bytes() for file in (DAEMON, CONTRACTS)}
         if not args.no_control:
             named = sorted({test for name in args.only for test in MUTATIONS[name][2]})
-            outcome = pytest(tree, named, scratch, "control")
+            outcome, _ = pytest(tree, named, scratch, "control")
             print(json.dumps({"mutant": "control", "outcomes": outcome}), flush=True)
             ok = all(outcome.get(test) == "passed" for test in named)
         for name in args.only:
             file, _, tests = MUTATIONS[name]
             try:
                 mutate(tree, name)
-                outcome = pytest(tree, tests, scratch, name)
+                outcome, reasons = pytest(tree, tests, scratch, name)
             finally:
                 (tree / file).write_bytes(pristine[file])
             restored = (tree / file).read_bytes()
@@ -171,7 +173,7 @@ def main() -> int:
             killed_by = [test for test in tests if outcome.get(test) == "failed"]
             ok = ok and bool(killed_by)
             print(json.dumps({"mutant": name, "file": file, "killed": bool(killed_by), "killed_by": killed_by,
-                              "outcomes": outcome,
+                              "outcomes": outcome, "reasons": reasons,
                               "restored_sha256": hashlib.sha256(restored).hexdigest()}), flush=True)
         # The checkout itself was never written.
         assert checkout == {file: hashlib.sha256((ROOT / file).read_bytes()).hexdigest() for file in checkout}
