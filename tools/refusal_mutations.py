@@ -39,8 +39,8 @@ ENROLL_RAISE = ('            raise AdapterError(f"claude: {refusal.statement()}"
 WINDOW = '    high = max(low + LINE_EXCERPT_MAX, found_end)\n'
 MARKED = '    return ("…" if low else "") + line[low:high] + ("…" if high < len(line) else "")\n'
 STAMPED = "        if message.error == ORG_BLOCK_ERROR_KIND:\n"
-PROVIDER_FIRST = "    for text in errors:\n        found = ORG_BLOCK_RE.search(text)\n"
-PROVIDER_LAST = '    for text in errors:\n        found = re.search(r"\\S", text)\n'
+PROVIDER_FIRST = "    for clean in errors:\n        found = ORG_BLOCK_RE.search(clean)\n"
+PROVIDER_LAST = '        for clean in errors:\n            found = re.search(r"\\S", clean)\n'
 CAUSES_END = '    "run `subfleet lanes enroll` again."\n'
 CLI_CORPUS = '        corpus = "\\n".join([stderr, *summary.cli_texts()])\n'
 GATE = "        refusal = None if successful else _subscription_refusal(cli_corpus, summary)\n"
@@ -53,6 +53,10 @@ FIX = ('CLAUDE_REFUSAL_CAUSES = (\n'
 TEMPLATE = "    \"claude-subscription-refused\": ('claude: Claude Code refused subscription access for this account: '\n"
 CHECK = "    if type(value) is not str:\n        return False\n    choices = _choices()\n"
 FIRST = "    for message in summary.assistants:\n" + STAMPED
+SCRUB = ("    from ..sessions.handoff import scrub_secrets\n"
+         "    return scrub_secrets(text, whole=True)[0]\n")
+ERROR_RESULT = ("        if summary.result.is_error and summary.result.text:\n"
+                "            texts.append(summary.result.text)\n")
 
 
 def pr(name: str) -> str:
@@ -149,6 +153,22 @@ MUTATIONS = {
     "a bystander line is quoted before the stamped frame (rebase 7)": (
         ADAPTER, FIRST, '    if in_corpus is not None:\n        return quote(corpus, in_corpus, "output")\n' + FIRST,
         pr("test_unrelated_matching_text_is_never_quoted_as_the_refusal")),
+    # Fix r1's mutants: each undoes one of review r1's fixes (2026-11-15).
+    "the excerpt is taken from text not scrubbed first (fix r1, P1)": (
+        ADAPTER, SCRUB, "    return text\n",
+        bounds("test_log_scrubs_a_password_whose_label_is_outside_excerpt")),
+    "the refusal is gated on a non-error result, not a success (fix r1, P2)": (
+        ADAPTER, GATE, GATE.replace("if successful", "if non_error_result"),
+        bounds("test_what_release_217_called_auth_dead_still_is")),
+    "enrolment lets a verified success supersede the refusal (fix r1, P2 contract)": (
+        ADAPTER, ENROLL, ENROLL.replace(
+            "refusal = _subscription_refusal(corpus, summary)",
+            "refusal = None if (rc == 0 and summary.result is not None and not summary.result.is_error"
+            " and summary.final_text.strip()) else _subscription_refusal(corpus, summary)"),
+        bounds("test_enroll_verified_success_contract")),
+    "the provider's error text omits an error result's text (review r1's survivor)": (
+        ADAPTER, ERROR_RESULT, "        pass\n",
+        bounds("test_a_wordless_stamp_quotes_a_reworded_error_result")),
 }
 
 
