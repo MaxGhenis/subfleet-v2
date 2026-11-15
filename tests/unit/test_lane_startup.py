@@ -31,6 +31,7 @@ import json
 import os
 import subprocess
 import time
+import unicodedata
 from dataclasses import replace
 from pathlib import Path
 
@@ -123,6 +124,13 @@ def _ancestors(path: str) -> list[str]:
     return [str(parent) for parent in Path(path).parents if str(parent) != "/"]
 
 
+def _spellings(root: str) -> list[str]:
+    """`R`'s spellings: git's, the real path, and the NFC form of each (Claude Code
+    normalizes its cwd to NFC; git and `realpath` give the bytes on disk)."""
+    real = os.path.realpath(root)
+    return list(dict.fromkeys((root, real, unicodedata.normalize("NFC", root), unicodedata.normalize("NFC", real))))
+
+
 def _without_startup(argv) -> list[str]:
     """`argv` with job-startup keys taken back out of its one `--settings`."""
     argv = list(argv)
@@ -165,7 +173,7 @@ def fixtures(tmp_path, home) -> dict[str, tuple[Path, Path]]:
 
 def _check_i2(excludes: list[str], workdir: Path, home: Path, configs: tuple[str, ...] = ()) -> None:
     root = _toplevel(workdir)
-    spellings = list(dict.fromkeys((root, os.path.realpath(root))))
+    spellings = _spellings(root)
     for config in (*configs, str(home / ".claude")):
         assert f"{glob_literal(config)}/CLAUDE.md" in excludes
         assert f"{glob_literal(config)}/rules/**" in excludes
@@ -185,7 +193,7 @@ def _check_i2(excludes: list[str], workdir: Path, home: Path, configs: tuple[str
 
 def _check_i3(excludes: list[str], workdir: Path, home: Path, configs: tuple[str, ...] = ()) -> None:
     root = _toplevel(workdir)
-    spellings = list(dict.fromkeys((root, os.path.realpath(root))))
+    spellings = _spellings(root)
     personal = [*configs, str(home)]            # `$HOME/.claude` is under `$HOME`
 
     def under(path: str, folders) -> bool:
@@ -311,6 +319,176 @@ def test_r_outside_git_is_the_workdir(tmp_path, home):
     workdir.mkdir()
     excludes = job_startup_settings(workdir, {"HOME": str(home)})["claudeMdExcludes"]
     assert glob.unglob(excludes[-1]).startswith(f"!{{{workdir},") or excludes[-1] == f"!{glob_literal(str(workdir))}/**"
+
+
+# --- R that a checkout's own git config moves (review r1 of #326, P2 1) ---------------------
+
+
+def _negation_of(root: str) -> str:
+    spared = [glob_literal(spelling) for spelling in _spellings(root)]
+    return "!" + (spared[0] if len(spared) == 1 else "{" + ",".join(spared) + "}") + "/**"
+
+
+def _holds_only_the_workdir(excludes: list[str], workdir: Path, outside: list[Path], home: Path) -> None:
+    """The workdir's own files are kept; the folders around it and the personal ones
+    are not."""
+    test = glob.matcher(excludes)
+    real = os.path.realpath(workdir)
+    for name in ("CLAUDE.md", "AGENTS.md", "sub/CLAUDE.md", ".claude/rules/x.md"):
+        assert not test(f"{real}/{name}"), name
+    for folder in outside:
+        for name in ("CLAUDE.md", "AGENTS.md", "x/CLAUDE.md"):
+            assert test(f"{os.path.realpath(folder)}/{name}"), (folder, name)
+    for path in (f"{home}/CLAUDE.md", f"{home}/AGENTS.md", f"{home}/.claude/CLAUDE.md", "/CLAUDE.md", "/x/AGENTS.md"):
+        assert test(path), path
+
+
+@pytest.mark.parametrize("moved_to", ["root", "sibling"])
+def test_r_is_the_workdir_when_the_checkouts_config_moves_git_off_it(moved_to, tmp_path, home):
+    """A checkout's own `.git/config` can set `core.worktree`. Set to `/`, git answered
+    `/` and the negation became `!/**`, which spared every path; set to a sibling, R's
+    negation spared the sibling and none of the workdir. R is git's answer only when
+    that folder is the workdir's or holds it, and is not `/`; otherwise the workdir."""
+    repo = _repo(tmp_path / "repo")
+    workdir = repo / "proj"
+    workdir.mkdir()
+    sibling = tmp_path / "sibling"
+    sibling.mkdir()
+    _git("config", "core.worktree", "/" if moved_to == "root" else str(sibling), cwd=repo)
+    assert os.path.realpath(_toplevel(workdir)) == ("/" if moved_to == "root" else os.path.realpath(sibling))
+    excludes = job_startup_settings(workdir, {"HOME": str(home)})["claudeMdExcludes"]
+    assert "!/**" not in excludes
+    assert excludes[-1] == _negation_of(str(workdir))
+    _holds_only_the_workdir(excludes, workdir, [repo, tmp_path, sibling], home)
+
+
+def test_r_is_the_workdir_when_a_gitdir_file_points_git_at_a_tree_elsewhere(tmp_path, home):
+    """A `.git` file's `gitdir:` can name any repository, whose config then decides
+    the top: here `core.worktree` names a folder outside the workdir."""
+    elsewhere = _repo(tmp_path / "elsewhere")
+    tree = tmp_path / "elsewhere-tree"
+    tree.mkdir()
+    _git("config", "core.worktree", str(tree), cwd=elsewhere)
+    workdir = tmp_path / "proj"
+    workdir.mkdir()
+    (workdir / ".git").write_text(f"gitdir: {elsewhere / '.git'}\n", encoding="utf-8")
+    assert os.path.realpath(_toplevel(workdir)) == os.path.realpath(tree)    # git follows it
+    excludes = job_startup_settings(workdir, {"HOME": str(home)})["claudeMdExcludes"]
+    assert excludes[-1] == _negation_of(str(workdir))
+    _holds_only_the_workdir(excludes, workdir, [tree, elsewhere, tmp_path], home)
+
+
+def test_r_may_be_an_ancestor_that_git_names_and_that_holds_the_workdir(tmp_path, home):
+    """The ruling's boundary, pinned: a `core.worktree` naming a folder that holds the
+    workdir is accepted, as git's answer for a subfolder job always is. The folders
+    between it and the workdir are then the checkout's; `$HOME`'s and `C`'s files
+    stay excluded by name."""
+    holder = tmp_path / "holder"
+    repo = _repo(holder / "repo")
+    workdir = repo / "proj"
+    workdir.mkdir()
+    _git("config", "core.worktree", str(holder), cwd=repo)
+    excludes = job_startup_settings(workdir, {"HOME": str(home)})["claudeMdExcludes"]
+    assert excludes[-1] == _negation_of(_toplevel(workdir))
+    assert os.path.realpath(_toplevel(workdir)) == os.path.realpath(holder)
+
+
+def test_r_is_gits_answer_when_the_workdir_is_spelled_otherwise(tmp_path, home):
+    """`realpath` keeps the spelling it is given, so "holds the workdir" is judged on
+    the folders, not their spellings: a workdir given in another case on a
+    case-insensitive file system still gets git's top as R."""
+    repo = _repo(tmp_path / "Repo")
+    workdir = repo / "sub"
+    workdir.mkdir()
+    other = Path(str(workdir).replace("/Repo/", "/REPO/"))
+    if not other.exists():
+        pytest.skip("this file system is case-sensitive")
+    excludes = job_startup_settings(other, {"HOME": str(home)})["claudeMdExcludes"]
+    assert excludes[-1] == _negation_of(_toplevel(other))
+    assert os.path.samefile(_toplevel(other), repo)
+
+
+def _recording_git(tmp_path: Path, monkeypatch, record: Path) -> None:
+    """A git on PATH that records the `GIT_CONFIG_*` names it was given and what git
+    reads as `core.fsmonitor` there, then runs the real git."""
+    real = subprocess.run(["sh", "-c", "command -v git"], capture_output=True, text=True, check=True).stdout.strip()
+    _stub_git(tmp_path, monkeypatch, (
+        "#!/bin/sh\n"
+        f'env | grep "^GIT_CONFIG_" | LC_ALL=C sort > "{record}"\n'
+        f'printf "fsmonitor=%s\\n" "$("{real}" -C "$2" config --get core.fsmonitor)" >> "{record}"\n'
+        f'exec "{real}" "$@"\n'))
+
+
+def test_the_git_call_pins_core_fsmonitor_off(tmp_path, home, monkeypatch):
+    """The one `rev-parse` runs with `core.fsmonitor=false` given through
+    `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_0`/`GIT_CONFIG_VALUE_0`, so a checkout's own
+    fsmonitor hook could not run there; git reads it over the checkout's value."""
+    repo = _repo(tmp_path / "repo")
+    marker = tmp_path / "fsmonitor-ran"
+    hook = tmp_path / "fsmonitor.sh"
+    hook.write_text(f'#!/bin/sh\ntouch "{marker}"\n', encoding="utf-8")
+    hook.chmod(0o755)
+    _git("config", "core.fsmonitor", str(hook), cwd=repo)
+    record = tmp_path / "git-env.txt"
+    _recording_git(tmp_path, monkeypatch, record)
+    excludes = job_startup_settings(repo, {"HOME": str(home)})["claudeMdExcludes"]
+    assert record.read_text(encoding="utf-8").splitlines() == [
+        "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.fsmonitor", "GIT_CONFIG_VALUE_0=false", "fsmonitor=false"]
+    assert excludes[-1] == _negation_of(str(repo)) and not marker.exists()
+
+
+def test_the_pin_is_appended_after_config_the_environment_already_counts(tmp_path, home, monkeypatch):
+    """Entries the git environment already counts are kept; the pin follows them."""
+    from subfleet import salvage
+    given = {"GIT_CONFIG_COUNT": "2", "GIT_CONFIG_KEY_0": "user.name", "GIT_CONFIG_VALUE_0": "t",
+             "GIT_CONFIG_KEY_1": "core.fsmonitor", "GIT_CONFIG_VALUE_1": "/nonexistent/fsmonitor-hook"}
+    built = salvage.build_environment
+    monkeypatch.setattr(salvage, "build_environment", lambda *a, **k: {**built(*a, **k), **given})
+    repo = _repo(tmp_path / "repo")
+    record = tmp_path / "git-env.txt"
+    _recording_git(tmp_path, monkeypatch, record)
+    job_startup_settings(repo, {"HOME": str(home)})
+    assert record.read_text(encoding="utf-8").splitlines() == [
+        "GIT_CONFIG_COUNT=3", "GIT_CONFIG_KEY_0=user.name", "GIT_CONFIG_KEY_1=core.fsmonitor",
+        "GIT_CONFIG_KEY_2=core.fsmonitor", "GIT_CONFIG_VALUE_0=t", "GIT_CONFIG_VALUE_1=/nonexistent/fsmonitor-hook",
+        "GIT_CONFIG_VALUE_2=false", "fsmonitor=false"]
+
+
+# --- a repository stored in NFD (review r1 of #326, P2 2) -----------------------------------
+
+
+@pytest.mark.parametrize("given", ["as-stored", "nfc-spelled"])
+def test_i3_a_repository_stored_in_nfd_keeps_its_own_guidance(given, tmp_path, home, monkeypatch):
+    """Claude Code normalizes its cwd to NFC (`Rn`, applied to `originalCwd`), and its
+    startup walk builds every path from that; git and `realpath` give the name as it
+    is stored. A repository named `café` in NFD lost its `CLAUDE.md`, `AGENTS.md` and
+    nested `CLAUDE.md`. R's NFC spellings are spared and listed now, beside the
+    stored ones, whichever spelling the workdir is given in."""
+    repo = _repo(tmp_path / unicodedata.normalize("NFD", "café"))
+    workdir = repo / "sub"
+    workdir.mkdir()
+    monkeypatch.chdir(workdir)
+    stored = os.getcwd()                                       # the kernel's spelling
+    if stored == unicodedata.normalize("NFC", stored):
+        pytest.skip("this file system does not keep an NFD name")
+    if given == "nfc-spelled":
+        workdir = Path(unicodedata.normalize("NFC", str(workdir)))
+        if not workdir.exists():
+            pytest.skip("this file system tells NFC and NFD names apart")
+    excludes = job_startup_settings(workdir, {"HOME": str(home)})["claudeMdExcludes"]
+    _check_i2(excludes, workdir, home)
+    _check_i3(excludes, workdir, home)
+    test = glob.matcher(excludes)
+    claude_cwd = unicodedata.normalize("NFC", stored)          # `process.cwd()`, then `Rn`
+    top = os.path.dirname(claude_cwd)
+    for spelling in (top, os.path.dirname(stored)):
+        for name in ("CLAUDE.md", "AGENTS.md", "sub/CLAUDE.md", ".claude/CLAUDE.md", ".claude/rules/x.md"):
+            assert not test(f"{spelling}/{name}"), (spelling, name)
+    for folder in (os.path.dirname(top), os.path.dirname(os.path.dirname(stored))):
+        for name in ("CLAUDE.md", "AGENTS.md"):
+            assert test(f"{folder}/{name}"), (folder, name)
+    for path in (f"{os.path.dirname(top)}/cafe/CLAUDE.md", f"{top}x/CLAUDE.md", f"{home}/AGENTS.md", "/CLAUDE.md"):
+        assert test(path), path
 
 
 # --- awkward names, JSON, size --------------------------------------------------------

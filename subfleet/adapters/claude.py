@@ -38,10 +38,11 @@ import os
 import re
 import subprocess
 import tempfile
+import unicodedata
 import urllib.error
 import urllib.request
 import uuid
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -150,6 +151,9 @@ STARTUP_FILE_NAMES = ("CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md", "AGEN
                       ".claude/AGENTS.md", ".claude/rules/**")
 #: The cap on the one `git rev-parse --show-toplevel` a writable job launch runs.
 JOB_STARTUP_GIT_TIMEOUT_S = 10.0
+#: The config that call pins over the checkout's own (review r1 of #326): `rev-parse`
+#: runs no fsmonitor hook today, and a checkout's `core.fsmonitor` names a program.
+JOB_STARTUP_GIT_CONFIG: tuple[tuple[str, str], ...] = (("core.fsmonitor", "false"),)
 #: `glob_literal`'s escapes: picomatch reads each as the one character.
 _GLOB_ESCAPES = MappingProxyType({**{char: f"[{char}]" for char in "*?[]{}()|+."},
                                    **{char: f"[{char}-{char}]" for char in ',"'}})
@@ -387,6 +391,56 @@ def glob_literal(path: str) -> str:
     return "".join(_GLOB_ESCAPES.get(char, char) for char in path)
 
 
+def pin_git_config(env: Mapping[str, str], pairs: Iterable[tuple[str, str]]) -> dict[str, str]:
+    """`env` with `pairs` added to the config git reads from its environment
+    (`GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>`, `GIT_CONFIG_VALUE_<n>`), after the
+    entries a count already there names, which are kept. Git reads that config
+    after the repository's, so each pair outranks a checkout's own value. A count
+    git would refuse as bogus (anything but digits after blanks and a `+`) is
+    replaced by the pairs' own: git would have refused the call.
+    """
+    pinned, pairs = dict(env), list(pairs)
+    given = re.fullmatch(r"[ \t\n\v\f\r]*\+?([0-9]+)", pinned.get("GIT_CONFIG_COUNT", ""))
+    start = int(given[1]) if given else 0
+    for offset, (key, value) in enumerate(pairs):
+        pinned[f"GIT_CONFIG_KEY_{start + offset}"] = key
+        pinned[f"GIT_CONFIG_VALUE_{start + offset}"] = value
+    pinned["GIT_CONFIG_COUNT"] = str(start + len(pairs))
+    return pinned
+
+
+def _job_root(workdir: str | Path) -> str:
+    """`R` for `job_startup_settings`: git's top-level folder for `workdir`, as git
+    spells it, when that folder is not `/` and is the workdir's real folder or holds
+    it; otherwise `abspath(workdir)`.
+
+    A checkout's own config can move git's answer anywhere (`core.worktree`, or a
+    `.git` file whose `gitdir:` names another repository's), and `R = /` made the
+    negation `!/**`, which spared every path (review r1 of #326, P2 1). Folders are
+    compared, not spellings (`samestat`): `realpath` keeps the case and Unicode
+    form it is given, while git spells a folder as it is stored. The one `git
+    rev-parse` runs with `JOB_STARTUP_GIT_CONFIG` pinned (`pin_git_config`) and
+    `JOB_STARTUP_GIT_TIMEOUT_S`; any failure gives the workdir.
+    """
+    from ..salvage import _git_bytes, _git_env
+    fallback = os.path.abspath(workdir)
+    try:
+        raw = _git_bytes(workdir, "rev-parse", "--show-toplevel", timeout_s=JOB_STARTUP_GIT_TIMEOUT_S,
+                         env=pin_git_config(_git_env(None), JOB_STARTUP_GIT_CONFIG))
+        top = os.fsdecode(raw[:-1] if raw and raw.endswith(b"\n") else raw or b"")
+        if not os.path.isabs(top):
+            return fallback
+        held = os.stat(os.path.realpath(top))
+        if os.path.samestat(held, os.stat("/")):
+            return fallback
+        here = os.path.realpath(workdir)
+        if any(os.path.samestat(os.stat(folder), held) for folder in (here, *map(str, Path(here).parents))):
+            return top
+    except Exception:       # any failure: R is the workdir (fewer files kept, none added)
+        pass
+    return fallback
+
+
 def job_startup_settings(workdir: str | Path, env: Mapping[str, str]) -> dict[str, Any]:
     """The keys a writable job launch adds to its one `--settings` (D-LANE-STARTUP1).
 
@@ -394,24 +448,25 @@ def job_startup_settings(workdir: str | Path, env: Mapping[str, str]) -> dict[st
     as before, and `disableAllHooks: false` outranks a checkout's own `true`. Its
     `claudeMdExcludes` keep every instruction file outside the job's repository
     root `R` from loading: `<C>/CLAUDE.md` and `<C>/rules/**`, the six
-    `STARTUP_FILE_NAMES` under every ancestor `A` of `R` and of `R_real` but `/`,
-    and under `$HOME`, then one negation sparing `R` in both spellings (two
+    `STARTUP_FILE_NAMES` under every ancestor `A` of each spelling of `R` but `/`,
+    and under `$HOME`, then one negation sparing `R` in every spelling (two
     negations would together match every path). `R` is `git rev-parse
-    --show-toplevel` in `workdir`, as git spells it; outside a checkout, or when
-    git fails or passes `JOB_STARTUP_GIT_TIMEOUT_S`, it is `workdir` itself, and a
-    subfolder job then also excludes its repository's top-level files. `R_real` is
-    `realpath(R)`, `$HOME` the launch's (`_launch_home`), and `C` its config home:
-    `$HOME/.claude`, and also `CLAUDE_CONFIG_DIR` when `env` sets one. Auto-memory
-    is off (`JOB_STARTUP_ENV`, `autoMemoryEnabled`).
+    --show-toplevel` in `workdir`, as git spells it, when that folder is not `/`
+    and holds the workdir (`_job_root`); outside a checkout, when git fails or
+    passes `JOB_STARTUP_GIT_TIMEOUT_S`, or when its answer is refused, it is
+    `workdir` itself, and a subfolder job then also excludes its repository's
+    top-level files. The spellings are `R`, `R_real = realpath(R)` and the NFC
+    form of each: Claude Code 2.1.318 normalizes its cwd to NFC and builds every
+    path of its startup walk from it, while git and `realpath` give a name as it
+    is stored, which may be NFD (review r1 of #326, P2 2). `$HOME` is the
+    launch's (`_launch_home`), and `C` its config home: `$HOME/.claude`, and also
+    `CLAUDE_CONFIG_DIR` when `env` sets one. Auto-memory is off
+    (`JOB_STARTUP_ENV`, `autoMemoryEnabled`).
     """
-    from ..salvage import _git_bytes
-    try:
-        raw = _git_bytes(workdir, "rev-parse", "--show-toplevel", timeout_s=JOB_STARTUP_GIT_TIMEOUT_S)
-    except Exception:       # any failure: R is the workdir (fewer files kept, none added)
-        raw = None
-    top = os.fsdecode(raw[:-1] if raw and raw.endswith(b"\n") else raw or b"")
-    root = top if os.path.isabs(top) else os.path.abspath(workdir)
-    spellings = list(dict.fromkeys((root, os.path.realpath(root))))
+    root = _job_root(workdir)
+    real = os.path.realpath(root)
+    spellings = list(dict.fromkeys((root, real, unicodedata.normalize("NFC", root),
+                                    unicodedata.normalize("NFC", real))))
     home = str(_launch_home(dict(env)))
     configs = [str(Path(env["CLAUDE_CONFIG_DIR"]).expanduser())] if env.get("CLAUDE_CONFIG_DIR") else []
     configs.append(str(Path(home) / ".claude"))
