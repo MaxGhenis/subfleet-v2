@@ -397,4 +397,4 @@ folders come from `tests/frontend/test_core_store.py`, which I did not run, so t
 | a7bac0885 | escape fix |
 | add5ae3b4, 728decba6 | older tests and the mutant data |
 | 24e1d3bf8 | the contract's quote range |
-| (this report's commit) | report and evidence data |
+| 08858cfd0, 740b241ad and this table's commit | report and evidence data |
