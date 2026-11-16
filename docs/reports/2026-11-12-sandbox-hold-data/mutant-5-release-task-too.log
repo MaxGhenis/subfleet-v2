@@ -1,0 +1,28 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____________ test_sandbox_release_keeps_an_independent_task_hold ______________
+
+    def test_sandbox_release_keeps_an_independent_task_hold():
+        """Mutant 5: releasing the sandbox hold cannot delete or weaken a task hold."""
+        with fleet() as (service, harness, clock, signals):
+            jobs = jobs_from(service, harness, [("review", "workspace-write", "dispatch")])
+            hold(service, "review", stamp(200), note="keep the review task")
+            sandbox_hold(service, 100)
+            task_before = service.store.one(task_holds.ROW_SQL, (task_holds.lease_key("review"),))
+            sandbox_release(service)
+>           assert service.store.one(task_holds.ROW_SQL, (task_holds.lease_key("review"),)) == task_before, \
+                "sandbox release: task hold was changed"
+E           AssertionError: sandbox release: task hold was changed
+E           assert None == {'lease_key': 'task-hold:review', 'holder': 'operator: keep the review task', 'acquired_at': '2026-10-09T16:33:00Z', 'expires_at': '2026-10-09T16:36:20Z'}
+E            +  where None = one('SELECT lease_key, holder, acquired_at, expires_at FROM leases WHERE lease_key=?', ('task-hold:review',))
+E            +    where one = <subfleet.store.Store object at 0x10a389400>.one
+E            +      where <subfleet.store.Store object at 0x10a389400> = <subfleet.daemon.Daemon object at 0x10a133770>.store
+E            +    and   'SELECT lease_key, holder, acquired_at, expires_at FROM leases WHERE lease_key=?' = task_holds.ROW_SQL
+
+tests/fake/test_sandbox_hold_properties.py:349: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4463998832:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4463998832:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_sandbox_hold_properties.py::test_sandbox_release_keeps_an_independent_task_hold
+1 failed in 3.08s

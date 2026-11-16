@@ -359,7 +359,8 @@ _HOLD_TEXT = {
 
 def task_hold_line(hold: Mapping[str, Any]) -> str:
     """C-11.10: one hold in force, as both status views show it."""
-    return f"{hold.get('task')} until {hold.get('until')}: {hold.get('note')}"
+    target = f"sandbox {hold['sandbox']}" if "sandbox" in hold else hold.get("task")
+    return f"{target} until {hold.get('until')}: {hold.get('note')}"
 
 
 def provider_cap_text(row: Mapping[str, Any]) -> str:
@@ -600,7 +601,10 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
                 fields.update(refusals=pin_refusals(hold), ends=pin_ends(hold.get("fail_at")))
             if reason == "task-held":
                 # C-11.10: a command a shell reads as given, the task one argument after `--`.
-                fields["release"] = task_holds.release_command(hold.get("task") or "?")
+                fields["release"] = (task_holds.release_command(sandbox=hold["sandbox"]) if "sandbox" in hold else
+                                     task_holds.release_command(hold.get("task") or "?"))
+                if "sandbox" in hold:
+                    fields["task"] = f"sandbox {hold['sandbox']}"
             lines.append("Held: " + template.format_map({**dict.fromkeys(
                 ("behind", "tier", "max_active_attempts", "kept_for", "live", "error_type", "error",
                  "conversation_id", "native_session_id", "tries", "class", "lane_id", "lane", "model",
