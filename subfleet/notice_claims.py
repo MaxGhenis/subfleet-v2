@@ -14,7 +14,8 @@ import math
 import os
 import time
 from pathlib import Path
-from time import monotonic as _monotonic, sleep as _sleep
+from time import monotonic as _monotonic, sleep as _sleep, time_ns as _time_ns
+from uuid import uuid4
 
 from .store import notice_fingerprint
 
@@ -78,12 +79,30 @@ def read_receipts(root: Path, session: str) -> list[dict]:
 
 
 def activity_path(root: Path, session: str) -> Path:
+    """The aggregate activity file written by older hooks; still replayed."""
     return receipt_path(root, session).with_suffix(".activity.json")
 
 
-def read_activity(root: Path, session: str) -> dict | None:
+@contextmanager
+def activity_lock(root: Path, session: str):
+    """Order activity publication against the final wake claim, never rendering.
+
+    Hooks release this short lock before attempting delivery_lock. The daemon
+    takes delivery_lock first, so the two locks cannot form a wait cycle.
+    """
+    path = activity_path(root, session).with_suffix(".lock")
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
     try:
-        value = json.loads(activity_path(root, session).read_text())
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
+
+
+def _read_activity(path: Path) -> dict | None:
+    try:
+        value = json.loads(path.read_text())
     except FileNotFoundError:
         return None
 
@@ -103,6 +122,36 @@ def read_activity(root: Path, session: str) -> dict | None:
     return value
 
 
+def _activity_records(root: Path, session: str) -> list[tuple[Path, dict]]:
+    """Snapshot published, immutable records, including the legacy aggregate."""
+    legacy = activity_path(root, session)
+    try:
+        paths = sorted(legacy.with_suffix(".d").iterdir())
+    except FileNotFoundError:
+        paths = []
+    records = []
+    for path in [legacy, *(path for path in paths if path.suffix == ".json")]:
+        value = _read_activity(path)
+        if value is not None:
+            records.append((path, value))
+    return records
+
+
+def _merge_activity(records: list[tuple[Path, dict]]) -> dict | None:
+    latest = None
+    human_at = None
+    for _path, value in records:
+        if latest is None or value["at"] >= latest["at"]:
+            latest = value
+        if value["human_at"] is not None:
+            human_at = max(value["human_at"], human_at or 0)
+    return {**latest, "human_at": human_at} if latest is not None else None
+
+
+def read_activity(root: Path, session: str) -> dict | None:
+    return _merge_activity(_activity_records(root, session))
+
+
 def record_offline_activity(root: Path, session: str, *, event: str, source: str | None,
                             personal: bool = True) -> None:
     """Keep the quiet clock even when this hook has no new notices to print.
@@ -112,31 +161,32 @@ def record_offline_activity(root: Path, session: str, *, event: str, source: str
     """
     if event not in ("SessionStart", "UserPromptSubmit"):
         raise ValueError("invalid notice activity event")
-    previous = read_activity(root, session) or {}
+    # Preserve the fail-closed behavior for corrupt activity evidence.
+    read_activity(root, session)
     now = time.time()
-    human_at = previous.get("human_at")
-    if event == "UserPromptSubmit" and personal:
-        human_at = max(now, human_at or 0)
-    value = {"at": max(now, previous.get("at") or 0),
+    value = {"at": now,
              "source": source if event == "SessionStart" and isinstance(source, str) else None,
-             "human_at": human_at}
-    path = activity_path(root, session)
+             "human_at": now if event == "UserPromptSubmit" and personal else None}
+    directory = activity_path(root, session).with_suffix(".d")
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    # Each hook publishes its own record. Neither another hook nor cleanup of
+    # an earlier reconciliation snapshot can overwrite or unlink this write.
+    path = directory / f"{_time_ns():020d}-{uuid4().hex}.json"
     temporary = path.with_suffix(".tmp")
     try:
-        with temporary.open("w") as stream:
+        with temporary.open("x") as stream:
             os.chmod(temporary, 0o600)
             json.dump(value, stream)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, path)
+        with activity_lock(root, session):
+            os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
 
 
-def reserve_offline(root: Path, session: str, rows: list[dict], *,
-                    event: str, source: str | None = None, personal: bool = True) -> list[dict]:
+def reserve_offline(root: Path, session: str, rows: list[dict]) -> list[dict]:
     """Called under delivery_lock, before an offline hook prints anything."""
-    record_offline_activity(root, session, event=event, source=source, personal=personal)
     receipts = read_receipts(root, session)
     seen = {(item["notice_id"], item["fingerprint"]) for item in receipts}
     fresh = [row for row in rows if
@@ -159,26 +209,33 @@ def reserve_offline(root: Path, session: str, rows: list[dict], *,
     return fresh
 
 
+def apply_activity(tx, session: str, activity: dict | None) -> None:
+    """Apply a snapshot without consuming files, also inside a final wake claim."""
+    if activity is None:
+        return
+    clock = tx.execute("SELECT last_wake_at FROM caller_wake_sessions WHERE session_id=?",
+                       (session,)).fetchone()
+    last_wake = clock["last_wake_at"] if clock else None
+    human_at = activity["human_at"]
+    reset = human_at is not None and (last_wake is None or human_at >= last_wake)
+    tx.execute("INSERT INTO caller_wake_sessions(session_id,active_at,source) VALUES(?,?,?) "
+               "ON CONFLICT(session_id) DO UPDATE SET active_at=max(active_at,excluded.active_at),"
+               "source=CASE WHEN excluded.active_at>=active_at THEN excluded.source ELSE source END,"
+               "wake_streak=CASE WHEN ? THEN 0 ELSE wake_streak END,"
+               "last_wake_at=CASE WHEN ? THEN NULL ELSE last_wake_at END",
+               (session, activity["at"], activity["source"], reset, reset))
+
+
 def reconcile(daemon, session: str) -> None:
     """Called under delivery_lock; replay receipts into the daemon's store."""
     from .protocol import notice_row
     receipts = read_receipts(daemon.root, session)
-    activity = read_activity(daemon.root, session)
+    records = _activity_records(daemon.root, session)
+    activity = _merge_activity(records)
     if not receipts and activity is None:
         return
     with daemon.store.transaction("notice.offline_surfaced", data={"session_id": session}) as tx:
-        if activity is not None:
-            clock = tx.execute("SELECT last_wake_at FROM caller_wake_sessions WHERE session_id=?",
-                               (session,)).fetchone()
-            last_wake = clock["last_wake_at"] if clock else None
-            human_at = activity["human_at"]
-            reset = human_at is not None and (last_wake is None or human_at >= last_wake)
-            tx.execute("INSERT INTO caller_wake_sessions(session_id,active_at,source) VALUES(?,?,?) "
-                       "ON CONFLICT(session_id) DO UPDATE SET active_at=max(active_at,excluded.active_at),"
-                       "source=CASE WHEN excluded.active_at>=active_at THEN excluded.source ELSE source END,"
-                       "wake_streak=CASE WHEN ? THEN 0 ELSE wake_streak END,"
-                       "last_wake_at=CASE WHEN ? THEN NULL ELSE last_wake_at END",
-                       (session, activity["at"], activity["source"], reset, reset))
+        apply_activity(tx, session, activity)
         for item in receipts:
             table, row_id = notice_row(item["notice_id"])
             row = tx.execute(f"SELECT text,created_at FROM {table} WHERE notice_id=? AND session_id=?",
@@ -188,4 +245,5 @@ def reconcile(daemon, session: str) -> None:
                            "WHERE notice_id=? AND session_id=? AND state IN ('pending','offered')",
                            (row_id, session))
     receipt_path(daemon.root, session).unlink(missing_ok=True)
-    activity_path(daemon.root, session).unlink(missing_ok=True)
+    for path, _activity in records:
+        path.unlink(missing_ok=True)

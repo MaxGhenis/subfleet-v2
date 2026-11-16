@@ -1163,3 +1163,69 @@ def test_c15_9_posttooluse_honours_an_offline_hooks_receipt(callers):
     callers.now += 600
     callers.pass_once()
     assert callers.counts()[notice] == 0
+
+
+@pytest.mark.parametrize("failure", ["busy", "socket"])
+def test_offline_prompt_under_render_lock_prevents_wake(callers, monkeypatch, failure):
+    """Review r3: a completed offline prompt holds the wake even under its lock."""
+    from subfleet import notice_claims
+    from subfleet.client import DaemonError, DaemonUnavailable
+
+    monkeypatch.setattr(notice_claims, "time", SimpleNamespace(time=lambda: callers.now))
+    sid = f"offline-render-{failure}"
+    callers.register(sid)
+    notice = callers.finish(sid)
+    header = render.notice_header
+    typed = []
+
+    class OfflineClient:
+        def call(self, *args, **kwargs):
+            if failure == "busy":
+                raise DaemonError(69, "fixture daemon is busy")
+            raise DaemonUnavailable("fixture socket is unavailable")
+
+    def person_types(*args, **kwargs):
+        if not typed:
+            typed.append(True)
+            assert hook_prompt(callers, sid, "one more thing", client=OfflineClient()) == ""
+        return header(*args, **kwargs)
+
+    monkeypatch.setattr(render, "notice_header", person_types)
+    callers.pass_once()
+    assert typed == [True]
+    assert callers.counts()[notice] == 0, "the offline prompt completed before the claim"
+    assert callers.row(notice)["state"] == "pending"
+    callers.now += 301
+    callers.pass_once()
+    assert callers.counts()[notice] == 1
+
+
+@pytest.mark.parametrize("connection", ["offline"])
+def test_personal_prompt_under_taken_lock_resets_streak(callers, monkeypatch, connection):
+    """A personal prompt resets eight unattended wakes even if it claims nothing."""
+    from subfleet import notice_claims
+
+    clock = SimpleNamespace(time=lambda: callers.now)
+    monkeypatch.setattr(notice_claims, "time", clock)
+    monkeypatch.setattr(caller_wakes, "time", clock)
+    sid = f"personal-taken-lock-{connection}"
+    callers.register(sid)
+    notice = callers.finish(sid)
+    with callers.daemon.store.transaction() as tx:
+        tx.execute("INSERT INTO caller_wake_sessions(session_id,active_at,wake_streak,last_wake_at) "
+                   "VALUES (?,?,?,?)", (sid, callers.now - 600, MAX_STREAK, callers.now - 1))
+
+    class OfflineClient:
+        def call(self, *args, **kwargs):
+            raise OSError("fixture app is restarting")
+
+    with notice_claims.delivery_lock(callers.daemon.root, sid) as held:
+        assert held
+        assert hook_prompt(callers, sid, "please continue", client=OfflineClient()) == ""
+    callers.activity[sid] = callers.now
+    callers.entries[sid] = {**callers.entries[sid], "status": "idle"}
+    callers.now += 301
+    callers.pass_once()
+    assert callers.counts()[notice] == 1, "personal activity must reset the unattended streak"
+    assert callers.daemon.store.one("SELECT wake_streak FROM caller_wake_sessions WHERE session_id=?", (sid,)) == {
+        "wake_streak": 1}

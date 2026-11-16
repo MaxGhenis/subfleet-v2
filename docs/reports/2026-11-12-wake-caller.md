@@ -336,3 +336,51 @@ The runs left six bytecode caches in the worktree, from the e2e subprocesses, wh
 Each was checked to hold only `.pyc` files and no tracked file. Each was then moved into `sf-wcall-fix2/outside` and removed with `shutil.rmtree`, guarded by an assertion that `sf-wcall-fix2` is in the path ([cleanup.json](2026-11-12-wake-caller-data/fix-r2/cleanup.json)). The later runs (mut-m1, step2-b1) left four again, all removed the same way, through `sf-wcall-fix2/outside2`: `subfleet/__pycache__` (14 files), `subfleet/adapters/__pycache__` (2), `subfleet/conversations/__pycache__` (5) and `subfleet/sessions/__pycache__` (6) ([cleanup-2.json](2026-11-12-wake-caller-data/fix-r2/cleanup-2.json)). `$TMPDIR/uv-cache`, the brief's cache, existed before this job and stays. It holds the `--with` overlay environments. The scratch folder stays, with its logs, base tree and venv. No process this job started is still running, and no live state was read or changed.
 
 Head built: the commit that adds this section, on top of `1df275e14`.
+
+## Fix round 3
+
+Started **2026-11-16 03:47:29 UTC**, from the first command's `date -u`; finished **2026-11-16 04:11:26 UTC**. Base and assigned detached HEAD: `7ce23f716e23`. Work stayed in the assigned workspace and job scratch; the initial tree was clean.
+
+**P1 — offline hook contention lost personal activity: fixed.** The fallback recorded activity only inside `reserve_offline`, after acquiring `delivery_lock`. A contending offline hook therefore saved neither the quiet clock nor personal input that resets the eight-wake streak. Simply moving the old aggregate write would also allow concurrent hooks to overwrite it, and reconciliation to delete a newer write.
+
+`hooks.session_event` now publishes activity before attempting the delivery lock. Each write has its own atomic activity file. Reconciliation merges the latest activity/source and latest personal-input time, preserves newer online clocks and wake bounds, and deletes only its committed snapshot. Legacy aggregate files remain readable. A separate short activity lock orders publication against the final wake transaction, after rendering; that transaction applies pending activity without consuming files, so rollback cannot lose input. Hooks release the activity lock before attempting the delivery lock. C-15.9 and its version-3 change-log entry describe this behavior. This closes round 2's offline residual. Read-only reviews by two helper agents found no correctness blocker.
+
+All seven final regression cases failed against unchanged production code before the fix:
+
+| Test | Before | After |
+| --- | --- | --- |
+| `test_offline_prompt_under_render_lock_prevents_wake[busy,socket]` | Both sent an unwanted wake | Both pass; **20/20 each under `-n 4` (40/40)** |
+| `test_personal_prompt_under_taken_lock_resets_streak[offline]` | Eight-wake streak was not reset | **20/20** pass, delivering after 301 quiet seconds |
+| `test_c15_9_offline_activity_survives_a_busy_delivery_lock[prompt,session-start]` | Both lost activity | Both preserve activity, personal reset or source |
+| `test_c15_9_overlapping_activity_publications_keep_human_time_and_latest_source` | Shared temporary-file collision | Preserves both publications |
+| `test_c15_9_reconcile_preserves_activity_published_after_its_snapshot` | Deleted later activity | Preserves and replays the later prompt/source |
+
+**Commands and results.** `uv sync --group dev` exited 0, using CPython 3.15.2. Every pytest invocation used `uv run --no-sync --with 'pytest-xdist>=3.6' --with 'pytest-repeat>=0.9' pytest -p r3_isolation -p no:cacheprovider -n 4 --timeout=300`, a fresh `--basetemp` named `pytest-<run>`, and scratch-local caches. Exact commands, selections, exit codes and UTC times are in [fix-r3-runs.jsonl](2026-11-12-wake-caller-data/fix-r3-runs.jsonl); the [runner](2026-11-12-wake-caller-data/fix-r3-run.py.txt), [isolation plugin](2026-11-12-wake-caller-data/fix-r3-r3_isolation.py.txt), [command inventory](2026-11-12-wake-caller-data/fix-r3-commands.txt) and all seven logs are retained beside it.
+
+| Run, in execution order | Selection | Result |
+| --- | --- | --- |
+| `before` | Seven new regression cases plus an online control | **7 failed as intended, 1 control passed**, exit 1 |
+| `after` | Same selection after the fix | **8 passed**, exit 0 |
+| `repeat20` | Busy/socket render probes and offline streak probe, `--count=20` | **60 passed**, exit 0 |
+| `importers` | All 21 importer files, including the extra online control | **2,529 passed, 84 skipped**, exit 0 |
+| `final-new` | Final seven regression cases; redundant new online control removed | **7 passed**, exit 0 |
+| `final-importers` | All 21 final importer files | **2,528 passed, 84 skipped**, exit 0 |
+| `guards` | `tests/fake/test_state_contract.py tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py tests/unit/test_handler_refusals.py` | **435 passed**, exit 0 |
+
+`git grep -l` plus import inspection selected the [21 importer files](2026-11-12-wake-caller-data/fix-r3-importer-files.txt), including imports inside child-program strings. Final verification followed the prescribed order: new tests, every importer file, then the four guard files. `git diff --check` passed. `git diff 7ce23f716e23 -- subfleet/store.py subfleet/store_schema.sql` was empty: **migration 11's schema is exactly unchanged**, as D-SCHEMA-SLOTS1 requires.
+
+**P3 — stale PR-body claims: left for the hub's authorized rewrite.** Replace the migration claim with: “Schema 11 adds notice-local wake state and caller activity/streak/cooldown; #314 also carries slot 11, coordinated under D-SCHEMA-SLOTS1.” Replace “first pass” with: “Eligible reachable callers are delivered when reached by the bounded rotation, subject to quiet/retry gates, cooldowns, at most 32 callers examined and at most 8 callers woken per pass.” Also describe offline receipts under the delivery lock, independent activity publication before that lock, and the final claim's activity recheck. The next review is scoped round 4. The PR body was not edited here. No P1 or P2 remains from this review; no other P3 was assigned this round.
+
+**What did not run and limitations.** The whole suite did not run. The 84 skipped importer cases remain unverified; `real_lsof` and `real_cwd` were excluded, and an audit guard skipped prohibited fixture commands before execution. Only synthetic test state was used. The activity journal keeps one small file per offline hook until reconciliation, so a prolonged offline period can accumulate files and increase scanning work.
+
+**Deviations and cleanup.** The prescribed Darwin temporary directory denied scratch creation. Tests instead used `/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-224656-wcall-fix-r3-a1-7lyc6v5g/sf-wcall-fix3` as `TMPDIR`, with `UV_CACHE_DIR=$TMPDIR/uv-cache`; the initial dependency sync used its writable job-specific parent with the same scratch-local cache and venv. The temporary online control passed before the fix and was removed from the final additions, leaving every final new case failure-proven. Test failure retention was redirected into scratch so it would not inspect or prune another job's state. Two read-only helper agents were used; neither ran live-state commands. Generated folders outside scratch were recorded here before being moved into scratch and deleted with guarded `shutil.rmtree`:
+
+- `/Users/maxghenis/.subfleet/worktrees/20261115-224656-wcall-fix-r3/subfleet/__pycache__`
+- `/Users/maxghenis/.subfleet/worktrees/20261115-224656-wcall-fix-r3/subfleet/adapters/__pycache__`
+- `/Users/maxghenis/.subfleet/worktrees/20261115-224656-wcall-fix-r3/subfleet/sessions/__pycache__`
+
+The [cleanup record](2026-11-12-wake-caller-data/fix-r3-cleanup.json) records those paths and file counts. Scratch, its venv and uv cache were also removed with an assertion that `sf-wcall-fix3` is in the deletion path. No work started here remains running; no live state was read or changed, and no prohibited publication command ran.
+
+**Commits.** All three named-file staging/commit attempts failed with exit 128 because the sandbox denied the assigned worktree's `index.lock` (`Operation not permitted`). As instructed, work continued; no alternate Git metadata or branch was created. No commit could be made, and HEAD remains the supplied base. No history was rewritten or pushed. The changed files and evidence remain for the hub to collect.
+
+Head built: `7ce23f716e23830243cb2dfc66b87ebcd7eff0b7`.

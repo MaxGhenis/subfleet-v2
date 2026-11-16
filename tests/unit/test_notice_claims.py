@@ -261,6 +261,98 @@ def test_c15_9_offline_human_prompt_resets_bounds_even_before_a_later_restart(co
         "wake_streak": 1, "source": "resume"}
 
 
+@pytest.mark.parametrize("event,source,personal", [
+    ("UserPromptSubmit", None, True),
+    ("SessionStart", "clear", False),
+], ids=["prompt", "session-start"])
+def test_c15_9_offline_activity_survives_a_busy_delivery_lock(core, monkeypatch, event, source, personal):
+    """A missed delivery claim still preserves personal activity and start source."""
+    clock = [1800000000.0]
+    wake_engine(core, monkeypatch, clock)
+    wire_id = add_notice(core)
+    last_wake = clock[0] - 1
+    with core.store.transaction() as tx:
+        tx.execute("INSERT INTO caller_wake_sessions(session_id,active_at,source,wake_streak,last_wake_at) "
+                   "VALUES (?,?,'compact',?,?)", (SESSION, clock[0] - 600, MAX_STREAK, last_wake))
+    with notice_claims.delivery_lock(core.root, SESSION) as held:
+        assert held
+        assert offline_hook(core, event=event, source=source) == ""
+        assert notice_claims.read_activity(core.root, SESSION) == {
+            "at": clock[0], "source": source, "human_at": clock[0] if personal else None}
+        assert core.store.one("SELECT state FROM notices WHERE notice_id=?", (wire_id,)) == {"state": "pending"}
+    with notice_claims.delivery_lock(core.root, SESSION) as held:
+        assert held
+        notice_claims.reconcile(core, SESSION)
+    assert core.store.one("SELECT active_at,source,wake_streak,last_wake_at FROM caller_wake_sessions "
+                          "WHERE session_id=?", (SESSION,)) == {
+        "active_at": clock[0], "source": source,
+        "wake_streak": 0 if personal else MAX_STREAK,
+        "last_wake_at": None if personal else last_wake}
+
+
+def test_c15_9_overlapping_activity_publications_keep_human_time_and_latest_source(core, monkeypatch):
+    """A later start may publish first without replacing an earlier personal prompt."""
+    clock = [1800000000.0]
+    wake_engine(core, monkeypatch, clock)
+    human_at = clock[0]
+    fsync = notice_claims.os.fsync
+    interleaved = []
+
+    def sync(fd):
+        if not interleaved:
+            interleaved.append(True)
+            clock[0] += 1
+            notice_claims.record_offline_activity(core.root, SESSION, event="SessionStart", source="resume")
+        return fsync(fd)
+
+    monkeypatch.setattr(notice_claims.os, "fsync", sync)
+    with notice_claims.delivery_lock(core.root, SESSION) as held:
+        assert held
+        notice_claims.record_offline_activity(core.root, SESSION, event="UserPromptSubmit", source=None)
+    assert interleaved == [True]
+    assert notice_claims.read_activity(core.root, SESSION) == {
+        "at": clock[0], "source": "resume", "human_at": human_at}
+
+
+def test_c15_9_reconcile_preserves_activity_published_after_its_snapshot(core, monkeypatch):
+    """Replaying one snapshot cannot consume the next prompt or its human reset."""
+    clock = [1800000000.0]
+    wake_engine(core, monkeypatch, clock)
+    with core.store.transaction() as tx:
+        tx.execute("INSERT INTO caller_wake_sessions(session_id,active_at,source,wake_streak,last_wake_at) "
+                   "VALUES (?,?,'compact',?,?)", (SESSION, clock[0] - 600, MAX_STREAK, clock[0] - 1))
+    with notice_claims.delivery_lock(core.root, SESSION) as held:
+        assert held
+        notice_claims.record_offline_activity(core.root, SESSION, event="SessionStart", source="compact")
+    transaction = core.store.transaction
+    interleaved = []
+    human_at = clock[0] + 10
+
+    def racing_transaction(*args, **kwargs):
+        if args and args[0] == "notice.offline_surfaced" and not interleaved:
+            interleaved.append(True)
+            clock[0] = human_at
+            notice_claims.record_offline_activity(core.root, SESSION, event="UserPromptSubmit", source=None)
+            clock[0] += 1
+            notice_claims.record_offline_activity(core.root, SESSION, event="SessionStart", source="resume")
+        return transaction(*args, **kwargs)
+
+    monkeypatch.setattr(core.store, "transaction", racing_transaction)
+    with notice_claims.delivery_lock(core.root, SESSION) as held:
+        assert held
+        notice_claims.reconcile(core, SESSION)
+    assert interleaved == [True]
+    assert notice_claims.read_activity(core.root, SESSION) == {
+        "at": clock[0], "source": "resume", "human_at": human_at}
+    with notice_claims.delivery_lock(core.root, SESSION) as held:
+        assert held
+        notice_claims.reconcile(core, SESSION)
+    assert core.store.one("SELECT active_at,source,wake_streak,last_wake_at FROM caller_wake_sessions "
+                          "WHERE session_id=?", (SESSION,)) == {
+        "active_at": clock[0], "source": "resume", "wake_streak": 0, "last_wake_at": None}
+    assert notice_claims.read_activity(core.root, SESSION) is None
+
+
 def test_c15_9_stale_offline_activity_preserves_newer_online_activity_and_bounds(core, monkeypatch):
     clock = [1800000000.0]
     wake_engine(core, monkeypatch, clock)

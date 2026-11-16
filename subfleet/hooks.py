@@ -503,16 +503,17 @@ def session_event(event: str, payload: dict[str, Any], root: Path,
         rows = result.get("notices")
         rows = [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
     except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
-        from .notice_claims import delivery_lock, reserve_offline
+        from .notice_claims import delivery_lock, record_offline_activity, reserve_offline
         rows, marked = [], False
         try:
+            record_offline_activity(root, session, event=event, source=payload.get("source"),
+                                    personal=not own_envelope)
             with delivery_lock(root, session) as held:
                 if held:
                     pending = _offline_pending(root, session)
                     if launched:
                         pending = [row for row in pending if names_a_job(row)]
-                    rows = reserve_offline(root, session, pending, event=event,
-                                           source=payload.get("source"), personal=not own_envelope)
+                    rows = reserve_offline(root, session, pending)
         except (OSError, ValueError, KeyError):
             pass  # without a durable claim, printing could race a restart wake
     if launched:

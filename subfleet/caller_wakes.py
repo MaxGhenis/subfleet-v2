@@ -458,28 +458,33 @@ class CallerWakeEngine:
             except Exception:                           # noqa: BLE001 - retried, never sent
                 self._failure(rows, "header-unavailable", now, retry=True)
                 return
-            with self.store.transaction("notice.wake_claimed", data={"session_id": session}) as tx:
-                # Judged again inside the claim, on what is true now, after rendering:
-                # a person who typed meanwhile shows in the registry, the transcript
-                # or the activity a prompt hook recorded though this pass held the
-                # lock (review r2 of #307, P1 2). A caller now unreachable is left
-                # for the next pass, which records why.
-                if self.daemon._conversation_binding(session):
-                    return
-                entry = notify_push.find_session(session)
-                if entry is None or not entry["alive"] or not entry["socket_present"]:
-                    return
-                current = transcripts.turn_state(path, now=datetime.fromtimestamp(now, timezone.utc))
-                if current.fingerprint != before.fingerprint or not self._eligibility(
-                        session, entry, current, limits, now)[0]:
-                    return
-                previous_clock = self.store.one(
-                    "SELECT wake_streak,last_wake_at FROM caller_wake_sessions WHERE session_id=?", (session,)) or {}
-                claimed = reserve(tx, session, rows, transport="caller-wake", at=now, wake=True)
-                if claimed:
-                    tx.execute("INSERT INTO caller_wake_sessions(session_id,last_wake_at,wake_streak) VALUES(?,?,1) "
-                               "ON CONFLICT(session_id) DO UPDATE SET last_wake_at=excluded.last_wake_at,"
-                               "wake_streak=wake_streak+1", (session, now))
+            try:
+                # Publication and the final claim share a short lock: an offline
+                # hook that completed before this claim must be visible here,
+                # even though this pass held delivery_lock during its prompt.
+                # No files are consumed here, so a rollback cannot lose input.
+                with notice_claims.activity_lock(self.daemon.root, session), self.store.transaction(
+                        "notice.wake_claimed", data={"session_id": session}) as tx:
+                    notice_claims.apply_activity(tx, session, notice_claims.read_activity(self.daemon.root, session))
+                    # Judge the registry, transcript and activity again after rendering.
+                    if self.daemon._conversation_binding(session):
+                        return
+                    entry = notify_push.find_session(session)
+                    if entry is None or not entry["alive"] or not entry["socket_present"]:
+                        return
+                    current = transcripts.turn_state(path, now=datetime.fromtimestamp(now, timezone.utc))
+                    if current.fingerprint != before.fingerprint or not self._eligibility(
+                            session, entry, current, limits, now)[0]:
+                        return
+                    previous_clock = self.store.one(
+                        "SELECT wake_streak,last_wake_at FROM caller_wake_sessions WHERE session_id=?", (session,)) or {}
+                    claimed = reserve(tx, session, rows, transport="caller-wake", at=now, wake=True)
+                    if claimed:
+                        tx.execute("INSERT INTO caller_wake_sessions(session_id,last_wake_at,wake_streak) VALUES(?,?,1) "
+                                   "ON CONFLICT(session_id) DO UPDATE SET last_wake_at=excluded.last_wake_at,"
+                                   "wake_streak=wake_streak+1", (session, now))
+            except (OSError, ValueError, KeyError):
+                return  # invalid activity arriving during render fences only its caller
             if not claimed:
                 return
             result["sessions"] += 1
