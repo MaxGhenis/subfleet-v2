@@ -26,6 +26,7 @@ import pytest
 
 from subfleet import doctor, protocol, scheduler
 from subfleet import daemon as daemon_module
+from subfleet.daemon import ADMISSION_EVENT, RESERVATION_EVENT
 from subfleet.contracts import (CAPACITY_RECHECK_BASE_S, ClockSource, Closure, ClosureReason, Credential, Exit,
                                 Lane, LaneOwner, Reading, ReadingLabel)
 from subfleet.daemon import Daemon, after, utcnow
@@ -327,6 +328,7 @@ def test_c6_12_an_evaluation_made_again_off_the_lock_is_isolated_too(fleet, monk
     reenrol = successor(service)
     raced = submit(service, harness, pinned_model="astra", pinned_lane="codex-1")
     later = submit(service, harness, pinned_model="terra")
+    before = service.store.get_job(raced)["exclusions"]
     real, calls, locked = service._pick, {}, []
 
     def pick(job, **options):
@@ -346,7 +348,9 @@ def test_c6_12_an_evaluation_made_again_off_the_lock_is_isolated_too(fleet, monk
     assert not service.store.list_attempts(raced)
     assert not service.store.query("SELECT 1 FROM leases WHERE holder LIKE ?", (raced + "%",))
     kinds = [row["kind"] for row in service.store.query("SELECT kind FROM events WHERE job_id=?", (raced,))]
-    assert "attempt.reserved" not in kinds and "job.route_refused" in kinds          # rolled back, then settled
+    # Rolled back, then settled: admission's transaction left no event under either name (C-3.8).
+    assert not {ADMISSION_EVENT, RESERVATION_EVENT} & set(kinds) and "job.route_refused" in kinds
+    assert service.store.get_job(raced)["exclusions"] == before
     assert service._route_evaluations["moved"] == 1 and service._route_evaluations["again"] == 1
     assert admitted(service, later)
 

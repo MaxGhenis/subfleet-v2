@@ -1,0 +1,2880 @@
+Reserved-noise PR #315: fix round 1 validation ledger
+
+FINAL VALIDATION RESULTS: source/test change complete; final cleanup/commit metadata follows below. This ledger records evidence and exact command templates; an interrupted run is never credited as a passing run.
+
+Workspace: /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b
+
+Base / unchanged Git HEAD: f3e773a72a7b409b042bd8ebdae5dbecf41d6677
+
+Start: 2026-11-15 23:13:39 UTC, taken from date -u in the first command.
+
+Only explicit task paths and synthetic identity strings appear below. Shell substitutions are command text, not recorded environment values.
+
+
+1. Setup and read-only repository commands
+==========================================
+
+date -u
+  RESULT: succeeded; start above.
+pwd
+  RESULT: assigned workspace above.
+cat /Users/maxghenis/reviews/subfleet-hub/reserved-noise-2026-11-11/review-r1.md
+cat docs/reports/2026-11-13-reserved-noise.md
+gh pr view 315 --repo MaxGhenis/subfleet-v2
+  RESULT: all requested initial reads succeeded; PR read only.
+
+git status --short
+git branch --show-current
+git symbolic-ref -q HEAD
+git rev-parse HEAD
+git ls-files '*AGENTS.md'
+  RESULT: initially clean detached checkout; no tracked AGENTS.md. symbolic-ref correctly reports detached HEAD. One separately supervised status probe exceeded its 15-second limit; rev-parse succeeded. Exact timed probe: subprocess.run(['/usr/bin/git', '--no-optional-locks', '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false', *args], capture_output=True, text=True, timeout=15, env={**os.environ, 'GIT_CONFIG_GLOBAL': '/dev/null', 'GIT_CONFIG_SYSTEM': '/dev/null'}), for args=('status','--short') then ('rev-parse','HEAD'). No environment values were printed or copied.
+
+cat AGENTS.md
+  RESULT: no file; exit 1.
+rg --files --hidden -g AGENTS.md -g '!\.git' -g '!\.venv' .
+  RESULT: no matches; exit 1.
+
+getconf DARWIN_USER_TEMP_DIR
+  RESULT: succeeded; its returned environment value is deliberately not copied here.
+TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"
+UV_CACHE_DIR="$TMPDIR/uv-cache"
+  RESULT: creating the required sf-rn-fix1 scratch below this TMPDIR and initializing the prescribed cache were denied. No alternate value was assigned to TMPDIR.
+uv sync --group dev
+  RESULT with prescribed cache: exit 2.
+UV_CACHE_DIR=/private/tmp/sf-rn-fix1/uv-cache uv sync --group dev
+  RESULT with cache fallback: succeeded; local .venv, CPython 3.15.2, 9 packages installed. Exact successful setup shell: export TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"; export UV_CACHE_DIR=/private/tmp/sf-rn-fix1/uv-cache; uv sync --group dev. Semicolons here separate the original newline-delimited commands.
+
+Repeated git diff, git diff --stat, git diff --numstat, git diff --check and /usr/bin/git / fsmonitor-untracked-cache-disabled variants were read only. Final diff --check result: exit 0; repeated after final report metadata.
+
+
+2. Regression commands: exact historical template and results
+=============================================================
+
+Historical regression shell setup (shown, not executed by this ledger):
+export TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"
+export UV_CACHE_DIR=/private/tmp/sf-rn-fix1/uv-cache
+
+Exact command template:
+uv run --no-sync --with 'pytest-xdist>=3.6' python /private/tmp/sf-rn-fix1/run_tests.py tests/fake/test_capacity_wait_rollback.py -q -n 0 --basetemp=BASE --timeout=120 > LOG 2>&1
+
+initial fixture setup
+  BASE=/private/tmp/sf-rn-fix1/pytest-before
+  LOG=/private/tmp/sf-rn-fix1/before.log
+  RESULT: 6 setup errors in 33.35 s; routing_state fixture import missing; not regression evidence
+
+  LOG SUMMARY: 6 errors in 33.35s
+
+original production code, after fixture correction
+  BASE=/private/tmp/sf-rn-fix1/pytest-before-02
+  LOG=/private/tmp/sf-rn-fix1/before-02.log
+  RESULT: 6 failed in 34.81 s: 3 event cases observed 1 instead of 2; 3 decision cases observed 1 instead of 2
+
+  LOG SUMMARY: 6 failed in 34.81s
+
+after production fix
+  BASE=/private/tmp/sf-rn-fix1/pytest-after
+  LOG=/private/tmp/sf-rn-fix1/after.log
+  RESULT: 6 passed in 26.28 s
+
+  LOG SUMMARY: 6 passed in 26.28s
+
+after exact-cache-restoration assertions
+  BASE=/private/tmp/sf-rn-fix1/rn-fix1b-231339/pytest-after-exact
+  LOG=/private/tmp/sf-rn-fix1/rn-fix1b-231339/after-exact.log
+  RESULT: 6 passed in 104.45 s
+
+  LOG SUMMARY: 6 passed in 104.45s (0:01:44)
+
+All six parameterized cases insert a synthetic decision and then fail it, refuse the outer capacity-wait audit INSERT, or refuse the actual COMMIT. The fixture validates fleet cap 1, reserves a synthetic holder, commits verdict A, then creates verdict B with a lane closure. The failing baseline is before the production fix. The final assertions also compare the entire restored cache record, require B rechecks=0 and a changed signature, and repeat the committed verdict three times without adding the suppressed row.
+
+The initial parent runner set tempfile.tempdir and tests.failed_keep.ROOT to job-owned scratch before calling pytest.main. Its historical exact source was not snapshotted; current child runner/plugin sources below must not be assumed byte-identical to this historical runner.
+
+
+3. Import inventory and selection algorithm
+===========================================
+
+Inventory source command:
+git -c core.fsmonitor=false -c core.untrackedCache=false grep -l -E 'subfleet[.]daemon|from subfleet import' -- 'tests/*.py' 'tests/**/*.py'
+  RESULT after reviewing actual daemon imports, including embedded child imports: 246 test files + 11 support files. The regex's unfiltered output is broader than the final actual-import inventory. The exact original filtering/exclusion script is preserved below; the full resulting manifest is also preserved in section 8.
+
+Inventory files consumed:
+/private/tmp/sf-rn-fix1/rn-fix1b-daemon-import-tests.txt
+/private/tmp/sf-rn-fix1/rn-fix1b-daemon-import-helpers.txt
+/private/tmp/sf-rn-fix1/rn-fix1b-unsafe-tests.txt
+/private/tmp/sf-rn-fix1/rn-fix1b-unsafe-reasons.txt
+/private/tmp/sf-rn-fix1/rn-fix1b-231339/importer-files.txt
+/private/tmp/sf-rn-fix1/rn-fix1b-231339/excluded-files.txt
+
+Selection: 246 - 26 = 220 test files; 21 conservative command/live-state exclusions and all 5 tests/process importers. Four group manifests are selected[index::4], preserving order; each has 55 files. Real-inspection fixtures/markers are skipped within selected files by the isolation plugin. These skips and whole-file exclusions are coverage limitations, not passing coverage.
+
+Exact original inventory-generation command/script, retained from the inventory agent's tool call (not rerun for this ledger edit):
+
+python3 -u - <<'PY'
+from pathlib import Path
+import re, subprocess
+scratch=Path('/private/tmp/sf-rn-fix1')
+r=subprocess.run(['git','-c','core.fsmonitor=false','-c','core.untrackedCache=false','grep','-l','-E','subfleet[.]daemon|from subfleet import','--','tests/*.py','tests/**/*.py'],text=True,capture_output=True,check=True)
+print('candidate read complete',flush=True)
+files=[]; unsafe=[]; reasons=[]; helpers=[]
+for filename in r.stdout.splitlines():
+ source=Path(filename).read_text()
+ importer='subfleet.daemon' in source or any(re.search(r'\bdaemon\b', m.group(1)) for m in re.finditer(r'from\s+subfleet\s+import\s+(\([^)]*\)|[^\n]+)',source))
+ if not importer: continue
+ if not Path(filename).name.startswith('test_'):
+  helpers.append(filename); continue
+ files.append(filename)
+ why=[]
+ if 'test_host_push' in filename or re.search(r'from\s+.*test_host_push\s+import',source):
+  why.append('host-push fixture seeds/executes git push')
+ if re.search(r'from\s+.*retention_world\s+import[^\n]*(?:\bWorld\b|\([^)]*\bWorld\b)',source,re.S):
+  why.append('retention World constructor executes git push')
+ if re.search(r'from\s+.*test_retention_(?:archive|shared_folders)\s+import[^\n]*\bworld\b',source):
+  why.append('imported retention world fixture executes git push')
+ if re.search(r'\bsecurity\b|agent-secret|launchctl',source):
+  # Broad file exclusion: source may only hold refusal data; report conservative skip.
+  why.append('reader/launchctl guard coverage; conservative hands-off exclusion')
+ if re.search(r'gh pr merge|gh run rerun|gh api[^\n]*(?:-X|--method)[ =]*(?:POST|PATCH|DELETE)',source):
+  why.append('write-shaped gh command coverage')
+ if re.search(r'\bgit\([^\n]*[\"\x27]push[\"\x27]',source) and not why:
+  why.append('direct git push')
+ if why:
+  unsafe.append(filename); reasons.append(filename+'\t'+'; '.join(why))
+for name, lines in [('rn-fix1b-daemon-import-tests.txt',files),('rn-fix1b-unsafe-tests.txt',unsafe),('rn-fix1b-unsafe-reasons.txt',reasons),('rn-fix1b-daemon-import-helpers.txt',helpers)]:
+ scratch.joinpath(name).write_text('\n'.join(lines)+'\n')
+print('FILES',len(files),'UNSAFE',len(unsafe),'HELPERS',len(helpers),flush=True)
+print('\n'.join(reasons),flush=True)
+PY
+  RESULT: exit 0; FILES 246 UNSAFE 21 HELPERS 11. The 5 tests/process importers were additional selection exclusions made by the root agent, not by this script; the resulting 26 exclusions and 220 selected files are recorded above.
+
+
+4. Importer commands and interim outcomes
+=========================================
+
+Historical xdist run 01, from assigned workspace with TMPDIR and UV_CACHE_DIR above:
+uv run --no-sync --with 'pytest-xdist>=3.6' python /private/tmp/sf-rn-fix1/rn-fix1b-231339/run_tests.py --job-isolation -q -n 4 --timeout=120 --basetemp=/private/tmp/sf-rn-fix1/rn-fix1b-231339/pytest-importers @/private/tmp/sf-rn-fix1/rn-fix1b-231339/importer-files.txt --junitxml=/private/tmp/sf-rn-fix1/rn-fix1b-231339/importers.xml > /private/tmp/sf-rn-fix1/rn-fix1b-231339/importers.log 2>&1
+  RESULT: interrupted during xdist startup; 0 tests, 30.90 s.
+
+Historical xdist runs 02/03 add explicit module lookup for the scratch plugin and workspace:
+export PYTHONPATH=/private/tmp/sf-rn-fix1/rn-fix1b-231339:/Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b
+uv run --no-sync --with 'pytest-xdist>=3.6' python /private/tmp/sf-rn-fix1/rn-fix1b-231339/run_tests.py -p rn_job_plugin -q -n 4 --timeout=120 --basetemp=BASE @/private/tmp/sf-rn-fix1/rn-fix1b-231339/importer-files.txt --junitxml=XML > LOG 2>&1
+  02 BASE=/private/tmp/sf-rn-fix1/rn-fix1b-231339/pytest-importers-02
+     XML=/private/tmp/sf-rn-fix1/rn-fix1b-231339/importers-02.xml
+     LOG=/private/tmp/sf-rn-fix1/rn-fix1b-231339/importers-02.log
+     RESULT: interrupted during xdist startup; 0 tests, 31.95 s.
+  03 BASE=/private/tmp/sf-rn-fix1/rn-fix1b-231339/pytest-importers-03
+     XML=/private/tmp/sf-rn-fix1/rn-fix1b-231339/importers-03.xml
+     LOG=/private/tmp/sf-rn-fix1/rn-fix1b-231339/importers-03.log
+     RESULT: interrupted during xdist startup; 0 tests, 103.08 s.
+
+First serial importer attempt: four supervised children, 55 files each, -v -n 0 --timeout=120, basetemps pytest-importer-group-{0,1,2,3}, logs importer-group-{0,1,2,3}.log. Interrupted during collection/first cases to complete permanent process-reader/path isolation. No completed summary; no passing total credited. Exact historical supervisor revision was not snapshotted; do not present current run_importers.py as byte-identical to that first attempt.
+
+Final serial importer supervisor command template (exact child argv is preserved in run_importers.py source below):
+uv run --no-sync --with 'pytest-xdist>=3.6' python -u /private/tmp/sf-rn-fix1/rn-fix1b-231339/run_importers.py
+  Inherits TMPDIR, UV_CACHE_DIR and explicit PYTHONPATH above. Four supervised child processes, never more than four test processes. Supervisor deadline 5400 s; finally terminates/reaps surviving children. Tool-owned background supervision only.
+  RESULT: completed groups 0, 1 and 3 below; group 2 was intentionally interrupted, without a completed summary/XML. Supervisor exit 130 and reaping are recorded in section 19. These historical final-tagged runs used the first isolation harness, whose false failures are diagnosed in section 16.
+
+Final group 0: 55 files; collected 1763 items. Basetemp=/private/tmp/sf-rn-fix1/rn-fix1b-231339/pytest-importer-final-0; log=/private/tmp/sf-rn-fix1/rn-fix1b-231339/importer-final-0.log; XML=/private/tmp/sf-rn-fix1/rn-fix1b-231339/importer-final-0.xml; completed result=37 failed, 1689 passed, 11 skipped, 26 xfailed in 3360.36 s (0:56:00).
+
+Final group 1: 55 files; collected 1865 items. Basetemp=/private/tmp/sf-rn-fix1/rn-fix1b-231339/pytest-importer-final-1; log=/private/tmp/sf-rn-fix1/rn-fix1b-231339/importer-final-1.log; XML=/private/tmp/sf-rn-fix1/rn-fix1b-231339/importer-final-1.xml; completed result=64 failed, 1759 passed, 16 skipped, 8 xfailed, 18 errors in 3248.78 s (0:54:08).
+
+Final group 2: 55 files; collected 1649 items. Basetemp=/private/tmp/sf-rn-fix1/rn-fix1b-231339/pytest-importer-final-2; log=/private/tmp/sf-rn-fix1/rn-fix1b-231339/importer-final-2.log; XML=/private/tmp/sf-rn-fix1/rn-fix1b-231339/importer-final-2.xml was requested but no final XML/summary is expected: original group 2 was intentionally interrupted; partial observations and its corrected 131-case rerun are recorded in section 19.
+
+Final group 3: 55 files; collected 1791 items. Basetemp=/private/tmp/sf-rn-fix1/rn-fix1b-231339/pytest-importer-final-3; log=/private/tmp/sf-rn-fix1/rn-fix1b-231339/importer-final-3.log; XML=/private/tmp/sf-rn-fix1/rn-fix1b-231339/importer-final-3.xml; completed result=51 failed, 1651 passed, 13 skipped, 33 xfailed, 43 errors in 3278.39 s (0:54:38).
+
+Do not classify interim FAILED lines as production regressions or timeout without their summary traceback. At the initial review snapshot, held-waiters differential and admission-latency cap property showed FAILED while other cases continued. pytest-timeout was 120 s; repository main CI uses 1200 s. The completed initial-group failure classification and corrected diagnostic reruns are recorded in section 16; group 2 was interrupted; its 131-case corrected rerun passed (section 19 below).
+
+
+5. Required final files and verification
+========================================
+
+Required order after importers:
+tests/fake/test_state_contract.py tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py tests/unit/test_handler_refusals.py
+  Exact final-four command and result: see section 19 below; 435 passed in 36.67 s.
+Syntax parsing: .venv/bin/python with a heredoc importing ast and pathlib.Path, iterating ('subfleet/daemon.py','tests/fake/test_capacity_wait_rollback.py'), calling ast.parse(Path(name).read_text()), and printing name + ': syntax OK'. RESULT: 2 syntax checks passed.
+Final git diff --check: exit 0; repeated after final report metadata.
+Whole suite: not run, as directed. Unrelated review mutants: not run. Python 3.12: not run; actual interpreter was CPython 3.15.2.
+
+
+6. Named-file commit attempts
+=============================
+
+Step 1:
+git add -- tests/fake/test_capacity_wait_rollback.py
+git commit -m "test: reproduce admission verdict cache surviving rollback"
+  RESULT: both exit 128; sandbox denied external worktree metadata index.lock.
+Step 2:
+git add -- subfleet/daemon.py tests/fake/test_capacity_wait_rollback.py docs/acceptance-contract.md
+git commit -m "fix: restore admission wait history when reservation rolls back"
+  RESULT: both exit 128; same denied index.lock.
+Final report/ledger named-file commit attempt: recorded in section 21 below.
+No history rewrite, branch change, push, merge, remote write or live-state/process inspection was authorized or performed. File collection by hub remains necessary if the final commit attempt is also denied.
+
+
+7. Cleanup inventory and deviations
+===================================
+
+Job scratch: /private/tmp/sf-rn-fix1/rn-fix1b-231339. Shared existing /private/tmp/sf-rn-fix1 was preserved. Cache fallback: /private/tmp/sf-rn-fix1/uv-cache. The prescribed DARWIN_USER_TEMP_DIR scratch/cache creation was denied. Test temporary state was redirected to job-owned scratch; this does not claim all runner artifacts were under scratch: .venv, .pytest_cache and any .hypothesis/generated bytecode must be inventoried separately if present.
+Outside-scratch original paths, exact guarded shutil.rmtree script and successful cleanup outcomes: section 20 below.
+All supervised test children exited/reaped before final cleanup; see sections 19-20.
+Finish time 2026-11-16 00:53:26 UTC; within the 2026-11-16 02:13:39 UTC deadline. HEAD f3e773a72a7b409b042bd8ebdae5dbecf41d6677; final recheck in section 21.
+Historical commands whose exact wrapper was not preserved are explicitly labeled above rather than reconstructed as literal transcripts.
+
+
+8. Full actual-daemon-import test inventory: 246 files
+======================================================
+
+tests/fake/test_admission_disk.py
+tests/fake/test_admission_held_waiters.py
+tests/fake/test_admission_latency.py
+tests/fake/test_admission_lease_waiters.py
+tests/fake/test_admission_liveness.py
+tests/fake/test_admission_priority.py
+tests/fake/test_admission_properties.py
+tests/fake/test_admission_ramp.py
+tests/fake/test_admission_ramp_retention.py
+tests/fake/test_admission_route_isolation.py
+tests/fake/test_admission_stateful.py
+tests/fake/test_admission_visibility.py
+tests/fake/test_attempt_tmpdir_daemon.py
+tests/fake/test_attempt_tmpdir_leaks_daemon.py
+tests/fake/test_canonical_identity.py
+tests/fake/test_canonical_identity_fix5.py
+tests/fake/test_capacity_steer_daemon.py
+tests/fake/test_capacity_wait_backoff.py
+tests/fake/test_census_cwd_outcome.py
+tests/fake/test_census_recycled_pid_daemon.py
+tests/fake/test_census_round3_interleavings.py
+tests/fake/test_census_round3_leases.py
+tests/fake/test_census_round3_mutation.py
+tests/fake/test_census_round4_endings.py
+tests/fake/test_census_round4_endings_mutation.py
+tests/fake/test_census_round6_cascade.py
+tests/fake/test_census_round6_cascade_mutation.py
+tests/fake/test_codex_turn_completed_fake.py
+tests/fake/test_daemon_descriptors.py
+tests/fake/test_daemon_launch.py
+tests/fake/test_daemon_stacks.py
+tests/fake/test_detached_cwd_pins.py
+tests/fake/test_detached_retention_fence.py
+tests/fake/test_enrollment_guardian.py
+tests/fake/test_event_name_properties.py
+tests/fake/test_event_names.py
+tests/fake/test_fake_provider.py
+tests/fake/test_finalization_replay.py
+tests/fake/test_frozen_stream_nonregular.py
+tests/fake/test_identity_rollback.py
+tests/fake/test_idle_cost.py
+tests/fake/test_lane_fault.py
+tests/fake/test_lane_pilot.py
+tests/fake/test_lanes_enroll.py
+tests/fake/test_launch_env_daemon.py
+tests/fake/test_launch_env_helper_scope.py
+tests/fake/test_launch_env_ignored_hook.py
+tests/fake/test_launch_env_providers.py
+tests/fake/test_launch_gates_above_stdio.py
+tests/fake/test_launch_provider_qos.py
+tests/fake/test_machine_guard_daemon.py
+tests/fake/test_main_refusal_write_dir.py
+tests/fake/test_mcp_job_contract.py
+tests/fake/test_native_maintenance_startup.py
+tests/fake/test_notice_delivery.py
+tests/fake/test_notice_header.py
+tests/fake/test_notice_keep_delivery.py
+tests/fake/test_picker_native.py
+tests/fake/test_policy_sandbox.py
+tests/fake/test_probe_cancel.py
+tests/fake/test_probe_deadline.py
+tests/fake/test_probe_recovery.py
+tests/fake/test_probe_turn.py
+tests/fake/test_prompt_seam.py
+tests/fake/test_provider_active_cap_fake.py
+tests/fake/test_provider_cap_review_evidence.py
+tests/fake/test_record_secrecy.py
+tests/fake/test_request_routing.py
+tests/fake/test_reserve_authorization.py
+tests/fake/test_reset_credit_incident.py
+tests/fake/test_resume_contract.py
+tests/fake/test_retention_dormant.py
+tests/fake/test_retry_for_good_refusals.py
+tests/fake/test_review130_ab.py
+tests/fake/test_review_launch_permissions.py
+tests/fake/test_review_needs_shell.py
+tests/fake/test_review_r185_adversarial.py
+tests/fake/test_review_r223_wall_probes.py
+tests/fake/test_review_r269_probe_deadline.py
+tests/fake/test_review_r269r3_probe_records.py
+tests/fake/test_route_view.py
+tests/fake/test_routing_end_to_end.py
+tests/fake/test_routing_tier_preferences.py
+tests/fake/test_salvage_adversarial.py
+tests/fake/test_salvage_finalization.py
+tests/fake/test_salvage_worktree_gone.py
+tests/fake/test_sessions_end_to_end.py
+tests/fake/test_state_contract.py
+tests/fake/test_status_payload.py
+tests/fake/test_task_hold_admission.py
+tests/fake/test_task_hold_clocks.py
+tests/fake/test_task_hold_reset_demand.py
+tests/fake/test_tier_hold_by_demand.py
+tests/fake/test_timers_busy_admission.py
+tests/fake/test_timers_end_to_end.py
+tests/fake/test_turn_trees.py
+tests/fake/test_unadmittable_pin_admission.py
+tests/fake/test_unadmittable_pin_rereview.py
+tests/fake/test_unadmittable_pin_review.py
+tests/fake/test_unrun_worktrees.py
+tests/fake/test_waiting_queue_cost.py
+tests/fake/test_wall_cancel_races.py
+tests/fake/test_wall_inspection_order.py
+tests/fake/test_wall_running_time.py
+tests/fake/test_wall_stop_deliveries.py
+tests/fake/test_workspace_contract.py
+tests/fake/test_workspace_enospc.py
+tests/fake/test_workspace_transient.py
+tests/fake/test_writable_fanout.py
+tests/fake/test_writer_retention_fence.py
+tests/frontend/test_core_client.py
+tests/frontend/test_core_outbox.py
+tests/frontend/test_core_steer.py
+tests/process/test_census_hidden_environment_process.py
+tests/process/test_census_responsibility_process.py
+tests/process/test_kill4_fix1_process.py
+tests/process/test_provider_shell_environment.py
+tests/process/test_quar_start1_process.py
+tests/unit/test_census_boot_seeds.py
+tests/unit/test_census_counted.py
+tests/unit/test_census_counted_expiry.py
+tests/unit/test_census_inspection_properties.py
+tests/unit/test_census_merge_liveness.py
+tests/unit/test_census_procargs.py
+tests/unit/test_census_recycled_pid.py
+tests/unit/test_census_responsibility_failures.py
+tests/unit/test_census_responsibility_identity.py
+tests/unit/test_census_responsibility_races.py
+tests/unit/test_census_round1_mutations.py
+tests/unit/test_census_round2.py
+tests/unit/test_census_round2_mutation.py
+tests/unit/test_census_round3.py
+tests/unit/test_census_round4.py
+tests/unit/test_census_round4_mutation.py
+tests/unit/test_census_survivors_review.py
+tests/unit/test_census_worktree_recheck_pacing.py
+tests/unit/test_cli.py
+tests/unit/test_codex_ca_bundle.py
+tests/unit/test_codex_ca_bundle_provider.py
+tests/unit/test_conversation_catalog_lifecycle.py
+tests/unit/test_conversation_connections.py
+tests/unit/test_conversation_handoff.py
+tests/unit/test_conversation_handoff_dispatch_races.py
+tests/unit/test_conversation_service.py
+tests/unit/test_daemon_accept.py
+tests/unit/test_daemon_connections.py
+tests/unit/test_daemon_fifo_reads.py
+tests/unit/test_daemon_init_release.py
+tests/unit/test_daemon_inspection_load.py
+tests/unit/test_daemon_inspection_properties.py
+tests/unit/test_daemon_integration.py
+tests/unit/test_daemon_log_handler.py
+tests/unit/test_daemon_log_reminders.py
+tests/unit/test_daemon_log_sites.py
+tests/unit/test_daemon_settle.py
+tests/unit/test_daemon_verbs.py
+tests/unit/test_descriptor_review_fixes.py
+tests/unit/test_descriptors.py
+tests/unit/test_disk_admission.py
+tests/unit/test_doctor.py
+tests/unit/test_enrollment_runner.py
+tests/unit/test_fake_daemon_borrowed_methods.py
+tests/unit/test_forget_paced.py
+tests/unit/test_frozen_provider_streams.py
+tests/unit/test_gate_admission.py
+tests/unit/test_guard_trust.py
+tests/unit/test_handler_refusals.py
+tests/unit/test_hold_note.py
+tests/unit/test_hold_note_admission.py
+tests/unit/test_hold_note_applied.py
+tests/unit/test_hold_note_review_edges.py
+tests/unit/test_hold_note_review_properties.py
+tests/unit/test_hold_note_review_r3.py
+tests/unit/test_hook_cost.py
+tests/unit/test_host_push.py
+tests/unit/test_host_push_admission.py
+tests/unit/test_host_push_build_budget.py
+tests/unit/test_host_push_mutations.py
+tests/unit/test_host_push_quarantine_restart.py
+tests/unit/test_host_push_restart.py
+tests/unit/test_host_push_storage_retry_budget.py
+tests/unit/test_host_push_store_completion_pr183.py
+tests/unit/test_host_push_store_interleavings.py
+tests/unit/test_host_push_validated_top.py
+tests/unit/test_importer.py
+tests/unit/test_inspection_pacing_properties.py
+tests/unit/test_kill4_boot_scope.py
+tests/unit/test_kill4_boot_scope_mutations.py
+tests/unit/test_kill4_fix1.py
+tests/unit/test_kill4_fix1_mutations.py
+tests/unit/test_kill4_fix2b.py
+tests/unit/test_kill4_fix2b_mutations.py
+tests/unit/test_kill4_mutations.py
+tests/unit/test_kill4_p3_mutations.py
+tests/unit/test_kill4_properties.py
+tests/unit/test_kill4_review_r3.py
+tests/unit/test_kill4_terminal_containment.py
+tests/unit/test_launch_env_allowlist.py
+tests/unit/test_launch_env_mutations.py
+tests/unit/test_launch_env_round2.py
+tests/unit/test_launch_env_round8.py
+tests/unit/test_launch_env_vendor_shell.py
+tests/unit/test_launch_qos_property.py
+tests/unit/test_legacy_hold.py
+tests/unit/test_live_store_guard.py
+tests/unit/test_live_store_guard_round6.py
+tests/unit/test_live_store_guard_st3.py
+tests/unit/test_live_store_guard_st3_children.py
+tests/unit/test_live_store_guard_st3_mutations.py
+tests/unit/test_lockwatch.py
+tests/unit/test_notice_keep.py
+tests/unit/test_operator_hold_closures.py
+tests/unit/test_operator_notices.py
+tests/unit/test_person_boundary_identity.py
+tests/unit/test_placement_ramp.py
+tests/unit/test_pr276_review_r1.py
+tests/unit/test_pr276_review_r2.py
+tests/unit/test_pr276_review_r3.py
+tests/unit/test_pr276_review_r4.py
+tests/unit/test_protocol_secrecy.py
+tests/unit/test_prune_217.py
+tests/unit/test_publish_trust_refusal_round8.py
+tests/unit/test_quar_start1_census.py
+tests/unit/test_quar_start1_landed.py
+tests/unit/test_render_quota_projection.py
+tests/unit/test_retention_archive.py
+tests/unit/test_retention_case_alias.py
+tests/unit/test_retention_delete_daemon.py
+tests/unit/test_retention_folded_pin.py
+tests/unit/test_retention_rediscovery.py
+tests/unit/test_retention_shared_folders.py
+tests/unit/test_review_pr127_service.py
+tests/unit/test_review_publish_env_round8.py
+tests/unit/test_round10_refusal_context.py
+tests/unit/test_salvage_unindexable.py
+tests/unit/test_status_hold_source.py
+tests/unit/test_status_json.py
+tests/unit/test_stop_alarm.py
+tests/unit/test_stop_watchdog.py
+tests/unit/test_store_contention_queries.py
+tests/unit/test_store_readers.py
+tests/unit/test_store_snapshot_plans.py
+tests/unit/test_tick_prefilter.py
+tests/unit/test_timers_busy_read.py
+tests/unit/test_timers_daemon.py
+tests/unit/test_wait_hub.py
+
+
+9. Support/helper imports: 11 files, not independently collected test modules
+=============================================================================
+
+tests/conftest.py
+tests/e2e/conftest.py
+tests/fake/run_daemon.py
+tests/fixtures/home_resolvers_release_217_st3.py
+tests/frontend/daemon_harness.py
+tests/frozen_streams.py
+tests/lane_settings_cases.py
+tests/reference_tail_1cf653dff.py
+tests/task_hold_cas_legacy.py
+tests/task_hold_mutants.py
+tests/task_hold_support.py
+
+
+10. Selected importer test list: 220 files
+==========================================
+
+tests/fake/test_admission_disk.py
+tests/fake/test_admission_held_waiters.py
+tests/fake/test_admission_latency.py
+tests/fake/test_admission_lease_waiters.py
+tests/fake/test_admission_liveness.py
+tests/fake/test_admission_priority.py
+tests/fake/test_admission_properties.py
+tests/fake/test_admission_ramp.py
+tests/fake/test_admission_ramp_retention.py
+tests/fake/test_admission_route_isolation.py
+tests/fake/test_admission_stateful.py
+tests/fake/test_admission_visibility.py
+tests/fake/test_attempt_tmpdir_daemon.py
+tests/fake/test_attempt_tmpdir_leaks_daemon.py
+tests/fake/test_canonical_identity.py
+tests/fake/test_canonical_identity_fix5.py
+tests/fake/test_capacity_steer_daemon.py
+tests/fake/test_capacity_wait_backoff.py
+tests/fake/test_census_cwd_outcome.py
+tests/fake/test_census_recycled_pid_daemon.py
+tests/fake/test_census_round3_interleavings.py
+tests/fake/test_census_round3_leases.py
+tests/fake/test_census_round3_mutation.py
+tests/fake/test_census_round4_endings.py
+tests/fake/test_census_round4_endings_mutation.py
+tests/fake/test_census_round6_cascade.py
+tests/fake/test_census_round6_cascade_mutation.py
+tests/fake/test_codex_turn_completed_fake.py
+tests/fake/test_daemon_descriptors.py
+tests/fake/test_daemon_launch.py
+tests/fake/test_daemon_stacks.py
+tests/fake/test_detached_cwd_pins.py
+tests/fake/test_detached_retention_fence.py
+tests/fake/test_enrollment_guardian.py
+tests/fake/test_event_name_properties.py
+tests/fake/test_event_names.py
+tests/fake/test_fake_provider.py
+tests/fake/test_finalization_replay.py
+tests/fake/test_frozen_stream_nonregular.py
+tests/fake/test_identity_rollback.py
+tests/fake/test_idle_cost.py
+tests/fake/test_lane_fault.py
+tests/fake/test_lane_pilot.py
+tests/fake/test_lanes_enroll.py
+tests/fake/test_launch_env_daemon.py
+tests/fake/test_launch_env_helper_scope.py
+tests/fake/test_launch_env_ignored_hook.py
+tests/fake/test_launch_env_providers.py
+tests/fake/test_launch_gates_above_stdio.py
+tests/fake/test_launch_provider_qos.py
+tests/fake/test_machine_guard_daemon.py
+tests/fake/test_main_refusal_write_dir.py
+tests/fake/test_mcp_job_contract.py
+tests/fake/test_native_maintenance_startup.py
+tests/fake/test_notice_delivery.py
+tests/fake/test_notice_header.py
+tests/fake/test_notice_keep_delivery.py
+tests/fake/test_picker_native.py
+tests/fake/test_policy_sandbox.py
+tests/fake/test_probe_cancel.py
+tests/fake/test_probe_deadline.py
+tests/fake/test_probe_recovery.py
+tests/fake/test_probe_turn.py
+tests/fake/test_prompt_seam.py
+tests/fake/test_provider_active_cap_fake.py
+tests/fake/test_provider_cap_review_evidence.py
+tests/fake/test_record_secrecy.py
+tests/fake/test_request_routing.py
+tests/fake/test_reserve_authorization.py
+tests/fake/test_reset_credit_incident.py
+tests/fake/test_resume_contract.py
+tests/fake/test_retention_dormant.py
+tests/fake/test_retry_for_good_refusals.py
+tests/fake/test_review130_ab.py
+tests/fake/test_review_launch_permissions.py
+tests/fake/test_review_needs_shell.py
+tests/fake/test_review_r185_adversarial.py
+tests/fake/test_review_r223_wall_probes.py
+tests/fake/test_review_r269_probe_deadline.py
+tests/fake/test_review_r269r3_probe_records.py
+tests/fake/test_route_view.py
+tests/fake/test_routing_end_to_end.py
+tests/fake/test_routing_tier_preferences.py
+tests/fake/test_salvage_adversarial.py
+tests/fake/test_salvage_finalization.py
+tests/fake/test_salvage_worktree_gone.py
+tests/fake/test_state_contract.py
+tests/fake/test_status_payload.py
+tests/fake/test_task_hold_admission.py
+tests/fake/test_task_hold_clocks.py
+tests/fake/test_task_hold_reset_demand.py
+tests/fake/test_tier_hold_by_demand.py
+tests/fake/test_timers_busy_admission.py
+tests/fake/test_timers_end_to_end.py
+tests/fake/test_turn_trees.py
+tests/fake/test_unadmittable_pin_admission.py
+tests/fake/test_unadmittable_pin_rereview.py
+tests/fake/test_unadmittable_pin_review.py
+tests/fake/test_unrun_worktrees.py
+tests/fake/test_waiting_queue_cost.py
+tests/fake/test_wall_cancel_races.py
+tests/fake/test_wall_inspection_order.py
+tests/fake/test_wall_running_time.py
+tests/fake/test_wall_stop_deliveries.py
+tests/fake/test_workspace_contract.py
+tests/fake/test_workspace_enospc.py
+tests/fake/test_workspace_transient.py
+tests/fake/test_writable_fanout.py
+tests/fake/test_writer_retention_fence.py
+tests/frontend/test_core_client.py
+tests/frontend/test_core_outbox.py
+tests/frontend/test_core_steer.py
+tests/unit/test_census_boot_seeds.py
+tests/unit/test_census_counted.py
+tests/unit/test_census_counted_expiry.py
+tests/unit/test_census_inspection_properties.py
+tests/unit/test_census_merge_liveness.py
+tests/unit/test_census_procargs.py
+tests/unit/test_census_recycled_pid.py
+tests/unit/test_census_responsibility_failures.py
+tests/unit/test_census_responsibility_identity.py
+tests/unit/test_census_responsibility_races.py
+tests/unit/test_census_round1_mutations.py
+tests/unit/test_census_round2.py
+tests/unit/test_census_round2_mutation.py
+tests/unit/test_census_round3.py
+tests/unit/test_census_round4.py
+tests/unit/test_census_round4_mutation.py
+tests/unit/test_census_survivors_review.py
+tests/unit/test_census_worktree_recheck_pacing.py
+tests/unit/test_cli.py
+tests/unit/test_codex_ca_bundle.py
+tests/unit/test_codex_ca_bundle_provider.py
+tests/unit/test_conversation_catalog_lifecycle.py
+tests/unit/test_conversation_connections.py
+tests/unit/test_conversation_handoff.py
+tests/unit/test_conversation_handoff_dispatch_races.py
+tests/unit/test_conversation_service.py
+tests/unit/test_daemon_accept.py
+tests/unit/test_daemon_connections.py
+tests/unit/test_daemon_fifo_reads.py
+tests/unit/test_daemon_init_release.py
+tests/unit/test_daemon_inspection_load.py
+tests/unit/test_daemon_inspection_properties.py
+tests/unit/test_daemon_integration.py
+tests/unit/test_daemon_log_handler.py
+tests/unit/test_daemon_log_reminders.py
+tests/unit/test_daemon_log_sites.py
+tests/unit/test_daemon_settle.py
+tests/unit/test_daemon_verbs.py
+tests/unit/test_descriptor_review_fixes.py
+tests/unit/test_descriptors.py
+tests/unit/test_disk_admission.py
+tests/unit/test_doctor.py
+tests/unit/test_fake_daemon_borrowed_methods.py
+tests/unit/test_forget_paced.py
+tests/unit/test_frozen_provider_streams.py
+tests/unit/test_gate_admission.py
+tests/unit/test_guard_trust.py
+tests/unit/test_handler_refusals.py
+tests/unit/test_hold_note.py
+tests/unit/test_hold_note_admission.py
+tests/unit/test_hold_note_applied.py
+tests/unit/test_hold_note_review_edges.py
+tests/unit/test_hold_note_review_properties.py
+tests/unit/test_hold_note_review_r3.py
+tests/unit/test_hook_cost.py
+tests/unit/test_importer.py
+tests/unit/test_inspection_pacing_properties.py
+tests/unit/test_kill4_boot_scope.py
+tests/unit/test_kill4_boot_scope_mutations.py
+tests/unit/test_kill4_fix1.py
+tests/unit/test_kill4_fix1_mutations.py
+tests/unit/test_kill4_fix2b.py
+tests/unit/test_kill4_fix2b_mutations.py
+tests/unit/test_kill4_mutations.py
+tests/unit/test_kill4_p3_mutations.py
+tests/unit/test_kill4_properties.py
+tests/unit/test_kill4_review_r3.py
+tests/unit/test_kill4_terminal_containment.py
+tests/unit/test_launch_env_allowlist.py
+tests/unit/test_launch_env_mutations.py
+tests/unit/test_launch_env_round2.py
+tests/unit/test_launch_env_vendor_shell.py
+tests/unit/test_launch_qos_property.py
+tests/unit/test_legacy_hold.py
+tests/unit/test_live_store_guard_st3_mutations.py
+tests/unit/test_lockwatch.py
+tests/unit/test_operator_hold_closures.py
+tests/unit/test_operator_notices.py
+tests/unit/test_person_boundary_identity.py
+tests/unit/test_placement_ramp.py
+tests/unit/test_pr276_review_r1.py
+tests/unit/test_pr276_review_r2.py
+tests/unit/test_pr276_review_r3.py
+tests/unit/test_pr276_review_r4.py
+tests/unit/test_protocol_secrecy.py
+tests/unit/test_prune_217.py
+tests/unit/test_publish_trust_refusal_round8.py
+tests/unit/test_quar_start1_census.py
+tests/unit/test_quar_start1_landed.py
+tests/unit/test_render_quota_projection.py
+tests/unit/test_retention_delete_daemon.py
+tests/unit/test_retention_folded_pin.py
+tests/unit/test_retention_rediscovery.py
+tests/unit/test_review_pr127_service.py
+tests/unit/test_review_publish_env_round8.py
+tests/unit/test_round10_refusal_context.py
+tests/unit/test_salvage_unindexable.py
+tests/unit/test_status_hold_source.py
+tests/unit/test_status_json.py
+tests/unit/test_stop_alarm.py
+tests/unit/test_stop_watchdog.py
+tests/unit/test_store_contention_queries.py
+tests/unit/test_store_readers.py
+tests/unit/test_store_snapshot_plans.py
+tests/unit/test_tick_prefilter.py
+tests/unit/test_timers_busy_read.py
+tests/unit/test_timers_daemon.py
+tests/unit/test_wait_hub.py
+
+
+11. Excluded importer test list and reason: 26 files
+====================================================
+
+tests/fake/test_sessions_end_to_end.py	reader/launchctl guard coverage; conservative hands-off exclusion
+
+tests/process/test_census_hidden_environment_process.py	real-process importer; hands-off-live-process rule
+
+tests/process/test_census_responsibility_process.py	real-process importer; hands-off-live-process rule
+
+tests/process/test_kill4_fix1_process.py	real-process importer; hands-off-live-process rule
+
+tests/process/test_provider_shell_environment.py	real-process importer; hands-off-live-process rule
+
+tests/process/test_quar_start1_process.py	real-process importer; hands-off-live-process rule
+
+tests/unit/test_enrollment_runner.py	reader/launchctl guard coverage; conservative hands-off exclusion
+
+tests/unit/test_host_push.py	host-push fixture seeds/executes git push
+
+tests/unit/test_host_push_admission.py	host-push fixture seeds/executes git push
+
+tests/unit/test_host_push_build_budget.py	host-push fixture seeds/executes git push
+
+tests/unit/test_host_push_mutations.py	host-push fixture seeds/executes git push
+
+tests/unit/test_host_push_quarantine_restart.py	host-push fixture seeds/executes git push
+
+tests/unit/test_host_push_restart.py	host-push fixture seeds/executes git push
+
+tests/unit/test_host_push_storage_retry_budget.py	host-push fixture seeds/executes git push
+
+tests/unit/test_host_push_store_completion_pr183.py	host-push fixture seeds/executes git push
+
+tests/unit/test_host_push_store_interleavings.py	host-push fixture seeds/executes git push
+
+tests/unit/test_host_push_validated_top.py	host-push fixture seeds/executes git push
+
+tests/unit/test_launch_env_round8.py	reader/launchctl guard coverage; conservative hands-off exclusion
+
+tests/unit/test_live_store_guard.py	reader/launchctl guard coverage; conservative hands-off exclusion
+
+tests/unit/test_live_store_guard_round6.py	reader/launchctl guard coverage; conservative hands-off exclusion
+
+tests/unit/test_live_store_guard_st3.py	reader/launchctl guard coverage; conservative hands-off exclusion
+
+tests/unit/test_live_store_guard_st3_children.py	reader/launchctl guard coverage; conservative hands-off exclusion
+
+tests/unit/test_notice_keep.py	retention World constructor executes git push
+
+tests/unit/test_retention_archive.py	retention World constructor executes git push
+
+tests/unit/test_retention_case_alias.py	retention World constructor executes git push
+
+tests/unit/test_retention_shared_folders.py	retention World constructor executes git push
+
+
+12.0. Exact group-0 manifest: 55 files
+======================================
+
+tests/fake/test_admission_disk.py
+tests/fake/test_admission_liveness.py
+tests/fake/test_admission_ramp_retention.py
+tests/fake/test_attempt_tmpdir_daemon.py
+tests/fake/test_capacity_steer_daemon.py
+tests/fake/test_census_round3_interleavings.py
+tests/fake/test_census_round4_endings_mutation.py
+tests/fake/test_daemon_descriptors.py
+tests/fake/test_detached_retention_fence.py
+tests/fake/test_fake_provider.py
+tests/fake/test_idle_cost.py
+tests/fake/test_launch_env_daemon.py
+tests/fake/test_launch_gates_above_stdio.py
+tests/fake/test_mcp_job_contract.py
+tests/fake/test_notice_keep_delivery.py
+tests/fake/test_probe_deadline.py
+tests/fake/test_provider_active_cap_fake.py
+tests/fake/test_reserve_authorization.py
+tests/fake/test_retry_for_good_refusals.py
+tests/fake/test_review_r185_adversarial.py
+tests/fake/test_route_view.py
+tests/fake/test_salvage_finalization.py
+tests/fake/test_task_hold_admission.py
+tests/fake/test_timers_busy_admission.py
+tests/fake/test_unadmittable_pin_rereview.py
+tests/fake/test_wall_cancel_races.py
+tests/fake/test_workspace_contract.py
+tests/fake/test_writer_retention_fence.py
+tests/unit/test_census_boot_seeds.py
+tests/unit/test_census_merge_liveness.py
+tests/unit/test_census_responsibility_identity.py
+tests/unit/test_census_round2_mutation.py
+tests/unit/test_census_survivors_review.py
+tests/unit/test_codex_ca_bundle_provider.py
+tests/unit/test_conversation_handoff_dispatch_races.py
+tests/unit/test_daemon_fifo_reads.py
+tests/unit/test_daemon_integration.py
+tests/unit/test_daemon_settle.py
+tests/unit/test_disk_admission.py
+tests/unit/test_frozen_provider_streams.py
+tests/unit/test_hold_note.py
+tests/unit/test_hold_note_review_properties.py
+tests/unit/test_inspection_pacing_properties.py
+tests/unit/test_kill4_fix1_mutations.py
+tests/unit/test_kill4_p3_mutations.py
+tests/unit/test_launch_env_allowlist.py
+tests/unit/test_launch_qos_property.py
+tests/unit/test_operator_hold_closures.py
+tests/unit/test_pr276_review_r1.py
+tests/unit/test_protocol_secrecy.py
+tests/unit/test_quar_start1_landed.py
+tests/unit/test_retention_rediscovery.py
+tests/unit/test_salvage_unindexable.py
+tests/unit/test_stop_watchdog.py
+tests/unit/test_tick_prefilter.py
+
+
+12.1. Exact group-1 manifest: 55 files
+======================================
+
+tests/fake/test_admission_held_waiters.py
+tests/fake/test_admission_priority.py
+tests/fake/test_admission_route_isolation.py
+tests/fake/test_attempt_tmpdir_leaks_daemon.py
+tests/fake/test_capacity_wait_backoff.py
+tests/fake/test_census_round3_leases.py
+tests/fake/test_census_round6_cascade.py
+tests/fake/test_daemon_launch.py
+tests/fake/test_enrollment_guardian.py
+tests/fake/test_finalization_replay.py
+tests/fake/test_lane_fault.py
+tests/fake/test_launch_env_helper_scope.py
+tests/fake/test_launch_provider_qos.py
+tests/fake/test_native_maintenance_startup.py
+tests/fake/test_picker_native.py
+tests/fake/test_probe_recovery.py
+tests/fake/test_provider_cap_review_evidence.py
+tests/fake/test_reset_credit_incident.py
+tests/fake/test_review130_ab.py
+tests/fake/test_review_r223_wall_probes.py
+tests/fake/test_routing_end_to_end.py
+tests/fake/test_salvage_worktree_gone.py
+tests/fake/test_task_hold_clocks.py
+tests/fake/test_timers_end_to_end.py
+tests/fake/test_unadmittable_pin_review.py
+tests/fake/test_wall_inspection_order.py
+tests/fake/test_workspace_enospc.py
+tests/frontend/test_core_client.py
+tests/unit/test_census_counted.py
+tests/unit/test_census_procargs.py
+tests/unit/test_census_responsibility_races.py
+tests/unit/test_census_round3.py
+tests/unit/test_census_worktree_recheck_pacing.py
+tests/unit/test_conversation_catalog_lifecycle.py
+tests/unit/test_conversation_service.py
+tests/unit/test_daemon_init_release.py
+tests/unit/test_daemon_log_handler.py
+tests/unit/test_daemon_verbs.py
+tests/unit/test_doctor.py
+tests/unit/test_gate_admission.py
+tests/unit/test_hold_note_admission.py
+tests/unit/test_hold_note_review_r3.py
+tests/unit/test_kill4_boot_scope.py
+tests/unit/test_kill4_fix2b.py
+tests/unit/test_kill4_properties.py
+tests/unit/test_launch_env_mutations.py
+tests/unit/test_legacy_hold.py
+tests/unit/test_operator_notices.py
+tests/unit/test_pr276_review_r2.py
+tests/unit/test_prune_217.py
+tests/unit/test_render_quota_projection.py
+tests/unit/test_review_pr127_service.py
+tests/unit/test_status_hold_source.py
+tests/unit/test_store_contention_queries.py
+tests/unit/test_timers_busy_read.py
+
+
+12.2. Exact group-2 manifest: 55 files
+======================================
+
+tests/fake/test_admission_latency.py
+tests/fake/test_admission_properties.py
+tests/fake/test_admission_stateful.py
+tests/fake/test_canonical_identity.py
+tests/fake/test_census_cwd_outcome.py
+tests/fake/test_census_round3_mutation.py
+tests/fake/test_census_round6_cascade_mutation.py
+tests/fake/test_daemon_stacks.py
+tests/fake/test_event_name_properties.py
+tests/fake/test_frozen_stream_nonregular.py
+tests/fake/test_lane_pilot.py
+tests/fake/test_launch_env_ignored_hook.py
+tests/fake/test_machine_guard_daemon.py
+tests/fake/test_notice_delivery.py
+tests/fake/test_policy_sandbox.py
+tests/fake/test_probe_turn.py
+tests/fake/test_record_secrecy.py
+tests/fake/test_resume_contract.py
+tests/fake/test_review_launch_permissions.py
+tests/fake/test_review_r269_probe_deadline.py
+tests/fake/test_routing_tier_preferences.py
+tests/fake/test_state_contract.py
+tests/fake/test_task_hold_reset_demand.py
+tests/fake/test_turn_trees.py
+tests/fake/test_unrun_worktrees.py
+tests/fake/test_wall_running_time.py
+tests/fake/test_workspace_transient.py
+tests/frontend/test_core_outbox.py
+tests/unit/test_census_counted_expiry.py
+tests/unit/test_census_recycled_pid.py
+tests/unit/test_census_round1_mutations.py
+tests/unit/test_census_round4.py
+tests/unit/test_cli.py
+tests/unit/test_conversation_connections.py
+tests/unit/test_daemon_accept.py
+tests/unit/test_daemon_inspection_load.py
+tests/unit/test_daemon_log_reminders.py
+tests/unit/test_descriptor_review_fixes.py
+tests/unit/test_fake_daemon_borrowed_methods.py
+tests/unit/test_guard_trust.py
+tests/unit/test_hold_note_applied.py
+tests/unit/test_hook_cost.py
+tests/unit/test_kill4_boot_scope_mutations.py
+tests/unit/test_kill4_fix2b_mutations.py
+tests/unit/test_kill4_review_r3.py
+tests/unit/test_launch_env_round2.py
+tests/unit/test_live_store_guard_st3_mutations.py
+tests/unit/test_person_boundary_identity.py
+tests/unit/test_pr276_review_r3.py
+tests/unit/test_publish_trust_refusal_round8.py
+tests/unit/test_retention_delete_daemon.py
+tests/unit/test_review_publish_env_round8.py
+tests/unit/test_status_json.py
+tests/unit/test_store_readers.py
+tests/unit/test_timers_daemon.py
+
+
+12.3. Exact group-3 manifest: 55 files
+======================================
+
+tests/fake/test_admission_lease_waiters.py
+tests/fake/test_admission_ramp.py
+tests/fake/test_admission_visibility.py
+tests/fake/test_canonical_identity_fix5.py
+tests/fake/test_census_recycled_pid_daemon.py
+tests/fake/test_census_round4_endings.py
+tests/fake/test_codex_turn_completed_fake.py
+tests/fake/test_detached_cwd_pins.py
+tests/fake/test_event_names.py
+tests/fake/test_identity_rollback.py
+tests/fake/test_lanes_enroll.py
+tests/fake/test_launch_env_providers.py
+tests/fake/test_main_refusal_write_dir.py
+tests/fake/test_notice_header.py
+tests/fake/test_probe_cancel.py
+tests/fake/test_prompt_seam.py
+tests/fake/test_request_routing.py
+tests/fake/test_retention_dormant.py
+tests/fake/test_review_needs_shell.py
+tests/fake/test_review_r269r3_probe_records.py
+tests/fake/test_salvage_adversarial.py
+tests/fake/test_status_payload.py
+tests/fake/test_tier_hold_by_demand.py
+tests/fake/test_unadmittable_pin_admission.py
+tests/fake/test_waiting_queue_cost.py
+tests/fake/test_wall_stop_deliveries.py
+tests/fake/test_writable_fanout.py
+tests/frontend/test_core_steer.py
+tests/unit/test_census_inspection_properties.py
+tests/unit/test_census_responsibility_failures.py
+tests/unit/test_census_round2.py
+tests/unit/test_census_round4_mutation.py
+tests/unit/test_codex_ca_bundle.py
+tests/unit/test_conversation_handoff.py
+tests/unit/test_daemon_connections.py
+tests/unit/test_daemon_inspection_properties.py
+tests/unit/test_daemon_log_sites.py
+tests/unit/test_descriptors.py
+tests/unit/test_forget_paced.py
+tests/unit/test_handler_refusals.py
+tests/unit/test_hold_note_review_edges.py
+tests/unit/test_importer.py
+tests/unit/test_kill4_fix1.py
+tests/unit/test_kill4_mutations.py
+tests/unit/test_kill4_terminal_containment.py
+tests/unit/test_launch_env_vendor_shell.py
+tests/unit/test_lockwatch.py
+tests/unit/test_placement_ramp.py
+tests/unit/test_pr276_review_r4.py
+tests/unit/test_quar_start1_census.py
+tests/unit/test_retention_folded_pin.py
+tests/unit/test_round10_refusal_context.py
+tests/unit/test_stop_alarm.py
+tests/unit/test_store_snapshot_plans.py
+tests/unit/test_wait_hub.py
+
+
+13. Preserved final runner and isolation source
+===============================================
+
+These sources were read during ledger construction. They preserve final behavior, not every historical revision. Pasting these sources into the named scratch files is sufficient to reconstruct the current runner; substitute only explicit job-owned paths for a different assigned job. The plugin uses synthetic boot/start identities, blocks unstubbed process readers and specified personal paths, and rejects write-shaped remote commands before execution. No blocked command was run by constructing this ledger.
+
+BEGIN SOURCE /private/tmp/sf-rn-fix1/rn-fix1b-231339/run_tests.py
+
+import sys
+import pytest
+raise SystemExit(pytest.main(sys.argv[1:]))
+
+END SOURCE /private/tmp/sf-rn-fix1/rn-fix1b-231339/run_tests.py
+
+BEGIN SOURCE /private/tmp/sf-rn-fix1/rn-fix1b-231339/run_importers.py
+
+import os
+from pathlib import Path
+import subprocess
+import time
+
+scratch = Path('/private/tmp/sf-rn-fix1/rn-fix1b-231339')
+files = (scratch / 'importer-files.txt').read_text().splitlines()
+children = []
+logs = []
+try:
+    for index in range(4):
+        group = scratch / f'importer-group-{index}.txt'
+        group.write_text('\n'.join(files[index::4]) + '\n')
+        log = (scratch / f'importer-final-{index}.log').open('w')
+        logs.append(log)
+        cmd = ['uv', 'run', '--no-sync', '--with', 'pytest-xdist>=3.6', 'python', '-u',
+               str(scratch / 'run_tests.py'), '-p', 'rn_job_plugin', '-v', '-n', '0',
+               '--timeout=120', '--tb=short', '-ra',
+               f'--basetemp={scratch}/pytest-importer-final-{index}',
+               f'--junitxml={scratch}/importer-final-{index}.xml', '@' + str(group)]
+        child = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT)
+        children.append(child)
+        print(f'group {index}: {len(files[index::4])} files started', flush=True)
+    deadline = time.monotonic() + 5400
+    while any(child.poll() is None for child in children):
+        if time.monotonic() > deadline:
+            raise TimeoutError('90 minute importer budget')
+        time.sleep(1)
+    for index, child in enumerate(children):
+        print(f'group {index}: exit {child.returncode}', flush=True)
+finally:
+    for child in children:
+        if child.poll() is None:
+            child.terminate()
+    for child in children:
+        try:
+            child.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            child.kill()
+            child.wait()
+    for log in logs:
+        log.close()
+
+END SOURCE /private/tmp/sf-rn-fix1/rn-fix1b-231339/run_importers.py
+
+BEGIN SOURCE /private/tmp/sf-rn-fix1/rn-fix1b-231339/rn_job_plugin.py
+
+from pathlib import Path
+import os
+import sys
+import tempfile
+
+scratch = Path('/private/tmp/sf-rn-fix1/rn-fix1b-231339')
+sys.path.insert(0, str(Path.cwd()))
+original_mkdtemp = tempfile.mkdtemp
+
+def isolated_mkdtemp(suffix=None, prefix=None, dir=None):
+    if dir is None or str(dir).rstrip('/') in ('/tmp', '/private/tmp', os.environ.get('TMPDIR', '').rstrip('/')):
+        dir = str(scratch)
+    if not Path(dir).resolve().is_relative_to(scratch):
+        prefix = 'sf-rn-fix1-' + (prefix or '')
+    result = original_mkdtemp(suffix=suffix, prefix=prefix, dir=dir)
+    if not Path(result).resolve().is_relative_to(scratch):
+        with (scratch / f'external-folders-{os.getpid()}.txt').open('a') as out:
+            out.write(result + '\n')
+    return result
+
+tempfile.mkdtemp = isolated_mkdtemp
+tempfile.tempdir = str(scratch)
+import tests.failed_keep
+tests.failed_keep.ROOT = scratch / 'failed'
+import pytest
+
+class JobIsolation:
+    @pytest.fixture(autouse=True)
+    def job_identity(self, request, monkeypatch):
+        if 'process_inspection_available' in request.fixturenames:
+            pytest.skip('job brief: no real process inspection')
+        if request.node.get_closest_marker('real_lsof') or request.node.get_closest_marker('real_cwd'):
+            pytest.skip('job brief: no live process listing')
+        from subfleet import procs
+        monkeypatch.setattr(procs, 'boot_id', lambda: 'synthetic-job-boot')
+        monkeypatch.setattr(procs, 'proc_start', lambda pid: 'synthetic-job-start')
+
+        def unavailable(*args, **kwargs):
+            raise procs.InspectionError('job brief: real process inspection refused')
+
+        monkeypatch.setattr(procs, '_read', unavailable)
+        for method in ('pids', 'process', 'cwd', 'arguments', 'argument_max', 'responsible'):
+            monkeypatch.setattr(procs.Darwin, method, unavailable)
+
+    @pytest.hookimpl(tryfirst=True)
+    def pytest_collection_modifyitems(self, items):
+        for item in items:
+            if 'process_inspection_available' in getattr(item, 'fixturenames', ()):
+                item.add_marker(pytest.mark.skip(reason='job brief: no real process inspection'))
+
+
+_isolation = JobIsolation()
+job_identity = _isolation.job_identity
+pytest_collection_modifyitems = _isolation.pytest_collection_modifyitems
+
+# Permanent baselines survive tests that explicitly undo their monkeypatch fixture.
+from subfleet import procs as _job_procs
+
+def _refuse_process_read(*args, **kwargs):
+    raise _job_procs.InspectionError('job brief: real process inspection refused')
+
+_job_procs.boot_id = lambda: 'synthetic-job-boot'
+_job_procs.proc_start = lambda pid: 'synthetic-job-start'
+_job_procs._read = _refuse_process_read
+for _method in ('pids', 'process', 'cwd', 'arguments', 'argument_max', 'responsible'):
+    setattr(_job_procs.Darwin, _method, _refuse_process_read)
+
+def _job_audit(event, args):
+    if event in ('subprocess.Popen', 'os.posix_spawn', 'os.exec'):
+        executable = os.fsdecode(args[0])
+        name = Path(executable).name
+        if name in ('ps', 'lsof', 'sysctl', 'security', 'agent-secret', 'launchctl'):
+            raise PermissionError('job brief: process/credential reader refused before execution')
+        argv = args[1]
+        if isinstance(argv, (tuple, list)):
+            words = [os.fsdecode(part) for part in argv]
+            if name == 'git' and 'push' in words:
+                raise PermissionError('job brief: git push refused before execution')
+            if name == 'gh' and (any(part in words for part in ('POST', 'PATCH', 'DELETE'))
+                                 or words[1:3] in (['pr', 'merge'], ['run', 'rerun'])):
+                raise PermissionError('job brief: remote write refused before execution')
+    if event in ('open', 'os.listdir', 'os.scandir') and args:
+        path = args[0]
+        if isinstance(path, (str, bytes, os.PathLike)):
+            spelling = os.fsdecode(path)
+            forbidden = ('/Users/maxghenis/.claude', '/Users/maxghenis/.claude.json',
+                         '/Users/maxghenis/.codex', '/Users/maxghenis/chief-of-staff',
+                         '/Users/maxghenis/.subfleet')
+            workspace = '/Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b'
+            if any(spelling == root or spelling.startswith(root + '/') for root in forbidden):
+                if not (spelling == workspace or spelling.startswith(workspace + '/')):
+                    raise PermissionError('job brief: personal/live-state path refused before read')
+
+sys.addaudithook(_job_audit)
+
+END SOURCE /private/tmp/sf-rn-fix1/rn-fix1b-231339/rn_job_plugin.py
+
+BEGIN SOURCE /private/tmp/sf-rn-fix1/rn-fix1b-231339/rn_state_plugin.py
+
+"""State-only admission checks need synthetic identity, not a host inspection prerequisite."""
+from rn_job_plugin import *
+import pytest
+
+@pytest.fixture(autouse=True)
+def job_identity(request, monkeypatch):
+    if request.node.get_closest_marker('real_lsof') or request.node.get_closest_marker('real_cwd'):
+        pytest.skip('job brief: no live process listing')
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection_modifyitems(items):
+    pass
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_fixture_setup(fixturedef, request):
+    if fixturedef.argname == 'process_inspection_available':
+        result = True
+        fixturedef.cached_result = (result, fixturedef.cache_key(request), None)
+        return result
+
+END SOURCE /private/tmp/sf-rn-fix1/rn-fix1b-231339/rn_state_plugin.py
+
+BEGIN SOURCE /private/tmp/sf-rn-fix1/rn-fix1b-231339/runner-backup.py
+
+from pathlib import Path
+import os
+import sys
+import tempfile
+
+scratch = Path('/private/tmp/sf-rn-fix1/rn-fix1b-231339')
+sys.path.insert(0, str(Path.cwd()))
+original_mkdtemp = tempfile.mkdtemp
+
+def isolated_mkdtemp(suffix=None, prefix=None, dir=None):
+    if dir is None or str(dir).rstrip('/') in ('/tmp', '/private/tmp', os.environ.get('TMPDIR', '').rstrip('/')):
+        dir = str(scratch)
+    if not Path(dir).resolve().is_relative_to(scratch):
+        prefix = 'sf-rn-fix1-' + (prefix or '')
+    result = original_mkdtemp(suffix=suffix, prefix=prefix, dir=dir)
+    if not Path(result).resolve().is_relative_to(scratch):
+        with (scratch / f'external-folders-{os.getpid()}.txt').open('a') as out:
+            out.write(result + '\n')
+    return result
+
+tempfile.mkdtemp = isolated_mkdtemp
+tempfile.tempdir = str(scratch)
+import tests.failed_keep
+tests.failed_keep.ROOT = scratch / 'failed'
+import pytest
+
+class JobIsolation:
+    @pytest.fixture(autouse=True)
+    def job_identity(self, request, monkeypatch):
+        if 'process_inspection_available' in request.fixturenames:
+            pytest.skip('job brief: no real process inspection')
+        if request.node.get_closest_marker('real_lsof') or request.node.get_closest_marker('real_cwd'):
+            pytest.skip('job brief: no live process listing')
+        from subfleet import procs
+        monkeypatch.setattr(procs, 'boot_id', lambda: 'synthetic-job-boot')
+        monkeypatch.setattr(procs, 'proc_start', lambda pid: 'synthetic-job-start')
+
+    @pytest.hookimpl(tryfirst=True)
+    def pytest_collection_modifyitems(self, items):
+        for item in items:
+            if 'process_inspection_available' in getattr(item, 'fixturenames', ()):
+                item.add_marker(pytest.mark.skip(reason='job brief: no real process inspection'))
+
+plugins = [JobIsolation()] if '--job-isolation' in sys.argv else []
+if plugins:
+    sys.argv.remove('--job-isolation')
+raise SystemExit(pytest.main(sys.argv[1:], plugins=plugins))
+
+END SOURCE /private/tmp/sf-rn-fix1/rn-fix1b-231339/runner-backup.py
+
+BEGIN SOURCE /private/tmp/sf-rn-fix1/rn-fix1b-231339/progress.py
+
+from pathlib import Path
+import re
+scratch=Path('/private/tmp/sf-rn-fix1/rn-fix1b-231339')
+for index in range(4):
+    text=(scratch/f'importer-final-{index}.log').read_text()
+    counts={status: len(re.findall(' '+status+r' \[',text)) for status in ('PASSED','FAILED','ERROR','SKIPPED','XFAIL')}
+    current=text.splitlines()[-1] if text else 'starting'
+    print(index,counts,current[:180])
+
+END SOURCE /private/tmp/sf-rn-fix1/rn-fix1b-231339/progress.py
+
+
+14. Exact independent read-only review command log
+==================================================
+
+All commands below were read-only; all exited 0 except the explicit no-match/nonexistent-file results. Repeated tool polls only resumed these commands and did not execute new shell commands.
+pwd
+rg --files -g AGENTS.md -g '*daemon*' -g '*store*'
+rg -n 'def _capacity_wait|def _audit_wait|_capacity_wait_cache|_wait_decisions|_audit_wait\(' subfleet/daemon.py
+rg -n 'def transaction|def read|write_lock|conn|class Store|capacity' subfleet/store.py
+rg --files --hidden -g AGENTS.md -g '!\.git' -g '!\.venv' .
+  RESULT: no AGENTS file, exit 1.
+sed -n '7380,7555p' subfleet/daemon.py
+sed -n '8380,8615p' subfleet/daemon.py
+sed -n '453,565p' subfleet/store.py
+cat /Users/maxghenis/reviews/subfleet-hub/reserved-noise-2026-11-11/review-r1.md
+sed -n '8615,8770p' subfleet/daemon.py
+rg -n 'def _isolated_route|_capacity_waits|decision_id|decisions' subfleet/daemon.py
+sed -n '7545,7750p' subfleet/daemon.py
+sed -n '8885,9060p' subfleet/daemon.py
+sed -n '9200,9290p' subfleet/daemon.py
+sed -n '1635,1685p' subfleet/daemon.py
+sed -n '1745,1790p' subfleet/daemon.py
+rg -n 'C-6.10|C-3.8|2026-11-13.*reserved|capacity_wait' docs/contract.md tests/fake/test_event_names.py tests/fake/test_waiting_cost.py tests/fake/test_admission_route_isolation.py tests/unit/test_store_audit.py
+  RESULT: exit 2; docs/contract.md and tests/fake/test_waiting_cost.py do not exist; existing named files searched successfully.
+rg -n 'store\._lock|store\.transaction\(|_capacity_wait\(' subfleet/daemon.py
+sed -n '1,285p' tests/fake/test_event_names.py
+sed -n '1,160p' tests/fake/test_capacity_wait_backoff.py
+git diff -- subfleet/daemon.py tests/fake/test_event_names.py
+git diff --stat
+rg --files -g '*CONTRACT*' -g '*contract*' docs subfleet | head -60
+git status --short
+rg -n 'aborted|rollback|rolls_back|commit.*fail|consum|new_verdict|full_fleet' tests/fake/test_event_names.py docs/acceptance-contract.md
+git diff -- docs/acceptance-contract.md
+sed -n '135,240p' subfleet/store.py
+rg -l 'aborted|before_commit|COMMIT|consum' tests/fake/test_*wait* tests/fake/test_event*
+rg -n '^class WatchedLock|def __enter__|def __exit__|def acquire|def release' subfleet/lockwatch.py
+git diff --unified=0 -- docs/acceptance-contract.md
+cat tests/fake/test_capacity_wait_rollback.py
+sed -n '65,145p' subfleet/lockwatch.py
+sed -n '455,520p' subfleet/store.py
+tail -100 /private/tmp/sf-rn-fix1/rn-fix1b-231339/importer-final-1.log
+tail -100 /private/tmp/sf-rn-fix1/rn-fix1b-231339/importer-final-2.log
+rg -n 'differential|hypothesis|deadline|timeout|@pytest|def test_' tests/fake/test_admission_held_waiters.py tests/fake/test_admission_latency.py tests/unit/test_admission_latency.py
+  RESULT: exit 2; nonexistent tests/unit/test_admission_latency.py, both existing fake files searched successfully.
+sed -n '1,195p' tests/fake/test_admission_held_waiters.py
+sed -n '130,414p' tests/fake/test_admission_latency.py
+rg -n 'timeout|hypothesis|filterwarnings' pyproject.toml tests/conftest.py tests/fake/conftest.py
+sed -n '1,135p' tests/fake/test_admission_latency.py
+rg -n 'admission_latency|admission_held_waiters|timeout' docs/reports/2026-11-13-reserved-noise.md .github/workflows/tests.yml
+sed -n '40,90p' pyproject.toml
+rg -n 'FAILED|FAILURES|Timeout|short test summary|AssertionError|passed,|failed,' /private/tmp/sf-rn-fix1/rn-fix1b-231339/importer-final-1.log /private/tmp/sf-rn-fix1/rn-fix1b-231339/importer-final-2.log
+tail -5 /private/tmp/sf-rn-fix1/rn-fix1b-231339/importer-final-2.log
+cat /private/tmp/sf-rn-fix1/rn-fix1b-231339/report-draft.md
+git diff --unified=0 -- subfleet/daemon.py docs/acceptance-contract.md
+cat tests/fake/test_capacity_wait_rollback.py
+  RESULT of independent implementation review: no necessary implementation change; reentrant writer-lock restoration covers rollback/COMMIT without moving route evaluation under the lock. Contract wording corrections and report precision corrections were supplied to root.
+
+Ledger construction additionally read only the explicitly authorized scratch manifests/scripts/log headers and summaries listed in sections 2-4 and 13, using ls -1, cat, head -20, tail -12 and wc -l. Exact construction command is a Python heredoc reading these explicit files and exclusively creating this ledger with open(mode="x"); no tests, git mutations or other writes were performed by the ledger agent. Root also used the read-only command families and exact source ranges recorded in the appended root command log; repeated progress polls use the preserved progress.py source.
+
+15. Additional root read-only command ledger
+============================================
+Commands below completed successfully unless their explicit no-match/path or timeout
+outcome is stated. Repeated variants/progress reads are grouped; they had no mutations.
+
+git status --short
+git branch --show-current
+rg --files -g AGENTS.md -g pyproject.toml -g conftest.py
+rg -n '_capacity_waits|def _capacity_wait|def _audit_wait|def _reserve_attempt|ADMISSION_EVENT' subfleet/daemon.py
+sed -n '7380,7535p' subfleet/daemon.py
+sed -n '1,240p' tests/fake/test_event_names.py
+rg -n 'C-3.8|Changes in version 3|verdict|rechecks' docs/acceptance-contract.md tests/fake/test_event_names.py
+cat pyproject.toml
+rg -n 'def transaction|def add_decision|_depth|commit' subfleet/store.py
+rg --files -g '*AGENTS*' -g '*INVARIANT*'
+  RESULT: final no-match search returned 1; no applicable instruction/index found.
+ls -ld AGENTS.md .agents/AGENTS.md .gitnexus 2>/dev/null
+  RESULT: paths absent; no listing of personal directories.
+rg --files -g AGENTS.md -g conftest.py
+sed -n '450,520p' subfleet/store.py
+sed -n '980,1005p' subfleet/store.py
+sed -n '1,180p' tests/conftest.py
+sed -n '1,180p' tests/fake/conftest.py
+sed -n '7410,7520p' subfleet/daemon.py
+sed -n '8520,8730p' subfleet/daemon.py
+sed -n '1,270p' tests/fake/test_event_names.py
+sed -n '1,150p' tests/conftest.py
+sed -n '1,150p' tests/fake/conftest.py
+sed -n '1,280p' tests/fake/test_event_names.py
+GIT_OPTIONAL_LOCKS=0 git -c core.fsmonitor=false status --short
+GIT_OPTIONAL_LOCKS=0 git -c core.fsmonitor=false symbolic-ref -q HEAD
+git -c core.fsmonitor=false ls-files '*AGENTS.md'
+sed -n '8480,8525p' subfleet/daemon.py
+sed -n '8870,8980p' subfleet/daemon.py
+rg -n 'process_inspection_available|failed_keep|sf-' tests/conftest.py tests/failed_keep.py tests/fake/test_capacity_wait_backoff.py
+sed -n '1,170p' tests/failed_keep.py
+sed -n '1,135p' tests/failed_keep.py
+command -v git
+command -v uv
+sed -n '9240,9295p' subfleet/daemon.py
+rg -n -A 32 'def process_inspection_available' tests/conftest.py
+  RESULT: no match in this file (fixture is in fake/conftest.py).
+sed -n '1,90p' tests/fake/test_capacity_wait_backoff.py
+sed -n '1,100p' tests/fake/test_capacity_wait_backoff.py
+rg -n -A 30 'def _isolated_route' subfleet/daemon.py
+ls -ld .venv
+  RESULT before uv sync: absent, exit 1.
+/usr/bin/git --version
+/usr/bin/git -c core.fsmonitor=false status --short
+/usr/bin/git symbolic-ref -q HEAD
+/usr/bin/git ls-files '*AGENTS.md'
+uv --version
+rg -n 'process_inspection_available' tests
+rg -n -F '**C-3.8**' docs/acceptance-contract.md
+sed -n '1,80p' tests/fake/test_routing_end_to_end.py
+/usr/bin/git --no-optional-locks -c core.fsmonitor=false -c core.untrackedCache=false status --porcelain -uno
+/usr/bin/git --no-optional-locks branch --show-current
+sed -n '220,253p' tests/fake/conftest.py
+rg -n 'def .*valid|def load_policy' subfleet/policy.py
+rg -n 'class .*Connection|connect\(' subfleet/store.py
+sed -n '9200,9250p' subfleet/daemon.py
+sed -n '1,75p' subfleet/store.py
+cat .git
+  RESULT: identifies only this checkout's repository metadata path.
+sed -n '466,495p' subfleet/policy.py
+sed -n '8980,9020p' subfleet/daemon.py
+rg -n 'store\._lock' subfleet/daemon.py
+/usr/bin/git --no-optional-locks -c core.fsmonitor=false -c core.untrackedCache=false rev-parse HEAD
+/usr/bin/git --no-optional-locks -c core.fsmonitor=false -c core.untrackedCache=false diff --stat
+/usr/bin/git --no-optional-locks -c core.fsmonitor=false ls-files tests/fake/test_capacity_wait_rollback.py
+sed -n '343,365p' subfleet/store.py
+sed -n '1,100p' subfleet/lockwatch.py
+rg -n -F '**C-6.10**' docs/acceptance-contract.md
+sed -n '1,125p' tests/unit/conftest.py
+sed -n '120,145p' tests/unit/conftest.py
+rg -n 'mkdtemp|TemporaryDirectory|/tmp/sf' tests/unit/conftest.py tests/fake/test_event_name_properties.py
+ls /private/tmp/sf-rn-fix1
+  RESULT: existing unrelated scratch artifacts noticed and preserved.
+rg -n -A 70 'def no_process_listing|def fresh_process_caches|def no_desktop_login|def guardian_launch_standins' tests/conftest.py
+rg -n '^def test_|procs\.|boot_id|proc_start' tests/fake/test_event_name_properties.py
+cat /private/tmp/sf-rn-fix1/rn-fix1b-unsafe-reasons.txt
+wc -l /private/tmp/sf-rn-fix1/rn-fix1b-daemon-import-tests.txt
+cat /private/tmp/sf-rn-fix1/rn-fix1b-daemon-import-helpers.txt
+rg -n '^def |ctypes|sysctl|subprocess|libproc|_run' subfleet/procs.py
+sed -n '30,48p' subfleet/procs.py
+sed -n '590,630p' subfleet/procs.py
+sed -n '630,745p' subfleet/procs.py | rg '^    def '
+sed -n '740,760p' subfleet/procs.py
+sed -n '326,345p' subfleet/procs.py
+sed -n '850,870p' subfleet/procs.py
+sed -n '1,160p' tests/unit/test_invariants_index.py
+sed -n '1,150p' tests/unit/test_test_module_names.py
+/usr/bin/git -c core.fsmonitor=false diff --unified=3 -- subfleet/daemon.py
+/usr/bin/git -c core.fsmonitor=false diff --check
+/usr/bin/git -c core.fsmonitor=false diff --numstat
+sed -n '1,140p' tests/fake/test_admission_held_waiters.py
+rg -n -A 45 'test_c6_9_the_detached_pass_takes' tests/fake/test_admission_held_waiters.py
+sed -n '1640,1685p' subfleet/daemon.py
+sed -n '1740,1805p' subfleet/daemon.py
+sed -n '9225,9275p' subfleet/daemon.py
+rg -n 'self.policy_digest|self.policy =|return value|_hash' subfleet/daemon.py subfleet/policy.py | head -n 22
+sed -n '990,1010p' subfleet/daemon.py
+rg -n 'ERROR|FAILED' /private/tmp/sf-rn-fix1/rn-fix1b-231339/importer-final-1.log | tail -n 40
+sed -n '1,85p' tests/unit/test_census_responsibility_races.py
+
+Repeated progress/readback command templates (all read only):
+date -u
+head -n N /private/tmp/sf-rn-fix1/rn-fix1b-231339/importers[-02|-03].log
+tail -n N /private/tmp/sf-rn-fix1/[rn-fix1b-231339/]REGRESSION.log
+tail -n N /private/tmp/sf-rn-fix1/rn-fix1b-231339/importer-{group|final}-{0..3}.log
+rg -n 'FAILED|ERROR|Timeout|timed out|failures|E   ' /private/tmp/sf-rn-fix1/rn-fix1b-231339/importer-final-1.log
+rg -n 'test_capacity_wait_backoff|test_event_name_properties|test_waiting_queue_cost' /private/tmp/sf-rn-fix1/rn-fix1b-231339/importer-final-*.log
+.venv/bin/python /private/tmp/sf-rn-fix1/rn-fix1b-231339/progress.py
+  RESULT: interim counts only, never substituted for completed summaries.
+
+The root used apply_patch for the new regression module, its missing-fixture import,
+its SQLite trigger correction, the rollback guard, and exact-restoration assertions.
+Contract edits were assertion-checked Python string replacements; the final wording
+correction used an atomic sibling .md.sf-rn-fix1-tmp replacement. Scratch runner,
+plugin, supervisor, progress and report-draft files were written with quoted heredocs
+or assertion-checked Python replacements. These mutations succeeded; the final source
+diff, regression module and preserved runner/plugin sources are their reviewable output.
+
+
+16. Corrected isolation harness and diagnostic reruns
+====================================================
+
+The historical importer-final-* names identify the initial completed-harness attempts; they are not a claim that validation finished. Preserve their failure evidence. The completed groups 0, 1 and 3 contained 213 failures/errors classified in rerun-manifest-status.txt as 16 timeout cases, 41 synthetic-reader cases, 90 temporary-workspace/importer cases, 61 frontend cases, and 5 cases requiring real process inspection. The guardian-linger subset contains 4 overlapping cases, not 4 additional failures. Group 2 is still running at this snapshot, so these categories are not complete totals for all importers.
+
+The first harness replaced boot/start readers and Darwin algorithms even when a test supplied a fake lower-level reader. That changed what the tests measured and produced false failures. Its /private/tmp workspace allocation also triggered the catalog's intended temporary-workspace refusal, and importer real_identity selected real-identity assumptions from the synthetic boot/start values. Frontend compilation initially could not use the prescribed unwritable getconf temp parent. These are harness limitations; passing reruns below provide evidence for the corrected subsets rather than erasing the initial failures.
+
+The corrected rn_job_safe.py keeps the native reader algorithms available when the test supplies synthetic subprocess/_read seams, refuses actual process-reader subprocess execution with the permanent audit hook, and replaces Darwin's native C entry points instead of its Python algorithms. It intercepts importer real_identity as False. The state-only rn_state_plugin.py imports rn_job_safe, supplies the process_inspection_available fixture without a host read, and retains real_lsof/real_cwd skips. These files are scratch-only validation helpers, not production changes. The prior rn_state_plugin.py snapshot in section 13 remains historical evidence and intentionally differs from the later source below.
+
+The explicitly authorized corrected runtime temp root is:
+/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-180648-rn-fix-r1b-a1-i27t3y5e/sf-rn-fix1
+This root avoids the catalog's /tmp workspace refusal. The wrapper changes only xcrun children's TMPDIR to that job-specific root because the prescribed getconf parent is unwritable. The surrounding shell's TMPDIR setup remains as previously recorded; the child override is an explicit test-setup deviation. Source snapshots below document the exact behavior.
+
+Exact corrected-rerun command templates, supplied by the root's execution transcript after the summaries above were read. Common shell setup is the existing exported environment recorded in sections 2 and 4, with these assignments:
+export TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"
+UV_CACHE_DIR=/private/tmp/sf-rn-fix1/uv-cache
+PYTHONPATH=/private/tmp/sf-rn-fix1/rn-fix1b-231339:$PWD
+
+uv run --no-sync --with 'pytest-xdist>=3.6' python -u /private/tmp/sf-rn-fix1/rn-fix1b-231339/run_tests.py -p rn_state_plugin -v -n 0 --timeout=1200 --tb=short -ra --basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-180648-rn-fix-r1b-a1-i27t3y5e/sf-rn-fix1/pytest-state-rerun --junitxml=/private/tmp/sf-rn-fix1/rn-fix1b-231339/state-rerun.xml tests/fake/test_event_names.py tests/fake/test_event_name_properties.py tests/fake/test_waiting_queue_cost.py tests/fake/test_capacity_wait_rollback.py > /private/tmp/sf-rn-fix1/rn-fix1b-231339/state-rerun.log 2>&1
+
+uv run --no-sync --with 'pytest-xdist>=3.6' python -u /private/tmp/sf-rn-fix1/rn-fix1b-231339/run_tests.py -p rn_job_safe -v -n 0 --timeout=1200 --tb=short -ra --basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-180648-rn-fix-r1b-a1-i27t3y5e/sf-rn-fix1/pytest-census-rerun --junitxml=/private/tmp/sf-rn-fix1/rn-fix1b-231339/census-rerun.xml tests/unit/test_census_boot_seeds.py tests/unit/test_census_responsibility_identity.py tests/unit/test_census_survivors_review.py > /private/tmp/sf-rn-fix1/rn-fix1b-231339/census-rerun.log 2>&1
+
+uv run --no-sync --with 'pytest-xdist>=3.6' python -u /private/tmp/sf-rn-fix1/rn-fix1b-231339/run_tests.py -p rn_job_safe -v -n 0 --timeout=1200 --tb=short -ra --basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-180648-rn-fix-r1b-a1-i27t3y5e/sf-rn-fix1/pytest-frontend-rerun --junitxml=/private/tmp/sf-rn-fix1/rn-fix1b-231339/frontend-rerun.xml tests/frontend/test_core_client.py tests/frontend/test_core_steer.py > /private/tmp/sf-rn-fix1/rn-fix1b-231339/frontend-rerun.log 2>&1
+
+Header evidence confirms Python 3.15.2, pytest 9.1.1, timeout 1200 s and the assigned workspace for all three runs. Each run used its own fresh pytest basetemp shown above.
+
+State rerun:
+  PLUGIN=rn_state_plugin; XML=/private/tmp/sf-rn-fix1/rn-fix1b-231339/state-rerun.xml; LOG=/private/tmp/sf-rn-fix1/rn-fix1b-231339/state-rerun.log.
+  TARGETS: the four explicit fake test files in the state-rerun command above.
+  RESULT: completed; 21 passed in 32.14 s. Includes all 6 new rollback regressions. This replaces no failing-before evidence and is additional passing-after coverage under the corrected state-only harness.
+
+Synthetic-reader census rerun:
+  PLUGIN=rn_job_safe; XML=/private/tmp/sf-rn-fix1/rn-fix1b-231339/census-rerun.xml; LOG=/private/tmp/sf-rn-fix1/rn-fix1b-231339/census-rerun.log.
+  TARGETS: the three explicit census test files in the census-rerun command above.
+  RESULT: completed; 67 passed in 26.80 s. This confirms the corrected wrapper allows the synthetic census algorithms in this subset; it does not verify real-process cases excluded by the brief.
+
+Frontend rerun:
+  PLUGIN=rn_job_safe; XML=/private/tmp/sf-rn-fix1/rn-fix1b-231339/frontend-rerun.xml; LOG=/private/tmp/sf-rn-fix1/rn-fix1b-231339/frontend-rerun.log.
+  TARGETS evidenced by collected test names: tests/frontend/test_core_client.py and tests/frontend/test_core_steer.py.
+  RESULT: completed; 7 failed, 39 passed, 16 errors in 24.91 s (62 collected). The corrected xcrun temp root permits compilation, but redirecting socket-bearing fixture roots into the long runtime temp root causes AF_UNIX path too long (the log gives a 150-byte socket path against macOS's 103-byte limit). Six direct socket/path-expectation failures and the teardown control's extra failed setup account for the failures; the 16 setup errors are the same socket-length problem. This is further harness failure, not passing frontend coverage; the subsequent short-socket-root rerun is recorded below.
+
+BEGIN SOURCE /private/tmp/sf-rn-fix1/rn-fix1b-231339/rn_job_safe.py (corrected harness snapshot)
+
+from pathlib import Path
+import os
+import sys
+import tempfile
+
+scratch = Path('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-180648-rn-fix-r1b-a1-i27t3y5e/sf-rn-fix1')
+sys.path.insert(0, str(Path.cwd()))
+original_mkdtemp = tempfile.mkdtemp
+_required_temp = os.environ.get('TMPDIR', '').rstrip('/')
+
+def isolated_mkdtemp(suffix=None, prefix=None, dir=None):
+    if dir is None or str(dir).rstrip('/') == _required_temp:
+        dir = str(scratch)
+    if not Path(dir).resolve().is_relative_to(scratch):
+        prefix = 'sf-rn-fix1-' + (prefix or '')
+    result = original_mkdtemp(suffix=suffix, prefix=prefix, dir=dir)
+    if not Path(result).resolve().is_relative_to(scratch):
+        with (scratch / f'external-folders-{os.getpid()}.txt').open('a') as out:
+            out.write(result + '\n')
+    return result
+
+tempfile.mkdtemp = isolated_mkdtemp
+tempfile.tempdir = str(scratch)
+import tests.failed_keep
+tests.failed_keep.ROOT = scratch / 'failed'
+import pytest
+
+class JobIsolation:
+    @pytest.fixture(autouse=True)
+    def job_identity(self, request, monkeypatch):
+        if 'process_inspection_available' in request.fixturenames:
+            pytest.skip('job brief: no real process inspection')
+        if request.node.get_closest_marker('real_lsof') or request.node.get_closest_marker('real_cwd'):
+            pytest.skip('job brief: no live process listing')
+    @pytest.hookimpl(tryfirst=True)
+    def pytest_collection_modifyitems(self, items):
+        for item in items:
+            if 'process_inspection_available' in getattr(item, 'fixturenames', ()):
+                item.add_marker(pytest.mark.skip(reason='job brief: no real process inspection'))
+
+
+_isolation = JobIsolation()
+job_identity = _isolation.job_identity
+pytest_collection_modifyitems = _isolation.pytest_collection_modifyitems
+
+# Permanent baselines survive tests that explicitly undo their monkeypatch fixture.
+from subfleet import procs as _job_procs
+
+def _refuse_process_read(*args, **kwargs):
+    raise _job_procs.InspectionError('job brief: real process inspection refused')
+
+import subprocess as _job_subprocess
+_native_subprocess_run = _job_subprocess.run
+_native_boot_id = _job_procs.boot_id
+_native_proc_start = _job_procs.proc_start
+_native_read = _job_procs._read
+
+def _safe_subprocess_run(argv, *args, **kwargs):
+    words = argv if isinstance(argv, (tuple, list)) else ()
+    if words and Path(str(words[0])).name == 'xcrun':
+        child_env = dict(os.environ) if kwargs.get('env') is None else dict(kwargs['env'])
+        child_env['TMPDIR'] = str(scratch)
+        kwargs['env'] = child_env
+    return _native_subprocess_run(argv, *args, **kwargs)
+
+_job_subprocess.run = _safe_subprocess_run
+
+def _safe_reader(*args, **kwargs):
+    if _job_subprocess.run is not _safe_subprocess_run:
+        return _native_read(*args, **kwargs)
+    return _refuse_process_read(*args, **kwargs)
+
+def _safe_boot_id():
+    if _job_procs._read is not _safe_reader or _job_subprocess.run is not _safe_subprocess_run:
+        return _native_boot_id()
+    return 'synthetic-job-boot'
+
+def _safe_proc_start(pid):
+    if _job_procs._read is not _safe_reader or _job_subprocess.run is not _safe_subprocess_run:
+        return _native_proc_start(pid)
+    return 'synthetic-job-start' if pid > 0 else None
+
+_job_procs.boot_id = _safe_boot_id
+_job_procs.proc_start = _safe_proc_start
+_job_procs._read = _safe_reader
+_native_darwin_init = _job_procs.Darwin.__init__
+
+def _isolated_darwin_init(self):
+    _native_darwin_init(self)
+    for name in ('_sysctl', '_listpids', '_pidinfo', '_responsible'):
+        setattr(self, name, _refuse_process_read)
+
+_job_procs.Darwin.__init__ = _isolated_darwin_init
+_job_procs.kernel.responsibility = False
+for _name in ('_sysctl', '_listpids', '_pidinfo', '_responsible'):
+    setattr(_job_procs.kernel, _name, _refuse_process_read)
+
+def _job_audit(event, args):
+    if event in ('subprocess.Popen', 'os.posix_spawn', 'os.exec'):
+        executable = os.fsdecode(args[0])
+        name = Path(executable).name
+        if name in ('ps', 'lsof', 'sysctl', 'security', 'agent-secret', 'launchctl'):
+            raise PermissionError('job brief: process/credential reader refused before execution')
+        argv = args[1]
+        if isinstance(argv, (tuple, list)):
+            words = [os.fsdecode(part) for part in argv]
+            if name == 'git' and 'push' in words:
+                raise PermissionError('job brief: git push refused before execution')
+            if name == 'gh' and (any(part in words for part in ('POST', 'PATCH', 'DELETE'))
+                                 or words[1:3] in (['pr', 'merge'], ['run', 'rerun'])):
+                raise PermissionError('job brief: remote write refused before execution')
+    if event in ('open', 'os.listdir', 'os.scandir') and args:
+        path = args[0]
+        if isinstance(path, (str, bytes, os.PathLike)):
+            spelling = os.fsdecode(path)
+            forbidden = ('/Users/maxghenis/.claude', '/Users/maxghenis/.claude.json',
+                         '/Users/maxghenis/.codex', '/Users/maxghenis/chief-of-staff',
+                         '/Users/maxghenis/.subfleet')
+            workspace = '/Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b'
+            if any(spelling == root or spelling.startswith(root + '/') for root in forbidden):
+                if not (spelling == workspace or spelling.startswith(workspace + '/')):
+                    raise PermissionError('job brief: personal/live-state path refused before read')
+
+sys.addaudithook(_job_audit)
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_fixture_setup(fixturedef, request):
+    if fixturedef.argname == 'real_identity' and fixturedef.func.__module__ == 'tests.unit.test_importer':
+        result = False
+        fixturedef.cached_result = (result, fixturedef.cache_key(request), None)
+        return result
+
+END SOURCE /private/tmp/sf-rn-fix1/rn-fix1b-231339/rn_job_safe.py
+
+BEGIN SOURCE /private/tmp/sf-rn-fix1/rn-fix1b-231339/rn_state_plugin.py (corrected harness snapshot)
+
+"""State-only admission checks need synthetic identity, not a host inspection prerequisite."""
+from rn_job_safe import *
+import pytest
+
+@pytest.fixture(autouse=True)
+def job_identity(request, monkeypatch):
+    if request.node.get_closest_marker('real_lsof') or request.node.get_closest_marker('real_cwd'):
+        pytest.skip('job brief: no live process listing')
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection_modifyitems(items):
+    pass
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_fixture_setup(fixturedef, request):
+    if fixturedef.argname == 'process_inspection_available':
+        result = True
+        fixturedef.cached_result = (result, fixturedef.cache_key(request), None)
+        return result
+
+END SOURCE /private/tmp/sf-rn-fix1/rn-fix1b-231339/rn_state_plugin.py
+
+
+17. Short socket roots and remaining diagnostic reruns
+======================================================
+
+After frontend-rerun exposed AF_UNIX pathname length, rn_job_safe.py was changed to preserve callers' explicitly requested /tmp and /private/tmp directories. Its allocation wrapper still prefixes those folders with sf-rn-fix1 and records them in external-folders-<pid>.txt for guarded cleanup. Only unspecified allocations and allocations explicitly naming the prescribed but unwritable parent are redirected to the long runtime root. The previous section's source snapshot preserves the AF_UNIX-failing version; the complete later source is preserved below.
+
+All subsequent reruns use the common environment and exact argv template from section 16, with the corresponding NAME and TARGETS below:
+
+uv run --no-sync --with 'pytest-xdist>=3.6' python -u /private/tmp/sf-rn-fix1/rn-fix1b-231339/run_tests.py -p rn_job_safe -v -n 0 --timeout=1200 --tb=short -ra --basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-180648-rn-fix-r1b-a1-i27t3y5e/sf-rn-fix1/pytest-timeout-rerun --junitxml=/private/tmp/sf-rn-fix1/rn-fix1b-231339/timeout-rerun.xml @/private/tmp/sf-rn-fix1/rn-fix1b-231339/rerun-timeouts.txt > /private/tmp/sf-rn-fix1/rn-fix1b-231339/timeout-rerun.log 2>&1
+  RESULT: 17 passed in 287.25 s (0:04:47); exit 0. No Hypothesis example counts reduced.
+
+uv run --no-sync --with 'pytest-xdist>=3.6' python -u /private/tmp/sf-rn-fix1/rn-fix1b-231339/run_tests.py -p rn_job_safe -v -n 0 --timeout=1200 --tb=short -ra --basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-180648-rn-fix-r1b-a1-i27t3y5e/sf-rn-fix1/pytest-wrapper-rerun --junitxml=/private/tmp/sf-rn-fix1/rn-fix1b-231339/wrapper-rerun.xml @/private/tmp/sf-rn-fix1/rn-fix1b-231339/rerun-remaining-wrapper.txt > /private/tmp/sf-rn-fix1/rn-fix1b-231339/wrapper-rerun.log 2>&1
+  RESULT: completed; 3 failed, 99 passed in 12.07 s (102 collected). Remaining failures are test_importer::test_states_map_from_rc (lost fixture run remains running), ::test_the_daemon_never_adopts_an_external_run (that same lost run is also skipped as running), and ::test_a_live_claude_process_outside_subfleet_keeps_history_out_and_fences_nothing[True] (legacy-owner hold remains). Resolved by the final wrapper rerun: detect fixture module by basename and select its existing synthetic identity branch; dynamically requested process_inspection_available is skipped (3 passed, 1 skipped).
+
+uv run --no-sync --with 'pytest-xdist>=3.6' python -u /private/tmp/sf-rn-fix1/rn-fix1b-231339/run_tests.py -p rn_job_safe -v -n 0 --timeout=1200 --tb=short -ra --basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-180648-rn-fix-r1b-a1-i27t3y5e/sf-rn-fix1/pytest-frontend-rerun-02 --junitxml=/private/tmp/sf-rn-fix1/rn-fix1b-231339/frontend-rerun-02.xml tests/frontend/test_core_client.py tests/frontend/test_core_steer.py tests/frontend/test_core_outbox.py > /private/tmp/sf-rn-fix1/rn-fix1b-231339/frontend-rerun-02.log 2>&1
+  RESULT: completed; 1 failed, 74 passed in 28.42 s (75 collected). The socket-length errors are gone. The remaining teardown-control assertion expects four roots whose names begin sf-steer-, while the required job cleanup prefix makes their names begin sf-rn-fix1-sf-steer-. Its embedded test run has the expected 2 deliberate body failures and 2 passes; the outer name-prefix assertion alone fails. This is a harness naming conflict; the result is recorded as a failure rather than a pass.
+
+The two @ manifests are reproduced verbatim to preserve the exact node selection before scratch cleanup.
+
+BEGIN MANIFEST /private/tmp/sf-rn-fix1/rn-fix1b-231339/rerun-timeouts.txt
+
+tests/fake/test_admission_liveness.py::test_c6_3_c26_9_admission_places_what_e053b2c_placed_pass_for_pass
+tests/fake/test_capacity_steer_daemon.py::test_r3_hold_back_excludes_models_steered_away_from_any_older_job
+tests/fake/test_detached_retention_fence.py::test_interleavings_never_run_a_detached_job_in_a_tree_being_retired
+tests/fake/test_provider_active_cap_fake.py::test_mixed_chains_wait_only_for_selected_provider_with_existing_caps
+tests/fake/test_provider_active_cap_fake.py::test_random_arrivals_and_completions_never_overbook_at_reservation
+tests/unit/test_launch_env_allowlist.py::test_guardian_provider_spawn_filters_again[stdin]
+tests/unit/test_launch_env_allowlist.py::test_guardian_provider_spawn_filters_again[relay]
+tests/fake/test_admission_held_waiters.py::test_c6_9_the_detached_pass_takes_the_pass_model_s_decisions_around_waiters_on_their_clock
+tests/fake/test_lane_fault.py::test_c4_5_no_unchanged_unpinned_job_is_failed_by_the_one_dead_lane_it_meets
+tests/fake/test_review_r223_wall_probes.py::test_probe_sql_prior_sum_is_never_below_the_exact_sum
+tests/unit/test_conversation_catalog_lifecycle.py::test_completed_run_sweeps_any_sequence_of_sigkill_interruptions
+tests/unit/test_launch_env_mutations.py::test_named_guardian_regression_kills_ambient_mutant[stdin]
+tests/unit/test_launch_env_mutations.py::test_named_guardian_regression_kills_ambient_mutant[relay]
+tests/fake/test_detached_cwd_pins.py::test_any_detached_cwd_lifetime_interleaving_preserves_the_reservation
+tests/fake/test_probe_cancel.py::TestProbeCancelMachine::runTest
+tests/fake/test_unadmittable_pin_admission.py::test_c6_9_c11_8_in_the_daemon_no_job_waits_behind_a_job_no_lane_can_admit
+tests/fake/test_census_round3_interleavings.py::test_r3_interleavings_keep_folders_retained_holds_open_and_writers_exclusive
+
+END MANIFEST /private/tmp/sf-rn-fix1/rn-fix1b-231339/rerun-timeouts.txt
+
+BEGIN MANIFEST /private/tmp/sf-rn-fix1/rn-fix1b-231339/rerun-remaining-wrapper.txt
+
+tests/unit/test_census_procargs.py::test_d_cen1_responsibility_members_are_counted_and_recorded_without_commands
+tests/unit/test_census_procargs.py::test_d_cen1_a_process_created_before_the_root_is_not_its
+tests/unit/test_census_procargs.py::test_d_cen1_an_unknown_root_unique_id_keeps_every_member
+tests/unit/test_census_procargs.py::test_d_cen1_a_census_reads_each_candidate_once_and_rechecks_its_root
+tests/unit/test_census_procargs.py::test_d_cen1_a_new_root_holder_bounds_members_even_with_the_same_lstart
+tests/unit/test_census_procargs.py::test_d_cen1_a_full_argument_read_retries_to_the_kernel_maximum[False]
+tests/unit/test_census_procargs.py::test_d_cen1_a_full_argument_read_retries_to_the_kernel_maximum[True]
+tests/unit/test_census_procargs.py::test_d_cen1_a_read_filling_the_kernel_maximum_stays_unverifiable[1024]
+tests/unit/test_census_procargs.py::test_d_cen1_a_read_filling_the_kernel_maximum_stays_unverifiable[8192]
+tests/unit/test_census_procargs.py::test_d_cen1_a_read_filling_the_kernel_maximum_stays_unverifiable[None]
+tests/unit/test_census_responsibility_races.py::test_kernel_identity_start_is_captured_with_the_unique_id
+tests/unit/test_quar_start1_census.py::test_the_identity_readers_environment_is_four_names_and_never_a_marker
+tests/unit/test_legacy_hold.py::test_waits_for_the_session_s_other_writer_use_up_no_readmission[external-writer]
+tests/unit/test_legacy_hold.py::test_waits_for_the_session_s_other_writer_use_up_no_readmission[legacy-owner]
+tests/unit/test_legacy_hold.py::test_a_readmitted_turn_waits_while_the_conversation_is_held
+tests/unit/test_legacy_hold.py::test_an_outcome_never_replaces_the_hold_and_unblock_never_lifts_it
+tests/unit/test_legacy_hold.py::test_a_resolved_delivery_and_a_quarantine_leave_the_hold
+tests/unit/test_legacy_hold.py::test_only_the_import_lifts_its_hold
+tests/unit/test_legacy_hold.py::test_a_running_turn_is_stopped_when_the_daemon_adopts_it_on_a_held_conversation[True]
+tests/unit/test_legacy_hold.py::test_a_running_turn_is_stopped_when_the_daemon_adopts_it_on_a_held_conversation[False]
+tests/unit/test_legacy_hold.py::test_an_adopted_turn_on_a_held_conversation_never_writes_its_message[False]
+tests/unit/test_legacy_hold.py::test_an_adopted_turn_on_a_held_conversation_never_writes_its_message[True]
+tests/unit/test_legacy_hold.py::test_a_person_s_stop_stands_over_the_hold
+tests/unit/test_legacy_hold.py::test_a_turn_the_hold_stopped_before_its_message_waits_for_the_hold
+tests/unit/test_legacy_hold.py::test_a_queued_turn_job_of_a_held_conversation_is_not_admitted
+tests/unit/test_legacy_hold.py::test_resume_refuses_a_turn_source_and_a_conversation_bound_session
+tests/unit/test_legacy_hold.py::test_the_daemon_never_revives_or_nudges_a_conversation_bound_session
+tests/unit/test_legacy_hold.py::test_a_session_only_a_turn_attempt_recorded_is_a_conversation_s_in_either_spelling[upper-recorded]
+tests/unit/test_legacy_hold.py::test_a_session_only_a_turn_attempt_recorded_is_a_conversation_s_in_either_spelling[lower-recorded]
+tests/unit/test_legacy_hold.py::test_conversation_open_binds_one_spelling_of_a_session
+tests/unit/test_legacy_hold.py::test_a_held_session_opened_after_the_pass_is_bound_held
+tests/unit/test_legacy_hold.py::test_while_every_session_is_held_any_session_opened_is_held
+tests/unit/test_legacy_hold.py::test_one_turn_job_whose_conversation_cannot_be_checked_never_ends_the_pass
+tests/unit/test_legacy_hold.py::test_a_message_the_hold_withheld_can_still_be_withdrawn[message.cancel]
+tests/unit/test_legacy_hold.py::test_a_message_the_hold_withheld_can_still_be_withdrawn[turn.interrupt]
+tests/unit/test_legacy_hold.py::test_a_person_s_stop_before_the_message_was_handed_over_is_never_overridden[False]
+tests/unit/test_legacy_hold.py::test_a_person_s_stop_before_the_message_was_handed_over_is_never_overridden[True]
+tests/unit/test_legacy_hold.py::test_a_stop_acknowledged_before_the_provider_answered_initialize_keeps_the_message_unwritten
+tests/unit/test_legacy_hold.py::test_a_stop_that_comes_while_the_message_is_handed_over_waits_for_it
+tests/unit/test_legacy_hold.py::test_a_store_error_in_the_conversation_check_is_the_pass_s[store_error0]
+tests/unit/test_legacy_hold.py::test_a_store_error_in_the_conversation_check_is_the_pass_s[store_error1]
+tests/unit/test_legacy_hold.py::test_a_withdrawal_racing_the_dispatcher_leaves_no_turn_to_run
+tests/unit/test_legacy_hold.py::test_admission_cancels_a_turn_job_whose_message_is_settled
+tests/unit/test_legacy_hold.py::test_a_turn_manifest_that_cannot_be_read_holds_that_job_alone[None]
+tests/unit/test_legacy_hold.py::test_a_turn_manifest_that_cannot_be_read_holds_that_job_alone[[1, 2]
+tests/unit/test_legacy_hold.py::test_a_turn_manifest_that_cannot_be_read_holds_that_job_alone[{"turn": [1, 2]}]
+tests/unit/test_legacy_hold.py::test_a_turn_manifest_that_cannot_be_read_holds_that_job_alone[{"turn": "a string"}]
+tests/unit/test_legacy_hold.py::test_a_turn_manifest_that_cannot_be_read_holds_that_job_alone[7]
+tests/unit/test_legacy_hold.py::test_a_turn_manifest_that_cannot_be_read_holds_that_job_alone[{"turn": {}}]
+tests/unit/test_legacy_hold.py::test_a_turn_manifest_that_cannot_be_read_holds_that_job_alone[{"turn": {"conversation_id": [1], "message_id": "m", "provider": "claude"}}]
+tests/unit/test_legacy_hold.py::test_a_failed_check_with_an_unreadable_manifest_still_holds_that_job_alone
+tests/unit/test_legacy_hold.py::test_a_runner_the_store_refuses_to_mark_is_still_started
+tests/unit/test_legacy_hold.py::test_a_cancel_racing_admission_records_the_stop_first
+tests/unit/test_legacy_hold.py::test_a_refused_cancel_leaves_no_stop_behind
+tests/unit/test_legacy_hold.py::test_a_relay_slow_to_take_one_message_holds_up_no_other_message_s_stop
+tests/unit/test_legacy_hold.py::test_a_refused_cancel_never_stops_the_turn_it_lost_to
+tests/unit/test_legacy_hold.py::test_a_cancel_that_wins_keeps_a_runner_admitted_meanwhile_from_writing
+tests/unit/test_legacy_hold.py::test_a_stop_is_never_lost_to_a_withdrawal_that_loses_its_race
+tests/unit/test_importer.py::test_states_map_from_rc
+tests/unit/test_importer.py::test_the_daemon_never_adopts_an_external_run
+tests/unit/test_importer.py::test_terminal_messages_become_history_of_one_legacy_conversation
+tests/unit/test_importer.py::test_each_message_is_classified_by_itself
+tests/unit/test_importer.py::test_a_repeated_import_creates_nothing_new
+tests/unit/test_importer.py::test_a_message_without_a_transcript_lands_when_the_transcript_appears
+tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[not json]
+tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[not an object]
+tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[keyed by something else]
+tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[a request naming no session]
+tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[a directory]
+tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[image paths that are no list]
+tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[a message id that is no string]
+tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[an entry with no request]
+tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[a request that names no session]
+tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[a lone surrogate]
+tests/unit/test_importer.py::test_a_row_with_malformed_payload_metadata_is_reported_and_the_pass_goes_on[image_paths-1-the payload's image_paths is not a list]
+tests/unit/test_importer.py::test_a_row_with_malformed_payload_metadata_is_reported_and_the_pass_goes_on[image_paths-value1-the payload's image_paths is not a list]
+tests/unit/test_importer.py::test_a_row_with_malformed_payload_metadata_is_reported_and_the_pass_goes_on[service_tier-value2-the payload's service_tier is not a string]
+tests/unit/test_importer.py::test_a_row_with_malformed_payload_metadata_is_reported_and_the_pass_goes_on[prompt-he replied \ud800-the payload or receipt is not UTF-8 text]
+tests/unit/test_importer.py::test_an_outbox_that_cannot_be_read_holds_every_session[corrupt]
+tests/unit/test_importer.py::test_an_outbox_that_cannot_be_read_holds_every_session[no messages table]
+tests/unit/test_importer.py::test_an_outbox_that_cannot_be_read_holds_every_session[other columns]
+tests/unit/test_importer.py::test_a_missing_outbox_still_reads_the_journal_and_fences
+tests/unit/test_importer.py::test_a_running_cockpit_broker_holds_every_session
+tests/unit/test_importer.py::test_a_live_cockpit_worker_holds_its_session
+tests/unit/test_importer.py::test_an_unreadable_workers_file_holds_every_session
+tests/unit/test_importer.py::test_a_workers_file_naming_a_lone_surrogate_holds_every_session
+tests/unit/test_importer.py::test_a_live_claude_process_outside_subfleet_keeps_history_out_and_fences_nothing[False]
+tests/unit/test_importer.py::test_a_live_claude_process_outside_subfleet_keeps_history_out_and_fences_nothing[True]
+tests/unit/test_importer.py::test_one_session_has_one_spelling
+tests/unit/test_importer.py::test_the_fence_runs_before_any_history_is_placed
+tests/unit/test_importer.py::test_one_session_that_cannot_be_read_never_ends_the_pass
+tests/unit/test_importer.py::test_a_bound_session_the_legacy_writer_takes_up_again_waits_until_it_settles
+tests/unit/test_importer.py::test_a_legacy_hold_and_another_block_are_independent
+tests/unit/test_importer.py::test_an_unreadable_row_is_reported_and_the_pass_goes_on
+tests/unit/test_importer.py::test_image_snapshots_stay_in_v1_and_are_counted
+tests/unit/test_importer.py::test_a_legacy_id_the_store_holds_as_a_message_of_its_own_is_a_conflict
+tests/unit/test_importer.py::test_the_legacy_cockpit_runs_alone_and_its_dry_run_writes_nothing
+tests/unit/test_importer.py::test_the_legacy_import_holds_the_lock_for_its_whole_pass
+tests/unit/test_importer.py::test_a_v1_state_that_is_not_there_releases_nothing
+tests/unit/test_importer.py::test_a_retired_cockpit_lifts_every_hold
+tests/unit/test_importer.py::test_a_retirement_that_dies_midway_retires_nothing
+tests/unit/test_importer.py::test_swapped_roots_touch_neither_directory
+
+END MANIFEST /private/tmp/sf-rn-fix1/rn-fix1b-231339/rerun-remaining-wrapper.txt
+
+BEGIN SOURCE /private/tmp/sf-rn-fix1/rn-fix1b-231339/rn_job_safe.py (short-socket-root revision)
+
+from pathlib import Path
+import os
+import sys
+import tempfile
+
+scratch = Path('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-180648-rn-fix-r1b-a1-i27t3y5e/sf-rn-fix1')
+sys.path.insert(0, str(Path.cwd()))
+original_mkdtemp = tempfile.mkdtemp
+_required_temp = os.environ.get('TMPDIR', '').rstrip('/')
+
+def isolated_mkdtemp(suffix=None, prefix=None, dir=None):
+    if dir is None or str(dir).rstrip('/') == _required_temp:
+        dir = str(scratch)
+    if not Path(dir).resolve().is_relative_to(scratch):
+        prefix = (prefix or '') + 'sf-rn-fix1-'
+    result = original_mkdtemp(suffix=suffix, prefix=prefix, dir=dir)
+    if not Path(result).resolve().is_relative_to(scratch):
+        with (scratch / f'external-folders-{os.getpid()}.txt').open('a') as out:
+            out.write(result + '\n')
+    return result
+
+tempfile.mkdtemp = isolated_mkdtemp
+tempfile.tempdir = str(scratch)
+import tests.failed_keep
+tests.failed_keep.ROOT = scratch / 'failed'
+import pytest
+
+class JobIsolation:
+    @pytest.fixture(autouse=True)
+    def job_identity(self, request, monkeypatch):
+        if 'process_inspection_available' in request.fixturenames:
+            pytest.skip('job brief: no real process inspection')
+        if request.node.get_closest_marker('real_lsof') or request.node.get_closest_marker('real_cwd'):
+            pytest.skip('job brief: no live process listing')
+    @pytest.hookimpl(tryfirst=True)
+    def pytest_collection_modifyitems(self, items):
+        for item in items:
+            if 'process_inspection_available' in getattr(item, 'fixturenames', ()):
+                item.add_marker(pytest.mark.skip(reason='job brief: no real process inspection'))
+
+
+_isolation = JobIsolation()
+job_identity = _isolation.job_identity
+pytest_collection_modifyitems = _isolation.pytest_collection_modifyitems
+
+# Permanent baselines survive tests that explicitly undo their monkeypatch fixture.
+from subfleet import procs as _job_procs
+
+def _refuse_process_read(*args, **kwargs):
+    raise _job_procs.InspectionError('job brief: real process inspection refused')
+
+import subprocess as _job_subprocess
+_native_subprocess_run = _job_subprocess.run
+_native_boot_id = _job_procs.boot_id
+_native_proc_start = _job_procs.proc_start
+_native_read = _job_procs._read
+
+def _safe_subprocess_run(argv, *args, **kwargs):
+    words = argv if isinstance(argv, (tuple, list)) else ()
+    if words and Path(str(words[0])).name == 'xcrun':
+        child_env = dict(os.environ) if kwargs.get('env') is None else dict(kwargs['env'])
+        child_env['TMPDIR'] = str(scratch)
+        kwargs['env'] = child_env
+    return _native_subprocess_run(argv, *args, **kwargs)
+
+_job_subprocess.run = _safe_subprocess_run
+
+def _safe_reader(*args, **kwargs):
+    if _job_subprocess.run is not _safe_subprocess_run:
+        return _native_read(*args, **kwargs)
+    return _refuse_process_read(*args, **kwargs)
+
+def _safe_boot_id():
+    if _job_procs._read is not _safe_reader or _job_subprocess.run is not _safe_subprocess_run:
+        return _native_boot_id()
+    return 'synthetic-job-boot'
+
+def _safe_proc_start(pid):
+    if _job_procs._read is not _safe_reader or _job_subprocess.run is not _safe_subprocess_run:
+        return _native_proc_start(pid)
+    return 'synthetic-job-start' if pid > 0 else None
+
+_job_procs.boot_id = _safe_boot_id
+_job_procs.proc_start = _safe_proc_start
+_job_procs._read = _safe_reader
+_native_darwin_init = _job_procs.Darwin.__init__
+
+def _isolated_darwin_init(self):
+    _native_darwin_init(self)
+    for name in ('_sysctl', '_listpids', '_pidinfo', '_responsible'):
+        setattr(self, name, _refuse_process_read)
+
+_job_procs.Darwin.__init__ = _isolated_darwin_init
+_job_procs.kernel.responsibility = False
+for _name in ('_sysctl', '_listpids', '_pidinfo', '_responsible'):
+    setattr(_job_procs.kernel, _name, _refuse_process_read)
+
+def _job_audit(event, args):
+    if event in ('subprocess.Popen', 'os.posix_spawn', 'os.exec'):
+        executable = os.fsdecode(args[0])
+        name = Path(executable).name
+        if name in ('ps', 'lsof', 'sysctl', 'security', 'agent-secret', 'launchctl'):
+            raise PermissionError('job brief: process/credential reader refused before execution')
+        argv = args[1]
+        if isinstance(argv, (tuple, list)):
+            words = [os.fsdecode(part) for part in argv]
+            if name == 'git' and 'push' in words:
+                raise PermissionError('job brief: git push refused before execution')
+            if name == 'gh' and (any(part in words for part in ('POST', 'PATCH', 'DELETE'))
+                                 or words[1:3] in (['pr', 'merge'], ['run', 'rerun'])):
+                raise PermissionError('job brief: remote write refused before execution')
+    if event in ('open', 'os.listdir', 'os.scandir') and args:
+        path = args[0]
+        if isinstance(path, (str, bytes, os.PathLike)):
+            spelling = os.fsdecode(path)
+            forbidden = ('/Users/maxghenis/.claude', '/Users/maxghenis/.claude.json',
+                         '/Users/maxghenis/.codex', '/Users/maxghenis/chief-of-staff',
+                         '/Users/maxghenis/.subfleet')
+            workspace = '/Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b'
+            if any(spelling == root or spelling.startswith(root + '/') for root in forbidden):
+                if not (spelling == workspace or spelling.startswith(workspace + '/')):
+                    raise PermissionError('job brief: personal/live-state path refused before read')
+
+sys.addaudithook(_job_audit)
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_fixture_setup(fixturedef, request):
+    if fixturedef.argname == 'process_inspection_available':
+        pytest.skip('job brief: no real process inspection')
+    if fixturedef.argname == 'real_identity' and fixturedef.func.__module__.split('.')[-1] == 'test_importer':
+        result = False
+        fixturedef.cached_result = (result, fixturedef.cache_key(request), None)
+        return result
+
+END SOURCE /private/tmp/sf-rn-fix1/rn-fix1b-231339/rn_job_safe.py
+
+
+18. Final wrapper correction and four-case confirmation
+=======================================================
+
+The short-root wrapper's cleanup marker is now appended to the caller's original prefix: prefix=(prefix or '')+'sf-rn-fix1-'. Thus sf-steer- fixture names retain their expected leading spelling while every external folder still carries sf-rn-fix1 for guarded cleanup. The importer real_identity fixture is identified by fixturedef.func.__module__.split('.')[-1]=='test_importer', covering both pytest's top-level test_importer and package-qualified import spelling. A dynamically requested process_inspection_available fixture is skipped by pytest_fixture_setup even when absent from the original collection-time fixture closure. These are scratch harness corrections only; production code was not altered for these failures.
+
+Exact command, using the common environment from section 16:
+uv run --no-sync --with 'pytest-xdist>=3.6' python -u /private/tmp/sf-rn-fix1/rn-fix1b-231339/run_tests.py -p rn_job_safe -v -n 0 --timeout=1200 --tb=short -ra --basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-180648-rn-fix-r1b-a1-i27t3y5e/sf-rn-fix1/pytest-wrapper-final --junitxml=/private/tmp/sf-rn-fix1/rn-fix1b-231339/wrapper-final.xml @/private/tmp/sf-rn-fix1/rn-fix1b-231339/rerun-wrapper-final.txt > /private/tmp/sf-rn-fix1/rn-fix1b-231339/wrapper-final.log 2>&1
+  RESULT: completed; 3 passed, 1 skipped in 0.75 s (4 collected). Both importer state/recovery cases and the frontend teardown naming control pass. The marker-held live-process importer case is explicitly skipped when it dynamically requests real process inspection; it is not credited as passing coverage. The prior section 17 failures remain preserved as historical harness evidence.
+
+BEGIN MANIFEST /private/tmp/sf-rn-fix1/rn-fix1b-231339/rerun-wrapper-final.txt
+
+tests/unit/test_importer.py::test_states_map_from_rc
+tests/unit/test_importer.py::test_the_daemon_never_adopts_an_external_run
+tests/unit/test_importer.py::test_a_live_claude_process_outside_subfleet_keeps_history_out_and_fences_nothing[True]
+tests/frontend/test_core_steer.py::test_the_steer_fixtures_leave_no_root_after_teardown
+
+END MANIFEST /private/tmp/sf-rn-fix1/rn-fix1b-231339/rerun-wrapper-final.txt
+
+BEGIN SOURCE /private/tmp/sf-rn-fix1/rn-fix1b-231339/rn_job_safe.py (four-case wrapper-final revision)
+
+from pathlib import Path
+import os
+import sys
+import tempfile
+
+scratch = Path('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-180648-rn-fix-r1b-a1-i27t3y5e/sf-rn-fix1')
+sys.path.insert(0, str(Path.cwd()))
+original_mkdtemp = tempfile.mkdtemp
+_required_temp = os.environ.get('TMPDIR', '').rstrip('/')
+
+def isolated_mkdtemp(suffix=None, prefix=None, dir=None):
+    if dir is None or str(dir).rstrip('/') == _required_temp:
+        dir = str(scratch)
+    if not Path(dir).resolve().is_relative_to(scratch):
+        prefix = (prefix or '') + 'sf-rn-fix1-'
+    result = original_mkdtemp(suffix=suffix, prefix=prefix, dir=dir)
+    if not Path(result).resolve().is_relative_to(scratch):
+        with (scratch / f'external-folders-{os.getpid()}.txt').open('a') as out:
+            out.write(result + '\n')
+    return result
+
+tempfile.mkdtemp = isolated_mkdtemp
+tempfile.tempdir = str(scratch)
+import tests.failed_keep
+tests.failed_keep.ROOT = scratch / 'failed'
+import pytest
+
+class JobIsolation:
+    @pytest.fixture(autouse=True)
+    def job_identity(self, request, monkeypatch):
+        if 'process_inspection_available' in request.fixturenames:
+            pytest.skip('job brief: no real process inspection')
+        if request.node.get_closest_marker('real_lsof') or request.node.get_closest_marker('real_cwd'):
+            pytest.skip('job brief: no live process listing')
+    @pytest.hookimpl(tryfirst=True)
+    def pytest_collection_modifyitems(self, items):
+        for item in items:
+            if 'process_inspection_available' in getattr(item, 'fixturenames', ()):
+                item.add_marker(pytest.mark.skip(reason='job brief: no real process inspection'))
+
+
+_isolation = JobIsolation()
+job_identity = _isolation.job_identity
+pytest_collection_modifyitems = _isolation.pytest_collection_modifyitems
+
+# Permanent baselines survive tests that explicitly undo their monkeypatch fixture.
+from subfleet import procs as _job_procs
+
+def _refuse_process_read(*args, **kwargs):
+    raise _job_procs.InspectionError('job brief: real process inspection refused')
+
+import subprocess as _job_subprocess
+_native_subprocess_run = _job_subprocess.run
+_native_boot_id = _job_procs.boot_id
+_native_proc_start = _job_procs.proc_start
+_native_read = _job_procs._read
+
+def _safe_subprocess_run(argv, *args, **kwargs):
+    words = argv if isinstance(argv, (tuple, list)) else ()
+    if words and Path(str(words[0])).name == 'xcrun':
+        child_env = dict(os.environ) if kwargs.get('env') is None else dict(kwargs['env'])
+        child_env['TMPDIR'] = str(scratch)
+        kwargs['env'] = child_env
+    return _native_subprocess_run(argv, *args, **kwargs)
+
+_job_subprocess.run = _safe_subprocess_run
+
+def _safe_reader(*args, **kwargs):
+    if _job_subprocess.run is not _safe_subprocess_run:
+        return _native_read(*args, **kwargs)
+    return _refuse_process_read(*args, **kwargs)
+
+def _safe_boot_id():
+    if _job_procs._read is not _safe_reader or _job_subprocess.run is not _safe_subprocess_run:
+        return _native_boot_id()
+    return 'synthetic-job-boot'
+
+def _safe_proc_start(pid):
+    if _job_procs._read is not _safe_reader or _job_subprocess.run is not _safe_subprocess_run:
+        return _native_proc_start(pid)
+    return 'synthetic-job-start' if pid > 0 else None
+
+_job_procs.boot_id = _safe_boot_id
+_job_procs.proc_start = _safe_proc_start
+_job_procs._read = _safe_reader
+_native_darwin_init = _job_procs.Darwin.__init__
+
+def _isolated_darwin_init(self):
+    _native_darwin_init(self)
+    for name in ('_sysctl', '_listpids', '_pidinfo', '_responsible'):
+        setattr(self, name, _refuse_process_read)
+
+_job_procs.Darwin.__init__ = _isolated_darwin_init
+_job_procs.kernel.responsibility = False
+for _name in ('_sysctl', '_listpids', '_pidinfo', '_responsible'):
+    setattr(_job_procs.kernel, _name, _refuse_process_read)
+
+def _job_audit(event, args):
+    if event in ('subprocess.Popen', 'os.posix_spawn', 'os.exec'):
+        executable = os.fsdecode(args[0])
+        name = Path(executable).name
+        if name in ('ps', 'lsof', 'sysctl', 'security', 'agent-secret', 'launchctl'):
+            raise PermissionError('job brief: process/credential reader refused before execution')
+        argv = args[1]
+        if isinstance(argv, (tuple, list)):
+            words = [os.fsdecode(part) for part in argv]
+            if name == 'git' and 'push' in words:
+                raise PermissionError('job brief: git push refused before execution')
+            if name == 'gh' and (any(part in words for part in ('POST', 'PATCH', 'DELETE'))
+                                 or words[1:3] in (['pr', 'merge'], ['run', 'rerun'])):
+                raise PermissionError('job brief: remote write refused before execution')
+    if event in ('open', 'os.listdir', 'os.scandir') and args:
+        path = args[0]
+        if isinstance(path, (str, bytes, os.PathLike)):
+            spelling = os.fsdecode(path)
+            forbidden = ('/Users/maxghenis/.claude', '/Users/maxghenis/.claude.json',
+                         '/Users/maxghenis/.codex', '/Users/maxghenis/chief-of-staff',
+                         '/Users/maxghenis/.subfleet')
+            workspace = '/Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b'
+            if any(spelling == root or spelling.startswith(root + '/') for root in forbidden):
+                if not (spelling == workspace or spelling.startswith(workspace + '/')):
+                    raise PermissionError('job brief: personal/live-state path refused before read')
+
+sys.addaudithook(_job_audit)
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_fixture_setup(fixturedef, request):
+    if fixturedef.argname == 'process_inspection_available':
+        pytest.skip('job brief: no real process inspection')
+    if fixturedef.argname == 'real_identity' and fixturedef.func.__module__.split('.')[-1] == 'test_importer':
+        result = False
+        fixturedef.cached_result = (result, fixturedef.cache_key(request), None)
+        return result
+
+END SOURCE /private/tmp/sf-rn-fix1/rn-fix1b-231339/rn_job_safe.py
+
+BEGIN SOURCE /private/tmp/sf-rn-fix1/rn-fix1b-231339/rn_state_plugin.py (four-case wrapper-final revision)
+
+"""State-only admission checks need synthetic identity, not a host inspection prerequisite."""
+from rn_job_safe import *
+import pytest
+
+@pytest.fixture(autouse=True)
+def job_identity(request, monkeypatch):
+    if request.node.get_closest_marker('real_lsof') or request.node.get_closest_marker('real_cwd'):
+        pytest.skip('job brief: no live process listing')
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection_modifyitems(items):
+    pass
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_fixture_setup(fixturedef, request):
+    if fixturedef.argname == 'process_inspection_available':
+        result = True
+        fixturedef.cached_result = (result, fixturedef.cache_key(request), None)
+        return result
+
+END SOURCE /private/tmp/sf-rn-fix1/rn-fix1b-231339/rn_state_plugin.py
+
+
+19. Original group 2 interruption and corrected observed-case rerun
+==================================================================
+
+The root intentionally interrupted its original importer supervisor with the tool call write_stdin(session_id=97925, chars=U+0003). The supervisor exited 130 with KeyboardInterrupt at run_importers.py:28. Its finally block terminated/waited/killed only its own surviving test children and reaped all four original group children. Groups 0, 1 and 3 had completed; original group 2 was blocked in guardian linger while processing review-launch cases. There is no original group-2 completed-run summary or final XML to credit.
+
+Read-only parsing of importer-final-2.log with re.findall(r' (PASSED|FAILED|ERROR|SKIPPED|XFAIL) \[', source) counted printed item-status observations: 1428 PASSED, 32 FAILED, 27 XFAIL, 13 SKIPPED, 22 ERROR. These 1522 printed statuses are partial observations, not a completed summary or a passing denominator. The last printed item was test_review_publish_env_round8::test_each_review_launch_keeps_its_pins_through_selection_and_the_guardian[claude-workspace-write-detached], without a terminal status. Earlier root progress statements named the immediately preceding claude-read-only-resume case; the recorded log tail is the more precise last-item observation.
+
+Exact corrected observed-case rerun command, using the section 16 environment:
+uv run --no-sync --with 'pytest-xdist>=3.6' python -u /private/tmp/sf-rn-fix1/rn-fix1b-231339/run_tests.py -p rn_job_safe -v -n 0 --timeout=1200 --tb=short -ra --basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-180648-rn-fix-r1b-a1-i27t3y5e/sf-rn-fix1/pytest-g2-observed --junitxml=/private/tmp/sf-rn-fix1/rn-fix1b-231339/g2-observed.xml @/private/tmp/sf-rn-fix1/rn-fix1b-231339/rerun-g2-observed.txt > /private/tmp/sf-rn-fix1/rn-fix1b-231339/g2-observed.log 2>&1
+  RESULT: completed; 131 passed in 67.93 s (0:01:07). The root selected all four tail files plus 26 previously failed nodes. This is passing coverage of that explicit corrected subset, not completion of all 1649 items originally collected in group 2.
+
+BEGIN MANIFEST /private/tmp/sf-rn-fix1/rn-fix1b-231339/rerun-g2-observed.txt
+
+tests/fake/test_admission_latency.py::test_c6_3_admission_never_exceeds_a_cap_or_double_books_across_commits
+tests/fake/test_admission_stateful.py::TestAdmissionPass::runTest
+tests/fake/test_admission_stateful.py::TestAdmissionPassProviderCaps::runTest
+tests/fake/test_canonical_identity.py::test_two_legacy_alias_holders_oldest_exports_and_releases
+tests/fake/test_probe_turn.py::test_no_sequence_of_probe_outcomes_lets_a_later_job_take_a_waiters_probe
+tests/fake/test_record_secrecy.py::test_no_reply_or_row_holds_what_a_turn_submit_failure_said
+tests/unit/test_census_recycled_pid.py::test_b_matching_roots_and_group_members_are_included
+tests/unit/test_census_recycled_pid.py::test_d_matching_identities_preserve_the_entire_census
+tests/unit/test_census_recycled_pid.py::test_e_recycled_root_never_becomes_a_new_kill_target
+tests/unit/test_census_recycled_pid.py::test_f_recorded_survivors_remain_after_roots_depart
+tests/unit/test_census_recycled_pid.py::test_absent_leader_preserves_survivors
+tests/unit/test_census_recycled_pid.py::test_uuid_against_timestamp_fallback_holds_root
+tests/unit/test_census_recycled_pid.py::test_cached_boot_mismatch_needs_fresh_confirmation
+tests/unit/test_daemon_inspection_load.py::test_boot_session_uuid_is_reused_and_boottime_never_is
+tests/unit/test_daemon_inspection_load.py::test_running_attempt_inspection_shares_one_table_and_never_dumps_environments
+tests/unit/test_daemon_inspection_load.py::test_a_guardian_recorded_with_a_legacy_boot_timestamp_is_inspected_from_the_shared_table
+tests/unit/test_daemon_inspection_load.py::test_a_pid_taken_by_a_new_group_member_is_recorded_afresh
+tests/unit/test_daemon_inspection_load.py::test_a_failing_inspection_is_retried_not_skipped
+tests/unit/test_daemon_inspection_load.py::test_a_retry_that_finds_another_read_running_keeps_its_backoff
+tests/unit/test_daemon_inspection_load.py::test_an_inspection_that_runs_to_its_end_ends_the_retry
+tests/unit/test_daemon_inspection_load.py::test_a_retry_that_cannot_inspect_keeps_its_backoff[table]
+tests/unit/test_daemon_inspection_load.py::test_a_retry_that_cannot_inspect_keeps_its_backoff[boot identity]
+tests/unit/test_daemon_inspection_load.py::test_a_retry_that_cannot_inspect_keeps_its_backoff[guardian]
+tests/unit/test_daemon_inspection_load.py::test_a_retry_that_cannot_inspect_keeps_its_backoff[recording table]
+tests/unit/test_daemon_inspection_load.py::test_retry_state_is_dropped_once_an_attempt_is_no_longer_live
+tests/unit/test_daemon_inspection_load.py::test_a_running_probe_is_inspected_on_the_same_budget
+tests/unit/test_review_publish_env_round8.py
+tests/unit/test_status_json.py
+tests/unit/test_store_readers.py
+tests/unit/test_timers_daemon.py
+
+END MANIFEST /private/tmp/sf-rn-fix1/rn-fix1b-231339/rerun-g2-observed.txt
+
+
+20. Cleanup planning snapshot; no deletion performed
+====================================================
+
+An exclusive-create Python inventory wrote /private/tmp/sf-rn-fix1/rn-fix1b-231339/cleanup-plan.json. It used git -c core.fsmonitor=false -c core.untrackedCache=false ls-files plus a workspace-only os.walk that did not follow directory symlinks or descend into .git, .venv, .pytest_cache, .hypothesis, build, .agents, .codex or .aws. It found 17 ignored workspace artifact roots with zero tracked descendants: .venv, .pytest_cache, .hypothesis, build and 13 __pycache__ roots. Each original absolute path and a proposed rename target under the workspace's .sf-rn-fix1-cleanup are in the JSON plan. No directory was renamed or deleted.
+
+Reading only external-folders-*.txt directly under the two explicit job scratch roots found 4 log files and 219 unique recorded external-folder paths. Every recorded path is absolute and contains sf-rn-fix1. The external originals were not probed or searched; their existence is intentionally unknown until cleanup. Their full original paths and source log filenames are in cleanup-plan.json. The shared /private/tmp/sf-rn-fix1 parent, its uv-cache and every artifact outside the two explicit job scratch roots are preserved.
+
+This is a planning snapshot while tests may still append allocations. Before deleting anything, the root must finish/reap all supervised test children, refresh both roots' external-folder logs, record the original paths, retain diagnostic evidence, and recheck that each workspace cleanup target has no tracked descendants. Workspace artifacts need a rename into the proposed quarantine before rmtree; every shutil.rmtree argument must assert that sf-rn-fix1 is in its path. Planning snapshot superseded by successful cleanup in section 20.
+
+19. Completed corrected reruns and final guard set
+=================================================
+Common rerun command prefix/environment is exactly section 16, with -p rn_job_safe,
+-v -n 0 --timeout=1200 --tb=short -ra, writable job-root pytest basetemp,
+and child-scratch JUnit XML/log. For NAME g2-observed, arguments:
+  --basetemp=<job-root>/pytest-g2-observed --junitxml=<child>/g2-observed.xml @<child>/rerun-g2-observed.txt
+  RESULT: 131 passed in 67.93 s, exit 0. Manifest below.
+For NAME timeout-rerun, original frozen rerun-timeouts.txt manifest:
+  RESULT: 17 passed in 287.25 s, exit 0.
+For NAME final-guards, arguments after common prefix:
+  --basetemp=<job-root>/pytest-final-guards --junitxml=<child>/final-guards.xml tests/fake/test_state_contract.py tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py tests/unit/test_handler_refusals.py
+  stdout/stderr: <child>/final-guards.log
+  RESULT: 435 passed in 36.67 s, exit 0. Started after every importer runner and rerun exited, and ran last.
+All supervised test sessions are completed and reaped. Initial supervisor 97925
+was stopped by tool write_stdin(chars=U+0003); exit 130. Its finally block
+terminates/waits for only its own children, including escalation after 20 s.
+No process-table inspection or outliving background job was used to stop it.
+
+Frozen g2-observed manifest (26 observed failing nodeids plus four entire final files):
+tests/fake/test_admission_latency.py::test_c6_3_admission_never_exceeds_a_cap_or_double_books_across_commits
+tests/fake/test_admission_stateful.py::TestAdmissionPass::runTest
+tests/fake/test_admission_stateful.py::TestAdmissionPassProviderCaps::runTest
+tests/fake/test_canonical_identity.py::test_two_legacy_alias_holders_oldest_exports_and_releases
+tests/fake/test_probe_turn.py::test_no_sequence_of_probe_outcomes_lets_a_later_job_take_a_waiters_probe
+tests/fake/test_record_secrecy.py::test_no_reply_or_row_holds_what_a_turn_submit_failure_said
+tests/unit/test_census_recycled_pid.py::test_b_matching_roots_and_group_members_are_included
+tests/unit/test_census_recycled_pid.py::test_d_matching_identities_preserve_the_entire_census
+tests/unit/test_census_recycled_pid.py::test_e_recycled_root_never_becomes_a_new_kill_target
+tests/unit/test_census_recycled_pid.py::test_f_recorded_survivors_remain_after_roots_depart
+tests/unit/test_census_recycled_pid.py::test_absent_leader_preserves_survivors
+tests/unit/test_census_recycled_pid.py::test_uuid_against_timestamp_fallback_holds_root
+tests/unit/test_census_recycled_pid.py::test_cached_boot_mismatch_needs_fresh_confirmation
+tests/unit/test_daemon_inspection_load.py::test_boot_session_uuid_is_reused_and_boottime_never_is
+tests/unit/test_daemon_inspection_load.py::test_running_attempt_inspection_shares_one_table_and_never_dumps_environments
+tests/unit/test_daemon_inspection_load.py::test_a_guardian_recorded_with_a_legacy_boot_timestamp_is_inspected_from_the_shared_table
+tests/unit/test_daemon_inspection_load.py::test_a_pid_taken_by_a_new_group_member_is_recorded_afresh
+tests/unit/test_daemon_inspection_load.py::test_a_failing_inspection_is_retried_not_skipped
+tests/unit/test_daemon_inspection_load.py::test_a_retry_that_finds_another_read_running_keeps_its_backoff
+tests/unit/test_daemon_inspection_load.py::test_an_inspection_that_runs_to_its_end_ends_the_retry
+tests/unit/test_daemon_inspection_load.py::test_a_retry_that_cannot_inspect_keeps_its_backoff[table]
+tests/unit/test_daemon_inspection_load.py::test_a_retry_that_cannot_inspect_keeps_its_backoff[boot identity]
+tests/unit/test_daemon_inspection_load.py::test_a_retry_that_cannot_inspect_keeps_its_backoff[guardian]
+tests/unit/test_daemon_inspection_load.py::test_a_retry_that_cannot_inspect_keeps_its_backoff[recording table]
+tests/unit/test_daemon_inspection_load.py::test_retry_state_is_dropped_once_an_attempt_is_no_longer_live
+tests/unit/test_daemon_inspection_load.py::test_a_running_probe_is_inspected_on_the_same_budget
+tests/unit/test_review_publish_env_round8.py
+tests/unit/test_status_json.py
+tests/unit/test_store_readers.py
+tests/unit/test_timers_daemon.py
+
+Native coverage left unverified:
+tests/fake/test_daemon_descriptors.py::test_connections_queue_while_the_accept_loop_pauses
+tests/fake/test_timers_end_to_end.py::test_keepalive_uses_real_guardian_when_process_inspection_allowed
+tests/unit/test_quar_start1_census.py::test_before_its_start_json_the_guardian_starts_nothing_that_carries_the_attempts_markers[False]
+tests/unit/test_quar_start1_census.py::test_before_its_start_json_the_guardian_starts_nothing_that_carries_the_attempts_markers[True]
+tests/unit/test_quar_start1_census.py::test_a_relay_that_starts_a_process_before_start_json_fails_the_premise
+
+Additionally nine native test_person_boundary_identity.py setup errors (all
+native audit-token/path cases named in the original group-2 log) were not rerun;
+13 other G2 frontend errors were covered by frontend-rerun-02. Those nine native
+probes inspect their disposable compiled apps' real pids. Ancestry alone is fake;
+replacing path/token lookups would remove the premise. Dynamic importer real
+inspection [True] was skipped in wrapper-final. These are coverage limitations,
+not passing results or evidence of an admission-cache regression.
+
+Additional read-only root inspection/progress command groups since section 15:
+clock__curr_time({}); write_stdin empty polls of supervised sessions;
+.venv/bin/python <child>/progress.py; sed source reads of procs.py, the new
+rollback test, tests/unit/test_importer.py, census boot seeds, frontend/swift.py,
+tests/conftest.py, person_boundary_identity.py and frontend client/harness;
+rg scoped to those files and <child>/*.log; cat <child>/run_tests.py,
+rn_state_plugin.py, report-draft.md, cleanup-plan.json and rerun manifests;
+head/tail scoped log/manifests; git -c core.fsmonitor=false diff --
+subfleet/daemon.py docs/acceptance-contract.md; rg -n PENDING <ledger>.
+All were read only and succeeded unless a no-match or nonexistent filename:
+tests/unit/test_daemon_descriptors.py, tests/fake/peers.py,
+subfleet/catalog.py, subfleet/v1/catalog.py and subfleet/legacy_hold.py
+were mistaken inspection paths (exit 2 or sed exit 1), corrected through
+in-worktree references; no writes or out-of-workspace search resulted.
+Python preparation commands changed only job-scratch wrappers/manifests,
+compiled the safe wrapper source for syntax, created the allowed job-root
+scratch, and appended the requested report. Their exact effective wrapper
+sources and pytest selections are preserved above. Results: exit 0.
+
+20. Cleanup paths recorded before deletion
+==========================================
+All test children exited before cleanup. Refreshed explicit allocation logs; no global temporary-folder search.
+WORKSPACE /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.hypothesis -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/00-hypothesis
+WORKSPACE /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.pytest_cache -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/01-pytest_cache
+WORKSPACE /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.venv -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/02-venv
+WORKSPACE /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/build -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/03-build
+WORKSPACE /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/subfleet/__pycache__ -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/04-subfleet--__pycache__
+WORKSPACE /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/subfleet/adapters/__pycache__ -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/05-subfleet--adapters--__pycache__
+WORKSPACE /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/subfleet/conversations/__pycache__ -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/06-subfleet--conversations--__pycache__
+WORKSPACE /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/subfleet/gate/__pycache__ -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/07-subfleet--gate--__pycache__
+WORKSPACE /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/subfleet/guard/__pycache__ -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/08-subfleet--guard--__pycache__
+WORKSPACE /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/subfleet/sessions/__pycache__ -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/09-subfleet--sessions--__pycache__
+WORKSPACE /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/__pycache__ -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/10-tests--__pycache__
+WORKSPACE /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/e2e/__pycache__ -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/11-tests--e2e--__pycache__
+WORKSPACE /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/fake/__pycache__ -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/12-tests--fake--__pycache__
+WORKSPACE /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/fixtures/__pycache__ -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/13-tests--fixtures--__pycache__
+WORKSPACE /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/frontend/__pycache__ -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/14-tests--frontend--__pycache__
+WORKSPACE /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/__pycache__ -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/15-tests--unit--__pycache__
+WORKSPACE /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tools/__pycache__ -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/16-tools--__pycache__
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-0ery809p
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-2psee_ve
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-2y4c3dfw
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-320ng6t0
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-3xwdznzh
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-4ewddc3m
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-4r_1bio4
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-5bagujgj
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-5gs_9o7v
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-65ek68ea
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-6ize4syh
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-6pb2yuj2
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-73rpipla
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-8uc7yrg2
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-b8js1ud1
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-by4q1ttr
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-ceo3usk2
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-cye8iiw9
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-d2mbiqld
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-d8xa85v0
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-e4en306s
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-frrmo_28
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-gsa1hixs
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-i9kn1nnz
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-ii2s5t__
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-ikkvn0ry
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-jp0c7y0v
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-k4dqyjkq
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-kll11epq
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-l9sh7v7_
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-lnatcdla
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-lnzgukvz
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-m5k0of4g
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-mg007uuh
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-mou7_bqw
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-mu7eemek
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-ndx2h9pl
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-ng1alpcx
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-ofo11w9f
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-onct9b2g
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-oshnw3m5
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-otphx0q6
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-ov8le2cj
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-pye8l1iv
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-pyny9i03
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-q2cixaey
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-qevbq_fr
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-r9h_ple2
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-t5y7mues
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-tp2j75xh
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-ttt0fhcq
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-ue9ok3wp
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-uo7rqrlx
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-us0c3fl0
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-waifh85m
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-xag_3ptq
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-z5ivrdpz
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-zj0v00rn
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-zte0npkp
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-0uvu0b5f
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-16886mzy
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-1pqquw9t
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-1px5p0sf
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-2fe0vj1k
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-3f70b62_
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-3g7tm77p
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-4bsj3rfg
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-4of1xwh6
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-4x0k2fqh
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-5fbhlvhy
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-6zby4zkn
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-83gnu4j4
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-8zf3o28o
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-936m0mnc
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-a3ck91i9
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-barb4bcg
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-blfgy86e
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-c_h_dzlv
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-cin57dbv
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-ehq_1dsh
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-fvdwj0iz
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-h4_p6iof
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-hlhrir0b
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-i89iex3e
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-i8e_1vg_
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-ibme0hlb
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-j21d6gcd
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-jprzjs1_
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-kzz_cbfn
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-lvpxn7il
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-n70q75np
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-nw9xeyl4
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-ohu85c0j
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-ooh7dxx0
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-oykt1e8o
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-pma1_qrp
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-qtb2dyd8
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-qvus7m4n
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-rdxi9__b
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-rxp0wvio
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-slpjjl4l
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-sxenh6s5
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-t4u54luh
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-tdlk_2p5
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-tl9n7lor
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-ttkifgv_
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-u5ev1nlc
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-ul31xa8u
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-utyotqt3
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-vn7k3luw
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-w_43gmw9
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-why8koi0
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-x53eth9o
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-xlb6pp0_
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-yg6x4qkz
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-yme7i86n
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-yxrziozt
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-z4b2npu6
+EXTERNAL /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-z9gto_sg
+EXTERNAL /tmp/sf-app-sf-rn-fix1-bv8dvtf0
+EXTERNAL /tmp/sf-app-sf-rn-fix1-jreurg87
+EXTERNAL /tmp/sf-rn-fix1-sf-app-1hc8sw74
+EXTERNAL /tmp/sf-rn-fix1-sf-app-1i5qllri
+EXTERNAL /tmp/sf-rn-fix1-sf-app-1zrzg9ci
+EXTERNAL /tmp/sf-rn-fix1-sf-app-2socisc8
+EXTERNAL /tmp/sf-rn-fix1-sf-app-3877e80w
+EXTERNAL /tmp/sf-rn-fix1-sf-app-4ugl7xu5
+EXTERNAL /tmp/sf-rn-fix1-sf-app-5chs9kdw
+EXTERNAL /tmp/sf-rn-fix1-sf-app-6_s9vwxc
+EXTERNAL /tmp/sf-rn-fix1-sf-app-7cof3pky
+EXTERNAL /tmp/sf-rn-fix1-sf-app-8zxpp8fi
+EXTERNAL /tmp/sf-rn-fix1-sf-app-9yeqc66_
+EXTERNAL /tmp/sf-rn-fix1-sf-app-a6jter8v
+EXTERNAL /tmp/sf-rn-fix1-sf-app-atj2e65o
+EXTERNAL /tmp/sf-rn-fix1-sf-app-c5t7c_pe
+EXTERNAL /tmp/sf-rn-fix1-sf-app-dwpzvkw9
+EXTERNAL /tmp/sf-rn-fix1-sf-app-e0l1o6e6
+EXTERNAL /tmp/sf-rn-fix1-sf-app-fnc1_waw
+EXTERNAL /tmp/sf-rn-fix1-sf-app-fxtb70zt
+EXTERNAL /tmp/sf-rn-fix1-sf-app-i_gbh580
+EXTERNAL /tmp/sf-rn-fix1-sf-app-j8opscag
+EXTERNAL /tmp/sf-rn-fix1-sf-app-js9oy3fz
+EXTERNAL /tmp/sf-rn-fix1-sf-app-jslss7kj
+EXTERNAL /tmp/sf-rn-fix1-sf-app-jti5rmdz
+EXTERNAL /tmp/sf-rn-fix1-sf-app-ol5xb3h6
+EXTERNAL /tmp/sf-rn-fix1-sf-app-q2xqi959
+EXTERNAL /tmp/sf-rn-fix1-sf-app-q97zu5cs
+EXTERNAL /tmp/sf-rn-fix1-sf-app-rkbu5tff
+EXTERNAL /tmp/sf-rn-fix1-sf-app-t0qedb2z
+EXTERNAL /tmp/sf-rn-fix1-sf-app-t911e6qj
+EXTERNAL /tmp/sf-rn-fix1-sf-app-wejg3osv
+EXTERNAL /tmp/sf-rn-fix1-sf-cl-21stw16u
+EXTERNAL /tmp/sf-rn-fix1-sf-cl-710o0lqd
+EXTERNAL /tmp/sf-rn-fix1-sf-cl-d_ehudpc
+EXTERNAL /tmp/sf-rn-fix1-sf-cl-fjj3bnla
+EXTERNAL /tmp/sf-rn-fix1-sf-cl-qezs2_tk
+EXTERNAL /tmp/sf-rn-fix1-sf-h-bjce1hp5
+EXTERNAL /tmp/sf-rn-fix1-sf-ob-2k_ok9g4
+EXTERNAL /tmp/sf-rn-fix1-sf-ob-2wqll9jv
+EXTERNAL /tmp/sf-rn-fix1-sf-ob-6fxew3en
+EXTERNAL /tmp/sf-rn-fix1-sf-ob-8kxp87pn
+EXTERNAL /tmp/sf-rn-fix1-sf-ob-e23esb_v
+EXTERNAL /tmp/sf-rn-fix1-sf-ob-fgljbvns
+EXTERNAL /tmp/sf-rn-fix1-sf-ob-i7adv9j5
+EXTERNAL /tmp/sf-rn-fix1-sf-ob-iyln2cou
+EXTERNAL /tmp/sf-rn-fix1-sf-ob-j4wbua2t
+EXTERNAL /tmp/sf-rn-fix1-sf-ob-jck0qa4f
+EXTERNAL /tmp/sf-rn-fix1-sf-ob-wg_mlvqa
+EXTERNAL /tmp/sf-rn-fix1-sf-ob-zq6w9mii
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-24ua7qzr
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-2jluad9a
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-3ga_u5yf
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-7w1m4rz_
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-d70y3gdx
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-d993ys95
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-d_xc876i
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-gfs3gcvs
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-he_b6_0u
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-ib0aj22d
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-k9vtave5
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-ki_5_8sa
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-l3lscq59
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-ob-2_ftwwew
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-ob-2bmgrtlc
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-ob-4bcmbgo4
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-ob-5oqnhpms
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-ob-6kwsukwu
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-ob-an1p_3gh
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-ob-fsvt1z44
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-ob-gbmtw1yx
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-ob-juxlcu0_
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-ob-k01xsnkb
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-ob-mjfqu11u
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-ob-q_p78w4z
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-ob-u3bkvk6e
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-ob-wea2vmjk
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-ob-wkfbg5d_
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-ob-wwoakh_v
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-ob-zw4_4qum
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-oiv5m4a0
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-oxwj3dvy
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-p8ji40r_
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-pual8sq2
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-q5lnaxjd
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-qaimdufs
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-qhtlvmic
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-t0ufek2s
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-w94quqi_
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-wut2etri
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-xjsfv7gj
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-xlo783dj
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-yj2jynf3
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-zja17ox3
+EXTERNAL /tmp/sf-rn-fix1-sf-steer-zxenkgi1
+EXTERNAL /tmp/sf-rn-fix1-sf-wl-fmc1m29s
+EXTERNAL /tmp/sf-steer-ob-sf-rn-fix1-dq7x3x17
+EXTERNAL /tmp/sf-steer-ob-sf-rn-fix1-x1czmu2m
+EXTERNAL /tmp/sf-steer-sf-rn-fix1-k9exahih
+EXTERNAL /tmp/sf-steer-sf-rn-fix1-ugidd_wu
+OWNED EARLY SCRATCH /private/tmp/sf-rn-fix1/pytest-before
+OWNED EARLY SCRATCH /private/tmp/sf-rn-fix1/pytest-before-02
+OWNED EARLY SCRATCH /private/tmp/sf-rn-fix1/pytest-after
+OWNED EARLY FILE /private/tmp/sf-rn-fix1/run_tests.py
+OWNED EARLY FILE /private/tmp/sf-rn-fix1/before.log
+OWNED EARLY FILE /private/tmp/sf-rn-fix1/before-02.log
+OWNED EARLY FILE /private/tmp/sf-rn-fix1/after.log
+OWNED EARLY FILE /private/tmp/sf-rn-fix1/rn-fix1b-daemon-import-tests.txt
+OWNED EARLY FILE /private/tmp/sf-rn-fix1/rn-fix1b-daemon-import-helpers.txt
+OWNED EARLY FILE /private/tmp/sf-rn-fix1/rn-fix1b-unsafe-tests.txt
+OWNED EARLY FILE /private/tmp/sf-rn-fix1/rn-fix1b-unsafe-reasons.txt
+OWNED EARLY FILE /private/tmp/sf-rn-fix1/daemon-import-tests.txt
+OWNED EARLY FILE /private/tmp/sf-rn-fix1/unsafe-tests.txt
+OWNED SCRATCH /private/tmp/sf-rn-fix1/rn-fix1b-231339
+OWNED SCRATCH /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-180648-rn-fix-r1b-a1-i27t3y5e/sf-rn-fix1
+Shared /private/tmp/sf-rn-fix1, its uv-cache, and unrelated pre-existing artifacts are preserved.
+Exact cleanup script (this is recorded before any rename/deletion):
+from pathlib import Path
+import json
+import os
+import shutil
+import subprocess
+
+workspace=Path('/Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b')
+child=Path('/private/tmp/sf-rn-fix1/rn-fix1b-231339')
+jobroot=Path('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-180648-rn-fix-r1b-a1-i27t3y5e/sf-rn-fix1')
+ledger=workspace/'docs/reports/2026-11-15-reserved-noise-fix1-validation.txt'
+plan=json.loads((child/'cleanup-plan.json').read_text())
+tracked=subprocess.run(['git','-c','core.fsmonitor=false','ls-files','-z'],cwd=workspace,check=True,capture_output=True,text=True).stdout.split('\0')
+quarantine=workspace/'.sf-rn-fix1-cleanup'
+assert not quarantine.exists()
+external=set()
+for root in (child,jobroot):
+ for log in root.glob('external-folders-*.txt'):
+  external.update(line for line in log.read_text().splitlines() if line)
+artifacts=[]
+for item in plan['workspace_artifacts']:
+ path=Path(item['original'])
+ rel=path.relative_to(workspace).as_posix()
+ assert not any(t==rel or t.startswith(rel+'/') for t in tracked)
+ assert path.is_relative_to(workspace)
+ artifacts.append((path,Path(item['proposed_quarantine'])))
+parent_owned=['pytest-before','pytest-before-02','pytest-after']
+parent_files=['run_tests.py','before.log','before-02.log','after.log','rn-fix1b-daemon-import-tests.txt','rn-fix1b-daemon-import-helpers.txt','rn-fix1b-unsafe-tests.txt','rn-fix1b-unsafe-reasons.txt','daemon-import-tests.txt','unsafe-tests.txt']
+with ledger.open('a') as out:
+ out.write('\n20. Cleanup paths recorded before deletion\n==========================================\n')
+ out.write('All test children exited before cleanup. Refreshed explicit allocation logs; no global temporary-folder search.\n')
+ for original,target in artifacts:
+  out.write(f'WORKSPACE {original} -> {target}\n')
+ for spelling in sorted(external):
+  out.write(f'EXTERNAL {spelling}\n')
+ for name in parent_owned:
+  out.write(f'OWNED EARLY SCRATCH /private/tmp/sf-rn-fix1/{name}\n')
+ for name in parent_files:
+  out.write(f'OWNED EARLY FILE /private/tmp/sf-rn-fix1/{name}\n')
+ out.write(f'OWNED SCRATCH {child}\nOWNED SCRATCH {jobroot}\n')
+ out.write('Shared /private/tmp/sf-rn-fix1, its uv-cache, and unrelated pre-existing artifacts are preserved.\n')
+ out.write('Exact cleanup script (this is recorded before any rename/deletion):\n')
+ out.write(Path(__file__).read_text())
+ out.write('\nCleanup results:\n')
+results=[]
+def guarded_rmtree(path):
+ assert 'sf-rn-fix1' in str(path), path
+ assert path != Path('/private/tmp/sf-rn-fix1')
+ assert path != Path('/private/tmp/sf-rn-fix1/uv-cache')
+ if path.is_symlink():
+  raise AssertionError(f'refuse directory symlink {path}')
+ try:
+  shutil.rmtree(path)
+  results.append(f'removed {path}')
+ except FileNotFoundError:
+  results.append(f'already absent {path}')
+for spelling in sorted(external):
+ path=Path(spelling)
+ assert 'sf-rn-fix1' in str(path)
+ resolved=path.resolve()
+ assert resolved.is_relative_to(workspace) or resolved.is_relative_to(Path('/private/tmp')) or resolved.is_relative_to(jobroot)
+ guarded_rmtree(path)
+quarantine.mkdir()
+for original,target in artifacts:
+ if original.exists():
+  assert not target.exists()
+  original.rename(target)
+  results.append(f'quarantined {original} -> {target}')
+guarded_rmtree(quarantine)
+for name in parent_owned:
+ guarded_rmtree(Path('/private/tmp/sf-rn-fix1')/name)
+for name in parent_files:
+ path=Path('/private/tmp/sf-rn-fix1')/name
+ assert 'sf-rn-fix1' in str(path)
+ try:
+  path.unlink()
+  results.append(f'removed file {path}')
+ except FileNotFoundError:
+  results.append(f'already absent file {path}')
+guarded_rmtree(jobroot)
+guarded_rmtree(child)
+with ledger.open('a') as out:
+ out.write('\n'.join(results)+'\n')
+ out.write(f'Cleanup completed: {len(external)} external folder paths checked; {len(artifacts)} workspace artifact roots quarantined; both owned scratch roots removed.\n')
+print(f'Cleanup completed: {len(external)} external paths, {len(artifacts)} workspace roots; owned scratch removed.')
+
+Cleanup results:
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-0ery809p
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-2psee_ve
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-2y4c3dfw
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-320ng6t0
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-3xwdznzh
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-4ewddc3m
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-4r_1bio4
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-5bagujgj
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-5gs_9o7v
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-65ek68ea
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-6ize4syh
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-6pb2yuj2
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-73rpipla
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-8uc7yrg2
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-b8js1ud1
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-by4q1ttr
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-ceo3usk2
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-cye8iiw9
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-d2mbiqld
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-d8xa85v0
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-e4en306s
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-frrmo_28
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-gsa1hixs
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-i9kn1nnz
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-ii2s5t__
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-ikkvn0ry
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-jp0c7y0v
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-k4dqyjkq
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-kll11epq
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-l9sh7v7_
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-lnatcdla
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-lnzgukvz
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-m5k0of4g
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-mg007uuh
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-mou7_bqw
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-mu7eemek
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-ndx2h9pl
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-ng1alpcx
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-ofo11w9f
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-onct9b2g
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-oshnw3m5
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-otphx0q6
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-ov8le2cj
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-pye8l1iv
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-pyny9i03
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-q2cixaey
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-qevbq_fr
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-r9h_ple2
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-t5y7mues
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-tp2j75xh
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-ttt0fhcq
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-ue9ok3wp
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-uo7rqrlx
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-us0c3fl0
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-waifh85m
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-xag_3ptq
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-z5ivrdpz
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-zj0v00rn
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/sf-rn-fix1-sfwork-zte0npkp
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-0uvu0b5f
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-16886mzy
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-1pqquw9t
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-1px5p0sf
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-2fe0vj1k
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-3f70b62_
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-3g7tm77p
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-4bsj3rfg
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-4of1xwh6
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-4x0k2fqh
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-5fbhlvhy
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-6zby4zkn
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-83gnu4j4
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-8zf3o28o
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-936m0mnc
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-a3ck91i9
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-barb4bcg
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-blfgy86e
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-c_h_dzlv
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-cin57dbv
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-ehq_1dsh
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-fvdwj0iz
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-h4_p6iof
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-hlhrir0b
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-i89iex3e
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-i8e_1vg_
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-ibme0hlb
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-j21d6gcd
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-jprzjs1_
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-kzz_cbfn
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-lvpxn7il
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-n70q75np
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-nw9xeyl4
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-ohu85c0j
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-ooh7dxx0
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-oykt1e8o
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-pma1_qrp
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-qtb2dyd8
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-qvus7m4n
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-rdxi9__b
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-rxp0wvio
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-slpjjl4l
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-sxenh6s5
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-t4u54luh
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-tdlk_2p5
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-tl9n7lor
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-ttkifgv_
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-u5ev1nlc
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-ul31xa8u
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-utyotqt3
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-vn7k3luw
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-w_43gmw9
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-why8koi0
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-x53eth9o
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-xlb6pp0_
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-yg6x4qkz
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-yme7i86n
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-yxrziozt
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-z4b2npu6
+already absent /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/sf-rn-fix1-readmits-z9gto_sg
+already absent /tmp/sf-app-sf-rn-fix1-bv8dvtf0
+already absent /tmp/sf-app-sf-rn-fix1-jreurg87
+already absent /tmp/sf-rn-fix1-sf-app-1hc8sw74
+already absent /tmp/sf-rn-fix1-sf-app-1i5qllri
+already absent /tmp/sf-rn-fix1-sf-app-1zrzg9ci
+already absent /tmp/sf-rn-fix1-sf-app-2socisc8
+already absent /tmp/sf-rn-fix1-sf-app-3877e80w
+already absent /tmp/sf-rn-fix1-sf-app-4ugl7xu5
+already absent /tmp/sf-rn-fix1-sf-app-5chs9kdw
+already absent /tmp/sf-rn-fix1-sf-app-6_s9vwxc
+already absent /tmp/sf-rn-fix1-sf-app-7cof3pky
+already absent /tmp/sf-rn-fix1-sf-app-8zxpp8fi
+already absent /tmp/sf-rn-fix1-sf-app-9yeqc66_
+already absent /tmp/sf-rn-fix1-sf-app-a6jter8v
+already absent /tmp/sf-rn-fix1-sf-app-atj2e65o
+already absent /tmp/sf-rn-fix1-sf-app-c5t7c_pe
+already absent /tmp/sf-rn-fix1-sf-app-dwpzvkw9
+already absent /tmp/sf-rn-fix1-sf-app-e0l1o6e6
+already absent /tmp/sf-rn-fix1-sf-app-fnc1_waw
+already absent /tmp/sf-rn-fix1-sf-app-fxtb70zt
+already absent /tmp/sf-rn-fix1-sf-app-i_gbh580
+already absent /tmp/sf-rn-fix1-sf-app-j8opscag
+already absent /tmp/sf-rn-fix1-sf-app-js9oy3fz
+already absent /tmp/sf-rn-fix1-sf-app-jslss7kj
+already absent /tmp/sf-rn-fix1-sf-app-jti5rmdz
+already absent /tmp/sf-rn-fix1-sf-app-ol5xb3h6
+already absent /tmp/sf-rn-fix1-sf-app-q2xqi959
+already absent /tmp/sf-rn-fix1-sf-app-q97zu5cs
+already absent /tmp/sf-rn-fix1-sf-app-rkbu5tff
+already absent /tmp/sf-rn-fix1-sf-app-t0qedb2z
+already absent /tmp/sf-rn-fix1-sf-app-t911e6qj
+already absent /tmp/sf-rn-fix1-sf-app-wejg3osv
+already absent /tmp/sf-rn-fix1-sf-cl-21stw16u
+already absent /tmp/sf-rn-fix1-sf-cl-710o0lqd
+already absent /tmp/sf-rn-fix1-sf-cl-d_ehudpc
+already absent /tmp/sf-rn-fix1-sf-cl-fjj3bnla
+already absent /tmp/sf-rn-fix1-sf-cl-qezs2_tk
+already absent /tmp/sf-rn-fix1-sf-h-bjce1hp5
+removed /tmp/sf-rn-fix1-sf-ob-2k_ok9g4
+removed /tmp/sf-rn-fix1-sf-ob-2wqll9jv
+removed /tmp/sf-rn-fix1-sf-ob-6fxew3en
+removed /tmp/sf-rn-fix1-sf-ob-8kxp87pn
+removed /tmp/sf-rn-fix1-sf-ob-e23esb_v
+removed /tmp/sf-rn-fix1-sf-ob-fgljbvns
+removed /tmp/sf-rn-fix1-sf-ob-i7adv9j5
+removed /tmp/sf-rn-fix1-sf-ob-iyln2cou
+removed /tmp/sf-rn-fix1-sf-ob-j4wbua2t
+removed /tmp/sf-rn-fix1-sf-ob-jck0qa4f
+removed /tmp/sf-rn-fix1-sf-ob-wg_mlvqa
+removed /tmp/sf-rn-fix1-sf-ob-zq6w9mii
+already absent /tmp/sf-rn-fix1-sf-steer-24ua7qzr
+already absent /tmp/sf-rn-fix1-sf-steer-2jluad9a
+already absent /tmp/sf-rn-fix1-sf-steer-3ga_u5yf
+already absent /tmp/sf-rn-fix1-sf-steer-7w1m4rz_
+already absent /tmp/sf-rn-fix1-sf-steer-d70y3gdx
+already absent /tmp/sf-rn-fix1-sf-steer-d993ys95
+already absent /tmp/sf-rn-fix1-sf-steer-d_xc876i
+already absent /tmp/sf-rn-fix1-sf-steer-gfs3gcvs
+already absent /tmp/sf-rn-fix1-sf-steer-he_b6_0u
+already absent /tmp/sf-rn-fix1-sf-steer-ib0aj22d
+already absent /tmp/sf-rn-fix1-sf-steer-k9vtave5
+already absent /tmp/sf-rn-fix1-sf-steer-ki_5_8sa
+already absent /tmp/sf-rn-fix1-sf-steer-l3lscq59
+already absent /tmp/sf-rn-fix1-sf-steer-ob-2_ftwwew
+already absent /tmp/sf-rn-fix1-sf-steer-ob-2bmgrtlc
+already absent /tmp/sf-rn-fix1-sf-steer-ob-4bcmbgo4
+already absent /tmp/sf-rn-fix1-sf-steer-ob-5oqnhpms
+already absent /tmp/sf-rn-fix1-sf-steer-ob-6kwsukwu
+already absent /tmp/sf-rn-fix1-sf-steer-ob-an1p_3gh
+already absent /tmp/sf-rn-fix1-sf-steer-ob-fsvt1z44
+already absent /tmp/sf-rn-fix1-sf-steer-ob-gbmtw1yx
+already absent /tmp/sf-rn-fix1-sf-steer-ob-juxlcu0_
+already absent /tmp/sf-rn-fix1-sf-steer-ob-k01xsnkb
+already absent /tmp/sf-rn-fix1-sf-steer-ob-mjfqu11u
+already absent /tmp/sf-rn-fix1-sf-steer-ob-q_p78w4z
+already absent /tmp/sf-rn-fix1-sf-steer-ob-u3bkvk6e
+already absent /tmp/sf-rn-fix1-sf-steer-ob-wea2vmjk
+already absent /tmp/sf-rn-fix1-sf-steer-ob-wkfbg5d_
+already absent /tmp/sf-rn-fix1-sf-steer-ob-wwoakh_v
+already absent /tmp/sf-rn-fix1-sf-steer-ob-zw4_4qum
+already absent /tmp/sf-rn-fix1-sf-steer-oiv5m4a0
+already absent /tmp/sf-rn-fix1-sf-steer-oxwj3dvy
+already absent /tmp/sf-rn-fix1-sf-steer-p8ji40r_
+already absent /tmp/sf-rn-fix1-sf-steer-pual8sq2
+already absent /tmp/sf-rn-fix1-sf-steer-q5lnaxjd
+already absent /tmp/sf-rn-fix1-sf-steer-qaimdufs
+already absent /tmp/sf-rn-fix1-sf-steer-qhtlvmic
+already absent /tmp/sf-rn-fix1-sf-steer-t0ufek2s
+already absent /tmp/sf-rn-fix1-sf-steer-w94quqi_
+already absent /tmp/sf-rn-fix1-sf-steer-wut2etri
+already absent /tmp/sf-rn-fix1-sf-steer-xjsfv7gj
+already absent /tmp/sf-rn-fix1-sf-steer-xlo783dj
+already absent /tmp/sf-rn-fix1-sf-steer-yj2jynf3
+already absent /tmp/sf-rn-fix1-sf-steer-zja17ox3
+already absent /tmp/sf-rn-fix1-sf-steer-zxenkgi1
+removed /tmp/sf-rn-fix1-sf-wl-fmc1m29s
+already absent /tmp/sf-steer-ob-sf-rn-fix1-dq7x3x17
+already absent /tmp/sf-steer-ob-sf-rn-fix1-x1czmu2m
+already absent /tmp/sf-steer-sf-rn-fix1-k9exahih
+already absent /tmp/sf-steer-sf-rn-fix1-ugidd_wu
+quarantined /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.hypothesis -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/00-hypothesis
+quarantined /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.pytest_cache -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/01-pytest_cache
+quarantined /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.venv -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/02-venv
+quarantined /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/build -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/03-build
+quarantined /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/subfleet/__pycache__ -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/04-subfleet--__pycache__
+quarantined /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/subfleet/adapters/__pycache__ -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/05-subfleet--adapters--__pycache__
+quarantined /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/subfleet/conversations/__pycache__ -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/06-subfleet--conversations--__pycache__
+quarantined /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/subfleet/gate/__pycache__ -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/07-subfleet--gate--__pycache__
+quarantined /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/subfleet/guard/__pycache__ -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/08-subfleet--guard--__pycache__
+quarantined /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/subfleet/sessions/__pycache__ -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/09-subfleet--sessions--__pycache__
+quarantined /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/__pycache__ -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/10-tests--__pycache__
+quarantined /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/e2e/__pycache__ -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/11-tests--e2e--__pycache__
+quarantined /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/fake/__pycache__ -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/12-tests--fake--__pycache__
+quarantined /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/fixtures/__pycache__ -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/13-tests--fixtures--__pycache__
+quarantined /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/frontend/__pycache__ -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/14-tests--frontend--__pycache__
+quarantined /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tests/unit/__pycache__ -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/15-tests--unit--__pycache__
+quarantined /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/tools/__pycache__ -> /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup/16-tools--__pycache__
+removed /Users/maxghenis/.subfleet/worktrees/20261115-180648-rn-fix-r1b/.sf-rn-fix1-cleanup
+removed /private/tmp/sf-rn-fix1/pytest-before
+removed /private/tmp/sf-rn-fix1/pytest-before-02
+removed /private/tmp/sf-rn-fix1/pytest-after
+removed file /private/tmp/sf-rn-fix1/run_tests.py
+removed file /private/tmp/sf-rn-fix1/before.log
+removed file /private/tmp/sf-rn-fix1/before-02.log
+removed file /private/tmp/sf-rn-fix1/after.log
+removed file /private/tmp/sf-rn-fix1/rn-fix1b-daemon-import-tests.txt
+removed file /private/tmp/sf-rn-fix1/rn-fix1b-daemon-import-helpers.txt
+removed file /private/tmp/sf-rn-fix1/rn-fix1b-unsafe-tests.txt
+removed file /private/tmp/sf-rn-fix1/rn-fix1b-unsafe-reasons.txt
+removed file /private/tmp/sf-rn-fix1/daemon-import-tests.txt
+removed file /private/tmp/sf-rn-fix1/unsafe-tests.txt
+removed /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-180648-rn-fix-r1b-a1-i27t3y5e/sf-rn-fix1
+removed /private/tmp/sf-rn-fix1/rn-fix1b-231339
+Cleanup completed: 219 external folder paths checked; 17 workspace artifact roots quarantined; both owned scratch roots removed.
+
+21. Final checks, cleanup command result and commit attempt
+=========================================================
+.venv/bin/python <child>/cleanup_job.py
+  RESULT: exit 0; 219 logged external paths checked, 17 workspace roots
+  quarantined and deleted, both owned scratch roots and explicitly named early
+  scratch files/directories removed. Exact script and targets precede actions
+  in section 20. Existing shared /private/tmp/sf-rn-fix1 and uv-cache preserved.
+/usr/bin/python3 -c 'print("System Python available for final report metadata")'
+  RESULT: exit 0; system Python used after deleting the local .venv.
+/usr/bin/python3 - <<'PY' (final report/ledger metadata updates)
+  RESULT: exit 0; only these requested reports changed.
+/usr/bin/python3 - <<'PY' (post-cleanup exists checks of known paths only)
+  RESULT: quarantine, local .venv, build, and both owned scratch roots absent.
+No process table or other temporary folder was searched.
+git -c core.fsmonitor=false diff --check
+  RESULT: exit 0 before cleanup; final repetition follows metadata.
+git -c core.fsmonitor=false -c core.untrackedCache=false status --short --untracked-files=all
+  RESULT: exactly five named changed files: daemon.py, acceptance contract,
+  original PR report, new validation ledger and new rollback regression file.
+Final stage/commit command and result follow below.
+
+git -c core.fsmonitor=false add -- subfleet/daemon.py tests/fake/test_capacity_wait_rollback.py docs/acceptance-contract.md docs/reports/2026-11-13-reserved-noise.md docs/reports/2026-11-15-reserved-noise-fix1-validation.txt
+  RESULT: exit 128, denied creation of the external worktree index.lock.
+git -c core.fsmonitor=false commit -m 'fix: restore admission verdict history after rollback'
+  RESULT: exit 128, same index.lock denial. No index/history update occurred.
+The intended test step, fix step, and final report step could not be committed;
+the hub must collect the five named files from this assigned workspace.
+The final diff --check repetition after report metadata returned exit 0.
+Post-attempt report edit records this actual denial; no production/test code changed.
+
+Final read-only verification: git -c core.fsmonitor=false rev-parse HEAD returned f3e773a72a7b409b042bd8ebdae5dbecf41d6677 (exit 0); status again listed exactly the five named changed files (exit 0); diff --check after recording the denial returned exit 0.
+The final scoped rg placeholder scan found only the historical command spelling PENDING, not an unresolved report field. Final sed report inspection succeeded. All tool-supervised sessions have returned.
+Finished 2026-11-16 00:55:02 UTC; deadline 2026-11-16 02:13:39 UTC. The final timestamp/path clarification changed reports only.
