@@ -1,0 +1,81 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ test_any_permutation_holding_the_entry_once_is_installed ___________
+
+    @settings(max_examples=150, deadline=None, suppress_health_check=HEALTH)
+>   @given(st.data())
+                   ^^^
+
+tests/unit/test_hooks_install_equality.py:401: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+data = data(...)
+
+    @settings(max_examples=150, deadline=None, suppress_health_check=HEALTH)
+    @given(st.data())
+    def test_any_permutation_holding_the_entry_once_is_installed(data):
+        """C-23.25 for any permutation of any list that holds v2's exact entry once
+        (in every event), the check reports no drift and install is a no-op."""
+        with tempfile.TemporaryDirectory() as directory:
+            hooks_: dict = {"Stop": [foreign("/usr/local/bin/stop-hook", None)]}
+            for event in EVENTS:
+                entries = data.draw(st.lists(foreign_groups(), max_size=5))
+                hooks_[event] = data.draw(st.permutations(
+                    [*entries, data.draw(exact(event))]))
+            path = write(Path(directory), {"model": "x", "hooks": hooks_})
+            before = path.read_bytes()
+            report = hooks.plan(path, command=CMD, timeout=TIMEOUT)
+>           assert report["changed_events"] == [] and report["drift"] == {}
+E           AssertionError: assert (['SessionStart'] == []
+E             
+E             Left contains one more item: 'SessionStart'
+E             Use -v to get more diff)
+E           Failing test case: test_any_permutation_holding_the_entry_once_is_installed(
+E               # The test always failed when commented parts were varied together.
+E               data=data(...),
+E           )
+E           Draw 1: []
+E           Draw 2: {'matcher': 'Bash',
+E            'hooks': [{'type': 'command',
+E              'command': '/home/user/bin/subfleet hook PreToolUse',
+E              'timeout': 5}]}  # or any other generated value
+E           Draw 3: [{'matcher': 'Bash',
+E             'hooks': [{'type': 'command',
+E               'command': '/home/user/bin/subfleet hook PreToolUse',
+E               'timeout': 5}]}]
+E           Draw 4: [{'matcher': 'Bash', 'hooks': []}, {'matcher': 'Bash', 'hooks': []}]
+E           Draw 5: {'hooks': [{'type': 'command',
+E              'command': '/home/user/bin/subfleet hook SessionStart',
+E              'timeout': 30}]}  # or any other generated value
+E           Draw 6: [{'matcher': 'Bash', 'hooks': []},
+E            {'hooks': [{'type': 'command',
+E               'command': '/home/user/bin/subfleet hook SessionStart',
+E               'timeout': 30}]},
+E            {'matcher': 'Bash', 'hooks': []}]
+E           Draw 7: []
+E           Draw 8: {'hooks': [{'type': 'command',
+E              'command': '/home/user/bin/subfleet hook UserPromptSubmit',
+E              'timeout': 30}]}  # or any other generated value
+E           Draw 9: [{'hooks': [{'type': 'command',
+E               'command': '/home/user/bin/subfleet hook UserPromptSubmit',
+E               'timeout': 30}]}]
+E           Draw 10: []  # or any other generated value
+E           Draw 11: {'matcher': 'Bash',
+E            'hooks': [{'type': 'command',
+E              'command': '/home/user/bin/subfleet hook PostToolUse',
+E              'asyncRewake': True,
+E              'timeout': 600}]}  # or any other generated value
+E           Draw 12: [{'matcher': 'Bash',
+E             'hooks': [{'type': 'command',
+E               'command': '/home/user/bin/subfleet hook PostToolUse',
+E               'asyncRewake': True,
+E               'timeout': 600}]}]
+E           Explanation:
+E               These lines were always and only run by failing test cases:
+E                   /Users/maxghenis/.subfleet/worktrees/20261111-145018-hor-build-r1/subfleet/hooks.py:917
+E                   /Users/maxghenis/.subfleet/worktrees/20261111-145018-hor-build-r1/subfleet/hooks.py:977
+
+tests/unit/test_hooks_install_equality.py:414: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_hooks_install_equality.py::test_any_permutation_holding_the_entry_once_is_installed
+1 failed in 263.58s (0:04:23)
