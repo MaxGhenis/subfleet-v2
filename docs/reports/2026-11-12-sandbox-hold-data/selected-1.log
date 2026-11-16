@@ -1,0 +1,229 @@
+bringing up nodes...
+bringing up nodes...
+
+........................................................................ [  9%]
+....................x................................................... [ 19%]
+........................................................................ [ 29%]
+........................................................................ [ 39%]
+........................................................................ [ 49%]
+.......................................F..............................F. [ 59%]
+F....................................................................... [ 69%]
+........................................................................ [ 79%]
+........................................................................ [ 89%]
+................................................................ssssss.. [ 99%]
+...                                                                      [100%]
+=================================== FAILURES ===================================
+_ test_the_baseline_passes_and_the_mutant_fails_the_named_assertion[release-hint-unquoted] _
+[gw2] darwin -- Python 3.15.2 /private/tmp/sf-sbh-b1/uv-cache/builds-v0/.tmpKL4Zou/bin/python
+
+name = 'release-hint-unquoted'
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b0df700>
+
+    @pytest.mark.parametrize("name", sorted(SCENARIOS))
+    def test_the_baseline_passes_and_the_mutant_fails_the_named_assertion(name, monkeypatch):
+        scenario, tag = SCENARIOS[name]
+        scenario()                                          # the daemon as built
+        with monkeypatch.context() as patch:
+            MUTANTS[name](patch)
+            with pytest.raises(AssertionError, match=f"^{tag}:"):
+>               scenario()
+
+tests/fake/test_task_hold_mutants.py:360: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/fake/test_task_hold_mutants.py:272: in release_hint_is_one_argument
+    lines = render.why_queue({"job_id": "j", "kind": "dispatch", "state": "waiting", "wait_reason": "task-held",
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+standing = {'job_id': 'j', 'kind': 'dispatch', 'state': 'waiting', 'wait_reason': 'task-held', ...}
+
+    def why_queue(standing: Mapping[str, Any]) -> list[str]:
+        """C-6.11: where a job stands in admission, in lines a person can act on.
+    
+        `standing` is the `job` object of the `why` result: the job's state, the
+        hold the last admission pass recorded for it, and its recheck history.
+        """
+        state = standing.get("state")
+        reason = f" ({standing['wait_reason']})" if standing.get("wait_reason") else ""
+        if standing.get("kind") == "turn":
+            # C-26.12: a turn is its conversation's, never detached work.
+            conversation = standing.get("conversation_id")
+            lines = [f"Conversation turn: {standing.get('job_id')}"
+                     + (f" of {conversation}" if conversation else "") + f" is {state}{reason}",
+                     "Its outcome goes to the conversation, not to a notice or a deliverable (C-26.12)"]
+        else:
+            lines = [f"Job: {standing.get('job_id')} is {state}{reason}"]
+        if standing.get("class") == "priority":
+            lines.append("class priority (admission.priority_callers)")
+        qos = standing.get("qos") or {}
+        if qos.get("requested") == "default" and qos.get("reason"):
+            # D-QOS-BOOKED1: a `run --qos default` says whether a launch now honours it, and
+            # why; the clamp every other job runs under (C-5.1) has nothing to explain.
+            lines.append(qos["reason"])
+            started = qos.get("started")
+            if started:
+                lines.append(f"a{started['seq']}'s provider started at {started['provider_qos']} (start.json)")
+        hold, recheck = standing.get("hold"), standing.get("recheck")
+        if state not in ("queued", "waiting"):
+            return lines
+        if hold:
+            reason = hold.get("reason", "unknown")
+            template = _HOLD_TEXT.get(reason)
+            if reason == "behind-older-job" and hold.get("key", "").startswith("providers."):
+                template = "held behind {behind}, an older {tier} job waiting for the same provider's capacity (C-6.9)"
+            if reason == "lease-held" and hold.get("queued") and not hold.get("leases"):
+                # C-6.9, C-26.9: FIFO on a lease; nothing holds it, an older job is waiting for it.
+                template = "a lease this job needs is kept for an older job that is waiting for it: {queued}"
+            if reason == "lease-held" and hold.get("retiring"):
+                template = _HOLD_TEXT["lease-held:retiring"]      # C-8.4: retention's fence, named as such
+            if reason == "probe-pending" and hold.get("behind"):
+                # C-6.9: FIFO on a probe; an older job waits on the same one and carries it first.
+                template = ("{lane} must be probed for {model} before the job may start on it, and {behind}, an "
+                            "older job waiting on that probe, carries it first (C-6.9)")
+            if template:
+                fields = {**hold, "leases": ", ".join(hold.get("leases", ())) or "-",
+                          **(_retiring(hold) if hold.get("retiring") else {}),
+                          "queued": ", ".join(hold.get("queued", ())) or "-",
+                          "pids": ", ".join(str(pid) for pid in hold.get("pids", ())) or "?", "blocked": _blocked(hold),
+                          "machine": _machine(hold)}
+                if reason == "disk" and hold.get("free_gb") is None:
+                    fields["free_gb"] = "unknown"
+                if reason in ("pin-unadmittable", "lanes-unadmittable"):
+                    fields.update(refusals=pin_refusals(hold), ends=pin_ends(hold.get("fail_at")))
+                if reason == "task-held":
+                    # C-11.10: a command a shell reads as given, the task one argument after `--`.
+>                   fields["release"] = task_holds.release_command(hold.get("task") or "?", sandbox=hold.get("sandbox"))
+                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E                   TypeError: release_hint_unquoted.<locals>.<lambda>() got an unexpected keyword argument 'sandbox'
+
+subfleet/render.py:604: TypeError
+___ test_round_five_mutant_fails_its_named_assertion[replacement-at-request] ___
+[gw2] darwin -- Python 3.15.2 /private/tmp/sf-sbh-b1/uv-cache/builds-v0/.tmpKL4Zou/bin/python
+
+name = 'replacement-at-request'
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b0dfd90>
+
+    @pytest.mark.parametrize("name", ["ending-with-ended-at", "ending-without-ended-at",
+                                      "legacy-fallback-from-job-clock", "replacement-at-request",
+                                      "until-at-request"])
+    def test_round_five_mutant_fails_its_named_assertion(name, monkeypatch):
+        from tests.fake import test_task_hold_clocks as clocks
+        from tests import task_hold_mutants as mutations
+    
+        pairs = {
+            "ending-with-ended-at": (
+                lambda p: mutations.ending_uses_pass_clock(p, explicit=True),
+                lambda p: clocks.test_r5_1_door_gives_an_ended_hold_back_twice(40, p), "R5-1:"),
+            "ending-without-ended-at": (
+                lambda p: mutations.ending_uses_pass_clock(p, explicit=False),
+                clocks.test_r5_1b_door_ends_a_later_hold_at_the_copied_clock, "R5-1b:"),
+            "legacy-fallback-from-job-clock": (
+                mutations.legacy_fallback_from_job_clock,
+                lambda p: clocks.test_legacy_recheck_after_the_backoff_is_no_deadline("held-92-released-93"),
+                "R5-legacy-F2:"),
+            "replacement-at-request": (
+                mutations.replacement_judged_at_request_clock,
+                clocks.test_hold_replacement_requested_before_the_first_hold_expires_commits_after,
+                "R5-hold-expiry-wait:"),
+            "until-at-request": (
+                mutations.until_validated_at_request_clock,
+                clocks.test_hold_whose_end_passes_during_the_writer_wait_is_refused, "R5-until-wait:"),
+        }
+        mutate, scenario, tag = pairs[name]
+        with monkeypatch.context() as baseline:
+            scenario(baseline)
+        with monkeypatch.context() as mutated:
+>           mutate(mutated)
+
+tests/fake/test_task_hold_mutants.py:394: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/task_hold_mutants.py:267: in replacement_judged_at_request_clock
+    _request_clock_mutant(patch, "if not task_holds.in_force_now(replaced, now):",
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+patch = <_pytest.monkeypatch.MonkeyPatch object at 0x1094be4a0>
+old = 'if not task_holds.in_force_now(replaced, now):'
+new = 'if not task_holds.in_force_now(replaced, asked):'
+
+    def _request_clock_mutant(patch, old, new):
+        declaration = '    data: dict[str, Any] = {"task": task, "note": note, "replaced": None}\n'
+        source = textwrap.dedent(inspect.getsource(Daemon._hold_task))
+>       assert declaration in source and old in source
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError
+
+tests/task_hold_mutants.py:279: AssertionError
+----------------------------- Captured stdout call -----------------------------
+R5-EXPIRY-DURING-HOLD-WAIT {'replaced': None, 'since': '2026-10-09T16:33:50Z'}
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4486435168:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4486435168:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4486435168:daemon.py:9426 job 20261112-011631-build-1: pinned lane codex-1 can never admit it (disabled); it fails with rc 3 at 2026-10-09T16:34:00Z unless the lane can take it by then
+WARNING  subfleet.daemon.4486435168:daemon.py:9451 job 20261112-011631-build-1 failed: pinned lane codex-1 could never admit it (disabled)
+______ test_round_five_mutant_fails_its_named_assertion[until-at-request] ______
+[gw2] darwin -- Python 3.15.2 /private/tmp/sf-sbh-b1/uv-cache/builds-v0/.tmpKL4Zou/bin/python
+
+name = 'until-at-request'
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1091087c0>
+
+    @pytest.mark.parametrize("name", ["ending-with-ended-at", "ending-without-ended-at",
+                                      "legacy-fallback-from-job-clock", "replacement-at-request",
+                                      "until-at-request"])
+    def test_round_five_mutant_fails_its_named_assertion(name, monkeypatch):
+        from tests.fake import test_task_hold_clocks as clocks
+        from tests import task_hold_mutants as mutations
+    
+        pairs = {
+            "ending-with-ended-at": (
+                lambda p: mutations.ending_uses_pass_clock(p, explicit=True),
+                lambda p: clocks.test_r5_1_door_gives_an_ended_hold_back_twice(40, p), "R5-1:"),
+            "ending-without-ended-at": (
+                lambda p: mutations.ending_uses_pass_clock(p, explicit=False),
+                clocks.test_r5_1b_door_ends_a_later_hold_at_the_copied_clock, "R5-1b:"),
+            "legacy-fallback-from-job-clock": (
+                mutations.legacy_fallback_from_job_clock,
+                lambda p: clocks.test_legacy_recheck_after_the_backoff_is_no_deadline("held-92-released-93"),
+                "R5-legacy-F2:"),
+            "replacement-at-request": (
+                mutations.replacement_judged_at_request_clock,
+                clocks.test_hold_replacement_requested_before_the_first_hold_expires_commits_after,
+                "R5-hold-expiry-wait:"),
+            "until-at-request": (
+                mutations.until_validated_at_request_clock,
+                clocks.test_hold_whose_end_passes_during_the_writer_wait_is_refused, "R5-until-wait:"),
+        }
+        mutate, scenario, tag = pairs[name]
+        with monkeypatch.context() as baseline:
+            scenario(baseline)
+        with monkeypatch.context() as mutated:
+>           mutate(mutated)
+
+tests/fake/test_task_hold_mutants.py:394: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/task_hold_mutants.py:272: in until_validated_at_request_clock
+    _request_clock_mutant(patch, "until = task_holds.until_text(a.until, now)",
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+patch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b74c7c0>
+old = 'until = task_holds.until_text(a.until, now)'
+new = 'until = task_holds.until_text(a.until, asked)'
+
+    def _request_clock_mutant(patch, old, new):
+        declaration = '    data: dict[str, Any] = {"task": task, "note": note, "replaced": None}\n'
+        source = textwrap.dedent(inspect.getsource(Daemon._hold_task))
+>       assert declaration in source and old in source
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError
+
+tests/task_hold_mutants.py:279: AssertionError
+----------------------------- Captured stdout call -----------------------------
+R5-UNTIL-PASSED-DURING-WAIT ProtocolError('tasks hold: --until must be a later ISO 8601 instant')
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4486441888:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4486441888:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4486441888:daemon.py:9426 job 20261112-011632-build-1: pinned lane codex-1 can never admit it (disabled); it fails with rc 3 at 2026-10-09T16:34:00Z unless the lane can take it by then
+WARNING  subfleet.daemon.4486441888:daemon.py:9451 job 20261112-011632-build-1 failed: pinned lane codex-1 could never admit it (disabled)
+=========================== short test summary info ============================
+FAILED tests/fake/test_task_hold_mutants.py::test_the_baseline_passes_and_the_mutant_fails_the_named_assertion[release-hint-unquoted]
+FAILED tests/fake/test_task_hold_mutants.py::test_round_five_mutant_fails_its_named_assertion[replacement-at-request]
+FAILED tests/fake/test_task_hold_mutants.py::test_round_five_mutant_fails_its_named_assertion[until-at-request]
+3 failed, 713 passed, 6 skipped, 1 xfailed in 340.67s (0:05:40)

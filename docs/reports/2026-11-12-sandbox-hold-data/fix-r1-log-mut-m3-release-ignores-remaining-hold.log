@@ -1,0 +1,189 @@
+bringing up nodes...
+bringing up nodes...
+
+.FFF..FF.F.........................................................      [100%]
+=================================== FAILURES ===================================
+___ test_releasing_one_composed_hold_keeps_the_pin_grace_paused[task-pinned] ___
+[gw0] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+kind = 'pinned', released_first = 'task'
+
+    @pytest.mark.parametrize("kind", ["pinned", "retry"])
+    @pytest.mark.parametrize("released_first", ["task", "sandbox"])
+    def test_releasing_one_composed_hold_keeps_the_pin_grace_paused(kind, released_first):
+        """Both targets cover the job; releasing either one leaves its 50 seconds paused."""
+        with fleet() as (service, harness, clock, signals):
+            ident = stuck(service, harness, clock, kind)
+            writable(service, ident)
+            clock[0] = 10
+            hold(service, "build", stamp(100))
+            sandbox_hold(service, 200)
+            at(service, clock, 10)
+            assert job(service, ident)["next_check_at"] == stamp(200)
+            assert service._pin_episodes[ident]["paused_s"] == 50
+            clock[0] = 30
+            answer = release_target(service, released_first)
+            remaining = "sandbox" if released_first == "task" else "task"
+            expected_end = 200 if remaining == "sandbox" else 100
+>           assert answer["woken"] == 0
+E           assert 1 == 0
+
+tests/fake/test_sandbox_hold_interleavings.py:47: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4456644048:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4456644048:daemon.py:1088 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4456644048:daemon.py:9495 job 20261114-222024-build-1: pinned lane codex-1 can never admit it (disabled); it fails with rc 3 at 2026-10-09T16:34:00Z unless the lane can take it by then
+___ test_releasing_one_composed_hold_keeps_the_pin_grace_paused[task-retry] ____
+[gw0] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+kind = 'retry', released_first = 'task'
+
+    @pytest.mark.parametrize("kind", ["pinned", "retry"])
+    @pytest.mark.parametrize("released_first", ["task", "sandbox"])
+    def test_releasing_one_composed_hold_keeps_the_pin_grace_paused(kind, released_first):
+        """Both targets cover the job; releasing either one leaves its 50 seconds paused."""
+        with fleet() as (service, harness, clock, signals):
+            ident = stuck(service, harness, clock, kind)
+            writable(service, ident)
+            clock[0] = 10
+            hold(service, "build", stamp(100))
+            sandbox_hold(service, 200)
+            at(service, clock, 10)
+            assert job(service, ident)["next_check_at"] == stamp(200)
+            assert service._pin_episodes[ident]["paused_s"] == 50
+            clock[0] = 30
+            answer = release_target(service, released_first)
+            remaining = "sandbox" if released_first == "task" else "task"
+            expected_end = 200 if remaining == "sandbox" else 100
+>           assert answer["woken"] == 0
+E           assert 1 == 0
+
+tests/fake/test_sandbox_hold_interleavings.py:47: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4446945696:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4446945696:daemon.py:1088 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4446945696:daemon.py:9495 job 20261114-222024-build-1: every candidate lane can never admit it (disabled); it fails with rc 3 at 2026-10-09T16:34:00Z unless the lane can take it by then
+____________ test_composed_holds_preserve_the_retry_deadline[40-60] ____________
+[gw2] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+sandbox_end = 40, expected_start = 60
+
+    @pytest.mark.parametrize("sandbox_end,expected_start", [(40, 60), (90, 90)])
+    def test_composed_holds_preserve_the_retry_deadline(sandbox_end, expected_start):
+        """A release cannot start a retry before its backoff, and a longer hold satisfies it."""
+        with fleet() as (service, harness, clock, signals):
+            ident = submit(service, harness, "build", "retry-backoff")
+            service._admit()
+            [first] = attempts(service, ident)
+            finalize_transient(service, first)
+            assert job(service, ident)["next_check_at"] == stamp(60)
+            # The attempt uses the existing read-only finalizer fixture; only then
+            # model the persisted writable retry row that admission will judge.
+            writable(service, ident)
+            clock[0] = 10
+            hold(service, "build", stamp(100))
+            sandbox_hold(service, sandbox_end)
+            clock[0] = 20
+>           assert release(service, "build")["woken"] == 0
+E           assert 1 == 0
+
+tests/fake/test_sandbox_hold_interleavings.py:101: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4487454816:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4487454816:daemon.py:1088 reset credits: automatic redemption off; no-reset marker absent
+_ test_releasing_one_composed_hold_keeps_the_pin_grace_paused[sandbox-pinned] __
+[gw0] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+kind = 'pinned', released_first = 'sandbox'
+
+    @pytest.mark.parametrize("kind", ["pinned", "retry"])
+    @pytest.mark.parametrize("released_first", ["task", "sandbox"])
+    def test_releasing_one_composed_hold_keeps_the_pin_grace_paused(kind, released_first):
+        """Both targets cover the job; releasing either one leaves its 50 seconds paused."""
+        with fleet() as (service, harness, clock, signals):
+            ident = stuck(service, harness, clock, kind)
+            writable(service, ident)
+            clock[0] = 10
+            hold(service, "build", stamp(100))
+            sandbox_hold(service, 200)
+            at(service, clock, 10)
+            assert job(service, ident)["next_check_at"] == stamp(200)
+            assert service._pin_episodes[ident]["paused_s"] == 50
+            clock[0] = 30
+            answer = release_target(service, released_first)
+            remaining = "sandbox" if released_first == "task" else "task"
+            expected_end = 200 if remaining == "sandbox" else 100
+>           assert answer["woken"] == 0
+E           assert 1 == 0
+
+tests/fake/test_sandbox_hold_interleavings.py:47: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4457165840:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4457165840:daemon.py:1088 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4457165840:daemon.py:9495 job 20261114-222025-build-1: pinned lane codex-1 can never admit it (disabled); it fails with rc 3 at 2026-10-09T16:34:00Z unless the lane can take it by then
+____________ test_composed_holds_preserve_the_retry_deadline[90-90] ____________
+[gw2] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+sandbox_end = 90, expected_start = 90
+
+    @pytest.mark.parametrize("sandbox_end,expected_start", [(40, 60), (90, 90)])
+    def test_composed_holds_preserve_the_retry_deadline(sandbox_end, expected_start):
+        """A release cannot start a retry before its backoff, and a longer hold satisfies it."""
+        with fleet() as (service, harness, clock, signals):
+            ident = submit(service, harness, "build", "retry-backoff")
+            service._admit()
+            [first] = attempts(service, ident)
+            finalize_transient(service, first)
+            assert job(service, ident)["next_check_at"] == stamp(60)
+            # The attempt uses the existing read-only finalizer fixture; only then
+            # model the persisted writable retry row that admission will judge.
+            writable(service, ident)
+            clock[0] = 10
+            hold(service, "build", stamp(100))
+            sandbox_hold(service, sandbox_end)
+            clock[0] = 20
+>           assert release(service, "build")["woken"] == 0
+E           assert 1 == 0
+
+tests/fake/test_sandbox_hold_interleavings.py:101: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4487443568:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4487443568:daemon.py:1088 reset credits: automatic redemption off; no-reset marker absent
+__ test_releasing_one_composed_hold_keeps_the_pin_grace_paused[sandbox-retry] __
+[gw0] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+kind = 'retry', released_first = 'sandbox'
+
+    @pytest.mark.parametrize("kind", ["pinned", "retry"])
+    @pytest.mark.parametrize("released_first", ["task", "sandbox"])
+    def test_releasing_one_composed_hold_keeps_the_pin_grace_paused(kind, released_first):
+        """Both targets cover the job; releasing either one leaves its 50 seconds paused."""
+        with fleet() as (service, harness, clock, signals):
+            ident = stuck(service, harness, clock, kind)
+            writable(service, ident)
+            clock[0] = 10
+            hold(service, "build", stamp(100))
+            sandbox_hold(service, 200)
+            at(service, clock, 10)
+            assert job(service, ident)["next_check_at"] == stamp(200)
+            assert service._pin_episodes[ident]["paused_s"] == 50
+            clock[0] = 30
+            answer = release_target(service, released_first)
+            remaining = "sandbox" if released_first == "task" else "task"
+            expected_end = 200 if remaining == "sandbox" else 100
+>           assert answer["woken"] == 0
+E           assert 1 == 0
+
+tests/fake/test_sandbox_hold_interleavings.py:47: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4457309312:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4457309312:daemon.py:1088 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4457309312:daemon.py:9495 job 20261114-222025-build-1: every candidate lane can never admit it (disabled); it fails with rc 3 at 2026-10-09T16:34:00Z unless the lane can take it by then
+=========================== short test summary info ============================
+FAILED tests/fake/test_sandbox_hold_interleavings.py::test_releasing_one_composed_hold_keeps_the_pin_grace_paused[task-pinned]
+FAILED tests/fake/test_sandbox_hold_interleavings.py::test_releasing_one_composed_hold_keeps_the_pin_grace_paused[task-retry]
+FAILED tests/fake/test_sandbox_hold_interleavings.py::test_composed_holds_preserve_the_retry_deadline[40-60]
+FAILED tests/fake/test_sandbox_hold_interleavings.py::test_releasing_one_composed_hold_keeps_the_pin_grace_paused[sandbox-pinned]
+FAILED tests/fake/test_sandbox_hold_interleavings.py::test_composed_holds_preserve_the_retry_deadline[90-90]
+FAILED tests/fake/test_sandbox_hold_interleavings.py::test_releasing_one_composed_hold_keeps_the_pin_grace_paused[sandbox-retry]
+6 failed, 61 passed in 81.71s (0:01:21)

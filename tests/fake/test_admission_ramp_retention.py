@@ -9,6 +9,10 @@ from subfleet import daemon as daemon_module, retention, retention_archive
 from subfleet.ramp import PlacementRamp
 from tests.fake.test_state_contract import state_daemon  # noqa: F401
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
+
 
 BASE = datetime(2026, 10, 10, 14, tzinfo=timezone.utc)
 

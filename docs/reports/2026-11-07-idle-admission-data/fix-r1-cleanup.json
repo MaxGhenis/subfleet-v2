@@ -1,0 +1,92 @@
+{
+  "command": [
+    "python3",
+    "/private/tmp/sf-ia-f1/cleanup.py"
+  ],
+  "generated_workspace_directories": [
+    {
+      "original": "/Users/maxghenis/.subfleet/worktrees/20261113-070659-ia-fix-r1/.venv",
+      "destination": "/private/tmp/sf-ia-f1/workspace-generated/.venv",
+      "removed": true
+    },
+    {
+      "original": "/Users/maxghenis/.subfleet/worktrees/20261113-070659-ia-fix-r1/.pytest_cache",
+      "destination": "/private/tmp/sf-ia-f1/workspace-generated/.pytest_cache",
+      "removed": true
+    },
+    {
+      "original": "/Users/maxghenis/.subfleet/worktrees/20261113-070659-ia-fix-r1/.hypothesis",
+      "destination": "/private/tmp/sf-ia-f1/workspace-generated/.hypothesis",
+      "removed": true
+    },
+    {
+      "original": "/Users/maxghenis/.subfleet/worktrees/20261113-070659-ia-fix-r1/tools/__pycache__",
+      "destination": "/private/tmp/sf-ia-f1/workspace-generated/tools/__pycache__",
+      "removed": true
+    },
+    {
+      "original": "/Users/maxghenis/.subfleet/worktrees/20261113-070659-ia-fix-r1/subfleet/__pycache__",
+      "destination": "/private/tmp/sf-ia-f1/workspace-generated/subfleet/__pycache__",
+      "removed": true
+    },
+    {
+      "original": "/Users/maxghenis/.subfleet/worktrees/20261113-070659-ia-fix-r1/subfleet/adapters/__pycache__",
+      "destination": "/private/tmp/sf-ia-f1/workspace-generated/subfleet/adapters/__pycache__",
+      "removed": true
+    },
+    {
+      "original": "/Users/maxghenis/.subfleet/worktrees/20261113-070659-ia-fix-r1/subfleet/sessions/__pycache__",
+      "destination": "/private/tmp/sf-ia-f1/workspace-generated/subfleet/sessions/__pycache__",
+      "removed": true
+    },
+    {
+      "original": "/Users/maxghenis/.subfleet/worktrees/20261113-070659-ia-fix-r1/subfleet/conversations/__pycache__",
+      "destination": "/private/tmp/sf-ia-f1/workspace-generated/subfleet/conversations/__pycache__",
+      "removed": true
+    },
+    {
+      "original": "/Users/maxghenis/.subfleet/worktrees/20261113-070659-ia-fix-r1/subfleet/gate/__pycache__",
+      "destination": "/private/tmp/sf-ia-f1/workspace-generated/subfleet/gate/__pycache__",
+      "removed": true
+    },
+    {
+      "original": "/Users/maxghenis/.subfleet/worktrees/20261113-070659-ia-fix-r1/subfleet/guard/__pycache__",
+      "destination": "/private/tmp/sf-ia-f1/workspace-generated/subfleet/guard/__pycache__",
+      "removed": true
+    },
+    {
+      "original": "/Users/maxghenis/.subfleet/worktrees/20261113-070659-ia-fix-r1/tests/__pycache__",
+      "destination": "/private/tmp/sf-ia-f1/workspace-generated/tests/__pycache__",
+      "removed": true
+    },
+    {
+      "original": "/Users/maxghenis/.subfleet/worktrees/20261113-070659-ia-fix-r1/tests/unit/__pycache__",
+      "destination": "/private/tmp/sf-ia-f1/workspace-generated/tests/unit/__pycache__",
+      "removed": true
+    },
+    {
+      "original": "/Users/maxghenis/.subfleet/worktrees/20261113-070659-ia-fix-r1/tests/fake/__pycache__",
+      "destination": "/private/tmp/sf-ia-f1/workspace-generated/tests/fake/__pycache__",
+      "removed": true
+    }
+  ],
+  "scratch": "/private/tmp/sf-ia-f1",
+  "scratch_removed": false,
+  "aborted_archive_unchanged_since_observation": true,
+  "aborted_archive_observation": {
+    "path": "/private/tmp/sf-ia-f1/q8-baseline-source-aborted",
+    "files": 6212,
+    "max_mtime_ns": 1794573445843808803,
+    "bytes": 170267561,
+    "blocker_is_file": true,
+    "workspace_device": 16777233,
+    "scratch_device": 16777233
+  },
+  "aborted_archive_final": {
+    "files": 6212,
+    "max_mtime_ns": 1794573445843808803,
+    "bytes": 170267561
+  },
+  "cleanup_runner_exit_code": 130,
+  "scratch_cleanup_interrupted_for_deadline": true
+}
