@@ -1,0 +1,8 @@
+ docs/acceptance-contract.md                   |   3 +-
+ docs/reference/claude-hooks.md                |   5 +
+ subfleet/cli.py                               |   5 +-
+ subfleet/doctor.py                            |   8 +-
+ subfleet/hooks.py                             |  77 +++-
+ tests/unit/test_hooks_install_differential.py | 164 ++++++++
+ tests/unit/test_hooks_install_equality.py     | 565 ++++++++++++++++++++++++++
+ 7 files changed, 816 insertions(+), 11 deletions(-)
