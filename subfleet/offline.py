@@ -383,6 +383,9 @@ class Offline:
             # C-11.10: the operator's task holds in force, read as the daemon reads them.
             holds = (task_holds.in_force([dict(row) for row in conn.execute(
                 task_holds.ROWS_SQL, task_holds.ROWS_PARAMS)], at) if "leases" in tables else {})
+            if "leases" in tables:
+                holds.update(task_holds.in_force([dict(row) for row in conn.execute(
+                    task_holds.ROWS_SQL, task_holds.SANDBOX_ROWS_PARAMS)], at))
             # Each hold's count of the jobs it keeps waiting, over every row: the job list
             # below shows 50, and a count read from it would stop there (C-17.4).
             held_jobs = (task_holds.waiting_counts(conn.execute(task_holds.WAITING_SQL).fetchall())

@@ -1,0 +1,39 @@
+..................                                                       [100%]
+============================ Hypothesis Statistics =============================
+tests/fake/test_sandbox_hold_properties.py::test_s1_held_jobs_never_create_an_attempt:
+
+  - during generate phase (20.42 seconds):
+    - Typical runtimes: ~ 229-2167 ms, of which ~ 0-120 ms in data generation
+    - 25 passing, 0 failing, and 1 invalid test cases
+
+  - Stopped because settings.max_examples=25
+
+
+tests/fake/test_sandbox_hold_properties.py::test_s2_unheld_placements_match_without_the_sandbox_hold:
+
+  - during generate phase (41.58 seconds):
+    - Typical runtimes: ~ 1-2905 ms, of which < 1ms in data generation
+    - 25 passing, 0 failing, and 2 invalid test cases
+
+  - Stopped because settings.max_examples=25
+
+
+tests/fake/test_sandbox_hold_properties.py::test_s4_hold_membership_obeys_the_clock:
+
+  - during generate phase (16.95 seconds):
+    - Typical runtimes: ~ 237-1285 ms, of which ~ 0-1 ms in data generation
+    - 25 passing, 0 failing, and 0 invalid test cases
+
+  - Stopped because settings.max_examples=25
+
+
+tests/fake/test_sandbox_hold_properties.py::test_s6_task_and_sandbox_holds_compose_to_the_later_end:
+
+  - during generate phase (9.63 seconds):
+    - Typical runtimes: ~ 114-836 ms, of which ~ 0-147 ms in data generation
+    - 25 passing, 0 failing, and 0 invalid test cases
+
+  - Stopped because settings.max_examples=25
+
+
+18 passed in 98.69s (0:01:38)

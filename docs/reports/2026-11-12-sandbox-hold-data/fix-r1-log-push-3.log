@@ -1,0 +1,141 @@
+bringing up nodes...
+bringing up nodes...
+
+.......................................FF..                              [100%]
+=================================== FAILURES ===================================
+_ test_permanent_preparing_error_keeps_running_build_slot_until_cleanup[False] _
+[gw3] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+worlds = <function worlds.<locals>.make at 0x10c3b6ca0>, cancelled = False
+
+    @pytest.mark.parametrize("cancelled", [False, True])
+    def test_permanent_preparing_error_keeps_running_build_slot_until_cleanup(worlds, cancelled):
+        with worlds() as world:
+            core = world.core
+            pin_routing(world, world.patch)
+            job = submit(world)
+            entered, release = threading.Event(), threading.Event()
+            built = []
+    
+            def prepare(root, source, baseline, destination):
+                built.append(destination.name)
+                if destination.name == job:
+                    entered.set()
+                    assert release.wait(60)
+                destination.mkdir(parents=True)
+    
+            world.patch.setattr(host_push, "prepare_workspace", prepare)
+            fault_transaction(world, "job.workspace_preparing", "update", sqlite3.IntegrityError("preparing constraint"))
+            fault_transaction(world, "job.workspace_failed", "notice", sqlite3.OperationalError("database is locked"))
+            actual = core.store.transaction
+    
+            @contextmanager
+            def after_worker_starts(kind="state.changed", **kwargs):
+                if kind == "job.workspace_preparing":
+                    assert entered.wait(30)
+                with actual(kind, **kwargs) as tx:
+                    yield tx
+    
+            world.patch.setattr(core.store, "transaction", after_worker_starts)
+            try:
+>               core._admit_kind("detached")
+
+tests/unit/test_host_push_store_interleavings.py:591: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:7433: in _admit_kind
+    self._admit_pass(holds, tally, kind=kind)
+subfleet/daemon.py:8268: in _admit_pass
+    if not self._push_workspace_ready(job):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:6412: in _push_workspace_ready
+    with self.store.transaction("job.workspace_preparing", job_id=job_id) as tx:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+kind = 'job.workspace_preparing', kwargs = {'job_id': '20261114-220426-build'}
+
+    @contextmanager
+    def after_worker_starts(kind="state.changed", **kwargs):
+        if kind == "job.workspace_preparing":
+>           assert entered.wait(30)
+E           assert False
+E            +  where False = wait(30)
+E            +    where wait = <threading.Event at 0x10c280a70: unset>.wait
+
+tests/unit/test_host_push_store_interleavings.py:585: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4499058864:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4499058864:daemon.py:1088 reset credits: automatic redemption off; no-reset marker absent
+_ test_permanent_preparing_error_keeps_running_build_slot_until_cleanup[True] __
+[gw1] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+worlds = <function worlds.<locals>.make at 0x10c68af20>, cancelled = True
+
+    @pytest.mark.parametrize("cancelled", [False, True])
+    def test_permanent_preparing_error_keeps_running_build_slot_until_cleanup(worlds, cancelled):
+        with worlds() as world:
+            core = world.core
+            pin_routing(world, world.patch)
+            job = submit(world)
+            entered, release = threading.Event(), threading.Event()
+            built = []
+    
+            def prepare(root, source, baseline, destination):
+                built.append(destination.name)
+                if destination.name == job:
+                    entered.set()
+                    assert release.wait(60)
+                destination.mkdir(parents=True)
+    
+            world.patch.setattr(host_push, "prepare_workspace", prepare)
+            fault_transaction(world, "job.workspace_preparing", "update", sqlite3.IntegrityError("preparing constraint"))
+            fault_transaction(world, "job.workspace_failed", "notice", sqlite3.OperationalError("database is locked"))
+            actual = core.store.transaction
+    
+            @contextmanager
+            def after_worker_starts(kind="state.changed", **kwargs):
+                if kind == "job.workspace_preparing":
+                    assert entered.wait(30)
+                with actual(kind, **kwargs) as tx:
+                    yield tx
+    
+            world.patch.setattr(core.store, "transaction", after_worker_starts)
+            try:
+>               core._admit_kind("detached")
+
+tests/unit/test_host_push_store_interleavings.py:591: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/daemon.py:7433: in _admit_kind
+    self._admit_pass(holds, tally, kind=kind)
+subfleet/daemon.py:8268: in _admit_pass
+    if not self._push_workspace_ready(job):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:6412: in _push_workspace_ready
+    with self.store.transaction("job.workspace_preparing", job_id=job_id) as tx:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+kind = 'job.workspace_preparing', kwargs = {'job_id': '20261114-220426-build'}
+
+    @contextmanager
+    def after_worker_starts(kind="state.changed", **kwargs):
+        if kind == "job.workspace_preparing":
+>           assert entered.wait(30)
+E           assert False
+E            +  where False = wait(30)
+E            +    where wait = <threading.Event at 0x10c2f3650: unset>.wait
+
+tests/unit/test_host_push_store_interleavings.py:585: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4499286848:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4499286848:daemon.py:1088 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/unit/test_host_push_store_interleavings.py::test_permanent_preparing_error_keeps_running_build_slot_until_cleanup[False]
+FAILED tests/unit/test_host_push_store_interleavings.py::test_permanent_preparing_error_keeps_running_build_slot_until_cleanup[True]
+2 failed, 41 passed in 60.45s (0:01:00)

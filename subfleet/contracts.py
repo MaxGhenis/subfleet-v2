@@ -96,6 +96,13 @@ class OutcomeClass(str, enum.Enum):  # C-9.2
     UNKNOWN = "unknown"
 
 
+# D-WALL1, D-WALL-RETRY1: settled outside faults give back their provider time.
+# State and killed_by must also permit exclusion; a live or stopped attempt counts.
+WALL_EXEMPT_OUTCOME_CLASSES = (
+    OutcomeClass.LIMITED.value, OutcomeClass.TRANSIENT.value, OutcomeClass.AUTH_DEAD.value,
+)
+
+
 class ReadingLabel(str, enum.Enum):  # C-9.1
     PROVIDER = "provider"
     STALE_PROVIDER = "stale-provider"
@@ -251,6 +258,7 @@ WORKSPACE_RETRY_CEILING_S = 300
 #: consecutive recheck that reaches the same verdict, to the ceiling.
 CAPACITY_RECHECK_BASE_S = 1
 CAPACITY_RECHECK_CEILING_S = 30
+CAPACITY_RECHECK_EVENT_CEILING_S = 600
 #: C-6.10: one job's admission probes are reserved at least this far apart. The
 #: clock runs from the reservation, so a probe that ran this long (its deadline
 #: stopped it) leaves its vehicle due at once, and one that failed in a second
