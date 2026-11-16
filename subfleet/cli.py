@@ -10,7 +10,9 @@
   subfleet kill <id>             cancel a job (offline: signal the recorded pgid)
   subfleet resume <id> [PROMPT]  continue a job on its own lane (alias: resume-codex)
   subfleet lanes [list|probe|enroll|hold|release|transfer]
-  subfleet tasks [list|hold <task> --until ISO --note TEXT|release <task>]   hold one task at admission
+  subfleet tasks [list]         list task and sandbox holds
+  subfleet tasks hold <task>|--sandbox workspace-write --until ISO --note TEXT
+  subfleet tasks release <task>|--sandbox workspace-write
   subfleet why <id> | --task T --tier X
   subfleet daemon [start|stop|status|logs|install]
   subfleet doctor [--live]      pass/fail/unknown checks, each with a fix line
@@ -556,7 +558,7 @@ def format_status(data: dict[str, Any]) -> str:
             lines.append("  " + render.closure_line(closure, home=render.lane_home(lane)))
     holds = rows_of(data.get("task_holds"))
     if holds:
-        # C-11.10: the operator's holds on tasks, each with the jobs it keeps waiting.
+        # C-11.10: the operator's holds, each with the jobs it keeps waiting.
         lines.append("")
         lines.append("task holds")
         for hold in holds:
@@ -565,8 +567,11 @@ def format_status(data: dict[str, Any]) -> str:
             waiting = hold.get("waiting")
             if not isinstance(waiting, int) or isinstance(waiting, bool):
                 waiting = sum(1 for row in live if row.get("wait_reason") == "task-held"
-                              and row.get("task") == hold.get("task"))
-            lines.append(f"  {hold.get('task')} until {hold.get('until')} ({waiting} waiting): {hold.get('note')}")
+                              and row.get("kind") != "turn" and row.get("task")
+                              and ((row.get("sandbox") or "workspace-write") == hold.get("sandbox")
+                                   if hold.get("sandbox") else row.get("task") == hold.get("task")))
+            target = f"sandbox {hold['sandbox']}" if hold.get("sandbox") else hold.get("task")
+            lines.append(f"  {target} until {hold.get('until')} ({waiting} waiting): {hold.get('note')}")
     lines.append("")
     callers = rows_of(data.get("priority_callers"))
     if isinstance(data.get("disk"), dict):
@@ -2419,7 +2424,7 @@ def cmd_lanes(args: argparse.Namespace) -> int:
 
 
 def cmd_tasks(args: argparse.Namespace) -> int:
-    """C-11.10: `tasks [list]`, `tasks hold <task> --until <iso> --note <text>`, `tasks release <task>`.
+    """C-11.10: list, hold or release one task or the workspace-write sandbox.
 
     The daemon decides (the task names are its policy's); a note or an end this
     CLI can already tell is wrong is refused here, before anything is sent."""
@@ -2453,6 +2458,9 @@ def cmd_tasks(args: argparse.Namespace) -> int:
     payload = _asdict(request)
     # An unconditional call keeps the old wire shape, even as TasksArgs grows.
     payload.pop("if_note_prefix", None)
+    payload.pop("sandbox", None)
+    if getattr(args, "sandbox", None) is not None:
+        payload["sandbox"] = args.sandbox
     if prefix is not None:
         # Old daemons refuse these actions before opening a transaction, so a
         # restart or retry can never turn a conditional call into a plain write.
@@ -2460,6 +2468,19 @@ def cmd_tasks(args: argparse.Namespace) -> int:
         payload["if_note_prefix"] = prefix
     try:
         client = _client(args)
+        if "sandbox" in payload:
+            # D-RO-ADMIT1 (fix r1 of #309): an older daemon drops `sandbox`, sees no task
+            # and refuses "unknown task None". Ask first, so it is sent nothing and the
+            # operator reads why. One swapped for an older daemon after this check still
+            # refuses that way, writing nothing.
+            capability = protocol.TASKS_SANDBOX_CAPABILITY
+            if capability not in _daemon_capabilities(client):
+                if args.json:
+                    emit({"refused": "task-hold-capability", "capability": capability})
+                return fail(Exit.CLI_TOO_OLD,
+                            f"task-hold-capability: tasks {action} --sandbox needs daemon capability "
+                            f"`{capability}`; this daemon does not support sandbox holds",
+                            RESTART_DAEMON)
         try:
             result = client.call("tasks", payload)
         except DaemonError as exc:
@@ -2491,7 +2512,8 @@ def cmd_tasks(args: argparse.Namespace) -> int:
         return int(Exit.OK)
     if action == "hold":
         hold = result.get("task_hold") if isinstance(result.get("task_hold"), dict) else {}
-        out(f"held: {hold.get('task')} until {hold.get('until')} ({hold.get('note')})")
+        target = f"sandbox {hold['sandbox']}" if hold.get("sandbox") else hold.get("task")
+        out(f"held: {target} until {hold.get('until')} ({hold.get('note')})")
         replaced = result.get("replaced")
         if isinstance(replaced, dict):
             out(f"replaced: the hold until {replaced.get('until')} ({replaced.get('note')})")
@@ -3799,36 +3821,49 @@ def build_parser() -> argparse.ArgumentParser:
                             help="print the roster diff and write nothing")
     _add_json(l_transfer, nested=True)
 
-    p_tasks = sub.add_parser("tasks", help="hold one task at admission; lanes stay open to the rest",
+    p_tasks = sub.add_parser("tasks", help="hold one task or sandbox at admission; lanes stay open",
                              description="C-11.10: --if-note-prefix P on hold/release checks ownership inside "
-                             "the write transaction. While a hold on a task is in force, no new attempt of a "
-                             "detached job of that task starts; every other task, and every conversation turn, "
-                             "is placed as before, and running attempts are never touched. "
+                             "the write transaction. Hold either a task or --sandbox workspace-write. "
+                             "While its hold is in force, no new attempt of a matching detached job starts; "
+                             "other jobs place as before. Conversation turns and jobs with no task are never "
+                             "held, and running attempts are never touched. "
                              "Prefixes must have no surrounding spaces. "
-                             "Exit 7: task-hold-condition; exit 6: daemon missing tasks.if_note_prefix.v2. "
+                             "Exit 7: task-hold-condition; exit 6: daemon missing tasks.if_note_prefix.v2, "
+                             "or tasks.sandbox.v1 for --sandbox. "
                              "With --json each refusal is one JSON object on stdout; prose stays on stderr.")
     _add_json(p_tasks)
     p_tasks.set_defaults(handler=cmd_tasks, tasks_command=None)
     tasks_sub = p_tasks.add_subparsers(dest="tasks_command")
     t_list = tasks_sub.add_parser("list", help="the holds in force")
     _add_json(t_list, nested=True)
-    t_hold = tasks_sub.add_parser("hold", help="hold a task until an instant; a second hold replaces the first",
-                                 description="Hold a task. With --if-note-prefix P, write only if no hold is in force "
+    t_hold = tasks_sub.add_parser("hold", help="hold a task or sandbox until an instant; a second hold replaces it",
+                                 description="Hold either a task or --sandbox workspace-write. Conversation turns "
+                                 "and jobs with no task are never held; running attempts are never touched. "
+                                 "With --if-note-prefix P, write only if no hold is in force "
                                  "or its note starts with P; --note must also start with P. "
-                                 "Exit 7: task-hold-condition; exit 6: daemon missing tasks.if_note_prefix.v2. "
+                                 "Exit 7: task-hold-condition; exit 6: daemon missing tasks.if_note_prefix.v2, "
+                                 "or tasks.sandbox.v1 for --sandbox. "
                                  "--json refusals are one object on stdout, with prose on stderr.")
-    t_hold.add_argument("task", help=f"a task the policy routes ({', '.join(TASK_CHOICES)})")
+    hold_target = t_hold.add_mutually_exclusive_group(required=True)
+    hold_target.add_argument("task", nargs="?", help=f"a task the policy routes ({', '.join(TASK_CHOICES)})")
+    hold_target.add_argument("--sandbox", choices=("workspace-write",),
+                             help="hold detached jobs that have a task and this stored sandbox")
     t_hold.add_argument("--until", help="ISO 8601 instant; no zone is UTC")
     t_hold.add_argument("--note", help=f"required: why, one line of at most {task_holds.NOTE_MAX} characters")
     t_hold.add_argument("--if-note-prefix", metavar="P", help="case-sensitive note prefix; no surrounding spaces; "
                         "one printable line, at most 160 characters, with no credential")
     _add_json(t_hold, nested=True)
-    t_release = tasks_sub.add_parser("release", help="end a task's hold at once",
-                                    description="Release a task's hold. With --if-note-prefix P, delete only if "
+    t_release = tasks_sub.add_parser("release", help="end a task or sandbox hold at once",
+                                    description="Release either a task's hold or --sandbox workspace-write. "
+                                    "Conversation turns and jobs with no task are never held; running attempts "
+                                    "are never touched. With --if-note-prefix P, delete only if "
                                     "the stored note starts with P, even for an expired hold; no row succeeds. "
-                                    "Exit 7: task-hold-condition; exit 6: daemon missing tasks.if_note_prefix.v2. "
+                                    "Exit 7: task-hold-condition; exit 6: daemon missing tasks.if_note_prefix.v2, "
+                                    "or tasks.sandbox.v1 for --sandbox. "
                                     "--json refusals are one object on stdout, with prose on stderr.")
-    t_release.add_argument("task")
+    release_target = t_release.add_mutually_exclusive_group(required=True)
+    release_target.add_argument("task", nargs="?")
+    release_target.add_argument("--sandbox", choices=("workspace-write",))
     t_release.add_argument("--if-note-prefix", metavar="P", help="case-sensitive note prefix; no surrounding spaces; "
                            "one printable line, at most 160 characters, with no credential")
     _add_json(t_release, nested=True)
