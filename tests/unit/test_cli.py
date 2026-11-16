@@ -26,6 +26,10 @@ def submit_ok(request: protocol.Request) -> dict:
             "created": True, "state": "queued"}
 
 
+def review_capabilities(request: protocol.Request) -> dict:
+    return {"capabilities": [protocol.REVIEW_SUBJECT_CAPABILITY]}
+
+
 def terminal(state: str = "succeeded", **extra) -> dict:
     return {"jobs": {JOB: {"job_id": JOB, "state": state, **extra}}}
 
@@ -295,7 +299,8 @@ def test_why_renders_exclusion_from_real_policy_decision():
 def test_run_inside_a_claude_session_is_detached_and_prints_the_hint(
         daemon, monkeypatch, capsys, root, workdir):
     """C-17.6 inside a Claude session `run` returns the job id at once with the hint."""
-    server = daemon({"submit": submit_ok, "wait": lambda request: terminal("succeeded", rc=0)})
+    server = daemon({"submit": submit_ok, "wait": lambda request: terminal("succeeded", rc=0),
+                     "capabilities": review_capabilities})
     monkeypatch.setenv("CLAUDECODE", "1")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-9")
     assert run_cli(["run", "--task", "build", "--tier", "standard",
@@ -320,7 +325,7 @@ def test_run_inside_a_claude_session_is_detached_and_prints_the_hint(
 def test_the_hint_names_the_o_path_when_one_was_given(daemon, monkeypatch, capsys,
                                                      root, workdir):
     """C-17.6 the hint's out path is the caller's -o when there is one."""
-    daemon({"submit": submit_ok})
+    daemon({"submit": submit_ok, "capabilities": review_capabilities})
     monkeypatch.setenv("CLAUDECODE", "1")
     target = workdir / "answer.md"
     assert run_cli(["run", "-m", "opus", "-C", str(workdir), "-o", str(target),
@@ -385,7 +390,7 @@ def test_run_outside_a_claude_session_waits_inline(daemon, capsys, root, workdir
 def test_run_no_wait_queue_exits_75(daemon, capsys, root, monkeypatch, workdir):
     """C-17.3 exit 75 is queued, only with --json and --no-wait-queue."""
     daemon({"submit": lambda request: {"job_id": JOB, "created": True,
-                                       "state": "queued"}})
+                                       "state": "queued"}, "capabilities": review_capabilities})
     monkeypatch.setenv("CLAUDECODE", "1")
     assert run_cli(["run", "-m", "opus", "-C", str(workdir), "--json",
                     "--no-wait-queue", "hi"]) == 75
@@ -1166,7 +1171,7 @@ def test_run_wait_inside_a_claude_session_still_blocks(daemon, monkeypatch, caps
         calls.append(1)
         return terminal("failed", rc=6)
 
-    daemon({"submit": submit_ok, "wait": poll})
+    daemon({"submit": submit_ok, "wait": poll, "capabilities": review_capabilities})
     monkeypatch.setenv("CLAUDECODE", "1")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-9")
     assert run_cli(["run", "-m", "opus", "-C", str(workdir), "--wait", "hi"]) == 6

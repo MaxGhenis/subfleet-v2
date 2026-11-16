@@ -1,0 +1,426 @@
+{
+  "ledger_records": 48,
+  "primary_batches": [
+    {
+      "batch": 0,
+      "ledger_line": 31,
+      "files": 27,
+      "selection_source": "importer-batches.json[0] snapshot",
+      "counts": {
+        "passed": 1766,
+        "failed": 1,
+        "skipped": 5,
+        "unfinished": 7
+      }
+    },
+    {
+      "batch": 1,
+      "ledger_line": 34,
+      "files": 35,
+      "selection_source": "selected_files captured in the exact ledger record",
+      "counts": {
+        "passed": 2332,
+        "xfailed": 8,
+        "failed": 1
+      }
+    },
+    {
+      "batch": 2,
+      "ledger_line": 36,
+      "files": 35,
+      "selection_source": "selected_files captured in the exact ledger record",
+      "counts": {
+        "passed": 1555,
+        "skipped": 6
+      }
+    },
+    {
+      "batch": 3,
+      "ledger_line": 37,
+      "files": 35,
+      "selection_source": "selected_files captured in the exact ledger record",
+      "counts": {
+        "passed": 1391,
+        "skipped": 8,
+        "xfailed": 34
+      }
+    },
+    {
+      "batch": 12,
+      "ledger_line": 41,
+      "files": 202,
+      "selection_source": "selected_files captured in the exact ledger record",
+      "counts": {
+        "passed": 4977,
+        "skipped": 90,
+        "xfailed": 52,
+        "failed": 6
+      }
+    }
+  ],
+  "superseded_primary_attempts": [
+    {
+      "ledger_line": 38,
+      "by_ledger_line": 41,
+      "reason": "same full selection; prefer latest completed attempt"
+    },
+    {
+      "ledger_line": 40,
+      "by_ledger_line": 41,
+      "reason": "same full selection; prefer latest completed attempt"
+    }
+  ],
+  "primary_distinct_files": 334,
+  "primary_counts": {
+    "passed": 12021,
+    "failed": 8,
+    "skipped": 109,
+    "unfinished": 7,
+    "xfailed": 94
+  },
+  "primary_file_overlaps": [],
+  "focused_disjoint_green_rows": [
+    {
+      "ledger_line": 23,
+      "files": [
+        "tests/unit/test_writable_fanout.py",
+        "tests/fake/test_writable_fanout.py"
+      ],
+      "counts": {
+        "passed": 29
+      }
+    },
+    {
+      "ledger_line": 27,
+      "files": [
+        "tests/unit/test_review_subject_normalization.py"
+      ],
+      "counts": {
+        "passed": 7
+      }
+    },
+    {
+      "ledger_line": 33,
+      "files": [
+        "tests/unit/test_store_upgrade_slots.py",
+        "tests/unit/test_store_review_subject_migration.py",
+        "tests/unit/test_store_migration_2.py",
+        "tests/unit/test_store_qos_migration.py"
+      ],
+      "counts": {
+        "passed": 54
+      }
+    },
+    {
+      "ledger_line": 35,
+      "files": [
+        "tests/fake/test_review_subject_validation.py",
+        "tests/fake/test_review_subject_resume.py"
+      ],
+      "counts": {
+        "passed": 31
+      }
+    },
+    {
+      "ledger_line": 45,
+      "files": [
+        "tests/unit/test_cli.py",
+        "tests/unit/test_review_subject_cli.py",
+        "tests/unit/test_caller_family_ancestry.py",
+        "tests/unit/test_review_subject_resume_cli.py",
+        "tests/unit/test_review_runs_columns.py"
+      ],
+      "counts": {
+        "passed": 330
+      }
+    },
+    {
+      "ledger_line": 47,
+      "files": [
+        "tests/unit/test_review_r5_repro.py"
+      ],
+      "counts": {
+        "passed": 17
+      }
+    }
+  ],
+  "focused_distinct_files": 15,
+  "focused_counts": {
+    "passed": 468
+  },
+  "scope_note": "Primary and focused aggregates overlap and must not be added. Focused node/filter reruns are excluded; identical primary file selections prefer the latest completed attempt, preserving interrupted attempts only in the command table.",
+  "guard_environment_skips": {
+    "unassigned-earlier-records": {
+      "unique_nodes": 77,
+      "reasons": {
+        "sf-a2-fix1 safety guard: required external/native operation refused": 51,
+        "sf-a2-fix1 safety guard: native process premise excluded before execution": 3,
+        "sf-a2-fix1 safety guard: native holder fixture excluded before execution": 23
+      },
+      "nodes": [
+        "tests/fake/test_daemon_descriptors.py::test_connections_queue_while_the_accept_loop_pauses",
+        "tests/fake/test_fake_provider.py::test_c5_2_fake_spawn_failure_uses_a_missing_executable",
+        "tests/fake/test_workspace_transient.py::test_c6_8_a_killed_worktree_add_waits_and_leaves_nothing_behind",
+        "tests/fake/test_workspace_transient.py::test_c6_8_git_past_its_cap_requeues_and_the_next_pass_admits[read-only-False]",
+        "tests/fake/test_workspace_transient.py::test_c6_8_git_past_its_cap_requeues_and_the_next_pass_admits[workspace-write-True]",
+        "tests/fake/test_workspace_transient.py::test_c6_8_submit_reports_a_git_timeout_instead_of_misreading_it",
+        "tests/unit/test_prune_217.py::test_partition_unfinished_jobs_readers_and_backup_restore",
+        "tests/unit/test_quar_start1_census.py::test_a_relay_that_starts_a_process_before_start_json_fails_the_premise",
+        "tests/unit/test_quar_start1_census.py::test_before_its_start_json_the_guardian_starts_nothing_that_carries_the_attempts_markers[False]",
+        "tests/unit/test_quar_start1_census.py::test_before_its_start_json_the_guardian_starts_nothing_that_carries_the_attempts_markers[True]",
+        "tests/unit/test_retention_archive.py::test_a_bundle_kept_from_an_earlier_attempt_is_checked_against_the_limit_now",
+        "tests/unit/test_retention_archive.py::test_a_bundle_over_the_limit_that_the_estimate_missed_keeps_the_job",
+        "tests/unit/test_retention_archive.py::test_a_failed_process_listing_defers_the_batch",
+        "tests/unit/test_retention_archive.py::test_a_job_registered_inside_another_jobs_tree_retires_first_with_its_own_anchor",
+        "tests/unit/test_retention_archive.py::test_a_job_whose_source_was_another_jobs_tree_root_is_not_kept_for_that",
+        "tests/unit/test_retention_archive.py::test_a_persistent_error_keeps_the_cache_and_backs_off",
+        "tests/unit/test_retention_archive.py::test_a_remote_less_repository_over_the_history_limit_keeps_its_job",
+        "tests/unit/test_retention_archive.py::test_a_remote_that_holds_nothing_counts_as_none",
+        "tests/unit/test_retention_archive.py::test_a_remote_that_holds_only_unrelated_history_counts_as_none",
+        "tests/unit/test_retention_archive.py::test_a_remote_whose_refs_are_from_long_ago_holds_none_of_a_new_baseline",
+        "tests/unit/test_retention_archive.py::test_a_write_while_a_file_is_archived_puts_the_job_back",
+        "tests/unit/test_retention_archive.py::test_an_archive_that_does_not_read_back_authorizes_nothing",
+        "tests/unit/test_retention_archive.py::test_anchor_is_deterministic_and_create_is_idempotent",
+        "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[alternates]",
+        "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[shallow]",
+        "tests/unit/test_retention_archive.py::test_nested_linked_worktree_keeps_the_job",
+        "tests/unit/test_retention_archive.py::test_new_file_before_commit_rolls_back_the_job",
+        "tests/unit/test_retention_archive.py::test_object_reader_hashes_every_byte",
+        "tests/unit/test_retention_archive.py::test_registration_locked_by_someone_else_keeps_the_job",
+        "tests/unit/test_retention_archive.py::test_rollback_after_anchoring_then_next_pass_retires",
+        "tests/unit/test_retention_archive.py::test_salvage_a_network_remote_already_holds_retires[with-registration]",
+        "tests/unit/test_retention_archive.py::test_the_space_the_archive_adds_is_reported_wherever_freed_bytes_are",
+        "tests/unit/test_retention_archive.py::test_the_survey_remembers_a_bundle_that_came_out_over_the_limit",
+        "tests/unit/test_retention_dependency_units.py::test_the_commit_reads_dependents_on_the_journals_spelling",
+        "tests/unit/test_retention_nested_leases.py::test_no_filesystem_work_inside_a_retention_transaction[commit]",
+        "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:other-commit]",
+        "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[alias]",
+        "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[census]",
+        "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[unrecorded]",
+        "tests/unit/test_retention_readback.py::test_damage_before_final_copy_check_keeps_all_source_bytes[hardlink-False]",
+        "tests/unit/test_retention_readback.py::test_damage_before_final_copy_check_keeps_all_source_bytes[lost-False]",
+        "tests/unit/test_retention_readback.py::test_damage_before_final_copy_check_keeps_all_source_bytes[mtime-False]",
+        "tests/unit/test_retention_readback.py::test_damage_before_final_copy_check_keeps_all_source_bytes[same-size-False]",
+        "tests/unit/test_retention_regenerable.py::test_a_repository_inside_regenerable_output_is_archived",
+        "tests/unit/test_retention_regenerable.py::test_ignore_rules_that_change_during_the_archive_defer_the_job",
+        "tests/unit/test_retention_regenerable.py::test_ignored_matches_git_status",
+        "tests/unit/test_retention_regenerable.py::test_lookalikes_are_archived_byte_for_byte",
+        "tests/unit/test_retention_regenerable.py::test_regenerable_output_is_deleted_with_the_tree_not_archived",
+        "tests/unit/test_retention_worktrees.py::test_c13_4_a_later_edit_is_archived_and_a_missing_salvage_ref_keeps_the_job[missing-ref]",
+        "tests/unit/test_salvage_unindexable.py::test_c13_4_retention_keeps_a_worktree_whose_snapshot_left_a_path_out",
+        "tests/unit/test_soak_tools.py::test_canary_runbook_requires_verified_ownership[None]",
+        "tests/unit/test_soak_tools.py::test_canary_runbook_requires_verified_ownership[credential_missing]",
+        "tests/unit/test_soak_tools.py::test_canary_runbook_requires_verified_ownership[v1_unreadable]",
+        "tests/unit/test_soak_tools.py::test_canary_runbook_requires_verified_ownership[wrong_owner]",
+        "tests/unit/test_stopped_daemon.py::test_a_connect_that_times_out_is_re_diagnosed_too",
+        "tests/unit/test_stopped_daemon.py::test_a_kill_lost_to_a_stop_goes_to_offline_mode",
+        "tests/unit/test_stopped_daemon.py::test_a_live_socket_does_not_override_the_stopped_lock",
+        "tests/unit/test_stopped_daemon.py::test_a_marker_file_that_lists_other_pids_attributes_nothing",
+        "tests/unit/test_stopped_daemon.py::test_a_pauser_is_named_only_when_its_marker_file_lists_the_pid",
+        "tests/unit/test_stopped_daemon.py::test_a_refused_connect_asks_the_holder_too",
+        "tests/unit/test_stopped_daemon.py::test_a_silent_daemon_that_is_not_stopped_keeps_its_exit_code",
+        "tests/unit/test_stopped_daemon.py::test_a_stop_during_the_call_is_named_and_its_outcome_stays_unknown",
+        "tests/unit/test_stopped_daemon.py::test_a_submit_lost_to_a_stop_is_unknown_and_not_re_sent_into_the_buffer",
+        "tests/unit/test_stopped_daemon.py::test_a_verb_with_no_offline_mode_prints_the_diagnosis_not_daemon_start",
+        "tests/unit/test_stopped_daemon.py::test_an_undecodable_marker_is_no_evidence_not_a_traceback",
+        "tests/unit/test_stopped_daemon.py::test_daemon_start_refuses_to_start_a_second_daemon_over_a_stopped_one",
+        "tests/unit/test_stopped_daemon.py::test_daemon_status_json_carries_the_state_the_flag_and_the_diagnosis",
+        "tests/unit/test_stopped_daemon.py::test_daemon_status_names_a_stopped_holder_and_skips_the_socket",
+        "tests/unit/test_stopped_daemon.py::test_no_daemon_and_no_store_still_carries_the_daemon_s_own_fix",
+        "tests/unit/test_stopped_daemon.py::test_no_marker_file_at_all_attributes_nothing",
+        "tests/unit/test_stopped_daemon.py::test_real_stopped_holder_never_connects",
+        "tests/unit/test_stopped_daemon.py::test_runs_falls_back_offline_and_says_why",
+        "tests/unit/test_stopped_daemon.py::test_status_falls_back_offline_and_says_why",
+        "tests/unit/test_stopped_daemon.py::test_the_call_is_refused_before_anything_connects",
+        "tests/unit/test_stopped_daemon.py::test_the_doctor_lock_row_fails_on_a_stopped_holder",
+        "tests/unit/test_stopped_daemon.py::test_the_live_ping_row_carries_the_same_diagnosis",
+        "tests/unit/test_stopped_daemon.py::test_the_socket_is_named_only_when_it_exists"
+      ]
+    },
+    "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-180648-rv-a2-fix-r1b-a1-3hqfxg5e/sf-a2-fix1/pytest-importer-batch-12": {
+      "unique_nodes": 58,
+      "reasons": {
+        "sf-a2-fix1 safety guard: native process premise excluded before execution": 3,
+        "sf-a2-fix1 safety guard: native guardian linger premise excluded before execution": 11,
+        "sf-a2-fix1 safety guard: opaque synthetic executable fixture excluded before execution": 10,
+        "sf-a2-fix1 safety guard: native holder fixture excluded before execution": 23,
+        "sf-a2-fix1 safety guard: required external/native operation refused": 11
+      },
+      "nodes": [
+        "tests/fake/test_daemon_descriptors.py::test_connections_queue_while_the_accept_loop_pauses",
+        "tests/fake/test_fake_provider.py::test_c5_2_fake_spawn_failure_uses_a_missing_executable",
+        "tests/fake/test_launch_env_helper_scope.py::test_review_r2_the_isolated_inspection_receives_no_withheld_hook[good-then-hook-no-scope]",
+        "tests/fake/test_launch_env_helper_scope.py::test_review_r2_the_isolated_inspection_receives_no_withheld_hook[good-then-hook-worker]",
+        "tests/fake/test_launch_env_helper_scope.py::test_review_r2_the_isolated_inspection_receives_no_withheld_hook[held-lane-no-scope]",
+        "tests/fake/test_launch_env_helper_scope.py::test_review_r2_the_isolated_inspection_receives_no_withheld_hook[held-lane-worker]",
+        "tests/fake/test_launch_env_helper_scope.py::test_review_r2_the_isolated_inspection_receives_no_withheld_hook[held-with-row-no-scope]",
+        "tests/fake/test_launch_env_helper_scope.py::test_review_r2_the_isolated_inspection_receives_no_withheld_hook[held-with-row-worker]",
+        "tests/fake/test_launch_env_helper_scope.py::test_review_r2_the_isolated_inspection_receives_no_withheld_hook[ignored-row-no-scope]",
+        "tests/fake/test_launch_env_helper_scope.py::test_review_r2_the_isolated_inspection_receives_no_withheld_hook[ignored-row-worker]",
+        "tests/fake/test_salvage_finalization.py::test_c13_1_live_git_past_its_cap_is_tried_again_then_recorded",
+        "tests/fake/test_workspace_transient.py::test_c6_8_a_killed_worktree_add_waits_and_leaves_nothing_behind",
+        "tests/fake/test_workspace_transient.py::test_c6_8_git_past_its_cap_requeues_and_the_next_pass_admits[read-only-False]",
+        "tests/fake/test_workspace_transient.py::test_c6_8_git_past_its_cap_requeues_and_the_next_pass_admits[workspace-write-True]",
+        "tests/fake/test_workspace_transient.py::test_c6_8_submit_reports_a_git_timeout_instead_of_misreading_it",
+        "tests/unit/test_prune_217.py::test_partition_unfinished_jobs_readers_and_backup_restore",
+        "tests/unit/test_quar_start1_census.py::test_a_relay_that_starts_a_process_before_start_json_fails_the_premise",
+        "tests/unit/test_quar_start1_census.py::test_before_its_start_json_the_guardian_starts_nothing_that_carries_the_attempts_markers[False]",
+        "tests/unit/test_quar_start1_census.py::test_before_its_start_json_the_guardian_starts_nothing_that_carries_the_attempts_markers[True]",
+        "tests/unit/test_review_publish_env_round8.py::test_a_parent_s_pinned_names_reach_no_launch_that_is_not_a_review[claude]",
+        "tests/unit/test_review_publish_env_round8.py::test_a_parent_s_pinned_names_reach_no_launch_that_is_not_a_review[codex]",
+        "tests/unit/test_review_publish_env_round8.py::test_bounded_property_the_pins_hold_whatever_the_parent_or_env_pass",
+        "tests/unit/test_review_publish_env_round8.py::test_each_review_launch_keeps_its_pins_through_selection_and_the_guardian[claude-read-only-detached]",
+        "tests/unit/test_review_publish_env_round8.py::test_each_review_launch_keeps_its_pins_through_selection_and_the_guardian[claude-read-only-resume]",
+        "tests/unit/test_review_publish_env_round8.py::test_each_review_launch_keeps_its_pins_through_selection_and_the_guardian[claude-workspace-write-detached]",
+        "tests/unit/test_review_publish_env_round8.py::test_each_review_launch_keeps_its_pins_through_selection_and_the_guardian[claude-workspace-write-resume]",
+        "tests/unit/test_review_publish_env_round8.py::test_each_review_launch_keeps_its_pins_through_selection_and_the_guardian[codex-read-only-detached]",
+        "tests/unit/test_review_publish_env_round8.py::test_each_review_launch_keeps_its_pins_through_selection_and_the_guardian[codex-read-only-resume]",
+        "tests/unit/test_review_publish_env_round8.py::test_each_review_launch_keeps_its_pins_through_selection_and_the_guardian[codex-workspace-write-detached]",
+        "tests/unit/test_review_publish_env_round8.py::test_each_review_launch_keeps_its_pins_through_selection_and_the_guardian[codex-workspace-write-resume]",
+        "tests/unit/test_round10_refusal_context.py::test_real_guard_version_verdict_asks_for_the_supported_version",
+        "tests/unit/test_soak_tools.py::test_canary_runbook_requires_verified_ownership[None]",
+        "tests/unit/test_soak_tools.py::test_canary_runbook_requires_verified_ownership[credential_missing]",
+        "tests/unit/test_soak_tools.py::test_canary_runbook_requires_verified_ownership[v1_unreadable]",
+        "tests/unit/test_soak_tools.py::test_canary_runbook_requires_verified_ownership[wrong_owner]",
+        "tests/unit/test_stopped_daemon.py::test_a_connect_that_times_out_is_re_diagnosed_too",
+        "tests/unit/test_stopped_daemon.py::test_a_kill_lost_to_a_stop_goes_to_offline_mode",
+        "tests/unit/test_stopped_daemon.py::test_a_live_socket_does_not_override_the_stopped_lock",
+        "tests/unit/test_stopped_daemon.py::test_a_marker_file_that_lists_other_pids_attributes_nothing",
+        "tests/unit/test_stopped_daemon.py::test_a_pauser_is_named_only_when_its_marker_file_lists_the_pid",
+        "tests/unit/test_stopped_daemon.py::test_a_refused_connect_asks_the_holder_too",
+        "tests/unit/test_stopped_daemon.py::test_a_silent_daemon_that_is_not_stopped_keeps_its_exit_code",
+        "tests/unit/test_stopped_daemon.py::test_a_stop_during_the_call_is_named_and_its_outcome_stays_unknown",
+        "tests/unit/test_stopped_daemon.py::test_a_submit_lost_to_a_stop_is_unknown_and_not_re_sent_into_the_buffer",
+        "tests/unit/test_stopped_daemon.py::test_a_verb_with_no_offline_mode_prints_the_diagnosis_not_daemon_start",
+        "tests/unit/test_stopped_daemon.py::test_an_undecodable_marker_is_no_evidence_not_a_traceback",
+        "tests/unit/test_stopped_daemon.py::test_daemon_start_refuses_to_start_a_second_daemon_over_a_stopped_one",
+        "tests/unit/test_stopped_daemon.py::test_daemon_status_json_carries_the_state_the_flag_and_the_diagnosis",
+        "tests/unit/test_stopped_daemon.py::test_daemon_status_names_a_stopped_holder_and_skips_the_socket",
+        "tests/unit/test_stopped_daemon.py::test_no_daemon_and_no_store_still_carries_the_daemon_s_own_fix",
+        "tests/unit/test_stopped_daemon.py::test_no_marker_file_at_all_attributes_nothing",
+        "tests/unit/test_stopped_daemon.py::test_real_stopped_holder_never_connects",
+        "tests/unit/test_stopped_daemon.py::test_runs_falls_back_offline_and_says_why",
+        "tests/unit/test_stopped_daemon.py::test_status_falls_back_offline_and_says_why",
+        "tests/unit/test_stopped_daemon.py::test_the_call_is_refused_before_anything_connects",
+        "tests/unit/test_stopped_daemon.py::test_the_doctor_lock_row_fails_on_a_stopped_holder",
+        "tests/unit/test_stopped_daemon.py::test_the_live_ping_row_carries_the_same_diagnosis",
+        "tests/unit/test_stopped_daemon.py::test_the_socket_is_named_only_when_it_exists"
+      ]
+    },
+    "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-180648-rv-a2-fix-r1b-a1-3hqfxg5e/sf-a2-fix1/pytest-importer-extras-01": {
+      "unique_nodes": 107,
+      "reasons": {
+        "sf-a2-fix1 safety guard: required external/native operation refused": 107
+      },
+      "nodes": [
+        "tests/frontend/test_core_client.py::test_c16_1_a_busy_answer_sent_before_the_request_is_read_still_arrives",
+        "tests/frontend/test_core_client.py::test_c16_one_request_per_connection_with_a_unique_id",
+        "tests/frontend/test_core_client.py::test_c29_1_the_endpoint_is_subfleet_home_or_the_default",
+        "tests/frontend/test_core_client.py::test_c29_2_a_busy_daemon_is_busy_not_incompatible",
+        "tests/frontend/test_core_client.py::test_c29_2_a_daemon_that_is_down_or_hangs_up_is_a_state",
+        "tests/frontend/test_core_client.py::test_c29_2_scripted_busy_availability",
+        "tests/frontend/test_core_client.py::test_c29_2_scripted_watch_recovery_rechecks_availability",
+        "tests/frontend/test_core_client.py::test_c29_2_the_first_watch_after_a_failure_checks_again",
+        "tests/frontend/test_core_client.py::test_c29_4_the_development_build_refuses_the_installed_state_root[None]",
+        "tests/frontend/test_core_client.py::test_c29_4_the_development_build_refuses_the_installed_state_root[]",
+        "tests/frontend/test_core_client.py::test_c29_4_the_development_build_refuses_the_installed_state_root[{home}/./.subfleet]",
+        "tests/frontend/test_core_client.py::test_c29_4_the_development_build_refuses_the_installed_state_root[{link}]",
+        "tests/frontend/test_core_client.py::test_c29_4_the_development_build_refuses_the_installed_state_root[~/.Subfleet]",
+        "tests/frontend/test_core_client.py::test_c29_4_the_development_build_refuses_the_installed_state_root[~/.subfleet/]",
+        "tests/frontend/test_core_client.py::test_c29_4_the_development_build_refuses_the_installed_state_root[~/.subfleet]",
+        "tests/frontend/test_core_client.py::test_c29_4_the_development_build_refuses_the_installed_state_root[~]",
+        "tests/frontend/test_core_client.py::test_c29_4_the_refused_development_build_never_connects",
+        "tests/frontend/test_core_client.py::test_design_12_a_silent_daemon_times_out",
+        "tests/frontend/test_core_live_steer.py::test_a_steer_refused_for_good_fails_the_check_however_long_step_14_waits",
+        "tests/frontend/test_core_live_steer.py::test_a_steer_without_into_is_refused_at_once_and_no_wait_takes_it",
+        "tests/frontend/test_core_live_steer.py::test_step_14_judges_its_steer_by_its_deadline_counted_from_the_step_start[deadline-in-backoff]",
+        "tests/frontend/test_core_live_steer.py::test_step_14_judges_its_steer_by_its_deadline_counted_from_the_step_start[review-input]",
+        "tests/frontend/test_core_live_steer.py::test_step_14_judges_its_steer_by_its_deadline_counted_from_the_step_start[time-in-pumps]",
+        "tests/frontend/test_core_live_steer.py::test_step_14_stops_at_its_deadline_and_judges_a_steer_still_waiting",
+        "tests/frontend/test_core_live_steer.py::test_step_14_takes_a_steer_the_running_turn_could_not_take_at_first[catching-up]",
+        "tests/frontend/test_core_live_steer.py::test_step_14_takes_a_steer_the_running_turn_could_not_take_at_first[no-system-init-yet]",
+        "tests/frontend/test_core_live_steer.py::test_step_14_takes_an_answered_steer_with_one_pump_and_no_wait",
+        "tests/frontend/test_core_live_steer.py::test_step_14_waits_out_each_retry_and_judges_the_last_answer[0]",
+        "tests/frontend/test_core_live_steer.py::test_step_14_waits_out_each_retry_and_judges_the_last_answer[1]",
+        "tests/frontend/test_core_live_steer.py::test_step_14_waits_out_each_retry_and_judges_the_last_answer[2]",
+        "tests/frontend/test_core_live_steer.py::test_step_14_waits_out_each_retry_and_judges_the_last_answer[3]",
+        "tests/frontend/test_core_live_steer.py::test_step_14_waits_out_each_retry_and_judges_the_last_answer[4]",
+        "tests/frontend/test_core_live_steer.py::test_step_14_waits_out_each_retry_and_judges_the_last_answer[5]",
+        "tests/frontend/test_core_live_steer.py::test_step_14_waits_out_each_retry_and_judges_the_last_answer[6]",
+        "tests/frontend/test_core_outbox.py::test_c16_1_a_busy_answer_leaves_the_send_queued",
+        "tests/frontend/test_core_outbox.py::test_c16_1_scripted_busy_send_retries_after_backoff",
+        "tests/frontend/test_core_outbox.py::test_c24_2_a_refused_message_holds_the_next_until_the_person_decides",
+        "tests/frontend/test_core_outbox.py::test_c24_2_out_of_order_rereads_the_conversation_and_resends",
+        "tests/frontend/test_core_outbox.py::test_c28_3_a_restart_resends_what_was_under_way",
+        "tests/frontend/test_core_outbox.py::test_c28_3_sends_are_journaled_and_chained_in_order",
+        "tests/frontend/test_core_outbox.py::test_d22_a_conversation_withdrawn_before_it_was_sent_takes_its_messages",
+        "tests/frontend/test_core_outbox.py::test_d22_a_lost_answer_is_retried_with_the_same_key",
+        "tests/frontend/test_core_outbox.py::test_d22_a_message_waits_for_its_conversation",
+        "tests/frontend/test_core_outbox.py::test_d22_pruning_keeps_open_entries_and_the_chain",
+        "tests/frontend/test_core_outbox.py::test_d22_pruning_keeps_the_newest_closed_entries",
+        "tests/frontend/test_core_outbox.py::test_d22_withdraw_only_after_the_daemon_says_it_never_had_it",
+        "tests/frontend/test_core_outbox.py::test_design_12_stop_cancels_while_queued_and_interrupts_once_it_moved",
+        "tests/frontend/test_core_protocol.py::test_c25_1_capabilities_decide_whether_conversation_ops_are_sent",
+        "tests/frontend/test_core_protocol.py::test_c25_2_every_conversation_op_has_a_probe_codec",
+        "tests/frontend/test_core_protocol.py::test_c25_2_every_result_decodes_without_losing_a_field",
+        "tests/frontend/test_core_protocol.py::test_c25_2_refusals_decode_with_their_reason",
+        "tests/frontend/test_core_protocol.py::test_c25_2_requests_the_app_encodes_are_the_daemons_requests",
+        "tests/frontend/test_core_protocol.py::test_c25_2_the_app_knows_every_conversation_op",
+        "tests/frontend/test_core_protocol.py::test_design_12_timeouts[conversation.events-args0-40]",
+        "tests/frontend/test_core_protocol.py::test_design_12_timeouts[conversation.events-args2-15]",
+        "tests/frontend/test_core_protocol.py::test_design_12_timeouts[conversation.watch-args1-40]",
+        "tests/frontend/test_core_protocol.py::test_design_12_timeouts[message.submit-args3-15]",
+        "tests/frontend/test_core_steer.py::test_c24_9_a_missed_steer_steered_again_reads_unread_in_its_new_turn",
+        "tests/frontend/test_core_steer.py::test_c24_9_a_refused_steer_leaves_its_message_queued_and_holds_nothing[no-live-turn]",
+        "tests/frontend/test_core_steer.py::test_c24_9_a_refused_steer_leaves_its_message_queued_and_holds_nothing[not-next]",
+        "tests/frontend/test_core_steer.py::test_c24_9_a_refused_steer_leaves_its_message_queued_and_holds_nothing[not-queued]",
+        "tests/frontend/test_core_steer.py::test_c24_9_a_refused_steer_leaves_its_message_queued_and_holds_nothing[not-steerable]",
+        "tests/frontend/test_core_steer.py::test_c24_9_a_refused_steer_leaves_its_message_queued_and_holds_nothing[settings-narrower]",
+        "tests/frontend/test_core_steer.py::test_c24_9_a_steer_is_its_submit_then_the_steer_in_journal_order",
+        "tests/frontend/test_core_steer.py::test_c24_9_a_steer_never_notifies_twice",
+        "tests/frontend/test_core_steer.py::test_c24_9_a_steer_that_arrives_after_its_turn_ended_is_refused_not_joined_to_the_next",
+        "tests/frontend/test_core_steer.py::test_c24_9_a_steer_that_missed_is_drawn_in_its_own_place_and_runs_next",
+        "tests/frontend/test_core_steer.py::test_c24_9_a_steer_the_turn_cannot_take_yet_is_asked_again_briefly[False-catching-up]",
+        "tests/frontend/test_core_steer.py::test_c24_9_a_steer_the_turn_cannot_take_yet_is_asked_again_briefly[False-not-taken-back]",
+        "tests/frontend/test_core_steer.py::test_c24_9_a_steer_the_turn_cannot_take_yet_is_asked_again_briefly[True-catching-up]",
+        "tests/frontend/test_core_steer.py::test_c24_9_a_steer_the_turn_cannot_take_yet_is_asked_again_briefly[True-not-taken-back]",
+        "tests/frontend/test_core_steer.py::test_c24_9_a_steer_under_way_at_a_restart_or_without_an_answer_is_sent_again_and_lands_once",
+        "tests/frontend/test_core_steer.py::test_c24_9_a_steer_waits_behind_its_own_conversation_only",
+        "tests/frontend/test_core_steer.py::test_c24_9_a_steer_without_an_answer_holds_its_conversation_briefly_then_gives_up",
+        "tests/frontend/test_core_steer.py::test_c24_9_a_steered_message_is_drawn_once_where_the_turn_took_it",
+        "tests/frontend/test_core_steer.py::test_c24_9_a_too_late_answer_says_what_the_next_esc_does",
+        "tests/frontend/test_core_steer.py::test_c24_9_a_turn_asking_for_approval_takes_steers_and_a_narrower_permission_does_not",
+        "tests/frontend/test_core_steer.py::test_c24_9_a_withdrawal_answered_too_late_interrupts_only_a_message_read_as_its_own_turn_s[approval-needed-True]",
+        "tests/frontend/test_core_steer.py::test_c24_9_a_withdrawal_answered_too_late_interrupts_only_a_message_read_as_its_own_turn_s[cancelled-False]",
+        "tests/frontend/test_core_steer.py::test_c24_9_a_withdrawal_answered_too_late_interrupts_only_a_message_read_as_its_own_turn_s[complete-False]",
+        "tests/frontend/test_core_steer.py::test_c24_9_a_withdrawal_answered_too_late_interrupts_only_a_message_read_as_its_own_turn_s[queued-False]",
+        "tests/frontend/test_core_steer.py::test_c24_9_a_withdrawal_answered_too_late_interrupts_only_a_message_read_as_its_own_turn_s[running-True]",
+        "tests/frontend/test_core_steer.py::test_c24_9_a_withdrawal_answered_too_late_interrupts_only_a_message_read_as_its_own_turn_s[starting-True]",
+        "tests/frontend/test_core_steer.py::test_c24_9_a_withdrawal_that_cannot_read_where_the_message_is_never_interrupts",
+        "tests/frontend/test_core_steer.py::test_c24_9_an_older_daemon_answers_unknown_op_and_the_message_stays_queued",
+        "tests/frontend/test_core_steer.py::test_c24_9_an_unread_steer_says_what_the_turn_is_doing",
+        "tests/frontend/test_core_steer.py::test_c24_9_esc_on_a_message_seen_sending_asks_the_daemon_where_it_is",
+        "tests/frontend/test_core_steer.py::test_c24_9_esc_on_a_steer_already_read_changes_nothing_and_never_interrupts",
+        "tests/frontend/test_core_steer.py::test_c24_9_esc_passes_over_a_queued_steer_the_daemon_says_has_left_the_queue",
+        "tests/frontend/test_core_steer.py::test_c24_9_esc_passes_over_a_too_late_steer_only_while_it_is_still_in_that_turn",
+        "tests/frontend/test_core_steer.py::test_c24_9_esc_takes_back_a_steer_the_provider_has_not_read",
+        "tests/frontend/test_core_steer.py::test_c24_9_every_steer_status_line",
+        "tests/frontend/test_core_steer.py::test_c24_9_journaled_steers_restore_after_a_restart",
+        "tests/frontend/test_core_steer.py::test_c24_9_queued_messages_do_not_stop_steering",
+        "tests/frontend/test_core_steer.py::test_c24_9_slash_commands_and_shell_input_are_never_steered",
+        "tests/frontend/test_core_steer.py::test_c24_9_the_composer_steers_only_while_a_running_turn_takes_steers",
+        "tests/frontend/test_core_steer.py::test_c24_9_the_focused_timeline_follows_the_feed_and_a_steer_has_no_chip_of_its_own",
+        "tests/frontend/test_core_steer.py::test_c24_9_words_esc_takes_back_are_kept_in_the_draft",
+        "tests/frontend/test_core_steer.py::test_c25_2_the_steer_op_and_fields_round_trip",
+        "tests/frontend/test_core_steer.py::test_c28_3_an_older_journal_opens_and_steers_never_enter_its_entries",
+        "tests/frontend/test_core_suggestions.py::test_c25_2_the_apps_suggestion_requests_reach_the_daemons_handlers",
+        "tests/frontend/test_core_suggestions.py::test_c29_14_a_listing_preview_never_replaces_a_whole_brief",
+        "tests/frontend/test_core_suggestions.py::test_c29_14_a_start_cut_short_says_why_and_offers_start_again",
+        "tests/frontend/test_core_suggestions.py::test_c29_14_every_suggestion_answer_and_feed_row_decodes_losslessly",
+        "tests/frontend/test_core_suggestions.py::test_c29_14_the_suggested_section_lists_every_open_one_newest_first_with_a_count",
+        "tests/frontend/test_core_suggestions.py::test_c29_14_the_timeline_shows_one_card_per_suggestion_on_the_turn_that_made_it",
+        "tests/frontend/test_core_suggestions.py::test_c29_9_the_feed_keeps_the_section_live_and_a_row_with_no_origin_changes_no_conversation"
+      ]
+    }
+  }
+}

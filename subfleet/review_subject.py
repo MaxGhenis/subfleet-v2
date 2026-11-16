@@ -14,10 +14,20 @@ def normalize_subject(value: str) -> str:
     if type(value) is not str or not value.strip() or len(value) > 2000 or not value.isprintable():
         raise protocol.ProtocolError(refusals.HANDLER_MESSAGES["review-subject"][0], reason="review-subject")
     value = value.strip()
+    candidate = value
+    shorthand = re.fullmatch(r"([^/\s#]+)/([^/\s#]+)#([0-9]+)", value)
+    if shorthand:
+        owner, repo, number = shorthand.groups()
+        candidate = f"https://github.com/{owner}/{repo}/pull/{number}"
+    elif re.match(r"(?:www\.)?github\.com/", value, re.IGNORECASE):
+        candidate = "https://" + value
     try:
-        url = urlsplit(value)
-        match = re.fullmatch(r"/([^/]+)/([^/]+)/pull/([0-9]+)(?:/files)?/?", url.path, re.IGNORECASE)
-        if url.scheme.lower() in ("http", "https") and url.netloc.lower() == "github.com" and match:
+        url = urlsplit(candidate)
+        match = re.fullmatch(
+            r"/([^/]+)/([^/]+)/pull/([0-9]+)(?:/(?:changes|commits|checks)|/files(?:/[0-9a-f]+)?)?/?",
+            url.path, re.IGNORECASE,
+        )
+        if url.scheme.lower() in ("http", "https") and url.netloc.lower() in ("github.com", "www.github.com") and match:
             owner, repo, number = match.groups()
             return f"https://github.com/{owner.lower()}/{repo.lower()}/pull/{number}"
     except ValueError:

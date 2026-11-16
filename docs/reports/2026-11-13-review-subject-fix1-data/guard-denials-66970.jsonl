@@ -1,0 +1,6 @@
+{"reason": "external executable outside strict allowlist", "at": 124709.485279541, "frames": []}
+{"reason": "external executable outside strict allowlist", "at": 124709.486803375, "frames": []}
+{"reason": "external executable outside strict allowlist", "at": 124718.053816291, "frames": [{"file": "unit/test_cli.py", "line": 1809, "function": "test_c16_3_runs_request_id_finds_the_job_offline_too"}, {"file": "unit/test_offline.py", "line": 89, "function": "build_store"}]}
+{"reason": "external executable outside strict allowlist", "at": 124718.054020166, "frames": [{"file": "unit/test_cli.py", "line": 1809, "function": "test_c16_3_runs_request_id_finds_the_job_offline_too"}, {"file": "unit/test_offline.py", "line": 89, "function": "build_store"}]}
+{"reason": "external executable outside strict allowlist", "at": 124718.054323291, "frames": [{"file": "unit/test_cli.py", "line": 1809, "function": "test_c16_3_runs_request_id_finds_the_job_offline_too"}, {"file": "unit/test_offline.py", "line": 89, "function": "build_store"}]}
+{"reason": "external executable outside strict allowlist", "at": 124718.054454166, "frames": [{"file": "unit/test_cli.py", "line": 1809, "function": "test_c16_3_runs_request_id_finds_the_job_offline_too"}, {"file": "unit/test_offline.py", "line": 89, "function": "build_store"}]}

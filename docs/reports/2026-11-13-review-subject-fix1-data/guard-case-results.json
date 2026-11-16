@@ -1,0 +1,75 @@
+{
+  "scope": "seven raw guard-baseline failures remaining after full V2 importer and extras runs; six resolved by exact safe callback recheck",
+  "cases": [
+    {
+      "nodeid": "tests/unit/test_review_r5_repro.py::test_ready_refusal_survives_hold_rearm_and_ready_to_accept_restart[blocked]",
+      "raw_ledger_line": 41,
+      "raw_outcome": "failed",
+      "cause": "strict guard refused the fixture external gh GraphQL read before execution; no PR refusal observation was latched",
+      "resolution": "passed with exact synthetic Python GraphQL callback during full17-case file recheck",
+      "resolution_ledger_line": 47
+    },
+    {
+      "nodeid": "tests/unit/test_review_r5_repro.py::test_ready_refusal_survives_hold_rearm_and_ready_to_accept_restart[throttle]",
+      "raw_ledger_line": 41,
+      "raw_outcome": "failed",
+      "cause": "strict guard refused the fixture external gh GraphQL read before execution; no PR refusal observation was latched",
+      "resolution": "passed with exact synthetic Python GraphQL callback during full17-case file recheck",
+      "resolution_ledger_line": 47
+    },
+    {
+      "nodeid": "tests/unit/test_review_r5_repro.py::test_ready_refusal_survives_hold_rearm_and_ready_to_accept_restart[legacy]",
+      "raw_ledger_line": 41,
+      "raw_outcome": "failed",
+      "cause": "strict guard refused the fixture external gh GraphQL read before execution; no PR refusal observation was latched",
+      "resolution": "passed with exact synthetic Python GraphQL callback during full17-case file recheck",
+      "resolution_ledger_line": 47
+    },
+    {
+      "nodeid": "tests/unit/test_review_r5_repro.py::test_ready_refusal_survives_hold_rearm_and_ready_to_accept_restart[archived]",
+      "raw_ledger_line": 41,
+      "raw_outcome": "failed",
+      "cause": "strict guard refused the fixture external gh GraphQL read before execution; no PR refusal observation was latched",
+      "resolution": "passed with exact synthetic Python GraphQL callback during full17-case file recheck",
+      "resolution_ledger_line": 47
+    },
+    {
+      "nodeid": "tests/unit/test_review_r5_repro.py::test_ready_refusal_acceptance_is_atomic_across_restart[inside-claim]",
+      "raw_ledger_line": 41,
+      "raw_outcome": "failed",
+      "cause": "strict guard refused the fixture external gh GraphQL read before execution; no observation reached the simulated crash boundary",
+      "resolution": "passed with exact synthetic Python GraphQL callback during full17-case file recheck",
+      "resolution_ledger_line": 47
+    },
+    {
+      "nodeid": "tests/unit/test_review_r5_repro.py::test_ready_refusal_acceptance_is_atomic_across_restart[after-commit]",
+      "raw_ledger_line": 41,
+      "raw_outcome": "failed",
+      "cause": "strict guard refused the fixture external gh GraphQL read before execution; no observation reached the simulated crash boundary",
+      "resolution": "passed with exact synthetic Python GraphQL callback during full17-case file recheck",
+      "resolution_ledger_line": 47
+    },
+    {
+      "nodeid": "tests/fake/test_review_launch_permissions.py::test_the_installed_publish_hook_is_run_before_launch",
+      "raw_ledger_line": 42,
+      "raw_outcome": "failed",
+      "cause": "strict external-command guard prevented the installed publish-hook self-test; the expected guardian launch was absent",
+      "resolution": "not rerun or exempted because the self-test exercises write-shaped command boundaries",
+      "remaining_status": "environment-limited validation failure"
+    }
+  ],
+  "callback_evidence": {
+    "activated_cases": 6,
+    "synthetic_read_callbacks": 6,
+    "external_commands_executed": 0,
+    "inert_proof_checks": 6,
+    "full_r5_recheck_passed": 17,
+    "ledger_line": 47
+  },
+  "final_required_check": {
+    "ledger_line": 48,
+    "passed": 447,
+    "failed": 0
+  },
+  "note": "This diagnostic records no additional test invocation and does not claim the excluded native/opaque cases passed."
+}

@@ -48,6 +48,10 @@ PUSH_CAPABILITY = "push.v1"
 #: write transaction. Older daemons drop the field, so clients must discover this first.
 TASKS_IF_NOTE_PREFIX_CAPABILITY = "tasks.if_note_prefix.v1"
 
+#: C-6.21/22: `submit` retains caller family, review subject and review round.
+#: Older daemons ignore these fields, so callers discover support before sending them.
+REVIEW_SUBJECT_CAPABILITY = "review.subject.v1"
+
 OPS = (
     "submit", "list", "show", "wait", "kill", "lanes", "readings", "why",
     "notice.pending", "notice.ack", "notice.mark", "notice.list", "notice.withdraw", "ping", "daemon.status",

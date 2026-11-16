@@ -1,0 +1,20 @@
+{
+  "checked_utc": "2026-11-16T01:55:15.409522+00:00",
+  "parsed_product_and_test_python_files": 19,
+  "removed_roots": [
+    "/private/tmp/sf-a2-fix1",
+    "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-180648-rv-a2-fix-r1b-a1-3hqfxg5e/sf-a2-fix1",
+    ".venv",
+    ".pytest_cache",
+    ".hypothesis",
+    "build",
+    "sitecustomize.py",
+    "sf-a2-fix1-extra-cleanup"
+  ],
+  "head": "5b06c1826bc0641f65b1293197a505b8c8a4843a",
+  "named_staging_files": 148,
+  "staging_exit": 128,
+  "commit_exit": 128,
+  "final_contract_cases_passed": 447,
+  "new_regression_cases_with_red_green_evidence": 40
+}

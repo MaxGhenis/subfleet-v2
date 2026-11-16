@@ -3659,10 +3659,15 @@ class Daemon:
         if preamble is None:
             # A source submitted before the manifest said: its prepared prompt did.
             preamble = (self.root / "jobs" / source["job_id"] / "prompt.prepared.md").is_file()
+        # Validate the source's effective task before inheriting its fields;
+        # otherwise a forged review request could silently shed invalid fields.
+        if source["task"] != "review" and (args.review_subject is not None or args.review_round is not None):
+            raise protocol.ProtocolError(refusals.HANDLER_MESSAGES["review-fields"][0], reason="review-fields")
         args = dataclasses.replace(args, workdir=source["worktree"] or source["workdir"],
             sandbox=source["sandbox"], in_place=source["sandbox"] == "workspace-write",
             pinned_lane=attempt["lane_id"], pinned_model=attempt["model_requested"],
             task=source["task"], tier=source["tier"], allow_desktop=bool(source["allow_desktop"]),
+            review_subject=source.get("review_subject"), review_round=source.get("review_round"),
             exclusions=json.loads(source["exclusions"] or "[]"),
             needs_shell=(args.needs_shell if args.needs_shell is not None else bool(source.get("needs_shell"))),
             independent=True, allow_tmp=True, no_preamble=not preamble, mcp_servers=list(recorded))
@@ -3971,6 +3976,11 @@ class Daemon:
                 raise AdapterError(f"session {session} has a live writable job ({holder}) and a revive is a second instance of it",
                                    fix=f"wait for {holder}, or kill it before reviving or dispatching", reason="revive-writer",
                                    details={"job_id": holder})
+            # A Codex thread has a session id but no Claude writer-process
+            # identity. Keep target, revive and policy-cap checks; only the
+            # process comparison belongs to callers that supply that identity.
+            if job.get("caller_family") == "codex":
+                continue
             theirs = recorded[holder].get("caller_instance")
             if instance is not None and theirs == instance:
                 continue
