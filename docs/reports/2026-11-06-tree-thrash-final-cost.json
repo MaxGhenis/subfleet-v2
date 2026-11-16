@@ -1,0 +1,895 @@
+{
+  "commits": {
+    "base": "a8624a4899a2ce40c849cc5c6f7d74a7010f11b5",
+    "head": "a8624a4899a2ce40c849cc5c6f7d74a7010f11b5"
+  },
+  "head_overlay_sha256": {
+    "subfleet/daemon.py": "a2d56e2efecb049a18780d8bb7cadb7f1877e181b48ecb7bf706955e17b52c07"
+  },
+  "samples": [
+    {
+      "label": "base",
+      "sample": 0,
+      "scenario": "closed",
+      "jobs": 300,
+      "workspace": "synthetic",
+      "wall_s": 44.35959420799918,
+      "thread_cpu_s": 0.24102024999999994,
+      "instructions": 1061281922,
+      "cuts": 0,
+      "workspace_calls": 0,
+      "evaluations": 0,
+      "store_read_calls": 607,
+      "store_rows": 303,
+      "reservations": 0,
+      "runner_sha256": "e87dfe9d767014e4091b84f72fdc10e104c8f657b53882564ccb443bf103187d"
+    },
+    {
+      "label": "base",
+      "sample": 1,
+      "scenario": "closed",
+      "jobs": 300,
+      "workspace": "synthetic",
+      "wall_s": 33.98496195900225,
+      "thread_cpu_s": 0.2801447089999999,
+      "instructions": 1088792879,
+      "cuts": 0,
+      "workspace_calls": 0,
+      "evaluations": 0,
+      "store_read_calls": 607,
+      "store_rows": 303,
+      "reservations": 0,
+      "runner_sha256": "e87dfe9d767014e4091b84f72fdc10e104c8f657b53882564ccb443bf103187d"
+    },
+    {
+      "label": "head",
+      "sample": 0,
+      "scenario": "closed",
+      "jobs": 300,
+      "workspace": "synthetic",
+      "wall_s": 28.90043308299937,
+      "thread_cpu_s": 0.23787775,
+      "instructions": 1000119749,
+      "cuts": 0,
+      "workspace_calls": 0,
+      "evaluations": 0,
+      "store_read_calls": 607,
+      "store_rows": 303,
+      "reservations": 0,
+      "runner_sha256": "e87dfe9d767014e4091b84f72fdc10e104c8f657b53882564ccb443bf103187d"
+    },
+    {
+      "label": "head",
+      "sample": 1,
+      "scenario": "closed",
+      "jobs": 300,
+      "workspace": "synthetic",
+      "wall_s": 38.88384354200389,
+      "thread_cpu_s": 0.279067167,
+      "instructions": 1028782616,
+      "cuts": 0,
+      "workspace_calls": 0,
+      "evaluations": 0,
+      "store_read_calls": 607,
+      "store_rows": 303,
+      "reservations": 0,
+      "runner_sha256": "e87dfe9d767014e4091b84f72fdc10e104c8f657b53882564ccb443bf103187d"
+    },
+    {
+      "label": "base",
+      "sample": 0,
+      "scenario": "controller",
+      "jobs": 300,
+      "workspace": "synthetic",
+      "wall_s": 105.39226266599871,
+      "thread_cpu_s": 1.3555140410000002,
+      "instructions": 9102963208,
+      "cuts": 300,
+      "workspace_calls": 300,
+      "evaluations": 300,
+      "store_read_calls": 8710,
+      "store_rows": 7187,
+      "reservations": 2,
+      "runner_sha256": "e87dfe9d767014e4091b84f72fdc10e104c8f657b53882564ccb443bf103187d"
+    },
+    {
+      "label": "head",
+      "sample": 0,
+      "scenario": "controller",
+      "jobs": 300,
+      "workspace": "synthetic",
+      "wall_s": 109.37732154100377,
+      "thread_cpu_s": 1.3389926669999999,
+      "instructions": 8973961854,
+      "cuts": 2,
+      "workspace_calls": 2,
+      "evaluations": 300,
+      "store_read_calls": 8732,
+      "store_rows": 7198,
+      "reservations": 2,
+      "runner_sha256": "e87dfe9d767014e4091b84f72fdc10e104c8f657b53882564ccb443bf103187d"
+    },
+    {
+      "label": "base",
+      "sample": 0,
+      "scenario": "open",
+      "jobs": 300,
+      "workspace": "synthetic",
+      "wall_s": 216.80992725000397,
+      "thread_cpu_s": 2.1956555,
+      "instructions": 16668125198,
+      "cuts": 300,
+      "workspace_calls": 300,
+      "evaluations": 300,
+      "store_read_calls": 9007,
+      "store_rows": 228154,
+      "reservations": 300,
+      "runner_sha256": "e87dfe9d767014e4091b84f72fdc10e104c8f657b53882564ccb443bf103187d"
+    },
+    {
+      "label": "head",
+      "sample": 0,
+      "scenario": "open",
+      "jobs": 300,
+      "workspace": "synthetic",
+      "wall_s": 260.4391003749988,
+      "thread_cpu_s": 2.758344125,
+      "instructions": 21250462064,
+      "cuts": 300,
+      "workspace_calls": 300,
+      "evaluations": 300,
+      "store_read_calls": 12307,
+      "store_rows": 274504,
+      "reservations": 300,
+      "runner_sha256": "e87dfe9d767014e4091b84f72fdc10e104c8f657b53882564ccb443bf103187d"
+    }
+  ],
+  "summary": [
+    {
+      "label": "base",
+      "scenario": "closed",
+      "sample_count": 2,
+      "wall_s": {
+        "min": 33.98496195900225,
+        "median": 39.172278083500714,
+        "max": 44.35959420799918
+      },
+      "thread_cpu_s": {
+        "min": 0.24102024999999994,
+        "median": 0.2605824794999999,
+        "max": 0.2801447089999999
+      },
+      "instructions": {
+        "min": 1061281922,
+        "median": 1075037400.5,
+        "max": 1088792879
+      },
+      "cuts": {
+        "min": 0,
+        "median": 0.0,
+        "max": 0
+      },
+      "workspace_calls": {
+        "min": 0,
+        "median": 0.0,
+        "max": 0
+      },
+      "evaluations": {
+        "min": 0,
+        "median": 0.0,
+        "max": 0
+      },
+      "store_read_calls": {
+        "min": 607,
+        "median": 607.0,
+        "max": 607
+      },
+      "store_rows": {
+        "min": 303,
+        "median": 303.0,
+        "max": 303
+      },
+      "reservations": {
+        "min": 0,
+        "median": 0.0,
+        "max": 0
+      }
+    },
+    {
+      "label": "head",
+      "scenario": "closed",
+      "sample_count": 2,
+      "wall_s": {
+        "min": 28.90043308299937,
+        "median": 33.89213831250163,
+        "max": 38.88384354200389
+      },
+      "thread_cpu_s": {
+        "min": 0.23787775,
+        "median": 0.2584724585,
+        "max": 0.279067167
+      },
+      "instructions": {
+        "min": 1000119749,
+        "median": 1014451182.5,
+        "max": 1028782616
+      },
+      "cuts": {
+        "min": 0,
+        "median": 0.0,
+        "max": 0
+      },
+      "workspace_calls": {
+        "min": 0,
+        "median": 0.0,
+        "max": 0
+      },
+      "evaluations": {
+        "min": 0,
+        "median": 0.0,
+        "max": 0
+      },
+      "store_read_calls": {
+        "min": 607,
+        "median": 607.0,
+        "max": 607
+      },
+      "store_rows": {
+        "min": 303,
+        "median": 303.0,
+        "max": 303
+      },
+      "reservations": {
+        "min": 0,
+        "median": 0.0,
+        "max": 0
+      }
+    },
+    {
+      "label": "base",
+      "scenario": "controller",
+      "sample_count": 1,
+      "wall_s": {
+        "min": 105.39226266599871,
+        "median": 105.39226266599871,
+        "max": 105.39226266599871
+      },
+      "thread_cpu_s": {
+        "min": 1.3555140410000002,
+        "median": 1.3555140410000002,
+        "max": 1.3555140410000002
+      },
+      "instructions": {
+        "min": 9102963208,
+        "median": 9102963208,
+        "max": 9102963208
+      },
+      "cuts": {
+        "min": 300,
+        "median": 300,
+        "max": 300
+      },
+      "workspace_calls": {
+        "min": 300,
+        "median": 300,
+        "max": 300
+      },
+      "evaluations": {
+        "min": 300,
+        "median": 300,
+        "max": 300
+      },
+      "store_read_calls": {
+        "min": 8710,
+        "median": 8710,
+        "max": 8710
+      },
+      "store_rows": {
+        "min": 7187,
+        "median": 7187,
+        "max": 7187
+      },
+      "reservations": {
+        "min": 2,
+        "median": 2,
+        "max": 2
+      }
+    },
+    {
+      "label": "head",
+      "scenario": "controller",
+      "sample_count": 1,
+      "wall_s": {
+        "min": 109.37732154100377,
+        "median": 109.37732154100377,
+        "max": 109.37732154100377
+      },
+      "thread_cpu_s": {
+        "min": 1.3389926669999999,
+        "median": 1.3389926669999999,
+        "max": 1.3389926669999999
+      },
+      "instructions": {
+        "min": 8973961854,
+        "median": 8973961854,
+        "max": 8973961854
+      },
+      "cuts": {
+        "min": 2,
+        "median": 2,
+        "max": 2
+      },
+      "workspace_calls": {
+        "min": 2,
+        "median": 2,
+        "max": 2
+      },
+      "evaluations": {
+        "min": 300,
+        "median": 300,
+        "max": 300
+      },
+      "store_read_calls": {
+        "min": 8732,
+        "median": 8732,
+        "max": 8732
+      },
+      "store_rows": {
+        "min": 7198,
+        "median": 7198,
+        "max": 7198
+      },
+      "reservations": {
+        "min": 2,
+        "median": 2,
+        "max": 2
+      }
+    },
+    {
+      "label": "base",
+      "scenario": "open",
+      "sample_count": 1,
+      "wall_s": {
+        "min": 216.80992725000397,
+        "median": 216.80992725000397,
+        "max": 216.80992725000397
+      },
+      "thread_cpu_s": {
+        "min": 2.1956555,
+        "median": 2.1956555,
+        "max": 2.1956555
+      },
+      "instructions": {
+        "min": 16668125198,
+        "median": 16668125198,
+        "max": 16668125198
+      },
+      "cuts": {
+        "min": 300,
+        "median": 300,
+        "max": 300
+      },
+      "workspace_calls": {
+        "min": 300,
+        "median": 300,
+        "max": 300
+      },
+      "evaluations": {
+        "min": 300,
+        "median": 300,
+        "max": 300
+      },
+      "store_read_calls": {
+        "min": 9007,
+        "median": 9007,
+        "max": 9007
+      },
+      "store_rows": {
+        "min": 228154,
+        "median": 228154,
+        "max": 228154
+      },
+      "reservations": {
+        "min": 300,
+        "median": 300,
+        "max": 300
+      }
+    },
+    {
+      "label": "head",
+      "scenario": "open",
+      "sample_count": 1,
+      "wall_s": {
+        "min": 260.4391003749988,
+        "median": 260.4391003749988,
+        "max": 260.4391003749988
+      },
+      "thread_cpu_s": {
+        "min": 2.758344125,
+        "median": 2.758344125,
+        "max": 2.758344125
+      },
+      "instructions": {
+        "min": 21250462064,
+        "median": 21250462064,
+        "max": 21250462064
+      },
+      "cuts": {
+        "min": 300,
+        "median": 300,
+        "max": 300
+      },
+      "workspace_calls": {
+        "min": 300,
+        "median": 300,
+        "max": 300
+      },
+      "evaluations": {
+        "min": 300,
+        "median": 300,
+        "max": 300
+      },
+      "store_read_calls": {
+        "min": 12307,
+        "median": 12307,
+        "max": 12307
+      },
+      "store_rows": {
+        "min": 274504,
+        "median": 274504,
+        "max": 274504
+      },
+      "reservations": {
+        "min": 300,
+        "median": 300,
+        "max": 300
+      }
+    }
+  ],
+  "complete": true,
+  "provenance": {
+    "excluded_attempt": {
+      "commits": {
+        "base": "a8624a4899a2ce40c849cc5c6f7d74a7010f11b5",
+        "head": "a8624a4899a2ce40c849cc5c6f7d74a7010f11b5"
+      },
+      "head_overlay_sha256": {
+        "subfleet/daemon.py": "18cd2cff09585675105ef6c3c86e87fe623c00a6b9efe4863784178650de7360"
+      },
+      "samples": [
+        {
+          "label": "base",
+          "sample": 0,
+          "scenario": "closed",
+          "jobs": 300,
+          "workspace": "synthetic",
+          "wall_s": 65.66437541699997,
+          "thread_cpu_s": 0.259037167,
+          "instructions": 1068613342,
+          "cuts": 0,
+          "workspace_calls": 0,
+          "evaluations": 0,
+          "store_read_calls": 607,
+          "store_rows": 303,
+          "reservations": 0
+        },
+        {
+          "label": "head",
+          "sample": 0,
+          "scenario": "closed",
+          "jobs": 300,
+          "workspace": "synthetic",
+          "wall_s": 56.9070115420036,
+          "thread_cpu_s": 0.25665916600000016,
+          "instructions": 1012405458,
+          "cuts": 0,
+          "workspace_calls": 0,
+          "evaluations": 0,
+          "store_read_calls": 607,
+          "store_rows": 303,
+          "reservations": 0
+        }
+      ],
+      "complete": false
+    },
+    "excluded_reason": "Superseded by uniform process-inspection and sampler stubs installed before fixture construction. The next controller worker failed before a sample; the original runner hid its stderr, so no controller result is claimed.",
+    "sampler_correction": "Sampler.prime is synchronous, not a background thread. Preconstruction suppression removes native setup probes; the measured passes already used a synthetic _machine_reading.",
+    "worker_runner_sha256": {
+      "closed/base": "853b9250c9cfffc622f1ed83f224edcba4154d218b56a2b066693b85e952ecf4",
+      "closed/head": "bb95b053692d4e9d1bf8d0f7ddbed57d8650350d0a00ca9db5867de3583db491",
+      "controller/base": "e87dfe9d767014e4091b84f72fdc10e104c8f657b53882564ccb443bf103187d",
+      "controller/head": "e87dfe9d767014e4091b84f72fdc10e104c8f657b53882564ccb443bf103187d",
+      "open/base": "e87dfe9d767014e4091b84f72fdc10e104c8f657b53882564ccb443bf103187d",
+      "open/head": "e87dfe9d767014e4091b84f72fdc10e104c8f657b53882564ccb443bf103187d"
+    },
+    "closed_setup_mismatch": "Superseded original closed samples used different seed-submit setup versions; they are excluded from headline samples and summaries. All headline closed samples below are uniform frozen-runner repeats.",
+    "setup_only_changes": "Cache immutable clean HEAD/top/common/prefix only during seed submit, restore helpers before measured admission; combine HEAD/tree rev-parse; pass identity via commit -c instead of separate config processes.",
+    "setup_mismatched_closed_samples": [
+      {
+        "label": "base",
+        "sample": 0,
+        "scenario": "closed",
+        "jobs": 300,
+        "workspace": "synthetic",
+        "wall_s": 42.24704795800062,
+        "thread_cpu_s": 0.25431875000000004,
+        "instructions": 1060411888,
+        "cuts": 0,
+        "workspace_calls": 0,
+        "evaluations": 0,
+        "store_read_calls": 607,
+        "store_rows": 303,
+        "reservations": 0
+      },
+      {
+        "label": "head",
+        "sample": 0,
+        "scenario": "closed",
+        "jobs": 300,
+        "workspace": "synthetic",
+        "wall_s": 54.389170166999975,
+        "thread_cpu_s": 0.26235825,
+        "instructions": 1076062754,
+        "cuts": 0,
+        "workspace_calls": 0,
+        "evaluations": 0,
+        "store_read_calls": 607,
+        "store_rows": 303,
+        "reservations": 0
+      }
+    ],
+    "main_command": "uv run --no-sync python tools/benchmark_tree_thrash.py --samples 1 --jobs 300 --head-overlay subfleet/daemon.py --output docs/reports/2026-11-06-tree-thrash-final-cost.json",
+    "main_command_utc_minutes": {
+      "start": "2026-11-06 13:47 UTC",
+      "end": "2026-11-06 14:54 UTC",
+      "elapsed_approx_minutes": 67
+    },
+    "uniform_closed_first_pair": {
+      "commits": {
+        "base": "a8624a4899a2ce40c849cc5c6f7d74a7010f11b5",
+        "head": "a8624a4899a2ce40c849cc5c6f7d74a7010f11b5"
+      },
+      "head_overlay_sha256": {
+        "subfleet/daemon.py": "a2d56e2efecb049a18780d8bb7cadb7f1877e181b48ecb7bf706955e17b52c07"
+      },
+      "samples": [
+        {
+          "label": "base",
+          "sample": 0,
+          "scenario": "closed",
+          "jobs": 300,
+          "workspace": "synthetic",
+          "wall_s": 44.35959420799918,
+          "thread_cpu_s": 0.24102024999999994,
+          "instructions": 1061281922,
+          "cuts": 0,
+          "workspace_calls": 0,
+          "evaluations": 0,
+          "store_read_calls": 607,
+          "store_rows": 303,
+          "reservations": 0,
+          "runner_sha256": "e87dfe9d767014e4091b84f72fdc10e104c8f657b53882564ccb443bf103187d"
+        },
+        {
+          "label": "head",
+          "sample": 0,
+          "scenario": "closed",
+          "jobs": 300,
+          "workspace": "synthetic",
+          "wall_s": 28.90043308299937,
+          "thread_cpu_s": 0.23787775,
+          "instructions": 1000119749,
+          "cuts": 0,
+          "workspace_calls": 0,
+          "evaluations": 0,
+          "store_read_calls": 607,
+          "store_rows": 303,
+          "reservations": 0,
+          "runner_sha256": "e87dfe9d767014e4091b84f72fdc10e104c8f657b53882564ccb443bf103187d"
+        }
+      ],
+      "summary": [
+        {
+          "label": "base",
+          "scenario": "closed",
+          "wall_s": {
+            "min": 44.35959420799918,
+            "median": 44.35959420799918,
+            "max": 44.35959420799918
+          },
+          "thread_cpu_s": {
+            "min": 0.24102024999999994,
+            "median": 0.24102024999999994,
+            "max": 0.24102024999999994
+          },
+          "instructions": {
+            "min": 1061281922,
+            "median": 1061281922,
+            "max": 1061281922
+          },
+          "cuts": {
+            "min": 0,
+            "median": 0,
+            "max": 0
+          },
+          "workspace_calls": {
+            "min": 0,
+            "median": 0,
+            "max": 0
+          },
+          "evaluations": {
+            "min": 0,
+            "median": 0,
+            "max": 0
+          },
+          "store_read_calls": {
+            "min": 607,
+            "median": 607,
+            "max": 607
+          },
+          "store_rows": {
+            "min": 303,
+            "median": 303,
+            "max": 303
+          },
+          "reservations": {
+            "min": 0,
+            "median": 0,
+            "max": 0
+          }
+        },
+        {
+          "label": "head",
+          "scenario": "closed",
+          "wall_s": {
+            "min": 28.90043308299937,
+            "median": 28.90043308299937,
+            "max": 28.90043308299937
+          },
+          "thread_cpu_s": {
+            "min": 0.23787775,
+            "median": 0.23787775,
+            "max": 0.23787775
+          },
+          "instructions": {
+            "min": 1000119749,
+            "median": 1000119749,
+            "max": 1000119749
+          },
+          "cuts": {
+            "min": 0,
+            "median": 0,
+            "max": 0
+          },
+          "workspace_calls": {
+            "min": 0,
+            "median": 0,
+            "max": 0
+          },
+          "evaluations": {
+            "min": 0,
+            "median": 0,
+            "max": 0
+          },
+          "store_read_calls": {
+            "min": 607,
+            "median": 607,
+            "max": 607
+          },
+          "store_rows": {
+            "min": 303,
+            "median": 303,
+            "max": 303
+          },
+          "reservations": {
+            "min": 0,
+            "median": 0,
+            "max": 0
+          }
+        }
+      ],
+      "complete": true
+    },
+    "uniform_closed_first_pair_command_total_s": 986.86,
+    "uniform_closed_repeat_command": "time uv run --no-sync python tools/benchmark_tree_thrash.py --samples 1 --jobs 300 --scenarios closed --head-overlay subfleet/daemon.py --output docs/reports/2026-11-06-tree-thrash-cost-overlay.json",
+    "uniform_closed_second_pair": {
+      "commits": {
+        "base": "a8624a4899a2ce40c849cc5c6f7d74a7010f11b5",
+        "head": "a8624a4899a2ce40c849cc5c6f7d74a7010f11b5"
+      },
+      "head_overlay_sha256": {
+        "subfleet/daemon.py": "a2d56e2efecb049a18780d8bb7cadb7f1877e181b48ecb7bf706955e17b52c07"
+      },
+      "samples": [
+        {
+          "label": "base",
+          "sample": 0,
+          "scenario": "closed",
+          "jobs": 300,
+          "workspace": "synthetic",
+          "wall_s": 33.98496195900225,
+          "thread_cpu_s": 0.2801447089999999,
+          "instructions": 1088792879,
+          "cuts": 0,
+          "workspace_calls": 0,
+          "evaluations": 0,
+          "store_read_calls": 607,
+          "store_rows": 303,
+          "reservations": 0,
+          "runner_sha256": "e87dfe9d767014e4091b84f72fdc10e104c8f657b53882564ccb443bf103187d"
+        },
+        {
+          "label": "head",
+          "sample": 0,
+          "scenario": "closed",
+          "jobs": 300,
+          "workspace": "synthetic",
+          "wall_s": 38.88384354200389,
+          "thread_cpu_s": 0.279067167,
+          "instructions": 1028782616,
+          "cuts": 0,
+          "workspace_calls": 0,
+          "evaluations": 0,
+          "store_read_calls": 607,
+          "store_rows": 303,
+          "reservations": 0,
+          "runner_sha256": "e87dfe9d767014e4091b84f72fdc10e104c8f657b53882564ccb443bf103187d"
+        }
+      ],
+      "summary": [
+        {
+          "label": "base",
+          "scenario": "closed",
+          "wall_s": {
+            "min": 33.98496195900225,
+            "median": 33.98496195900225,
+            "max": 33.98496195900225
+          },
+          "thread_cpu_s": {
+            "min": 0.2801447089999999,
+            "median": 0.2801447089999999,
+            "max": 0.2801447089999999
+          },
+          "instructions": {
+            "min": 1088792879,
+            "median": 1088792879,
+            "max": 1088792879
+          },
+          "cuts": {
+            "min": 0,
+            "median": 0,
+            "max": 0
+          },
+          "workspace_calls": {
+            "min": 0,
+            "median": 0,
+            "max": 0
+          },
+          "evaluations": {
+            "min": 0,
+            "median": 0,
+            "max": 0
+          },
+          "store_read_calls": {
+            "min": 607,
+            "median": 607,
+            "max": 607
+          },
+          "store_rows": {
+            "min": 303,
+            "median": 303,
+            "max": 303
+          },
+          "reservations": {
+            "min": 0,
+            "median": 0,
+            "max": 0
+          }
+        },
+        {
+          "label": "head",
+          "scenario": "closed",
+          "wall_s": {
+            "min": 38.88384354200389,
+            "median": 38.88384354200389,
+            "max": 38.88384354200389
+          },
+          "thread_cpu_s": {
+            "min": 0.279067167,
+            "median": 0.279067167,
+            "max": 0.279067167
+          },
+          "instructions": {
+            "min": 1028782616,
+            "median": 1028782616,
+            "max": 1028782616
+          },
+          "cuts": {
+            "min": 0,
+            "median": 0,
+            "max": 0
+          },
+          "workspace_calls": {
+            "min": 0,
+            "median": 0,
+            "max": 0
+          },
+          "evaluations": {
+            "min": 0,
+            "median": 0,
+            "max": 0
+          },
+          "store_read_calls": {
+            "min": 607,
+            "median": 607,
+            "max": 607
+          },
+          "store_rows": {
+            "min": 303,
+            "median": 303,
+            "max": 303
+          },
+          "reservations": {
+            "min": 0,
+            "median": 0,
+            "max": 0
+          }
+        }
+      ],
+      "complete": true,
+      "runner_sha256": "e87dfe9d767014e4091b84f72fdc10e104c8f657b53882564ccb443bf103187d",
+      "command_total_s": 800.43,
+      "command": "time uv run --no-sync python tools/benchmark_tree_thrash.py --samples 1 --jobs 300 --scenarios closed --head-overlay subfleet/daemon.py --output docs/reports/2026-11-06-tree-thrash-cost-overlay.json"
+    },
+    "uniform_closed_second_pair_command_total_s": 800.43,
+    "worker_runner_sha256_note": "This historical mapping describes the original six-worker command. Headline samples now all use runner_sha256 at the top level.",
+    "static_bytecode_check": {
+      "python": "3.14.7",
+      "scope": "Standalone AST-compiled _admit_pass prefix before the fresh workspace branch; opcode counts, not a timing claim.",
+      "base": {
+        "locals": 163,
+        "cells": 41,
+        "prefix_instructions": 2600,
+        "prefix_extended_arg": 31
+      },
+      "head": {
+        "locals": 166,
+        "cells": 41,
+        "prefix_instructions": 2600,
+        "prefix_extended_arg": 31
+      }
+    },
+    "combined_sample_index_note": "The second uniform closed run has local sample0 in its raw artifact and global sample1 in the combined headline samples."
+  },
+  "comparison_note": "All headline samples use one frozen runner: two closed samples per version, one controller/open sample per version. Superseded setup-mismatched samples are retained only in provenance.",
+  "runner_sha256": "e87dfe9d767014e4091b84f72fdc10e104c8f657b53882564ccb443bf103187d",
+  "measurement_scope": {
+    "workspace": "Synthetic empty directories isolate daemon scheduling cost; no real-Git preparation timing is claimed.",
+    "instructions": "proc_pid_rusage V4 ri_instructions of the worker process; Git children excluded.",
+    "read_counts": "Store query/one calls and rows returned; direct transaction SQL excluded.",
+    "processes": "Isolated HOME/state; process inspectors and machine sampler stubbed before Daemon construction; no provider/service launch."
+  },
+  "cost_change_percent": {
+    "closed": {
+      "instructions": -5.635731182172954,
+      "wall_s": -13.47927674705003,
+      "thread_cpu_s": -0.8097324900924185,
+      "store_read_calls": 0.0,
+      "store_rows": 0.0
+    },
+    "controller": {
+      "instructions": -1.4171358386533828,
+      "wall_s": 3.7811683459479495,
+      "thread_cpu_s": -1.2188272124287303,
+      "store_read_calls": 0.2525832376578663,
+      "store_rows": 0.15305412550439268
+    },
+    "open": {
+      "instructions": 27.49161535305622,
+      "wall_s": 20.12323590454692,
+      "thread_cpu_s": 25.627363901122013,
+      "store_read_calls": 36.63817031197958,
+      "store_rows": 20.31522568089974
+    }
+  }
+}
