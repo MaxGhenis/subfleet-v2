@@ -9238,10 +9238,23 @@ class Daemon:
 
         Entered outside the reserving transaction, so the transaction has rolled
         back before the job is settled; the caller reads `failed` after the block.
+        C-3.8, C-6.10: an aborted verdict cannot consume its event or decision.
+        Keep this job's previous wait until commit, restoring it on any failure,
+        including one in the transaction's exit. The writer lock also prevents
+        a concurrent task hold from clearing the wait before it is restored.
         """
         route = {"failed": False}
         try:
-            yield route
+            with self.store._lock:
+                previous = self._capacity_waits.get(job["job_id"])
+                try:
+                    yield route
+                except BaseException:
+                    if previous is None:
+                        self._capacity_waits.pop(job["job_id"], None)
+                    else:
+                        self._capacity_waits[job["job_id"]] = previous
+                    raise
         except Unroutable as exc:
             route["failed"] = True
             self._unroutable(job, exc, holds)
