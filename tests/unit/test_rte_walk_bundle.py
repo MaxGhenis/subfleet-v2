@@ -255,6 +255,8 @@ def test_a_stale_folder_shaped_bundle_lock_defers_and_preserves_leftovers(tmp_pa
         builder._clear_bundle_leftovers(temporary)
     assert refused.value.reason == "bundle lock in use"
     assert f"{lock.name} is a directory" in refused.value.detail
+    assert "600 s old" in refused.value.detail
+    assert f"({before.st_size} bytes)" in refused.value.detail
     assert temporary.read_bytes() == b"partial bundle"
     assert (lock / "unexpected").read_bytes() == b"keep this"
     after = lock.stat()

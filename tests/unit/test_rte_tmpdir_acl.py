@@ -113,10 +113,13 @@ def test_a_directory_whose_acl_denies_delete_or_delete_child_goes_too(restored, 
     assert scratch.presence(record) == "absent"
 
 
-def test_the_tombstone_s_own_delete_child_acl_is_cleared_never_the_temp_root_s(restored):
-    """The tombstone is the allocation: its `delete_child` ACL is removed. The
-    temp root above it is not the allocation's and keeps its ACL; one there
-    that refuses the tombstone's rmdir defers removal."""
+def test_the_tombstone_s_delete_child_acl_is_repaired_but_the_temp_root_s_blocks_rename(restored):
+    """The tombstone's `delete_child` ACL is repaired while emptying it.
+
+    A temp-root `delete_child` denial refuses the initial rename and stays
+    unchanged. The crash-left tombstone case in `test_rte_tmpdir_acl_guards`
+    separately checks the final rmdir's temp-root guard.
+    """
     scratch = scratch_in(restored)
     record = scratch.create("job/a1")
     folder = Path(record["path"])
@@ -158,10 +161,10 @@ def test_a_symlink_whose_own_acl_denies_delete_goes_and_its_outside_target_keeps
     assert has_acl(target)
 
 
-def test_a_file_no_open_admits_has_its_acl_cleared_by_name_first(restored):
+def test_a_file_no_open_admits_has_its_mode_restored_before_checked_acl_repair(restored):
     """A mode-0000 file can be opened by nothing: its mode is set to exactly
-    0600 by name, never through a link, then it is opened, checked and its ACL
-    removed through the descriptor."""
+    0600 by name, never through a link, then it is opened, checked and its
+    delete denial repaired through the descriptor."""
     scratch = scratch_in(restored)
     record = scratch.create("job/a1")
     folder = Path(record["path"])

@@ -2179,7 +2179,8 @@ class _Builder:
                 "removes" if stale else "keeps", self.r.job_id, found.st_size, age_seconds, self.BUNDLE_LOCK_STALE_S)
             if directory:
                 raise Defer("bundle lock in use", DEFER_BUSY_S,
-                            f"{lock.name} is a directory: inspect it before retrying the bundle")
+                            f"{lock.name} is a directory, {age_seconds} s old ({found.st_size} bytes): "
+                            "inspect it before retrying the bundle")
             if not stale:
                 raise Defer("bundle lock in use", DEFER_BUSY_S,
                             f"{lock.name} is {age_seconds} s old, under {self.BUNDLE_LOCK_STALE_S} s "
