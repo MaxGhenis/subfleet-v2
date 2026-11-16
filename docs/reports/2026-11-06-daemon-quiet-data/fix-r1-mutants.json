@@ -1,0 +1,44 @@
+[
+  {
+    "mutant": "commit_completion_pace",
+    "killer": "test_liveness_pace_starts_at_observation_before_a_slow_successful_commit",
+    "command": [
+      "/private/tmp/sf-dq-f1/venv/bin/python3",
+      "-c",
+      "import pathlib, subfleet.daemon as d; assert pathlib.Path(d.__file__).is_relative_to('/private/tmp/sf-dq-f1/mutants'), d.__file__; import pytest; raise SystemExit(pytest.main(['-q', 'tests/unit/test_liveness_write_pacing.py::test_liveness_pace_starts_at_observation_before_a_slow_successful_commit', '--tb=short', '--basetemp', '/private/tmp/sf-dq-f1/commit_completion_pace']))"
+    ],
+    "cwd": "/private/tmp/sf-dq-f1/mutants",
+    "returncode": 1,
+    "killed": true,
+    "log": "F                                                                        [100%]\n=================================== FAILURES ===================================\n___ test_liveness_pace_starts_at_observation_before_a_slow_successful_commit ___\ntests/unit/test_liveness_write_pacing.py:339: in test_liveness_pace_starts_at_observation_before_a_slow_successful_commit\n    assert saved_liveness_age(daemon, clock) <= 60 + daemon.inspect_interval_s\nE   assert 62.0 <= (60 + 1)\nE    +  where 62.0 = saved_liveness_age(<subfleet.daemon.Daemon object at 0x10cd5d2b0>, <test_liveness_write_pacing.Clock object at 0x10cd5dbe0>)\nE    +  and   1 = <subfleet.daemon.Daemon object at 0x10cd5d2b0>.inspect_interval_s\n=========================== short test summary info ============================\nFAILED tests/unit/test_liveness_write_pacing.py::test_liveness_pace_starts_at_observation_before_a_slow_successful_commit\n1 failed in 18.59s\n",
+    "restored_sha256": "bafda4663e19fe01b3ce5babc441929d5bd9e1ae8d0ce03a5a85bdd37cd54d26"
+  },
+  {
+    "mutant": "drop_timestamp_floor",
+    "killer": "test_liveness_wall_clock_rollback_never_moves_saved_observation_backwards",
+    "command": [
+      "/private/tmp/sf-dq-f1/venv/bin/python3",
+      "-c",
+      "import pathlib, subfleet.daemon as d; assert pathlib.Path(d.__file__).is_relative_to('/private/tmp/sf-dq-f1/mutants'), d.__file__; import pytest; raise SystemExit(pytest.main(['-q', 'tests/unit/test_liveness_write_pacing.py::test_liveness_wall_clock_rollback_never_moves_saved_observation_backwards', '--tb=short', '--basetemp', '/private/tmp/sf-dq-f1/drop_timestamp_floor']))"
+    ],
+    "cwd": "/private/tmp/sf-dq-f1/mutants",
+    "returncode": 1,
+    "killed": true,
+    "log": "F                                                                        [100%]\n=================================== FAILURES ===================================\n__ test_liveness_wall_clock_rollback_never_moves_saved_observation_backwards ___\ntests/unit/test_liveness_write_pacing.py:138: in test_liveness_wall_clock_rollback_never_moves_saved_observation_backwards\n    assert evidence(daemon)[\"last_observed_alive_at\"] == saved\nE   AssertionError: assert '2026-10-22T11:01:35.000Z' == '2026-10-22T11:01:40.000Z'\nE     \nE     - 2026-10-22T11:01:40.000Z\nE     ?                  ^^\nE     + 2026-10-22T11:01:35.000Z\nE     ?                  ^^\n=========================== short test summary info ============================\nFAILED tests/unit/test_liveness_write_pacing.py::test_liveness_wall_clock_rollback_never_moves_saved_observation_backwards\n1 failed in 32.02s\n",
+    "restored_sha256": "bafda4663e19fe01b3ce5babc441929d5bd9e1ae8d0ce03a5a85bdd37cd54d26"
+  },
+  {
+    "mutant": "ownership_pace_before_commit",
+    "killer": "test_failed_identity_commit_does_not_consume_pace",
+    "command": [
+      "/private/tmp/sf-dq-f1/venv/bin/python3",
+      "-c",
+      "import pathlib, subfleet.daemon as d; assert pathlib.Path(d.__file__).is_relative_to('/private/tmp/sf-dq-f1/mutants'), d.__file__; import pytest; raise SystemExit(pytest.main(['-q', 'tests/unit/test_liveness_write_pacing.py::test_failed_identity_commit_does_not_consume_pace', '--tb=short', '--basetemp', '/private/tmp/sf-dq-f1/ownership_pace_before_commit']))"
+    ],
+    "cwd": "/private/tmp/sf-dq-f1/mutants",
+    "returncode": 1,
+    "killed": true,
+    "log": "FF                                                                       [100%]\n=================================== FAILURES ===================================\n___________ test_failed_identity_commit_does_not_consume_pace[owned] ___________\ntests/unit/test_liveness_write_pacing.py:294: in test_failed_identity_commit_does_not_consume_pace\n    assert daemon._last_observed_alive_write == original_pace\nE   AssertionError: assert {'20260905-10...ettle/a1': 59} == {'20260905-10...ttle/a1': 0.0}\nE     \nE     Differing items:\nE     {'20260905-100000-settle/a1': 59} != {'20260905-100000-settle/a1': 0.0}\nE     Use -v to get more diff\n__________ test_failed_identity_commit_does_not_consume_pace[counted] __________\ntests/unit/test_liveness_write_pacing.py:294: in test_failed_identity_commit_does_not_consume_pace\n    assert daemon._last_observed_alive_write == original_pace\nE   AssertionError: assert {'20260905-10...ettle/a1': 59} == {'20260905-10...ttle/a1': 0.0}\nE     \nE     Differing items:\nE     {'20260905-100000-settle/a1': 59} != {'20260905-100000-settle/a1': 0.0}\nE     Use -v to get more diff\n=========================== short test summary info ============================\nFAILED tests/unit/test_liveness_write_pacing.py::test_failed_identity_commit_does_not_consume_pace[owned]\nFAILED tests/unit/test_liveness_write_pacing.py::test_failed_identity_commit_does_not_consume_pace[counted]\n2 failed in 18.28s\n",
+    "restored_sha256": "bafda4663e19fe01b3ce5babc441929d5bd9e1ae8d0ce03a5a85bdd37cd54d26"
+  }
+]

@@ -1,0 +1,975 @@
+{
+  "baseline": [
+    {
+      "name": "baseline-test_idle_capacity_guard_news",
+      "command": [
+        "/private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpgKFMQ4/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-n",
+        "4",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp=/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/baseline-0/pytest",
+        "--junitxml=/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/baseline-0/junit.xml",
+        "tests/fake/test_idle_capacity_guard_news.py"
+      ],
+      "cwd": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/pristine",
+      "environment": {
+        "PYTHONPATH": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/pristine",
+        "TMPDIR": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/baseline-0",
+        "HYPOTHESIS_STORAGE_DIRECTORY": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/baseline-0/hypothesis"
+      },
+      "returncode": 0,
+      "tests_run": 16,
+      "passed": 16,
+      "failures": [],
+      "errors": [],
+      "killed": false,
+      "elapsed_s": 37.182,
+      "log": "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-baseline-test_idle_capacity_guard_news.log"
+    },
+    {
+      "name": "baseline-test_idle_route_deferrals",
+      "command": [
+        "/private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpgKFMQ4/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-n",
+        "4",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp=/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/baseline-1/pytest",
+        "--junitxml=/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/baseline-1/junit.xml",
+        "tests/fake/test_idle_route_deferrals.py"
+      ],
+      "cwd": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/pristine",
+      "environment": {
+        "PYTHONPATH": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/pristine",
+        "TMPDIR": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/baseline-1",
+        "HYPOTHESIS_STORAGE_DIRECTORY": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/baseline-1/hypothesis"
+      },
+      "returncode": 0,
+      "tests_run": 4,
+      "passed": 4,
+      "failures": [],
+      "errors": [],
+      "killed": false,
+      "elapsed_s": 41.971,
+      "log": "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-baseline-test_idle_route_deferrals.log"
+    },
+    {
+      "name": "baseline-test_idle_admission_pacing",
+      "command": [
+        "/private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpgKFMQ4/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-n",
+        "4",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp=/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/baseline-2/pytest",
+        "--junitxml=/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/baseline-2/junit.xml",
+        "tests/fake/test_idle_admission_pacing.py"
+      ],
+      "cwd": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/pristine",
+      "environment": {
+        "PYTHONPATH": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/pristine",
+        "TMPDIR": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/baseline-2",
+        "HYPOTHESIS_STORAGE_DIRECTORY": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/baseline-2/hypothesis"
+      },
+      "returncode": 0,
+      "tests_run": 23,
+      "passed": 23,
+      "failures": [],
+      "errors": [],
+      "killed": false,
+      "elapsed_s": 101.933,
+      "log": "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-baseline-test_idle_admission_pacing.log"
+    },
+    {
+      "name": "baseline-test_idle_capacity_pools",
+      "command": [
+        "/private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpgKFMQ4/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-n",
+        "4",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp=/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/baseline-3/pytest",
+        "--junitxml=/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/baseline-3/junit.xml",
+        "tests/fake/test_idle_capacity_pools.py"
+      ],
+      "cwd": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/pristine",
+      "environment": {
+        "PYTHONPATH": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/pristine",
+        "TMPDIR": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/baseline-3",
+        "HYPOTHESIS_STORAGE_DIRECTORY": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/baseline-3/hypothesis"
+      },
+      "returncode": 0,
+      "tests_run": 3,
+      "passed": 3,
+      "failures": [],
+      "errors": [],
+      "killed": false,
+      "elapsed_s": 56.518,
+      "log": "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-baseline-test_idle_capacity_pools.log"
+    },
+    {
+      "name": "baseline-test_idle_capacity_events",
+      "command": [
+        "/private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpgKFMQ4/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-n",
+        "4",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp=/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/baseline-4/pytest",
+        "--junitxml=/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/baseline-4/junit.xml",
+        "tests/fake/test_idle_capacity_events.py"
+      ],
+      "cwd": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/pristine",
+      "environment": {
+        "PYTHONPATH": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/pristine",
+        "TMPDIR": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/baseline-4",
+        "HYPOTHESIS_STORAGE_DIRECTORY": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/baseline-4/hypothesis"
+      },
+      "returncode": 0,
+      "tests_run": 56,
+      "passed": 56,
+      "failures": [],
+      "errors": [],
+      "killed": false,
+      "elapsed_s": 117.268,
+      "log": "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-baseline-test_idle_capacity_events.log"
+    }
+  ],
+  "mutations": [
+    {
+      "name": "acknowledge-news-before-waiter-checks",
+      "command": [
+        "/private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpgKFMQ4/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-n",
+        "4",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp=/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/acknowledge-news-before-waiter-checks-test/pytest",
+        "--junitxml=/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/acknowledge-news-before-waiter-checks-test/junit.xml",
+        "tests/fake/test_idle_capacity_guard_news.py::test_release_news_survives_temporary_door_hold"
+      ],
+      "cwd": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/acknowledge-news-before-waiter-checks",
+      "environment": {
+        "PYTHONPATH": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/acknowledge-news-before-waiter-checks",
+        "TMPDIR": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/acknowledge-news-before-waiter-checks-test",
+        "HYPOTHESIS_STORAGE_DIRECTORY": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/acknowledge-news-before-waiter-checks-test/hypothesis"
+      },
+      "returncode": 1,
+      "tests_run": 9,
+      "passed": 6,
+      "failures": [
+        {
+          "test": "tests.fake.test_idle_capacity_guard_news::test_release_news_survives_temporary_door_hold[long-ramp]",
+          "assertion": true
+        },
+        {
+          "test": "tests.fake.test_idle_capacity_guard_news::test_release_news_survives_temporary_door_hold[long-machine]",
+          "assertion": true
+        },
+        {
+          "test": "tests.fake.test_idle_capacity_guard_news::test_release_news_survives_temporary_door_hold[long-disk]",
+          "assertion": true
+        }
+      ],
+      "errors": [],
+      "killed": true,
+      "elapsed_s": 90.805,
+      "log": "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-acknowledge-news-before-waiter-checks.log",
+      "mutated_file_sha256": "967887694a07c33b4a2814c63047917f8358835c81f2d4f2477457489d25d811",
+      "restored_bytes_match": true,
+      "restored_file_sha256": "c8f09aba311b5690cea2c85fb8f6dc868d6c1bb149b475f139fbedfa28787583"
+    },
+    {
+      "name": "retain-route-error-history",
+      "command": [
+        "/private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpgKFMQ4/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-n",
+        "4",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp=/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/retain-route-error-history-test/pytest",
+        "--junitxml=/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/retain-route-error-history-test/junit.xml",
+        "tests/fake/test_idle_route_deferrals.py::test_successful_route_resets_prior_error_count[True]",
+        "tests/fake/test_idle_route_deferrals.py::test_intervening_success_should_not_delay_start_after_release[True]"
+      ],
+      "cwd": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/retain-route-error-history",
+      "environment": {
+        "PYTHONPATH": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/retain-route-error-history",
+        "TMPDIR": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/retain-route-error-history-test",
+        "HYPOTHESIS_STORAGE_DIRECTORY": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/retain-route-error-history-test/hypothesis"
+      },
+      "returncode": 1,
+      "tests_run": 2,
+      "passed": 0,
+      "failures": [
+        {
+          "test": "tests.fake.test_idle_route_deferrals::test_successful_route_resets_prior_error_count[True]",
+          "assertion": true
+        },
+        {
+          "test": "tests.fake.test_idle_route_deferrals::test_intervening_success_should_not_delay_start_after_release[True]",
+          "assertion": true
+        }
+      ],
+      "errors": [],
+      "killed": true,
+      "elapsed_s": 60.505,
+      "log": "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-retain-route-error-history.log",
+      "mutated_file_sha256": "fe474605befc147669a39528b4c6941a2002f689aad8143b7128cbb7498c32f6",
+      "restored_bytes_match": true,
+      "restored_file_sha256": "c8f09aba311b5690cea2c85fb8f6dc868d6c1bb149b475f139fbedfa28787583"
+    },
+    {
+      "name": "discard-skipped-waiter-news",
+      "command": [
+        "/private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpgKFMQ4/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-n",
+        "4",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp=/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/discard-skipped-waiter-news-test/pytest",
+        "--junitxml=/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/discard-skipped-waiter-news-test/junit.xml",
+        "tests/fake/test_idle_capacity_guard_news.py::test_release_news_survives_temporary_door_hold[long-machine]"
+      ],
+      "cwd": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/discard-skipped-waiter-news",
+      "environment": {
+        "PYTHONPATH": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/discard-skipped-waiter-news",
+        "TMPDIR": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/discard-skipped-waiter-news-test",
+        "HYPOTHESIS_STORAGE_DIRECTORY": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/discard-skipped-waiter-news-test/hypothesis"
+      },
+      "returncode": 1,
+      "tests_run": 1,
+      "passed": 0,
+      "failures": [
+        {
+          "test": "tests.fake.test_idle_capacity_guard_news::test_release_news_survives_temporary_door_hold[long-machine]",
+          "assertion": true
+        }
+      ],
+      "errors": [],
+      "killed": true,
+      "elapsed_s": 62.178,
+      "log": "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-discard-skipped-waiter-news.log",
+      "mutated_file_sha256": "1f02dc55a92417a81bcdd119d8cf06c7e17bca61c756fecd11b47669d20d7bcb",
+      "restored_bytes_match": true,
+      "restored_file_sha256": "c8f09aba311b5690cea2c85fb8f6dc868d6c1bb149b475f139fbedfa28787583"
+    },
+    {
+      "name": "read-expiries-after-pass",
+      "command": [
+        "/private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpgKFMQ4/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-n",
+        "4",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp=/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/read-expiries-after-pass-test/pytest",
+        "--junitxml=/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/read-expiries-after-pass-test/junit.xml",
+        "tests/fake/test_idle_admission_pacing.py::test_closure_expiring_during_the_first_pass_is_not_lost",
+        "tests/fake/test_idle_admission_pacing.py::test_closure_expiring_during_a_slow_pass_survives_its_completion"
+      ],
+      "cwd": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/read-expiries-after-pass",
+      "environment": {
+        "PYTHONPATH": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/read-expiries-after-pass",
+        "TMPDIR": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/read-expiries-after-pass-test",
+        "HYPOTHESIS_STORAGE_DIRECTORY": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/read-expiries-after-pass-test/hypothesis"
+      },
+      "returncode": 1,
+      "tests_run": 2,
+      "passed": 0,
+      "failures": [
+        {
+          "test": "tests.fake.test_idle_admission_pacing::test_closure_expiring_during_a_slow_pass_survives_its_completion",
+          "assertion": true
+        },
+        {
+          "test": "tests.fake.test_idle_admission_pacing::test_closure_expiring_during_the_first_pass_is_not_lost",
+          "assertion": true
+        }
+      ],
+      "errors": [],
+      "killed": true,
+      "elapsed_s": 89.243,
+      "log": "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-read-expiries-after-pass.log",
+      "mutated_file_sha256": "d88504ee547af46f84b58fbc7cfb0102b3dcd46bffa7765efdaed83f7444d7e2",
+      "restored_bytes_match": true,
+      "restored_file_sha256": "c8f09aba311b5690cea2c85fb8f6dc868d6c1bb149b475f139fbedfa28787583"
+    },
+    {
+      "name": "share-detached-turn-census",
+      "command": [
+        "/private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpgKFMQ4/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-n",
+        "4",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp=/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/share-detached-turn-census-test/pytest",
+        "--junitxml=/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/share-detached-turn-census-test/junit.xml",
+        "tests/fake/test_idle_capacity_pools.py::test_capacity_news_censuses_are_independent_for_each_pool"
+      ],
+      "cwd": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/share-detached-turn-census",
+      "environment": {
+        "PYTHONPATH": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/share-detached-turn-census",
+        "TMPDIR": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/share-detached-turn-census-test",
+        "HYPOTHESIS_STORAGE_DIRECTORY": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/share-detached-turn-census-test/hypothesis"
+      },
+      "returncode": 1,
+      "tests_run": 2,
+      "passed": 0,
+      "failures": [
+        {
+          "test": "tests.fake.test_idle_capacity_pools::test_capacity_news_censuses_are_independent_for_each_pool[detached-turn]",
+          "assertion": true
+        },
+        {
+          "test": "tests.fake.test_idle_capacity_pools::test_capacity_news_censuses_are_independent_for_each_pool[turn-detached]",
+          "assertion": true
+        }
+      ],
+      "errors": [],
+      "killed": true,
+      "elapsed_s": 120.329,
+      "log": "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-share-detached-turn-census.log",
+      "mutated_file_sha256": "83974d292407709ca1b73b29c909b2585cdc545a2ba87c1d3151a8f844488370",
+      "restored_bytes_match": true,
+      "restored_file_sha256": "c8f09aba311b5690cea2c85fb8f6dc868d6c1bb149b475f139fbedfa28787583"
+    },
+    {
+      "name": "drop-unprepared-known-reset-clipping",
+      "command": [
+        "/private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpgKFMQ4/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-n",
+        "4",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp=/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/drop-unprepared-known-reset-clipping-test/pytest",
+        "--junitxml=/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/drop-unprepared-known-reset-clipping-test/junit.xml",
+        "tests/fake/test_idle_capacity_events.py::test_c6_10_known_operator_reset_still_beats_the_long_clock[True]"
+      ],
+      "cwd": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/drop-unprepared-known-reset-clipping",
+      "environment": {
+        "PYTHONPATH": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/drop-unprepared-known-reset-clipping",
+        "TMPDIR": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/drop-unprepared-known-reset-clipping-test",
+        "HYPOTHESIS_STORAGE_DIRECTORY": "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/drop-unprepared-known-reset-clipping-test/hypothesis"
+      },
+      "returncode": 1,
+      "tests_run": 1,
+      "passed": 0,
+      "failures": [
+        {
+          "test": "tests.fake.test_idle_capacity_events::test_c6_10_known_operator_reset_still_beats_the_long_clock[True]",
+          "assertion": true
+        }
+      ],
+      "errors": [],
+      "killed": true,
+      "elapsed_s": 144.908,
+      "log": "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-drop-unprepared-known-reset-clipping.log",
+      "mutated_file_sha256": "47f56ede0cd99b61548b6f633cbca432e7c80610c826bc70b5fa2ac319a49def",
+      "restored_bytes_match": true,
+      "restored_file_sha256": "c8f09aba311b5690cea2c85fb8f6dc868d6c1bb149b475f139fbedfa28787583"
+    }
+  ],
+  "sources_sha256": {
+    "subfleet/daemon.py": "c8f09aba311b5690cea2c85fb8f6dc868d6c1bb149b475f139fbedfa28787583",
+    "subfleet/store.py": "885bc7c8d1176c92fd426fd30fbf4ada0a19fb6e6f77c082064ed834cf2a8c02",
+    "subfleet/scheduler.py": "e33af820f856cafcdc6d42dbe5ba7ae138c3b6ed47eaff61392f3b232f6d6fe2",
+    "subfleet/contracts.py": "8d6473f28864919bb2e8dfe39e9009df6ec14f5640f2bd98a66f407b2e318a28",
+    "tests/fake/test_idle_capacity_guard_news.py": "3d9f631dd40ea7876dbda9d5c429b7e1642f1d2984661e65d8352d132c95dff9",
+    "tests/fake/test_idle_route_deferrals.py": "3bedb5af3a23f9a0ba75a5c1019dba02d2ec20cca34c175280dc440c8ee3344f",
+    "tests/fake/test_idle_admission_pacing.py": "0c32e8c14fa381a52745e9a56c6982d70b4f48d4070a393bd5bd26ac8d791f32",
+    "tests/fake/test_idle_capacity_pools.py": "aa3d243c036214c5b63a38c87eb8ef2bd6ccf26f375eaf861acfb767d47bbe3c",
+    "tests/fake/test_idle_capacity_events.py": "40497c3fc65aac0c794fea30cc83c11e7be09cb30ddeb3ed91fd5c479f304f74"
+  },
+  "pristine_bytes_unchanged": true,
+  "pre_late_ramp_runs": [
+    {
+      "baseline": [
+        {
+          "name": "baseline-test_idle_capacity_guard_news",
+          "command": [
+            "/private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpAsxqki/bin/python",
+            "-m",
+            "pytest",
+            "-q",
+            "-n",
+            "4",
+            "--tb=short",
+            "-p",
+            "no:cacheprovider",
+            "--basetemp=/private/tmp/sf-ia-f1/mutations/run-ajesesk9/baseline-0/pytest",
+            "--junitxml=/private/tmp/sf-ia-f1/mutations/run-ajesesk9/baseline-0/junit.xml",
+            "tests/fake/test_idle_capacity_guard_news.py"
+          ],
+          "cwd": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/pristine",
+          "environment": {
+            "PYTHONPATH": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/pristine",
+            "TMPDIR": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/baseline-0",
+            "HYPOTHESIS_STORAGE_DIRECTORY": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/baseline-0/hypothesis"
+          },
+          "returncode": 0,
+          "tests_run": 15,
+          "passed": 15,
+          "failures": [],
+          "errors": [],
+          "killed": false,
+          "elapsed_s": 130.944,
+          "log": "docs/reports/2026-11-07-idle-admission-data/r1-mutation-baseline-test_idle_capacity_guard_news.log"
+        },
+        {
+          "name": "baseline-test_idle_route_deferrals",
+          "command": [
+            "/private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpAsxqki/bin/python",
+            "-m",
+            "pytest",
+            "-q",
+            "-n",
+            "4",
+            "--tb=short",
+            "-p",
+            "no:cacheprovider",
+            "--basetemp=/private/tmp/sf-ia-f1/mutations/run-ajesesk9/baseline-1/pytest",
+            "--junitxml=/private/tmp/sf-ia-f1/mutations/run-ajesesk9/baseline-1/junit.xml",
+            "tests/fake/test_idle_route_deferrals.py"
+          ],
+          "cwd": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/pristine",
+          "environment": {
+            "PYTHONPATH": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/pristine",
+            "TMPDIR": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/baseline-1",
+            "HYPOTHESIS_STORAGE_DIRECTORY": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/baseline-1/hypothesis"
+          },
+          "returncode": 0,
+          "tests_run": 4,
+          "passed": 4,
+          "failures": [],
+          "errors": [],
+          "killed": false,
+          "elapsed_s": 63.63,
+          "log": "docs/reports/2026-11-07-idle-admission-data/r1-mutation-baseline-test_idle_route_deferrals.log"
+        },
+        {
+          "name": "baseline-test_idle_admission_pacing",
+          "command": [
+            "/private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpAsxqki/bin/python",
+            "-m",
+            "pytest",
+            "-q",
+            "-n",
+            "4",
+            "--tb=short",
+            "-p",
+            "no:cacheprovider",
+            "--basetemp=/private/tmp/sf-ia-f1/mutations/run-ajesesk9/baseline-2/pytest",
+            "--junitxml=/private/tmp/sf-ia-f1/mutations/run-ajesesk9/baseline-2/junit.xml",
+            "tests/fake/test_idle_admission_pacing.py"
+          ],
+          "cwd": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/pristine",
+          "environment": {
+            "PYTHONPATH": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/pristine",
+            "TMPDIR": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/baseline-2",
+            "HYPOTHESIS_STORAGE_DIRECTORY": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/baseline-2/hypothesis"
+          },
+          "returncode": 0,
+          "tests_run": 23,
+          "passed": 23,
+          "failures": [],
+          "errors": [],
+          "killed": false,
+          "elapsed_s": 80.668,
+          "log": "docs/reports/2026-11-07-idle-admission-data/r1-mutation-baseline-test_idle_admission_pacing.log"
+        },
+        {
+          "name": "baseline-test_idle_capacity_pools",
+          "command": [
+            "/private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpAsxqki/bin/python",
+            "-m",
+            "pytest",
+            "-q",
+            "-n",
+            "4",
+            "--tb=short",
+            "-p",
+            "no:cacheprovider",
+            "--basetemp=/private/tmp/sf-ia-f1/mutations/run-ajesesk9/baseline-3/pytest",
+            "--junitxml=/private/tmp/sf-ia-f1/mutations/run-ajesesk9/baseline-3/junit.xml",
+            "tests/fake/test_idle_capacity_pools.py"
+          ],
+          "cwd": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/pristine",
+          "environment": {
+            "PYTHONPATH": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/pristine",
+            "TMPDIR": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/baseline-3",
+            "HYPOTHESIS_STORAGE_DIRECTORY": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/baseline-3/hypothesis"
+          },
+          "returncode": 0,
+          "tests_run": 3,
+          "passed": 3,
+          "failures": [],
+          "errors": [],
+          "killed": false,
+          "elapsed_s": 46.976,
+          "log": "docs/reports/2026-11-07-idle-admission-data/r1-mutation-baseline-test_idle_capacity_pools.log"
+        },
+        {
+          "name": "baseline-test_idle_capacity_events",
+          "command": [
+            "/private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpAsxqki/bin/python",
+            "-m",
+            "pytest",
+            "-q",
+            "-n",
+            "4",
+            "--tb=short",
+            "-p",
+            "no:cacheprovider",
+            "--basetemp=/private/tmp/sf-ia-f1/mutations/run-ajesesk9/baseline-4/pytest",
+            "--junitxml=/private/tmp/sf-ia-f1/mutations/run-ajesesk9/baseline-4/junit.xml",
+            "tests/fake/test_idle_capacity_events.py"
+          ],
+          "cwd": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/pristine",
+          "environment": {
+            "PYTHONPATH": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/pristine",
+            "TMPDIR": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/baseline-4",
+            "HYPOTHESIS_STORAGE_DIRECTORY": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/baseline-4/hypothesis"
+          },
+          "returncode": 0,
+          "tests_run": 56,
+          "passed": 56,
+          "failures": [],
+          "errors": [],
+          "killed": false,
+          "elapsed_s": 75.152,
+          "log": "docs/reports/2026-11-07-idle-admission-data/r1-mutation-baseline-test_idle_capacity_events.log"
+        }
+      ],
+      "mutations": [
+        {
+          "name": "acknowledge-news-before-waiter-checks",
+          "command": [
+            "/private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpKpOQjo/bin/python",
+            "-m",
+            "pytest",
+            "-q",
+            "-n",
+            "4",
+            "--tb=short",
+            "-p",
+            "no:cacheprovider",
+            "--basetemp=/private/tmp/sf-ia-f1/mutations/run-npfy4cou/acknowledge-news-before-waiter-checks-test/pytest",
+            "--junitxml=/private/tmp/sf-ia-f1/mutations/run-npfy4cou/acknowledge-news-before-waiter-checks-test/junit.xml",
+            "tests/fake/test_idle_capacity_guard_news.py::test_release_news_survives_temporary_door_hold"
+          ],
+          "cwd": "/private/tmp/sf-ia-f1/mutations/run-npfy4cou/acknowledge-news-before-waiter-checks",
+          "environment": {
+            "PYTHONPATH": "/private/tmp/sf-ia-f1/mutations/run-npfy4cou/acknowledge-news-before-waiter-checks",
+            "TMPDIR": "/private/tmp/sf-ia-f1/mutations/run-npfy4cou/acknowledge-news-before-waiter-checks-test",
+            "HYPOTHESIS_STORAGE_DIRECTORY": "/private/tmp/sf-ia-f1/mutations/run-npfy4cou/acknowledge-news-before-waiter-checks-test/hypothesis"
+          },
+          "returncode": 1,
+          "tests_run": 9,
+          "passed": 6,
+          "failures": [
+            {
+              "test": "tests.fake.test_idle_capacity_guard_news::test_release_news_survives_temporary_door_hold[long-ramp]",
+              "assertion": true
+            },
+            {
+              "test": "tests.fake.test_idle_capacity_guard_news::test_release_news_survives_temporary_door_hold[long-machine]",
+              "assertion": true
+            },
+            {
+              "test": "tests.fake.test_idle_capacity_guard_news::test_release_news_survives_temporary_door_hold[long-disk]",
+              "assertion": true
+            }
+          ],
+          "errors": [],
+          "killed": true,
+          "elapsed_s": 92.053,
+          "log": "docs/reports/2026-11-07-idle-admission-data/r1-mutation-acknowledge-news-before-waiter-checks-expanded.log",
+          "mutated_file_sha256": "b2371686b4d15f301e101889e1d4ceb127c9c64c3b9a238a527eed14d3a713a6",
+          "restored_bytes_match": true,
+          "restored_file_sha256": "1990dca5b36f1172ecd8469896a55383371b675bca173ac6d26a5f0ef02dfe65"
+        },
+        {
+          "name": "retain-route-error-history",
+          "command": [
+            "/private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpAsxqki/bin/python",
+            "-m",
+            "pytest",
+            "-q",
+            "-n",
+            "4",
+            "--tb=short",
+            "-p",
+            "no:cacheprovider",
+            "--basetemp=/private/tmp/sf-ia-f1/mutations/run-ajesesk9/retain-route-error-history-test/pytest",
+            "--junitxml=/private/tmp/sf-ia-f1/mutations/run-ajesesk9/retain-route-error-history-test/junit.xml",
+            "tests/fake/test_idle_route_deferrals.py::test_successful_route_resets_prior_error_count[True]",
+            "tests/fake/test_idle_route_deferrals.py::test_intervening_success_should_not_delay_start_after_release[True]"
+          ],
+          "cwd": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/retain-route-error-history",
+          "environment": {
+            "PYTHONPATH": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/retain-route-error-history",
+            "TMPDIR": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/retain-route-error-history-test",
+            "HYPOTHESIS_STORAGE_DIRECTORY": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/retain-route-error-history-test/hypothesis"
+          },
+          "returncode": 1,
+          "tests_run": 2,
+          "passed": 0,
+          "failures": [
+            {
+              "test": "tests.fake.test_idle_route_deferrals::test_successful_route_resets_prior_error_count[True]",
+              "assertion": true
+            },
+            {
+              "test": "tests.fake.test_idle_route_deferrals::test_intervening_success_should_not_delay_start_after_release[True]",
+              "assertion": true
+            }
+          ],
+          "errors": [],
+          "killed": true,
+          "elapsed_s": 28.514,
+          "log": "docs/reports/2026-11-07-idle-admission-data/r1-mutation-retain-route-error-history.log",
+          "mutated_file_sha256": "843d5965d0bddda6b0d3888f52cd60af22f5af4a85edd2630150e8f9a337c139",
+          "restored_bytes_match": true,
+          "restored_file_sha256": "1990dca5b36f1172ecd8469896a55383371b675bca173ac6d26a5f0ef02dfe65"
+        },
+        {
+          "name": "discard-skipped-waiter-news",
+          "command": [
+            "/private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpAsxqki/bin/python",
+            "-m",
+            "pytest",
+            "-q",
+            "-n",
+            "4",
+            "--tb=short",
+            "-p",
+            "no:cacheprovider",
+            "--basetemp=/private/tmp/sf-ia-f1/mutations/run-ajesesk9/discard-skipped-waiter-news-test/pytest",
+            "--junitxml=/private/tmp/sf-ia-f1/mutations/run-ajesesk9/discard-skipped-waiter-news-test/junit.xml",
+            "tests/fake/test_idle_capacity_guard_news.py::test_release_news_survives_temporary_door_hold[long-machine]"
+          ],
+          "cwd": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/discard-skipped-waiter-news",
+          "environment": {
+            "PYTHONPATH": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/discard-skipped-waiter-news",
+            "TMPDIR": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/discard-skipped-waiter-news-test",
+            "HYPOTHESIS_STORAGE_DIRECTORY": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/discard-skipped-waiter-news-test/hypothesis"
+          },
+          "returncode": 1,
+          "tests_run": 1,
+          "passed": 0,
+          "failures": [
+            {
+              "test": "tests.fake.test_idle_capacity_guard_news::test_release_news_survives_temporary_door_hold[long-machine]",
+              "assertion": true
+            }
+          ],
+          "errors": [],
+          "killed": true,
+          "elapsed_s": 33.448,
+          "log": "docs/reports/2026-11-07-idle-admission-data/r1-mutation-discard-skipped-waiter-news.log",
+          "mutated_file_sha256": "b58111602bc5eae2a5ba381bc1d68dc0c119eb6608a0b59a5d4011418ad33c18",
+          "restored_bytes_match": true,
+          "restored_file_sha256": "1990dca5b36f1172ecd8469896a55383371b675bca173ac6d26a5f0ef02dfe65"
+        },
+        {
+          "name": "read-expiries-after-pass",
+          "command": [
+            "/private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpAsxqki/bin/python",
+            "-m",
+            "pytest",
+            "-q",
+            "-n",
+            "4",
+            "--tb=short",
+            "-p",
+            "no:cacheprovider",
+            "--basetemp=/private/tmp/sf-ia-f1/mutations/run-ajesesk9/read-expiries-after-pass-test/pytest",
+            "--junitxml=/private/tmp/sf-ia-f1/mutations/run-ajesesk9/read-expiries-after-pass-test/junit.xml",
+            "tests/fake/test_idle_admission_pacing.py::test_closure_expiring_during_the_first_pass_is_not_lost",
+            "tests/fake/test_idle_admission_pacing.py::test_closure_expiring_during_a_slow_pass_survives_its_completion"
+          ],
+          "cwd": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/read-expiries-after-pass",
+          "environment": {
+            "PYTHONPATH": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/read-expiries-after-pass",
+            "TMPDIR": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/read-expiries-after-pass-test",
+            "HYPOTHESIS_STORAGE_DIRECTORY": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/read-expiries-after-pass-test/hypothesis"
+          },
+          "returncode": 1,
+          "tests_run": 2,
+          "passed": 0,
+          "failures": [
+            {
+              "test": "tests.fake.test_idle_admission_pacing::test_closure_expiring_during_a_slow_pass_survives_its_completion",
+              "assertion": true
+            },
+            {
+              "test": "tests.fake.test_idle_admission_pacing::test_closure_expiring_during_the_first_pass_is_not_lost",
+              "assertion": true
+            }
+          ],
+          "errors": [],
+          "killed": true,
+          "elapsed_s": 27.287,
+          "log": "docs/reports/2026-11-07-idle-admission-data/r1-mutation-read-expiries-after-pass.log",
+          "mutated_file_sha256": "2cc590fa9e838533451f8459d27bee7733d3f70ea24fac5accc55b8aed3c88cd",
+          "restored_bytes_match": true,
+          "restored_file_sha256": "1990dca5b36f1172ecd8469896a55383371b675bca173ac6d26a5f0ef02dfe65"
+        },
+        {
+          "name": "share-detached-turn-census",
+          "command": [
+            "/private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpAsxqki/bin/python",
+            "-m",
+            "pytest",
+            "-q",
+            "-n",
+            "4",
+            "--tb=short",
+            "-p",
+            "no:cacheprovider",
+            "--basetemp=/private/tmp/sf-ia-f1/mutations/run-ajesesk9/share-detached-turn-census-test/pytest",
+            "--junitxml=/private/tmp/sf-ia-f1/mutations/run-ajesesk9/share-detached-turn-census-test/junit.xml",
+            "tests/fake/test_idle_capacity_pools.py::test_capacity_news_censuses_are_independent_for_each_pool"
+          ],
+          "cwd": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/share-detached-turn-census",
+          "environment": {
+            "PYTHONPATH": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/share-detached-turn-census",
+            "TMPDIR": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/share-detached-turn-census-test",
+            "HYPOTHESIS_STORAGE_DIRECTORY": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/share-detached-turn-census-test/hypothesis"
+          },
+          "returncode": 1,
+          "tests_run": 2,
+          "passed": 0,
+          "failures": [
+            {
+              "test": "tests.fake.test_idle_capacity_pools::test_capacity_news_censuses_are_independent_for_each_pool[detached-turn]",
+              "assertion": true
+            },
+            {
+              "test": "tests.fake.test_idle_capacity_pools::test_capacity_news_censuses_are_independent_for_each_pool[turn-detached]",
+              "assertion": true
+            }
+          ],
+          "errors": [],
+          "killed": true,
+          "elapsed_s": 22.135,
+          "log": "docs/reports/2026-11-07-idle-admission-data/r1-mutation-share-detached-turn-census.log",
+          "mutated_file_sha256": "78a3546c49a9dc6f4d4a7c9b1f2e1671f5e06d6f50e5ce249632ce6c09e59260",
+          "restored_bytes_match": true,
+          "restored_file_sha256": "1990dca5b36f1172ecd8469896a55383371b675bca173ac6d26a5f0ef02dfe65"
+        },
+        {
+          "name": "drop-unprepared-known-reset-clipping",
+          "command": [
+            "/private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpAsxqki/bin/python",
+            "-m",
+            "pytest",
+            "-q",
+            "-n",
+            "4",
+            "--tb=short",
+            "-p",
+            "no:cacheprovider",
+            "--basetemp=/private/tmp/sf-ia-f1/mutations/run-ajesesk9/drop-unprepared-known-reset-clipping-test/pytest",
+            "--junitxml=/private/tmp/sf-ia-f1/mutations/run-ajesesk9/drop-unprepared-known-reset-clipping-test/junit.xml",
+            "tests/fake/test_idle_capacity_events.py::test_c6_10_known_operator_reset_still_beats_the_long_clock[True]"
+          ],
+          "cwd": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/drop-unprepared-known-reset-clipping",
+          "environment": {
+            "PYTHONPATH": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/drop-unprepared-known-reset-clipping",
+            "TMPDIR": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/drop-unprepared-known-reset-clipping-test",
+            "HYPOTHESIS_STORAGE_DIRECTORY": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/drop-unprepared-known-reset-clipping-test/hypothesis"
+          },
+          "returncode": 1,
+          "tests_run": 1,
+          "passed": 0,
+          "failures": [
+            {
+              "test": "tests.fake.test_idle_capacity_events::test_c6_10_known_operator_reset_still_beats_the_long_clock[True]",
+              "assertion": true
+            }
+          ],
+          "errors": [],
+          "killed": true,
+          "elapsed_s": 29.265,
+          "log": "docs/reports/2026-11-07-idle-admission-data/r1-mutation-drop-unprepared-known-reset-clipping.log",
+          "mutated_file_sha256": "b58bb5366b10b9779fc00180e4f9b8f8da936c044a6743767f2e602c353d9e94",
+          "restored_bytes_match": true,
+          "restored_file_sha256": "1990dca5b36f1172ecd8469896a55383371b675bca173ac6d26a5f0ef02dfe65"
+        }
+      ],
+      "sources_sha256": {
+        "subfleet/daemon.py": "1990dca5b36f1172ecd8469896a55383371b675bca173ac6d26a5f0ef02dfe65",
+        "subfleet/store.py": "885bc7c8d1176c92fd426fd30fbf4ada0a19fb6e6f77c082064ed834cf2a8c02",
+        "subfleet/scheduler.py": "e33af820f856cafcdc6d42dbe5ba7ae138c3b6ed47eaff61392f3b232f6d6fe2",
+        "subfleet/contracts.py": "8d6473f28864919bb2e8dfe39e9009df6ec14f5640f2bd98a66f407b2e318a28",
+        "tests/fake/test_idle_capacity_guard_news.py": "777cf35a42591c0eecfe327d4db01b088576fd5650e7e1a511c549888cb75a38",
+        "tests/fake/test_idle_route_deferrals.py": "3bedb5af3a23f9a0ba75a5c1019dba02d2ec20cca34c175280dc440c8ee3344f",
+        "tests/fake/test_idle_admission_pacing.py": "0c32e8c14fa381a52745e9a56c6982d70b4f48d4070a393bd5bd26ac8d791f32",
+        "tests/fake/test_idle_capacity_pools.py": "aa3d243c036214c5b63a38c87eb8ef2bd6ccf26f375eaf861acfb767d47bbe3c",
+        "tests/fake/test_idle_capacity_events.py": "40497c3fc65aac0c794fea30cc83c11e7be09cb30ddeb3ed91fd5c479f304f74"
+      },
+      "pristine_bytes_unchanged": true,
+      "prior_mutation_runs": [
+        {
+          "name": "acknowledge-news-before-waiter-checks",
+          "command": [
+            "/private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpAsxqki/bin/python",
+            "-m",
+            "pytest",
+            "-q",
+            "-n",
+            "4",
+            "--tb=short",
+            "-p",
+            "no:cacheprovider",
+            "--basetemp=/private/tmp/sf-ia-f1/mutations/run-ajesesk9/acknowledge-news-before-waiter-checks-test/pytest",
+            "--junitxml=/private/tmp/sf-ia-f1/mutations/run-ajesesk9/acknowledge-news-before-waiter-checks-test/junit.xml",
+            "tests/fake/test_idle_capacity_guard_news.py::test_release_news_survives_temporary_door_hold[long-machine]"
+          ],
+          "cwd": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/acknowledge-news-before-waiter-checks",
+          "environment": {
+            "PYTHONPATH": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/acknowledge-news-before-waiter-checks",
+            "TMPDIR": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/acknowledge-news-before-waiter-checks-test",
+            "HYPOTHESIS_STORAGE_DIRECTORY": "/private/tmp/sf-ia-f1/mutations/run-ajesesk9/acknowledge-news-before-waiter-checks-test/hypothesis"
+          },
+          "returncode": 1,
+          "tests_run": 1,
+          "passed": 0,
+          "failures": [
+            {
+              "test": "tests.fake.test_idle_capacity_guard_news::test_release_news_survives_temporary_door_hold[long-machine]",
+              "assertion": true
+            }
+          ],
+          "errors": [],
+          "killed": true,
+          "elapsed_s": 54.78,
+          "log": "docs/reports/2026-11-07-idle-admission-data/r1-mutation-acknowledge-news-before-waiter-checks.log",
+          "mutated_file_sha256": "b2371686b4d15f301e101889e1d4ceb127c9c64c3b9a238a527eed14d3a713a6",
+          "restored_bytes_match": true,
+          "restored_file_sha256": "1990dca5b36f1172ecd8469896a55383371b675bca173ac6d26a5f0ef02dfe65"
+        }
+      ],
+      "expanded_news_pristine_bytes_unchanged": true,
+      "workspace_source_bytes_match": true,
+      "runner_sha256": "47f43fa808e8f335786495737696244acf22d44e390d0cf9fc680ab09ce8ed85",
+      "invocations": [
+        "TMPDIR=/private/tmp/sf-ia-f1/test-tmp UV_CACHE_DIR=/private/tmp/sf-ia-f1/test-tmp/uv-cache uv --cache-dir /private/tmp/sf-ia-f1/test-tmp/uv-cache run --no-sync --with 'pytest-xdist>=3.6' python tools/idle_admission_r1_mutations.py",
+        "TMPDIR=/private/tmp/sf-ia-f1/test-tmp UV_CACHE_DIR=/private/tmp/sf-ia-f1/test-tmp/uv-cache uv --cache-dir /private/tmp/sf-ia-f1/test-tmp/uv-cache run --no-sync --with 'pytest-xdist>=3.6' python tools/idle_admission_r1_mutations.py --only acknowledge-news-before-waiter-checks --skip-baseline --output /private/tmp/sf-ia-f1/expanded-news-output"
+      ]
+    }
+  ],
+  "additional_late_ramp_mutant": {
+    "name": "additional-late-ramp-news-re-save",
+    "command": [
+      "/private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmp13j50I/bin/python",
+      "-m",
+      "pytest",
+      "-q",
+      "-n",
+      "4",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider",
+      "--basetemp=/private/tmp/sf-ia-f1/late-ramp-inverse/run-q_gt9rqd/test/pytest",
+      "--junitxml=/private/tmp/sf-ia-f1/late-ramp-inverse/run-q_gt9rqd/test/junit.xml",
+      "--trace-config",
+      "tests/fake/test_idle_capacity_guard_news.py::test_release_news_survives_ramp_recheck_after_clock_moves_back"
+    ],
+    "cwd": "/private/tmp/sf-ia-f1/late-ramp-inverse/run-q_gt9rqd/source",
+    "environment": {
+      "PYTHONPATH": "/private/tmp/sf-ia-f1/late-ramp-inverse/run-q_gt9rqd/source",
+      "TMPDIR": "/private/tmp/sf-ia-f1/late-ramp-inverse/run-q_gt9rqd/test",
+      "HYPOTHESIS_STORAGE_DIRECTORY": "/private/tmp/sf-ia-f1/late-ramp-inverse/run-q_gt9rqd/test/hypothesis"
+    },
+    "returncode": 1,
+    "tests_run": 1,
+    "passed": 0,
+    "failures": [
+      {
+        "test": "tests.fake.test_idle_capacity_guard_news::test_release_news_survives_ramp_recheck_after_clock_moves_back",
+        "assertion": true
+      }
+    ],
+    "errors": [],
+    "killed": true,
+    "elapsed_s": 74.985,
+    "log": "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-additional-late-ramp-news-re-save.log",
+    "mutated_file_sha256": "1990dca5b36f1172ecd8469896a55383371b675bca173ac6d26a5f0ef02dfe65",
+    "restored_bytes_match": true,
+    "restored_file_sha256": "c8f09aba311b5690cea2c85fb8f6dc868d6c1bb149b475f139fbedfa28787583",
+    "mutation_anchor_removed": "                                if saved_news:\n                                    self._capacity_news[job[\"job_id\"]] = True\n",
+    "canonical_nodeid": "tests/fake/test_idle_capacity_guard_news.py::test_release_news_survives_ramp_recheck_after_clock_moves_back",
+    "conftest_sha256": "31c347e99ff5061a1d6ba04220f5646b57e3f42c3ddfd3958354116ea79aa4df",
+    "conftest_plugin_confirmed": true,
+    "baseline_reference": "Final canonical guard module:16passed; complete final mutation baseline:102passed",
+    "conftest_registration": "PLUGIN registered: <module 'tests.conftest' from '/private/tmp/sf-ia-f1/late-ramp-inverse/run-q_gt9rqd/source/tests/conftest.py'>",
+    "driver_command": "TMPDIR=/private/tmp/sf-ia-f1/test-tmp UV_CACHE_DIR=/private/tmp/sf-ia-f1/test-tmp/uv-cache uv --cache-dir /private/tmp/sf-ia-f1/test-tmp/uv-cache run --no-sync --with 'pytest-xdist>=3.6' python -"
+  },
+  "workspace_source_bytes_match": true,
+  "runner_sha256": "47f43fa808e8f335786495737696244acf22d44e390d0cf9fc680ab09ce8ed85",
+  "invocations": [
+    "TMPDIR=/private/tmp/sf-ia-f1/test-tmp UV_CACHE_DIR=/private/tmp/sf-ia-f1/test-tmp/uv-cache uv --cache-dir /private/tmp/sf-ia-f1/test-tmp/uv-cache run --no-sync --with 'pytest-xdist>=3.6' python tools/idle_admission_r1_mutations.py --output /private/tmp/sf-ia-f1/mutations-final-output"
+  ],
+  "final_mutation_totals": {
+    "mandatory_types": 6,
+    "mandatory_cases": 17,
+    "mandatory_assertion_failures": 11,
+    "mandatory_passing_controls": 6,
+    "additional_late_ramp_cases": 1,
+    "additional_late_ramp_assertion_failures": 1,
+    "errors": 0,
+    "exact_byte_restorations": 7
+  },
+  "driver_exit_codes": {
+    "mandatory_final_driver": 0,
+    "canonical_late_ramp_driver": 0
+  },
+  "owned_mutation_scratch_removed": true
+}

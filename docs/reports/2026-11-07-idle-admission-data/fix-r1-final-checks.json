@@ -1,0 +1,209 @@
+{
+  "commands": [
+    {
+      "command": [
+        "python3",
+        "-m",
+        "py_compile",
+        "subfleet/daemon.py",
+        "tests/fake/test_idle_capacity_guard_news.py",
+        "tests/fake/test_idle_route_deferrals.py",
+        "tests/fake/test_idle_capacity_refresh_bound.py",
+        "tests/fake/test_idle_capacity_pools.py",
+        "tests/fake/test_idle_capacity_queue_news.py",
+        "tools/idle_admission_mutations.py",
+        "tools/idle_admission_r1_mutations.py"
+      ],
+      "returncode": 0,
+      "elapsed_s": 4.105,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "returncode": 0,
+      "elapsed_s": 6.225,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "git",
+        "rev-parse",
+        "HEAD"
+      ],
+      "returncode": 0,
+      "elapsed_s": 0.022,
+      "stdout": "9e753f8fb7eff14f2cbabb5e871b4b38ed509a96\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "returncode": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "returncode": 0,
+      "stdout": "",
+      "stderr": ""
+    }
+  ],
+  "head": "9e753f8fb7eff14f2cbabb5e871b4b38ed509a96",
+  "daemon_sha256": "c8f09aba311b5690cea2c85fb8f6dc868d6c1bb149b475f139fbedfa28787583",
+  "mutation_source_hashes_match": true,
+  "mutation_assertions_and_restores_confirmed": true,
+  "final_file_count": 6,
+  "final_counts": {
+    "passed": 222,
+    "failed": 2,
+    "errors": 0,
+    "skipped": 0,
+    "xfailed": 1
+  },
+  "all_completed_runs_passed": false,
+  "final_named_delivery": {
+    "named_files": [
+      "docs/acceptance-contract.md",
+      "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-acknowledge-news-before-waiter-checks.log",
+      "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-additional-late-ramp-news-re-save.log",
+      "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-baseline-test_idle_admission_pacing.log",
+      "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-baseline-test_idle_capacity_events.log",
+      "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-baseline-test_idle_capacity_guard_news.log",
+      "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-baseline-test_idle_capacity_pools.log",
+      "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-baseline-test_idle_route_deferrals.log",
+      "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-discard-skipped-waiter-news.log",
+      "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-drop-unprepared-known-reset-clipping.log",
+      "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-read-expiries-after-pass.log",
+      "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-retain-route-error-history.log",
+      "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-share-detached-turn-census.log",
+      "docs/reports/2026-11-07-idle-admission-data/fix-r1-cleanup.json",
+      "docs/reports/2026-11-07-idle-admission-data/fix-r1-final-checks.json",
+      "docs/reports/2026-11-07-idle-admission-data/fix-r1-late-ramp-probe.txt",
+      "docs/reports/2026-11-07-idle-admission-data/fix-r1-late-ramp-probe.xml",
+      "docs/reports/2026-11-07-idle-admission-data/fix-r1-liveness-repeat-interrupted.log",
+      "docs/reports/2026-11-07-idle-admission-data/fix-r1-mutations.json",
+      "docs/reports/2026-11-07-idle-admission-data/fix-r1-profile-unprepared.py",
+      "docs/reports/2026-11-07-idle-admission-data/fix-r1-route-repeat.log",
+      "docs/reports/2026-11-07-idle-admission-data/fix-r1-route-repeat.xml",
+      "docs/reports/2026-11-07-idle-admission-data/fix-r1-route-timing-retry.json",
+      "docs/reports/2026-11-07-idle-admission-data/fix-r1-route-timing-retry.log",
+      "docs/reports/2026-11-07-idle-admission-data/fix-r1-route-timing-retry.xml",
+      "docs/reports/2026-11-07-idle-admission-data/fix-r1-task-repeat-interrupted.log",
+      "docs/reports/2026-11-07-idle-admission-data/fix-r1-unprepared-profile.json",
+      "docs/reports/2026-11-07-idle-admission-data/fix-r1-validation-initial.json",
+      "docs/reports/2026-11-07-idle-admission-data/fix-r1-validation.json",
+      "docs/reports/2026-11-07-idle-admission-data/r1-mutation-acknowledge-news-before-waiter-checks-expanded.log",
+      "docs/reports/2026-11-07-idle-admission-data/r1-mutation-acknowledge-news-before-waiter-checks.log",
+      "docs/reports/2026-11-07-idle-admission-data/r1-mutation-baseline-test_idle_admission_pacing.log",
+      "docs/reports/2026-11-07-idle-admission-data/r1-mutation-baseline-test_idle_capacity_events.log",
+      "docs/reports/2026-11-07-idle-admission-data/r1-mutation-baseline-test_idle_capacity_guard_news.log",
+      "docs/reports/2026-11-07-idle-admission-data/r1-mutation-baseline-test_idle_capacity_pools.log",
+      "docs/reports/2026-11-07-idle-admission-data/r1-mutation-baseline-test_idle_route_deferrals.log",
+      "docs/reports/2026-11-07-idle-admission-data/r1-mutation-discard-skipped-waiter-news.log",
+      "docs/reports/2026-11-07-idle-admission-data/r1-mutation-drop-unprepared-known-reset-clipping.log",
+      "docs/reports/2026-11-07-idle-admission-data/r1-mutation-read-expiries-after-pass.log",
+      "docs/reports/2026-11-07-idle-admission-data/r1-mutation-retain-route-error-history.log",
+      "docs/reports/2026-11-07-idle-admission-data/r1-mutation-share-detached-turn-census.log",
+      "docs/reports/2026-11-07-idle-admission.md",
+      "subfleet/daemon.py",
+      "tests/fake/test_idle_capacity_guard_news.py",
+      "tests/fake/test_idle_capacity_pools.py",
+      "tests/fake/test_idle_capacity_queue_news.py",
+      "tests/fake/test_idle_capacity_refresh_bound.py",
+      "tests/fake/test_idle_route_deferrals.py",
+      "tools/idle_admission_mutations.py",
+      "tools/idle_admission_r1_mutations.py"
+    ],
+    "commands": [
+      {
+        "command": [
+          "git",
+          "add",
+          "--",
+          "docs/acceptance-contract.md",
+          "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-acknowledge-news-before-waiter-checks.log",
+          "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-additional-late-ramp-news-re-save.log",
+          "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-baseline-test_idle_admission_pacing.log",
+          "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-baseline-test_idle_capacity_events.log",
+          "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-baseline-test_idle_capacity_guard_news.log",
+          "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-baseline-test_idle_capacity_pools.log",
+          "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-baseline-test_idle_route_deferrals.log",
+          "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-discard-skipped-waiter-news.log",
+          "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-drop-unprepared-known-reset-clipping.log",
+          "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-read-expiries-after-pass.log",
+          "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-retain-route-error-history.log",
+          "docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-share-detached-turn-census.log",
+          "docs/reports/2026-11-07-idle-admission-data/fix-r1-cleanup.json",
+          "docs/reports/2026-11-07-idle-admission-data/fix-r1-final-checks.json",
+          "docs/reports/2026-11-07-idle-admission-data/fix-r1-late-ramp-probe.txt",
+          "docs/reports/2026-11-07-idle-admission-data/fix-r1-late-ramp-probe.xml",
+          "docs/reports/2026-11-07-idle-admission-data/fix-r1-liveness-repeat-interrupted.log",
+          "docs/reports/2026-11-07-idle-admission-data/fix-r1-mutations.json",
+          "docs/reports/2026-11-07-idle-admission-data/fix-r1-profile-unprepared.py",
+          "docs/reports/2026-11-07-idle-admission-data/fix-r1-route-repeat.log",
+          "docs/reports/2026-11-07-idle-admission-data/fix-r1-route-repeat.xml",
+          "docs/reports/2026-11-07-idle-admission-data/fix-r1-route-timing-retry.json",
+          "docs/reports/2026-11-07-idle-admission-data/fix-r1-route-timing-retry.log",
+          "docs/reports/2026-11-07-idle-admission-data/fix-r1-route-timing-retry.xml",
+          "docs/reports/2026-11-07-idle-admission-data/fix-r1-task-repeat-interrupted.log",
+          "docs/reports/2026-11-07-idle-admission-data/fix-r1-unprepared-profile.json",
+          "docs/reports/2026-11-07-idle-admission-data/fix-r1-validation-initial.json",
+          "docs/reports/2026-11-07-idle-admission-data/fix-r1-validation.json",
+          "docs/reports/2026-11-07-idle-admission-data/r1-mutation-acknowledge-news-before-waiter-checks-expanded.log",
+          "docs/reports/2026-11-07-idle-admission-data/r1-mutation-acknowledge-news-before-waiter-checks.log",
+          "docs/reports/2026-11-07-idle-admission-data/r1-mutation-baseline-test_idle_admission_pacing.log",
+          "docs/reports/2026-11-07-idle-admission-data/r1-mutation-baseline-test_idle_capacity_events.log",
+          "docs/reports/2026-11-07-idle-admission-data/r1-mutation-baseline-test_idle_capacity_guard_news.log",
+          "docs/reports/2026-11-07-idle-admission-data/r1-mutation-baseline-test_idle_capacity_pools.log",
+          "docs/reports/2026-11-07-idle-admission-data/r1-mutation-baseline-test_idle_route_deferrals.log",
+          "docs/reports/2026-11-07-idle-admission-data/r1-mutation-discard-skipped-waiter-news.log",
+          "docs/reports/2026-11-07-idle-admission-data/r1-mutation-drop-unprepared-known-reset-clipping.log",
+          "docs/reports/2026-11-07-idle-admission-data/r1-mutation-read-expiries-after-pass.log",
+          "docs/reports/2026-11-07-idle-admission-data/r1-mutation-retain-route-error-history.log",
+          "docs/reports/2026-11-07-idle-admission-data/r1-mutation-share-detached-turn-census.log",
+          "docs/reports/2026-11-07-idle-admission.md",
+          "subfleet/daemon.py",
+          "tests/fake/test_idle_capacity_guard_news.py",
+          "tests/fake/test_idle_capacity_pools.py",
+          "tests/fake/test_idle_capacity_queue_news.py",
+          "tests/fake/test_idle_capacity_refresh_bound.py",
+          "tests/fake/test_idle_route_deferrals.py",
+          "tools/idle_admission_mutations.py",
+          "tools/idle_admission_r1_mutations.py"
+        ],
+        "returncode": 128,
+        "elapsed_s": 0.048,
+        "stdout": "",
+        "stderr": "fatal: Unable to create '/Users/maxghenis/subfleet-v2/.git/worktrees/20261113-070659-ia-fix-r1/index.lock': Operation not permitted\n"
+      },
+      {
+        "command": [
+          "git",
+          "commit",
+          "-m",
+          "Fix idle admission review r1 and record validation"
+        ],
+        "returncode": 128,
+        "elapsed_s": 7.275,
+        "stdout": "",
+        "stderr": "fatal: Unable to create '/Users/maxghenis/subfleet-v2/.git/worktrees/20261113-070659-ia-fix-r1/index.lock': Operation not permitted\n"
+      }
+    ]
+  },
+  "head_after_delivery": "9e753f8fb7eff14f2cbabb5e871b4b38ed509a96",
+  "status_short": " M docs/acceptance-contract.md\n M docs/reports/2026-11-07-idle-admission.md\n M subfleet/daemon.py\n M tools/idle_admission_mutations.py\n?? docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-acknowledge-news-before-waiter-checks.log\n?? docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-additional-late-ramp-news-re-save.log\n?? docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-baseline-test_idle_admission_pacing.log\n?? docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-baseline-test_idle_capacity_events.log\n?? docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-baseline-test_idle_capacity_guard_news.log\n?? docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-baseline-test_idle_capacity_pools.log\n?? docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-baseline-test_idle_route_deferrals.log\n?? docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-discard-skipped-waiter-news.log\n?? docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-drop-unprepared-known-reset-clipping.log\n?? docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-read-expiries-after-pass.log\n?? docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-retain-route-error-history.log\n?? docs/reports/2026-11-07-idle-admission-data/final-r1-mutation-share-detached-turn-census.log\n?? docs/reports/2026-11-07-idle-admission-data/fix-r1-cleanup.json\n?? docs/reports/2026-11-07-idle-admission-data/fix-r1-final-checks.json\n?? docs/reports/2026-11-07-idle-admission-data/fix-r1-late-ramp-probe.txt\n?? docs/reports/2026-11-07-idle-admission-data/fix-r1-late-ramp-probe.xml\n?? docs/reports/2026-11-07-idle-admission-data/fix-r1-liveness-repeat-interrupted.log\n?? docs/reports/2026-11-07-idle-admission-data/fix-r1-mutations.json\n?? docs/reports/2026-11-07-idle-admission-data/fix-r1-profile-unprepared.py\n?? docs/reports/2026-11-07-idle-admission-data/fix-r1-route-repeat.log\n?? docs/reports/2026-11-07-idle-admission-data/fix-r1-route-repeat.xml\n?? docs/reports/2026-11-07-idle-admission-data/fix-r1-route-timing-retry.json\n?? docs/reports/2026-11-07-idle-admission-data/fix-r1-route-timing-retry.log\n?? docs/reports/2026-11-07-idle-admission-data/fix-r1-route-timing-retry.xml\n?? docs/reports/2026-11-07-idle-admission-data/fix-r1-task-repeat-interrupted.log\n?? docs/reports/2026-11-07-idle-admission-data/fix-r1-unprepared-profile.json\n?? docs/reports/2026-11-07-idle-admission-data/fix-r1-validation-initial.json\n?? docs/reports/2026-11-07-idle-admission-data/fix-r1-validation.json\n?? docs/reports/2026-11-07-idle-admission-data/r1-mutation-acknowledge-news-before-waiter-checks-expanded.log\n?? docs/reports/2026-11-07-idle-admission-data/r1-mutation-acknowledge-news-before-waiter-checks.log\n?? docs/reports/2026-11-07-idle-admission-data/r1-mutation-baseline-test_idle_admission_pacing.log\n?? docs/reports/2026-11-07-idle-admission-data/r1-mutation-baseline-test_idle_capacity_events.log\n?? docs/reports/2026-11-07-idle-admission-data/r1-mutation-baseline-test_idle_capacity_guard_news.log\n?? docs/reports/2026-11-07-idle-admission-data/r1-mutation-baseline-test_idle_capacity_pools.log\n?? docs/reports/2026-11-07-idle-admission-data/r1-mutation-baseline-test_idle_route_deferrals.log\n?? docs/reports/2026-11-07-idle-admission-data/r1-mutation-discard-skipped-waiter-news.log\n?? docs/reports/2026-11-07-idle-admission-data/r1-mutation-drop-unprepared-known-reset-clipping.log\n?? docs/reports/2026-11-07-idle-admission-data/r1-mutation-read-expiries-after-pass.log\n?? docs/reports/2026-11-07-idle-admission-data/r1-mutation-retain-route-error-history.log\n?? docs/reports/2026-11-07-idle-admission-data/r1-mutation-share-detached-turn-census.log\n?? tests/fake/test_idle_capacity_guard_news.py\n?? tests/fake/test_idle_capacity_pools.py\n?? tests/fake/test_idle_capacity_queue_news.py\n?? tests/fake/test_idle_capacity_refresh_bound.py\n?? tests/fake/test_idle_route_deferrals.py\n?? tools/idle_admission_r1_mutations.py\n"
+}
