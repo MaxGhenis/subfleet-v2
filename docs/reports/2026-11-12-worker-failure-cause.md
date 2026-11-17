@@ -950,9 +950,9 @@ values in tests and probes are made up; no environment value was printed.
 
 **P1, `daemon_log.py:183`: fix r2's reading lost a mask bb118f63d had.**
 - Cause: fix r2's `_rendered` drops format characters as well as controls. So
-  `x​Bearer\x1b[0m <token>` reads `xBearer <token>` there, and `\bBearer`
+  `x\u200bBearer\x1b[0m <token>` reads `xBearer <token>` there, and `\bBearer`
   doesn't match. bb118f63d's reading dropped only the controls, so it read
-  `x​Bearer <token>`, a `Bearer` token. The text as written doesn't match
+  `x\u200bBearer <token>`, a `Bearer` token. The text as written doesn't match
   either: the escape splits `Bearer` from its space.
 - Probe, before (`probe-before.txt` in scratch): at `a6443ab04` the marker was
   shown on message, tail and follow; at `bb118f63d` it was hidden on all three.
@@ -987,7 +987,7 @@ values in tests and probes are made up; no environment value was printed.
   - `test_r3_the_frozen_oracle_masks_review_r3s_input` checks the oracle.
 - Shown: before (run 5, the final tests on an `a6443ab04` copy) the five route
   cases and the differential failed. The differential's first counterexample
-  was the review's shape, `x​Bearer\x1b[0m FGHIJKLM`. After: all passed
+  was the review's shape, `x\u200bBearer\x1b[0m FGHIJKLM`. After: all passed
   (runs 4 and 6). H1 (bb118f63d's reading dropped) is killed: 6 failed.
 
 **P1, `handoff.py:115`: approval masking missed URL passwords.** Two causes:
@@ -1049,10 +1049,10 @@ values in tests and probes are made up; no environment value was printed.
   - `_write` read only the text it was writing as a terminal shows it. A
     value whose key ended the line before (already written, in the context)
     was checked against the context's scrub as written, where
-    `pass​word:` is no key.
+    `pass\u200bword:` is no key.
   - `feed` settled a break by the text as written only. So a private key's
     first line that a format character splits
-    (`-----BEGIN RSA PRIV​ATE KEY-----`) settled, and its body was
+    (`-----BEGIN RSA PRIV\u200bATE KEY-----`) settled, and its body was
     written before the key's end arrived.
 - The finding fails on `bb118f63d` too (review r3; probe:
   `follow-split SHOWN` there).
@@ -1079,7 +1079,7 @@ values in tests and probes are made up; no environment value was printed.
 - Shown: before (run 5 and the direct property run on the copy) the named
   test, the private-key test and the property failed. The property's
   counterexample was the review's shape:
-  `['pass​word:\n', 'FGHIJKLM\n', '\n']`. After, all passed. H2 (context
+  `['pass\u200bword:\n', 'FGHIJKLM\n', '\n']`. After, all passed. H2 (context
   not read) and H3 (settled by the text only) are each killed.
 
 **P3, the PR body.** Not edited (the brief forbids `gh pr edit`). What it
