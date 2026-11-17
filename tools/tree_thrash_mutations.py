@@ -47,7 +47,9 @@ FAILURE = TESTS + "test_a_failing_workspace_reaches_the_job_when_capacity_first_
 DESKTOP = TESTS + "test_a_closure_race_with_a_desktop_lane_never_refreshes_the_registry_under_the_store_lock"
 REOPEN = TESTS + "test_reopening_the_original_lane_during_preparation_reuses_its_original_evaluation"
 SWEEP_REOPEN = TESTS + "test_a_reopened_lane_before_the_sweep_keeps_its_unused_tree"
-CAP_PROBE = TESTS + "test_six_fresh_writers_under_a_cap_of_two_cut_only_the_two_placed_trees"
+# A full fleet is refused by the route itself (`fleet-full`); the provisional
+# `at_limit` binds when FIFO keeps the last slot, below the scheduler's count.
+CAP_FIFO = TESTS + "test_a_fresh_waiter_runs_no_git_and_writes_no_tree[fifo]"
 SPARED_RETRY = TESTS + "test_preparation_spends_no_route_retry"
 
 DEFER = "            deferred_workspace = fresh_workspace\n"
@@ -103,7 +105,7 @@ MUTATIONS = {
     # Review r2: the provisional check skips the fleet cap, so a writer past it
     # gets a tree and then waits `fleet-full` at the reservation recheck.
     "cap-after-cut": (CAP_CHECK, CAP_CHECK.replace(" or at_limit or", " or (at_limit and not deferred_workspace) or"),
-                      CAP_PROBE),
+                      CAP_FIFO),
     # Review r2: preparation spends a route retry, so two later moves exhaust them.
     "preparation-spends-a-retry": (SPARED, "", SPARED_RETRY),
 }
@@ -121,8 +123,8 @@ KILL_EVIDENCE = {
     "refresh-registry-under-store-lock": "registry refresh under the store write lock",
     "reuse-standing-decision-with-old-basis": 'assert cuts == [job] and attempt["lane_id"] == "codex-1"',
     "forget-sweep-eligibility-recheck": "assert swept(service) == 0",
-    "cap-after-cut": "assert sorted(cuts) == sorted(placed)",
-    "preparation-spends-a-retry": 'assert cuts == [job] and attempt["lane_id"] == "codex-1"',
+    "cap-after-cut": "assert not cuts and not calls and not service.store.list_attempts(job)",
+    "preparation-spends-a-retry": "assert len(attempts) == 1, service._holds.get(job)",
 }
 
 
