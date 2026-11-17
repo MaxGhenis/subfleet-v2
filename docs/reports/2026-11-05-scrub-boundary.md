@@ -535,7 +535,8 @@ input offset 78 alone, 131,034 at the head's edge and 135,246 on the tail's firs
   passed on a4aded885 before the stripped mode failed.
 
 **After the change:** no value the whole-text scrub hides shows, at any placement, limit or reminder
-mode.
+mode. *(Corrected in "Reminder-erased openers, fix round 1 (review r1)": review r1 of #331 found
+rows in this class that still showed their value on this head; see "Corrected claims" there.)*
 
 The masks, in release's resolved text, with reminders stripped:
 
@@ -701,5 +702,219 @@ CI's run of the whole suite is the check for these. I also didn't rerun review r
   mutant copies, the probe, rows and mutant scripts, their outputs, the logs and every `--basetemp`.
   I removed it at the end with a guarded `shutil.rmtree`. The shared `$TMPDIR/uv-cache` is not this
   job's and stays.
+
+Built head: see the final answer.
+
+## Reminder-erased openers, fix round 1 (review r1)
+
+Fix job 20261117-114948-scrubop-fix-r1, run 2026-11-17 16:52–19:52 UTC on 620f3b514 (the hub's merge
+of release/217 into 289f15a5c; `git diff 289f15a5c 620f3b514` is empty for `handoff.py`, the test
+module and this report, so "289f15a5c" below is that code). Host load ran 140–280 on 18 cores. Commits:
+`7f81b80e0` (tests), `65161c4e4` (fix), then the contract and this report.
+
+### Each finding's cause and fix
+
+All in `subfleet/sessions/handoff.py`.
+
+- **P0-3, the shared closer test.** `_closer_value_end` counted a value as holding a closer only if it
+  ended strictly after the closer's end, so an unterminated quote masked to its line's end didn't hold
+  a closer that ended the line. Now `_value_holding` (the body of `_closer_value_end`, which also says
+  whether a read decided the answer) counts a value that opens before the closer's end and ends at or
+  after it. An opener's question (`point`) is unchanged: opens before it, ends after its start. Every
+  caller reads the one test: `_closer_splits` for both layers, and the new step.
+- **P0-1, every outcome.** `_closer_splits`' `ends` is now `(closes, low, reach)`: where the walk ends
+  the block (None: never), the earliest end the whole-text block may have (equal to `closes` when every
+  answer was read; else the end of the first closer held unread), and the end of the walk's last mask.
+  A walk that stops at a closer an earlier run-on read from takes that run-on's outcome. `_erased_keys`
+  now follows the whole-text scrub's reminder blocks over release's reminders: it checks every reminder
+  that no earlier block surely covers (`sure`), whether a value holds its opener or, if so, an opener
+  inside it; a block that opens raises `sure` to `low` and `maybe` to `closes`; a reminder between them
+  may or may not be covered. A reminder is kept (`live`: a key opening in it is masked), removed
+  (`gone`: a closer in it ends no key) or, where a read can't decide, both. Only a block that surely
+  opens and surely never closes keeps every later reminder; one that may never close makes every later
+  reminder both.
+- **P0-2, the held opener.** A value on the opener's line that opens anywhere before it holds it
+  (`inner=0`). The look-back stays within one window; a longer line fails closed, which now means
+  "undecided" (kept and removed), not "held". An opener with no quote before it on its line is decided
+  without a window (`_QuoteBefore`, a forward tracker of the last quote and line break).
+- **P1-1, the walk.** The key walk only moves forward: each key's closer searches start past the last,
+  the next key opens after the one before ends, and a key no closer ends is masked to the end of what
+  it ran over and stops the walk (no closer follows, so the whole-text scrub closes no later key).
+- **P0-4, the mirror.** `_split_masks` asks the private-key layer's walk for its outcomes too, and
+  `_open_key` finds the first key it never closes (or the opener after release's last key, which no
+  closer follows). From that opener on (`_uncarried` maps it back to the original text) the step also
+  walks keys that open outside the reminders the whole-text scrub surely removes, so a closer in a kept
+  reminder ends the key, as in the whole-text scrub. The mask runs from the opener to that closer, which
+  carries to the reminder's place.
+- **P0-5, data URIs.** `_data_uri_run_ons`: for each reminder block the whole-text scrub may remove
+  that runs on past release's reminder or opens at an opener inside it, where a data URI's body may
+  reach the block's opener (`_body_reaches`: body characters back to a data URI prefix, within a
+  window, or to an earlier removed block's end, or longer than a window: fail closed), and release's own
+  data URI doesn't run past the block's end, it masks the run the whole-text body takes from the block's
+  end (body characters, on past each removed block that opens where they stop) and the rest of a quoted
+  value whose key that run ends in. The fuzz below found the inner-opener case (a data URI that opens
+  inside a reminder whose opener a value holds, reaching an inner opener), so the old argument is wrong
+  there too, not only for a data URI that ends at a reminder's opener.
+- **P2.** The P2 rows are tests (below); m5, m6 and m7's intents are mutants of this code.
+
+The step still reads its windows last, from what the other layers left of the read budget, and never
+changes release's resolved text.
+
+### Rows before and after
+
+Output offsets of the row's value, reminders stripped (G also kept), limit None / 2,048 alone, and limit
+None at the head's edge and on the tail's first line. "289f15a5c" is the review's figure, rerun here
+alone (`probe.py`, all match) and at the edges where marked; "base" is a4aded885.
+
+| Row | 289f15a5c alone | 289f15a5c head edge / tail line | After (fix), alone |
+|---|---|---|---|
+| D | 44 / 44 | 130,936 / 131,225 (rerun) | hidden |
+| D-longline | 34 / 33 | 113,953 / 135,211 (run here; the review didn't) | hidden |
+| E | 22 / 22 | 130,943 / 131,201 | hidden |
+| A-unterminated | 1 / 0 (and 0 at 40) | 130,958 / 131,113 | hidden |
+| G (both modes) | 23 / 23 | not run | hidden |
+| F-held | 28 / 28 | 130,984 / 131,140 | hidden |
+| F-never | 28 / 28 | not run | hidden |
+| DU-before | 46 / 46 | 130,964 / 131,158; base: 130,964 / 131,158 (run here) | hidden |
+| m5, m6, m7 rows | hidden | — | hidden |
+
+After the fix, `probe.py` found no hidden value shown for any of the 12 rows alone, at limits None, 0,
+40 and 2,048, both modes (96 cases). At the edges, see "Commands" (12 of the 24 edge tests passed
+before their calls' caps, none failed).
+
+### P1-1's counts
+
+Characters the private-key closer searches read in `_split_masks` (`p11.py`, counting `_Ahead`'s
+searches), on the review's shape:
+
+| m | text | 289f15a5c | fix |
+|---|---|---|---|
+| 100 | 18,568 | 1,253,300 | 12,533 |
+| 200 | 37,068 | 5,006,600 | 25,033 |
+| 400 | 74,068 | 20,013,200 | 50,033 |
+| 800 | 148,068 | 80,026,400 | 100,033 |
+| 2,834 | 524,358 | not run | 354,283 (0.005 s CPU) |
+
+### Invariants and their tests
+
+1. **No masked run shows.** `test_every_reminder_outcome_the_step_reads_keeps_only_what_the_whole_scrub_keeps`
+   runs the 12 rows (D, D-longline, E, A-unterminated, G, F-held, F-never, DU-before, m5, m6, two m7)
+   alone, at the head's edge and on the tail's first line through `assert_keeps_only_what_the_whole_scrub_keeps`
+   (both modes; limits None, 0, 40, 2,048), and asserts the whole-text and within-line scrubs hide the
+   value. `test_drawn_reminder_outcomes_keep_only_what_the_whole_scrub_keeps` (300 derandomized examples
+   of `REVIEW_R1_PARTS`) runs the same helper with `within=True`: a value counts as hidden only if
+   `within_line_scrub` (the head's whole-text scrub with values read within a line) hides it too, which
+   takes out C-23.14's stated multiline difference. Rows A–C keep their test.
+2. **Within the budget**, the same helper asserts `scrub_bounded(text, limit) == truncate(scrub_secrets(text), limit)`
+   on every row alone and on every drawn text.
+3. **Superset.** `test_the_erased_key_step_only_adds_masks` now covers 34 rows (adds the 12) and stubs
+   both new steps; it passed (34). Against 289f15a5c and a4aded885 directly: not run (no mask dump this
+   round). By construction: P0-3 only adds held closers, so `_closer_splits` only runs on further; the
+   step's masks are added after the layers'. But the step is not a superset of 289f15a5c's step: where
+   a value holds both release's opener and every opener inside it, the whole-text scrub keeps the
+   reminder, so its closers now end keys where 289f15a5c's step ran them on. No fixed row has that shape
+   (the 34-row test and every row test pass), so the brief's row-wise invariant isn't shown broken, but
+   it is not shown either.
+4. **Linear work.** `test_the_erased_key_walk_reads_each_closer_once` (fails on 289f15a5c: 1,253,300 at
+   m = 100) and the growth test's new scaled shape `reminder-inner-opener-keys`. The growth test was
+   not run on either code this round.
+5. **Same resolution.** `test_the_head_resolves_drawn_blocks_as_release_does` now also draws
+   `REVIEW_R1_PARTS`; it passed. The fuzz below checked it on 7,062 texts: no difference.
+
+### Mutants
+
+`mutants.py` copies the worktree to `mut/<name>`, applies each mutant's substitutions (asserting each
+hit once), runs its killers with pytest in the copy, and checks the worktree's `handoff.py` hash after.
+
+| Mutant (intent) | Killed by |
+|---|---|
+| p0-3: closer test back to `point < b` | `[a-unterminated-alone]`, `[g-a-key-closer-ends-an-unterminated-value-alone]`, `test_a_value_masked_to_its_line_s_end_holds_the_closer_that_ends_the_line` |
+| p0-2: the opener check's `inner` is the previous reminder's end | `[e-a-value-opens-in-an-earlier-reminder-alone]` |
+| p0-5: no data URI step | `[du-before-alone]` |
+| m5: no inner opener checked | `[m5-a-second-opener-inside-alone]` |
+| p0-1 (an unchecked reminder opens a block), p0-4 (no mirror), m6 (a closer always ends the key), m7 (no carry), p1-1 (the walk restarts behind a key) | **not run**: each driver call hit its 590 s cap after two mutants |
+
+Each killed mutant failed on the helper's value-shows assertion (`(length, True, None)`), not on a bounds
+check. On the unfixed head's code (`pre`, a `git archive` of 620f3b514 with the new test file), the new
+tests that fail are the same intents restored all at once: 12 failed (the 8 review rows alone, the three
+unit tests, the property), and the 4 P2 rows passed, as they should.
+
+### Fuzz
+
+`fuzz.py` draws texts from the review's parts (reminder tags, values holding them, unterminated
+values, key tags, data URIs, `Zq` lines) and counts a leak only where both the whole-text scrub and a
+within-line oracle hide the value. On 289f15a5c: 130 leaks in 3,000 texts. On the fix: 10 before the
+data URI step was generalized, then 1 in 3,000 and 0 in 4,062 more. The 1 (seed 2075, reminders kept)
+also leaks on a4aded885 and 289f15a5c: a data URI's body inside a quoted value runs into the next data
+URI's `data` in release's text, which the whole-text scrub's value mask prevents. **Open leak, outside
+this round's classes**, not fixed.
+
+### Commands and results
+
+All runs: `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"`, `UV_CACHE_DIR=$TMPDIR/uv-cache`, `unset PYTHONPATH`,
+scratch `$TMPDIR/sf-scrubop-fix1`, a new `--basetemp` with `pytest` in its name.
+
+- `uv sync --group dev --extra api`: failed (`Extra api is not defined`); `uv sync --group dev`: ok.
+- `probe.py` (rows alone, 620f3b514): every row's offsets as the review's. On the fix: 96 cases, none shown.
+- `probe.py` edges: D on 620f3b514 (130,936 / 131,225, 103 s); D-longline on `pre`; DU-before on `base`.
+- `fuzz.py`: as above. `p11.py`: as above.
+- Collect: 319 tests in the excerpts file.
+- `pytest -n 4 -k "<new and changed, alone>"` on the fix: 22 failed, 23 passed (the superset test's
+  stub returned the old shape); fixed, then `-k "erased_key_step_only_adds or (every_reminder_outcome and alone)"`:
+  **46 passed in 74.7 s**.
+- On `pre` (serial, `-k "(every_reminder_outcome and alone) or masked_to_its_line or held_unread or
+  reads_each_closer_once or drawn_reminder_outcomes"`): **12 failed, 4 passed in 197.5 s**.
+- Edges on the fix, three `-n 4` calls of 8 tests each, capped at 585 s: each printed 4 passes and was
+  cut before its summary. **12 passed, none failed, 12 unfinished**; xdist's `-q` doesn't name which.
+- Mutants: as above.
+
+### What didn't run, and deviations
+
+- **Not run:** the rest of `tests/unit/test_sessions_handoff_excerpts.py`; every `tests/unit/test_scrub*.py`
+  (shard 1's three included); every other `tests/unit/test_sessions_*.py`; `tests/unit/test_cpu_scaling.py
+  tests/fake/test_state_contract.py tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py`;
+  the growth test on both codes; mutants p0-1, p0-4, m6, m7, p1-1; G and F-never at the edges on
+  289f15a5c; the superset mask dump against 289f15a5c and a4aded885. CI's run is the check for these.
+  Cause: at this load each long-placement test took 100–150 s, and calls I issued together ran one after
+  another, so the edge and mutant calls took 18:11–19:16.
+- **One code commit.** The brief asks for a failing test and a fix per finding, in order. The fixes share
+  the reworked step, so they are one commit after one test commit; the failing tests are shown on `pre`.
+- **Beyond the brief:** the inner-opener data URI case (the fuzz's), `within_line_scrub` and the helper's
+  `within` flag, and three unit tests.
+- **Folders outside the job's scratch:** none; `$TMPDIR/sf-scrubop-fix1` (`/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-scrubop-fix1`)
+  held the archives, scripts, mutant copies and basetemps, and is removed at the end with a guarded
+  `shutil.rmtree`. The shared `$TMPDIR/uv-cache` stays. Tool output went to the harness's own task folder.
+
+### Corrected claims
+
+- **Line 537 of this report** ("no value the whole-text scrub hides shows, at any placement, limit or
+  reminder mode") is marked corrected. On 289f15a5c rows D, D-longline, E and A-unterminated showed
+  their value with reminders stripped. On this head those rows, and F, G and DU-before, hide it alone
+  at every limit and mode; 12 of the 24 edge cases are shown, and the fuzz found one open leak of
+  another class (above). So the corrected claim is the rows', not the class's.
+- **`_erased_keys`' docstring** said "It errs toward hiding more" (row D contradicted it) and "the walk
+  reads each closer once" (P1-1's shape contradicted it). Both are rewritten to what the code does: an
+  undecided reminder is kept and removed both, and each closer is read once because every search starts
+  past the last. `_closer_splits`' docstring states the new `ends`.
+- **The data URI argument** ("a data URI needs none of this"; C-23.14's "a data URI there needs
+  nothing") holds only for a data URI that opens inside a reminder and stops at its closer. It is false
+  for one that ends at a reminder whose closer a value holds (DU-before) and for one that reaches an
+  inner opener (the fuzz's). Corrected in the docstrings, C-23.14 and here.
+- **C-23.14** is amended, with a 2026-11-17 change-log line, and the 2026-11-15 entry keeps its words
+  with a correction marker.
+
+### PR #331 body sentences this round makes false
+
+- "Data URIs get no new mask: a data URI's body stops at a reminder's closer, so its whole-text match
+  ends inside text that release removes."
+- "It works out which reminders the whole-text scrub keeps. For each private key opener inside a kept
+  reminder, it walks …": now also keys that open before a kept reminder holding their closer.
+- "Release's resolved text and every earlier layer's masks stay as on a4aded885": the resolved text
+  does; the run-on masks grow (P0-3).
+- "`_closer_splits` now reports where each reminder's whole-text block ends, or that it never closes.
+  `_closer_value_end` gains two keyword arguments whose defaults keep its behaviour.": it reports
+  `(closes, low, reach)`, and the default closer test changed (P0-3).
+- "A superset test over 22 rows" (now 34), "the growth test adds two shapes" (now three), "Each of four
+  mutants failed a test" (this round: four more killed, five not run).
 
 Built head: see the final answer.
