@@ -1,0 +1,43 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______________________ test_same_is_json_value_equality _______________________
+
+    @settings(max_examples=300, deadline=None)
+>   @given(JSON_VALUES, st.data())
+                   ^^^
+
+tests/unit/test_hooks_install_equality.py:541: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+value = False, data = data(...)
+
+    @settings(max_examples=300, deadline=None)
+    @given(JSON_VALUES, st.data())
+    def test_same_is_json_value_equality(value, data):
+        """C-23.25 `_same` agrees with equality of the values the JSON text denotes:
+        it is reflexive and symmetric, survives a JSON round trip, tells `true`
+        from `1` and `null` from `false`, and holds `1` and `1.0` equal."""
+        other = data.draw(st.one_of(near(value), JSON_VALUES))
+        assert hooks._same(value, value)
+        assert hooks._same(value, json.loads(json.dumps(value)))
+        assert hooks._same(value, other) == hooks._same(other, value)
+>       assert hooks._same(value, other) == (canonical(value) == canonical(other))
+E       AssertionError: assert True == (('bool', False) == ('number', 0.0)
+E        +  where True = <function _same at 0x4483b8a0e40>(False, 0)
+E        +    where <function _same at 0x4483b8a0e40> = hooks._same
+E         
+E         At index 0 diff: 'bool' != 'number'
+E         Use -v to get more diff)
+E       Failing test case: test_same_is_json_value_equality(
+E           value=False,
+E           data=data(...),
+E       )
+E       Draw 1: 0
+E       Explanation:
+E           These lines were always and only run by failing test cases:
+E               /Users/maxghenis/.subfleet/worktrees/20261111-145018-hor-build-r1/subfleet/hooks.py:928
+
+tests/unit/test_hooks_install_equality.py:550: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_hooks_install_equality.py::test_same_is_json_value_equality
+1 failed in 7.81s

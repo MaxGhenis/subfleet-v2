@@ -1,0 +1,183 @@
+bringing up nodes...
+bringing up nodes...
+
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______ test_c6_10_known_operator_reset_still_beats_the_long_clock[True] _______
+[gw3] darwin -- Python 3.15.2 /private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpgKFMQ4/bin/python
+tests/fake/test_idle_capacity_events.py:242: in test_c6_10_known_operator_reset_still_beats_the_long_clock
+    assert service.store.get_job(job)["next_check_at"] == until
+E   AssertionError: assert '2026-11-13T14:00:31Z' == '2026-11-13T13:52:34Z'
+E     
+E     - 2026-11-13T13:52:34Z
+E     ?             ^ ^^  ^
+E     + 2026-11-13T14:00:31Z
+E     ?             ^ ^^  ^
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4434766752:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4434766752:daemon.py:1087 reset credits: automatic redemption off; no-reset marker absent
+---------------------------- Captured log teardown -----------------------------
+WARNING  subfleet.daemon.4434766752:daemon.py:1072 conversations lock released after 2.3 s by MainThread (8272273792). Where it was held:
+  File "<string>", line 1, in <module>
+    import sys;exec(eval(sys.stdin.readline()))
+  File "<string>", line 8, in <module>
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/execnet/gateway_base.py", line 1806, in serve
+    WorkerGateway(io=io, id=id, _startcount=2).serve()
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/execnet/gateway_base.py", line 1273, in serve
+    self._execpool.integrate_as_primary_thread()
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/execnet/gateway_base.py", line 389, in integrate_as_primary_thread
+    self._perform_spawn(reply)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/execnet/gateway_base.py", line 411, in _perform_spawn
+    reply.run()
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/execnet/gateway_base.py", line 341, in run
+    self._result = func(*args, **kwargs)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/execnet/gateway_base.py", line 1291, in executetask
+    exec(co, loc)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/xdist/remote.py", line 427, in <module>
+    config.hook.pytest_cmdline_main(config=config)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/main.py", line 377, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/main.py", line 330, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/main.py", line 384, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/xdist/remote.py", line 206, in pytest_runtestloop
+    self.run_one_test()
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/xdist/remote.py", line 227, in run_one_test
+    self.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/runner.py", line 118, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/runner.py", line 144, in runtestprotocol
+    reports.append(call_and_report(item, "teardown", log, nextitem=nextitem))
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/runner.py", line 249, in call_and_report
+    call = CallInfo.from_call(
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/runner.py", line 361, in from_call
+    result: TResult | None = func()
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/runner.py", line 250, in <lambda>
+    lambda: runtest_hook(item=item, **kwds),
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/runner.py", line 199, in pytest_runtest_teardown
+    item.session._setupstate.teardown_exact(nextitem)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/runner.py", line 568, in teardown_exact
+    fin()
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/fixtures.py", line 1156, in finish
+    fin()
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/fixtures.py", line 1014, in _teardown_yield_fixture
+    next(it)
+  File "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/drop-unprepared-known-reset-clipping/tests/fake/test_routing_end_to_end.py", line 54, in routing_state
+    service.close()
+  File "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/drop-unprepared-known-reset-clipping/subfleet/daemon.py", line 13028, in close
+    self.conversations.close()
+  File "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/drop-unprepared-known-reset-clipping/subfleet/conversations/service.py", line 274, in close
+    self.store.close()
+  File "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/drop-unprepared-known-reset-clipping/subfleet/conversations/store.py", line 447, in close
+    with self._writes, self._lock:
+  File "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/drop-unprepared-known-reset-clipping/subfleet/lockwatch.py", line 140, in __exit__
+    self.release()
+
+WARNING  subfleet.daemon.4434766752:daemon.py:1072 conversation-files lock released after 3.2 s by MainThread (8272273792). Where it was held:
+  File "<string>", line 1, in <module>
+    import sys;exec(eval(sys.stdin.readline()))
+  File "<string>", line 8, in <module>
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/execnet/gateway_base.py", line 1806, in serve
+    WorkerGateway(io=io, id=id, _startcount=2).serve()
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/execnet/gateway_base.py", line 1273, in serve
+    self._execpool.integrate_as_primary_thread()
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/execnet/gateway_base.py", line 389, in integrate_as_primary_thread
+    self._perform_spawn(reply)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/execnet/gateway_base.py", line 411, in _perform_spawn
+    reply.run()
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/execnet/gateway_base.py", line 341, in run
+    self._result = func(*args, **kwargs)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/execnet/gateway_base.py", line 1291, in executetask
+    exec(co, loc)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/xdist/remote.py", line 427, in <module>
+    config.hook.pytest_cmdline_main(config=config)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/main.py", line 377, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/main.py", line 330, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/main.py", line 384, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/xdist/remote.py", line 206, in pytest_runtestloop
+    self.run_one_test()
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/xdist/remote.py", line 227, in run_one_test
+    self.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/runner.py", line 118, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/runner.py", line 144, in runtestprotocol
+    reports.append(call_and_report(item, "teardown", log, nextitem=nextitem))
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/runner.py", line 249, in call_and_report
+    call = CallInfo.from_call(
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/runner.py", line 361, in from_call
+    result: TResult | None = func()
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/runner.py", line 250, in <lambda>
+    lambda: runtest_hook(item=item, **kwds),
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/runner.py", line 199, in pytest_runtest_teardown
+    item.session._setupstate.teardown_exact(nextitem)
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/runner.py", line 568, in teardown_exact
+    fin()
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/fixtures.py", line 1156, in finish
+    fin()
+  File "/private/tmp/sf-ia-f1/test-tmp/uv-cache/archive-v0/yzAHErNW5GLfEvYK/lib/python3.15/site-packages/_pytest/fixtures.py", line 1014, in _teardown_yield_fixture
+    next(it)
+  File "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/drop-unprepared-known-reset-clipping/tests/fake/test_routing_end_to_end.py", line 54, in routing_state
+    service.close()
+  File "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/drop-unprepared-known-reset-clipping/subfleet/daemon.py", line 13028, in close
+    self.conversations.close()
+  File "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/drop-unprepared-known-reset-clipping/subfleet/conversations/service.py", line 274, in close
+    self.store.close()
+  File "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/drop-unprepared-known-reset-clipping/subfleet/conversations/store.py", line 447, in close
+    with self._writes, self._lock:
+  File "/private/tmp/sf-ia-f1/mutations/run-r7lu4feb/drop-unprepared-known-reset-clipping/subfleet/lockwatch.py", line 140, in __exit__
+    self.release()
+=========================== short test summary info ============================
+FAILED tests/fake/test_idle_capacity_events.py::test_c6_10_known_operator_reset_still_beats_the_long_clock[True]
+1 failed in 109.96s (0:01:49)
