@@ -43,7 +43,10 @@ from .lockwatch import WatchedLock, thread_name
 SHELL_REQUIREMENT_MIGRATION = 8
 LAUNCH_CAPABILITY_MIGRATION = 9
 PROVIDER_QOS_MIGRATION = 10
-SCHEMA_VERSION = PROVIDER_QOS_MIGRATION
+NOTICE_WAKE_MIGRATION = 11
+SCHEMA_VERSION = NOTICE_WAKE_MIGRATION
+#: C-15.9: `wake_reason` of a notice already unread when the store migrated.
+NOTICE_WAKE_PREDATES = "before-migration"
 #: C-12.4: jobs whose attempts in the last 24 h had no shell or no writes. A
 #: range on `reserved_at`, which `attempts_reserved` indexes, in the stored
 #: spelling (`restricted_window`): `julianday(reserved_at)` could use no index and
@@ -128,6 +131,20 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
     PROVIDER_QOS_MIGRATION: (
         "ALTER TABLE jobs ADD COLUMN provider_qos TEXT "
         "CHECK (provider_qos IS NULL OR provider_qos IN ('utility','default'))",
+    ),
+    # C-15.1, D-WAKE-CALLER1: keep delivery claims and retry clocks beside the
+    # notice, and the caller's activity and wake bounds across daemon restarts.
+    # `_migrate` then records every notice still unread as `stale` (C-15.9).
+    NOTICE_WAKE_MIGRATION: (
+        "ALTER TABLE notices ADD COLUMN wake_state TEXT "
+        "CHECK (wake_state IS NULL OR wake_state IN ('claimed','delivered','undeliverable','stale'))",
+        "ALTER TABLE notices ADD COLUMN wake_attempts INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE notices ADD COLUMN wake_next_at REAL",
+        "ALTER TABLE notices ADD COLUMN wake_at REAL",
+        "ALTER TABLE notices ADD COLUMN wake_reason TEXT",
+        "CREATE TABLE IF NOT EXISTS caller_wake_sessions ("
+        "session_id TEXT PRIMARY KEY, active_at REAL NOT NULL DEFAULT 0, source TEXT, "
+        "wake_streak INTEGER NOT NULL DEFAULT 0, last_wake_at REAL)",
     ),
 }
 
@@ -454,6 +471,7 @@ class Store:
         when the column is already there, so an interrupted upgrade re-runs safely.
         """
         for step in range(version + 1, SCHEMA_VERSION + 1):
+            added = set()
             for statement in MIGRATIONS.get(step, ()):
                 if statement.startswith("ALTER TABLE "):
                     _alter, _table_kw, table, _add, _column_kw, column, *_rest = statement.split()
@@ -462,7 +480,15 @@ class Store:
                     # The schema file creates any table absent from an old store.
                     if not present or column in present:
                         continue
+                    added.add((table, column))
                 self.connection.execute(statement)
+            if ("notices", "wake_state") in added:
+                # C-15.9 (review r1 of #307, finding 3): a notice from before this
+                # feature is never a reason to wake its caller; the hooks still show
+                # it. Keyed to the step that adds the column, wherever it is numbered.
+                self.connection.execute(
+                    "UPDATE notices SET wake_state='stale',wake_reason=? "
+                    "WHERE wake_state IS NULL AND state IN ('pending','offered')", (NOTICE_WAKE_PREDATES,))
             if step == LAUNCH_CAPABILITY_MIGRATION and self.connection.execute(
                     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='attempts'").fetchone():
                 self.connection.execute(

@@ -1,0 +1,56 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.15.2, pytest-9.1.1, pluggy-1.6.0 -- $TMPDIR/uv-cache/builds-v0/.tmpNT5Ftf/bin/python
+hypothesis profile 'default'
+rootdir: /Users/maxghenis/.subfleet/worktrees/20261117-083630-wcall-fix-r4
+configfile: pyproject.toml
+plugins: xdist-3.8.0, timeout-2.4.0, hypothesis-6.168.1
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+created: 2/2 workers
+2 workers [20 items]
+
+scheduling tests via LoadScheduling
+
+tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[lanes.identity] 
+tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[lanes.identity_status] 
+[gw0] [  5%] PASSED tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[lanes.identity] 
+tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[lanes.label] 
+[gw1] [ 10%] PASSED tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[lanes.identity_status] 
+tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[jobs.unmeasured_reserve_reason] 
+[gw0] [ 15%] PASSED tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[lanes.label] 
+tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[jobs.mcp_servers] 
+[gw1] [ 20%] PASSED tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[jobs.unmeasured_reserve_reason] 
+tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[jobs.push_default_branch] 
+[gw0] [ 25%] PASSED tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[jobs.mcp_servers] 
+tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[jobs.push_branch] 
+[gw1] [ 30%] PASSED tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[jobs.push_default_branch] 
+tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[jobs.push_sha] 
+[gw1] [ 35%] PASSED tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[jobs.push_sha] 
+tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[jobs.push_error] 
+[gw1] [ 40%] PASSED tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[jobs.push_error] 
+tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[jobs.needs_shell] 
+[gw0] [ 45%] PASSED tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[jobs.push_branch] 
+tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[jobs.push_remote] 
+[gw1] [ 50%] PASSED tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[jobs.needs_shell] 
+tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[attempts.has_shell] 
+[gw0] [ 55%] PASSED tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[jobs.push_remote] 
+tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[attempts.capability] 
+[gw1] [ 60%] PASSED tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[attempts.has_shell] 
+tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[attempts.publish_denied] 
+[gw0] [ 65%] PASSED tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[attempts.capability] 
+tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[jobs.provider_qos] 
+[gw1] [ 70%] PASSED tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[attempts.publish_denied] 
+tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[notices.wake_state] 
+[gw0] [ 75%] PASSED tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[jobs.provider_qos] 
+tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[notices.wake_attempts] 
+[gw1] [ 80%] PASSED tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[notices.wake_state] 
+tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[notices.wake_next_at] 
+[gw0] [ 85%] PASSED tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[notices.wake_attempts] 
+tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[notices.wake_at] 
+[gw1] [ 90%] PASSED tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[notices.wake_next_at] 
+tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[notices.wake_reason] 
+[gw0] [ 95%] PASSED tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[notices.wake_at] 
+[gw1] [100%] PASSED tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[notices.wake_reason] 
+
+============================= 20 passed in 13.82s ==============================

@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import sqlite3
 import subprocess
 import tempfile
@@ -28,7 +29,7 @@ STATES = ('queued', 'waiting', 'running', 'succeeded', 'failed', 'cancelled', 'l
 TABLES = {
     'schema_version', 'lanes', 'readings', 'closures', 'jobs', 'job_owned_branches',
     'job_pushes', 'attempts', 'artifacts', 'notices', 'decisions', 'leases',
-    'actions', 'events', 'service_notices',
+    'actions', 'events', 'service_notices', 'caller_wake_sessions',
 }
 # Independent copies of the live readers, including why's evaluation timestamp.
 WHY = ('SELECT decision_json,evaluated_at FROM decisions WHERE job_id=? '
@@ -197,9 +198,18 @@ def test_prune_requires_every_migrated_column(tmp_path, table, column):
     _seed(tmp_path, [])
     database = tmp_path / 'state.sqlite3'
     with sqlite3.connect(database) as conn:
-        for index in conn.execute(f'PRAGMA index_list("{table}")').fetchall():
-            if column in {row[2] for row in conn.execute(f'PRAGMA index_info("{index[1]}")')}:
-                conn.execute(f'DROP INDEX "{index[1]}"')
+        # `PRAGMA index_info` lists only an index's key columns. A partial index
+        # can name the column in its WHERE clause alone (`notices_caller_wake`
+        # filters on `wake_state IS NULL`), and DROP COLUMN fails on it, so an
+        # index whose definition names the column is dropped too (review r4, P1).
+        named = re.compile(rf'\b{re.escape(column)}\b')
+        drop = {index[1] for index in conn.execute(f'PRAGMA index_list("{table}")').fetchall()
+                if column in {row[2] for row in conn.execute(f'PRAGMA index_info("{index[1]}")')}}
+        drop |= {name for name, sql in conn.execute(
+            "SELECT name,sql FROM sqlite_master WHERE type='index' AND tbl_name=? AND sql IS NOT NULL",
+            (table,)) if named.search(sql)}
+        for name in sorted(drop):
+            conn.execute(f'DROP INDEX "{name}"')
         conn.execute(f'ALTER TABLE "{table}" DROP COLUMN "{column}"')
     before = _tables(database)
     with pytest.raises(pruning.PruneRefused, match=f'{table}\\.{column}'):

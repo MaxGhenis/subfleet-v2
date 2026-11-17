@@ -1,0 +1,55 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.15.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/maxghenis/.subfleet/worktrees/20261117-083630-wcall-fix-r4
+configfile: pyproject.toml
+plugins: xdist-3.8.0, timeout-2.4.0, hypothesis-6.168.1
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+created: 4/4 workers
+4 workers [44 items]
+
+ssssssssssssssssssssssssssssssssssssssssssss                             [100%]
+=========================== short test summary info ============================
+SKIPPED [1] tests/e2e/test_conversations.py:261: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:163: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:360: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:310: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [2] tests/e2e/test_conversations.py:473: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:500: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:448: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:207: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:608: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:406: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:544: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:560: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:529: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [2] tests/e2e/test_conversations.py:666: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:696: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:638: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [2] tests/e2e/test_conversations.py:740: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:581: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:777: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:762: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:826: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:795: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:866: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:895: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:843: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:919: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:1029: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:1006: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:957: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:1045: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:1091: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:1114: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:1076: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:1148: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:1178: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:1213: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:1265: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:1288: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:1335: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:1389: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/e2e/test_conversations.py:1441: round-4 brief prohibits this fixture command or live process inspection
+============================= 44 skipped in 13.62s =============================

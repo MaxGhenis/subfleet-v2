@@ -1,0 +1,16 @@
+base-probes rc=1 20:16:37-20:20:08 load 111.16-118.60 :: 6 failed, 53 deselected in 169.52s (0:02:49)
+fix-probes rc=0 20:34:33-20:39:38 load 203.46-158.71 :: 8 passed in 233.44s (0:03:53)
+fix-new rc=0 20:50:31-20:53:11 load 172.61-146.87 :: 4 passed in 127.18s (0:02:07)
+step1-new-changed rc=0 21:04:32-21:08:54 load 32.90-115.19 :: 22 passed in 218.85s (0:03:38)
+rep20-p1 rc=0 21:09:55-21:15:22 load 135.87-145.80 :: 40 passed in 250.72s (0:04:10)
+rep20-p2a rc=5 21:16:01-21:18:56 load 117.71-81.77 :: no tests ran in 121.22s (0:02:01)
+rep20-p2a2 rc=0 21:19:50-21:22:27 load 113.46-187.14 :: 40 passed in 125.33s (0:02:05)
+rep20-p2b rc=0 21:22:53-21:26:10 load 203.14-110.58 :: 80 passed in 173.46s (0:02:53)
+collect-importers rc=0 21:26:52-21:33:05 load 113.94-100.36 :: 6760 tests collected in 347.66s (0:05:47)
+step2-a1-callerwake rc=0 21:33:49-21:36:23 load 102.22-104.00 :: 63 passed in 146.92s (0:02:26)
+step2-a2-unit rc=0 21:36:39-21:42:25 load 101.32-26.75 :: 499 passed in 326.44s (0:05:26)
+step2-a3-fake-e2e rc=1 21:42:58-21:56:18 load 24.98-110.72 :: 8 failed, 385 passed, 35 errors in 771.03s (0:12:51)
+step2-a4-compat-protocol rc=124 21:57:51-22:07:13 load 115.21-269.63 :: ...................................................................
+step3-guards rc=0 22:07:53-22:11:57 load 266.49-206.21 :: 435 passed in 232.70s (0:03:52)
+step2-e2e-recheck rc=1 22:12:12-22:13:14 load 211.73-185.43 :: 1 failed, 2 passed in 50.15s
+step2-b1-protocol-unit rc=124 22:17:32-22:25:52 load 249.20-303.12 :: ................................
