@@ -203,7 +203,7 @@ Started 2026-11-17 04:10:11 UTC (first command, `date -u`); deadline 07:10:11 UT
 | `b8d3304ef` | Fix code for every finding, the new tests and the fixtures |
 | `a391f84e1` | Test fixes: the unit conftest drops a job's markers; a CLI fake daemon advertises `review.subject.v1` |
 | `9916047b1` | Contract, README and `run --help` |
-| this commit | This section |
+| `30ebc817c`, then this commit | This section, then its cleanup record |
 
 ### Merge of 2954abd77
 
@@ -335,7 +335,7 @@ Every pytest run used `TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)`, `UV_CACHE_DIR=<t
 | `-n 4`: CLI, policy, route check, writable fan-out, subject validation/submission/resume (CLI and fake), gate admission, gate service (10 files) | 640 passed, 511.4 s |
 | Final, `-n 4`: family CLI, CLI, both new files, caller ancestry, CLI batch (6 files) | 334 passed, 54.7 s |
 
-After the fixes, the latest run of each of the 38 test files ran here, in the order the brief sets. The new and changed tests ran first, then the importing files and the store and migration files, then the four required files. All pass: no test fails at head.
+After the fixes, the latest run of each of the 38 test files passed: no test fails at head. The runs largely followed the brief's order. The new and changed tests ran first; the four required files ran beside the store and migration files; the importing files and the final CLI run came after them.
 
 ### What did not run, and deviations
 
@@ -343,9 +343,22 @@ After the fixes, the latest run of each of the 38 test files ran here, in the or
 - **`tests/unit/test_host_push.py` was not run.** Its fixtures push to local bare repositories, a write-shaped command the brief forbids even behind a stub.
 - **Red evidence ran in scratch trees, not this checkout.** The trees were `git archive 127576d13` and `git archive 48dab4abe` (`subfleet`, `tests`, `pyproject.toml`) with the new test files copied in. This shows each test failing on the old code without reverting the checkout.
   - The first red run of the new unit file was a collection error. After a one-line import change it ran per test.
+  - Three new unit cases pass on the merge code by design: the recheck test, whose red is the mutant; the lane-pin positive control; and `test_p2_explicit_same_family_or_unknown_default_still_fails_load`, which the build already satisfied.
 - **The reviewer's probe file (`test_zz_rv_a3_r1_probe.py`) is in the reviewer's workspace.** I wrote `test_p2_sol_first_routing_matrix` instead of rerunning the reviewer's `test_probe_routing_matrix`.
 - **`tests/unit/conftest.py` now also drops `SUBFLEET_JOB`, `SUBFLEET_ATTEMPT` and `SUBFLEET_TURN_JOB` from the "outside any session" environment.** These tests run inside a Subfleet job, whose markers would otherwise trip the new consent refusal.
 - **The stale-notice backfill is gone** (see the merge above). That follows D-SCHEMA-SLOTS1 and changes what a direct 10 → head upgrade leaves in `notices`.
 - **Offline `runs show` (daemon down) shows no caller record.** `same_family_consent` and `caller_family_disagreement` come from the daemon's `show`.
 - **Probe commands created cache folders in the checkout.** Early probes ran without `PYTHONDONTWRITEBYTECODE` and created `subfleet/__pycache__`, `subfleet/sessions/__pycache__` and `tests/__pycache__`; the test runs created `.hypothesis` and `uv sync` created `.venv`. All five are listed under cleanup below.
 - **Parallel runs.** Several pytest runs ran at the same time, each in the foreground, with at most four workers in total.
+- **Read other sessions' processes.** My first `git status` stalled for about two minutes. To diagnose it, I read `pgrep`/`ps` output for other sessions' `git status` processes. That was read-only and signalled nothing, but the brief says never to read a live process.
+- **The CLI's consent refusal carries no reason code.** C-6.5 names `same-family-consent` for both refusals, but only the daemon's carries that reason; the CLI's returns exit 7 with its message.
+
+### Cleanup
+
+I made these folders outside scratch:
+- In the checkout: `.venv` (from `uv sync`), `.hypothesis` (from the test runs), and `subfleet/__pycache__`, `subfleet/sessions/__pycache__` and `tests/__pycache__` (from the probe commands).
+- The `/tmp/sf-*` roots, which the unit conftest's `root` fixture makes and removes itself.
+
+The scratch root, `$(getconf DARWIN_USER_TEMP_DIR)sf-rva3-fix1`, held `arch/`, `red/`, `uv-cache`, every `pytest-*` basetemp, `scripts/make_fixture.py` and `route_check.pristine.py`. I moved the five checkout folders into `sf-rva3-fix1/checkout-cleanup/`, then deleted the scratch root with a `shutil.rmtree` that asserts `sf-rva3-fix1` is in the path.
+
+The deletion succeeded: all five checkout folders were moved, and the scratch root no longer exists. `ls -a` of the checkout shows only tracked entries (including the tracked `.coverage`), and no `__pycache__` folder remains. No process of mine is still running. I finished at 2026-11-17 06:42:47 UTC, within the three-hour limit.
