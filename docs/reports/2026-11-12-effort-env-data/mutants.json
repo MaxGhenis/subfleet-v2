@@ -1,0 +1,50 @@
+{
+  "results": [
+    {
+      "mutant": "1-drop-job-pin",
+      "test": "test_property_job_effort_pins_settings_and_preserves_argv",
+      "rc": 1,
+      "killed": true
+    },
+    {
+      "mutant": "2-drop-turn-pin",
+      "test": "test_property_turn_effort_pins_settings_and_preserves_argv",
+      "rc": 1,
+      "killed": true
+    },
+    {
+      "mutant": "3-job-process-env",
+      "test": "test_property_job_effort_pins_settings_and_preserves_argv",
+      "rc": 1,
+      "killed": true
+    },
+    {
+      "mutant": "4-ultracode-string",
+      "test": "test_property_turn_effort_pins_settings_and_preserves_argv",
+      "rc": 1,
+      "killed": true
+    },
+    {
+      "mutant": "5-pin-unnamed-job",
+      "test": "test_property_job_effort_pins_settings_and_preserves_argv",
+      "rc": 1,
+      "killed": true
+    },
+    {
+      "mutant": "6-second-settings",
+      "test": "test_property_job_effort_pins_settings_and_preserves_argv",
+      "rc": 1,
+      "killed": true
+    },
+    {
+      "mutant": "7-lose-watchdog",
+      "test": "test_property_job_effort_pins_settings_and_preserves_argv",
+      "rc": 1,
+      "killed": true
+    }
+  ],
+  "restored_sha256": {
+    "subfleet/adapters/claude.py": "692f2f88dea44c8426aadda97ab807396b1035b903c02e9a4b6a431624098e79",
+    "subfleet/conversations/claude_turn.py": "82c95e41ccd0e4f788ec5507f2445c16087d441aa3b832d9d732a03b3d2fa475"
+  }
+}

@@ -1,0 +1,223 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.15.2, pytest-9.1.1, pluggy-1.6.0 -- /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/builds-v0/.tmpeWSQek/bin/python
+hypothesis profile 'default'
+rootdir: /Users/maxghenis/.subfleet/worktrees/20261115-100031-eff-fix-r2
+configfile: pyproject.toml
+plugins: xdist-3.8.0, timeout-2.4.0, hypothesis-6.168.1
+timeout: 90.0s
+timeout method: thread
+timeout func_only: False
+created: 2/2 workers
+2 workers [1989 items]
+
+scheduling tests via LoadScheduling
+
+tests/unit/test_conversation_handoff.py::test_a_handoff_is_a_new_labelled_conversation_whose_first_message_is_the_brief 
+tests/unit/test_daemon_inspection_load.py::test_a_retry_that_cannot_inspect_keeps_its_backoff[guardian] 
+[gw0] [  0%] PASSED tests/unit/test_conversation_handoff.py::test_a_handoff_is_a_new_labelled_conversation_whose_first_message_is_the_brief 
+tests/unit/test_conversation_handoff.py::test_pending_messages_move_in_order_and_leave_the_source_withdrawn 
+[gw1] [  0%] PASSED tests/unit/test_daemon_inspection_load.py::test_a_retry_that_cannot_inspect_keeps_its_backoff[guardian] 
+tests/unit/test_daemon_inspection_load.py::test_a_retry_that_cannot_inspect_keeps_its_backoff[recording table] 
+[gw0] [  0%] PASSED tests/unit/test_conversation_handoff.py::test_pending_messages_move_in_order_and_leave_the_source_withdrawn 
+tests/unit/test_conversation_handoff.py::test_the_same_request_returns_the_same_handoff_and_a_different_one_is_refused 
+[gw1] [  0%] PASSED tests/unit/test_daemon_inspection_load.py::test_a_retry_that_cannot_inspect_keeps_its_backoff[recording table] 
+tests/unit/test_daemon_inspection_load.py::test_paced_inspection_still_reads_the_receipt_every_tick 
+[gw0] [  0%] PASSED tests/unit/test_conversation_handoff.py::test_the_same_request_returns_the_same_handoff_and_a_different_one_is_refused 
+tests/unit/test_conversation_handoff.py::test_a_source_with_a_live_turn_is_refused_and_nothing_changes[running] 
+[gw1] [  0%] PASSED tests/unit/test_daemon_inspection_load.py::test_paced_inspection_still_reads_the_receipt_every_tick 
+tests/unit/test_daemon_inspection_load.py::test_pacing_state_is_dropped_once_an_attempt_is_no_longer_live 
+[gw1] [  0%] PASSED tests/unit/test_daemon_inspection_load.py::test_pacing_state_is_dropped_once_an_attempt_is_no_longer_live 
+[gw0] [  0%] PASSED tests/unit/test_conversation_handoff.py::test_a_source_with_a_live_turn_is_refused_and_nothing_changes[running] 
+tests/unit/test_daemon_inspection_load.py::test_retry_state_is_dropped_once_an_attempt_is_no_longer_live 
+tests/unit/test_conversation_handoff.py::test_a_source_with_a_live_turn_is_refused_and_nothing_changes[starting] 
+[gw1] [  0%] PASSED tests/unit/test_daemon_inspection_load.py::test_retry_state_is_dropped_once_an_attempt_is_no_longer_live 
+[gw0] [  0%] PASSED tests/unit/test_conversation_handoff.py::test_a_source_with_a_live_turn_is_refused_and_nothing_changes[starting] 
+tests/unit/test_conversation_handoff.py::test_a_source_with_a_live_turn_is_refused_and_nothing_changes[approval-needed] 
+tests/unit/test_daemon_inspection_load.py::test_a_running_probe_is_inspected_on_the_same_budget 
+[gw0] [  0%] PASSED tests/unit/test_conversation_handoff.py::test_a_source_with_a_live_turn_is_refused_and_nothing_changes[approval-needed] 
+tests/unit/test_conversation_handoff.py::test_a_source_with_a_live_turn_is_refused_and_nothing_changes[delivery-unknown] 
+[gw1] [  0%] PASSED tests/unit/test_daemon_inspection_load.py::test_a_running_probe_is_inspected_on_the_same_budget 
+[gw0] [  0%] PASSED tests/unit/test_conversation_handoff.py::test_a_source_with_a_live_turn_is_refused_and_nothing_changes[delivery-unknown] 
+tests/unit/test_daemon_inspection_load.py::test_the_export_sweep_is_one_statement_however_much_history_is_kept 
+tests/unit/test_conversation_handoff.py::test_a_waiting_message_moves_only_while_its_job_has_no_attempt 
+[gw0] [  0%] PASSED tests/unit/test_conversation_handoff.py::test_a_waiting_message_moves_only_while_its_job_has_no_attempt 
+tests/unit/test_conversation_handoff.py::test_a_retry_after_a_crash_still_moves_the_message_whose_job_it_cancelled 
+[gw0] [  0%] PASSED tests/unit/test_conversation_handoff.py::test_a_retry_after_a_crash_still_moves_the_message_whose_job_it_cancelled 
+tests/unit/test_conversation_handoff.py::test_a_rolled_back_handoff_keeps_a_missed_steer_running_next 
+[gw1] [  0%] PASSED tests/unit/test_daemon_inspection_load.py::test_the_export_sweep_is_one_statement_however_much_history_is_kept 
+[gw0] [  0%] PASSED tests/unit/test_conversation_handoff.py::test_a_rolled_back_handoff_keeps_a_missed_steer_running_next 
+tests/unit/test_daemon_inspection_load.py::test_wait_rereads_the_store_only_after_a_commit 
+tests/unit/test_conversation_handoff.py::test_every_failure_after_fencing_restores_the_source[cancel-refused] 
+[gw0] [  0%] PASSED tests/unit/test_conversation_handoff.py::test_every_failure_after_fencing_restores_the_source[cancel-refused] 
+tests/unit/test_conversation_handoff.py::test_every_failure_after_fencing_restores_the_source[cancel-error] 
+[gw0] [  0%] PASSED tests/unit/test_conversation_handoff.py::test_every_failure_after_fencing_restores_the_source[cancel-error] 
+tests/unit/test_conversation_handoff.py::test_every_failure_after_fencing_restores_the_source[cancelled-then-error] 
+[gw1] [  1%] PASSED tests/unit/test_daemon_inspection_load.py::test_wait_rereads_the_store_only_after_a_commit 
+tests/unit/test_daemon_inspection_load.py::test_wait_rechecks_on_its_own_clock_without_a_commit 
+[gw0] [  1%] PASSED tests/unit/test_conversation_handoff.py::test_every_failure_after_fencing_restores_the_source[cancelled-then-error] 
+tests/unit/test_conversation_handoff.py::test_every_failure_after_fencing_restores_the_source[commit-error] 
+[gw0] [  1%] PASSED tests/unit/test_conversation_handoff.py::test_every_failure_after_fencing_restores_the_source[commit-error] 
+tests/unit/test_conversation_handoff.py::test_every_failure_after_fencing_restores_the_source[commit-interrupted] 
+[gw1] [  1%] PASSED tests/unit/test_daemon_inspection_load.py::test_wait_rechecks_on_its_own_clock_without_a_commit 
+tests/unit/test_daemon_inspection_load.py::test_a_worker_that_commits_nothing_wakes_no_waiter 
+[gw0] [  1%] PASSED tests/unit/test_conversation_handoff.py::test_every_failure_after_fencing_restores_the_source[commit-interrupted] 
+tests/unit/test_conversation_handoff.py::test_every_failure_after_fencing_restores_the_source[commit-sql-error] 
+[gw1] [  1%] PASSED tests/unit/test_daemon_inspection_load.py::test_a_worker_that_commits_nothing_wakes_no_waiter 
+tests/unit/test_daemon_inspection_load.py::test_store_generation_counts_committed_changes_only 
+[gw0] [  1%] PASSED tests/unit/test_conversation_handoff.py::test_every_failure_after_fencing_restores_the_source[commit-sql-error] 
+[gw1] [  1%] PASSED tests/unit/test_daemon_inspection_load.py::test_store_generation_counts_committed_changes_only 
+tests/unit/test_daemon_inspection_properties.py::test_recording_asks_exactly_about_members_not_recorded_as_they_are 
+tests/unit/test_conversation_handoff.py::test_every_failure_after_fencing_restores_the_source[commit-deferred-error] 
+[gw0] [  1%] PASSED tests/unit/test_conversation_handoff.py::test_every_failure_after_fencing_restores_the_source[commit-deferred-error] 
+tests/unit/test_conversation_handoff.py::test_every_failure_after_fencing_restores_the_source[discard-error] 
+[gw0] [  1%] PASSED tests/unit/test_conversation_handoff.py::test_every_failure_after_fencing_restores_the_source[discard-error] 
+tests/unit/test_conversation_handoff.py::test_a_failed_handoff_restores_a_message_whose_job_was_not_bound[False] 
+[gw0] [  1%] PASSED tests/unit/test_conversation_handoff.py::test_a_failed_handoff_restores_a_message_whose_job_was_not_bound[False] 
+tests/unit/test_conversation_handoff.py::test_a_failed_handoff_restores_a_message_whose_job_was_not_bound[True] 
+[gw0] [  1%] PASSED tests/unit/test_conversation_handoff.py::test_a_failed_handoff_restores_a_message_whose_job_was_not_bound[True] 
+tests/unit/test_conversation_handoff.py::test_a_failure_reading_the_committed_handoff_keeps_its_messages_and_texts 
+[gw0] [  1%] PASSED tests/unit/test_conversation_handoff.py::test_a_failure_reading_the_committed_handoff_keeps_its_messages_and_texts 
+tests/unit/test_conversation_handoff.py::test_a_restart_lifts_a_stale_handoff_fence_before_dispatch[before-cancel] 
+[gw0] [  1%] PASSED tests/unit/test_conversation_handoff.py::test_a_restart_lifts_a_stale_handoff_fence_before_dispatch[before-cancel] 
+tests/unit/test_conversation_handoff.py::test_a_restart_lifts_a_stale_handoff_fence_before_dispatch[after-cancel] 
+[gw0] [  1%] PASSED tests/unit/test_conversation_handoff.py::test_a_restart_lifts_a_stale_handoff_fence_before_dispatch[after-cancel] 
+tests/unit/test_conversation_handoff.py::test_a_restart_lifts_a_stale_handoff_fence_before_dispatch[after-settlement] 
+[gw0] [  1%] PASSED tests/unit/test_conversation_handoff.py::test_a_restart_lifts_a_stale_handoff_fence_before_dispatch[after-settlement] 
+tests/unit/test_conversation_handoff.py::test_a_retry_after_a_fenced_crash_moves_the_restored_message_in_order 
+[gw1] [  1%] PASSED tests/unit/test_daemon_inspection_properties.py::test_recording_asks_exactly_about_members_not_recorded_as_they_are 
+tests/unit/test_daemon_inspection_properties.py::test_the_export_query_matches_the_sweep_it_replaced 
+[gw0] [  1%] PASSED tests/unit/test_conversation_handoff.py::test_a_retry_after_a_fenced_crash_moves_the_restored_message_in_order 
+tests/unit/test_conversation_handoff.py::test_a_tick_during_handoff_keeps_its_fence_until_commit 
+[gw0] [  1%] PASSED tests/unit/test_conversation_handoff.py::test_a_tick_during_handoff_keeps_its_fence_until_commit 
+tests/unit/test_conversation_handoff.py::test_stale_fence_recovery_restores_only_its_own_cancelled_unattempted_jobs[person-cancel] 
+[gw0] [  1%] PASSED tests/unit/test_conversation_handoff.py::test_stale_fence_recovery_restores_only_its_own_cancelled_unattempted_jobs[person-cancel] 
+tests/unit/test_conversation_handoff.py::test_stale_fence_recovery_restores_only_its_own_cancelled_unattempted_jobs[other-handoff] 
+[gw0] [  2%] PASSED tests/unit/test_conversation_handoff.py::test_stale_fence_recovery_restores_only_its_own_cancelled_unattempted_jobs[other-handoff] 
+tests/unit/test_conversation_handoff.py::test_stale_fence_recovery_restores_only_its_own_cancelled_unattempted_jobs[cancel-request-only] 
+[gw0] [  2%] PASSED tests/unit/test_conversation_handoff.py::test_stale_fence_recovery_restores_only_its_own_cancelled_unattempted_jobs[cancel-request-only] 
+tests/unit/test_conversation_handoff.py::test_stale_fence_recovery_restores_only_its_own_cancelled_unattempted_jobs[cancelled-with-attempt] 
+[gw0] [  2%] PASSED tests/unit/test_conversation_handoff.py::test_stale_fence_recovery_restores_only_its_own_cancelled_unattempted_jobs[cancelled-with-attempt] 
+tests/unit/test_conversation_handoff.py::test_a_failed_fence_lift_is_retried_by_the_next_control_loop_tick 
+[gw0] [  2%] PASSED tests/unit/test_conversation_handoff.py::test_a_failed_fence_lift_is_retried_by_the_next_control_loop_tick 
+tests/unit/test_conversation_handoff.py::test_subfleets_repair_messages_are_not_carried 
+[gw0] [  2%] PASSED tests/unit/test_conversation_handoff.py::test_subfleets_repair_messages_are_not_carried 
+tests/unit/test_conversation_handoff.py::test_a_native_session_hands_off_and_a_lane_run_is_refused 
+[gw0] [  2%] PASSED tests/unit/test_conversation_handoff.py::test_a_native_session_hands_off_and_a_lane_run_is_refused 
+tests/unit/test_conversation_handoff.py::test_refusals_before_anything_is_read 
+[gw0] [  2%] PASSED tests/unit/test_conversation_handoff.py::test_refusals_before_anything_is_read 
+tests/unit/test_conversation_handoff.py::test_a_withdrawal_and_the_dispatcher_cannot_both_win 
+[gw0] [  2%] PASSED tests/unit/test_conversation_handoff.py::test_a_withdrawal_and_the_dispatcher_cannot_both_win 
+tests/unit/test_conversation_handoff.py::test_a_message_withdrawn_first_never_gets_a_job 
+[gw0] [  2%] PASSED tests/unit/test_conversation_handoff.py::test_a_message_withdrawn_first_never_gets_a_job 
+tests/unit/test_conversation_handoff.py::test_the_dispatcher_waits_while_a_handoff_takes_the_conversation 
+[gw0] [  2%] PASSED tests/unit/test_conversation_handoff.py::test_the_dispatcher_waits_while_a_handoff_takes_the_conversation 
+tests/unit/test_conversation_handoff.py::test_the_dispatcher_never_submits_or_binds_a_fenced_message[None-False] 
+[gw0] [  2%] PASSED tests/unit/test_conversation_handoff.py::test_the_dispatcher_never_submits_or_binds_a_fenced_message[None-False] 
+tests/unit/test_conversation_handoff.py::test_the_dispatcher_never_submits_or_binds_a_fenced_message[dispatching-False] 
+[gw0] [  2%] PASSED tests/unit/test_conversation_handoff.py::test_the_dispatcher_never_submits_or_binds_a_fenced_message[dispatching-False] 
+tests/unit/test_conversation_handoff.py::test_the_dispatcher_never_submits_or_binds_a_fenced_message[dispatching-True] 
+[gw0] [  2%] PASSED tests/unit/test_conversation_handoff.py::test_the_dispatcher_never_submits_or_binds_a_fenced_message[dispatching-True] 
+tests/unit/test_conversation_handoff.py::test_the_dispatcher_never_submits_or_binds_a_fenced_message[readmit:lane-failed-False] 
+[gw0] [  2%] PASSED tests/unit/test_conversation_handoff.py::test_the_dispatcher_never_submits_or_binds_a_fenced_message[readmit:lane-failed-False] 
+tests/unit/test_conversation_handoff.py::test_the_dispatcher_never_submits_or_binds_a_fenced_message[readmit:lane-failed-True] 
+[gw0] [  2%] PASSED tests/unit/test_conversation_handoff.py::test_the_dispatcher_never_submits_or_binds_a_fenced_message[readmit:lane-failed-True] 
+tests/unit/test_conversation_handoff.py::test_a_claim_the_handoff_did_not_expect_rolls_the_handoff_back 
+[gw0] [  2%] PASSED tests/unit/test_conversation_handoff.py::test_a_claim_the_handoff_did_not_expect_rolls_the_handoff_back 
+tests/unit/test_conversation_handoff.py::test_a_deferred_submit_puts_the_claim_back_and_waits 
+[gw0] [  2%] PASSED tests/unit/test_conversation_handoff.py::test_a_deferred_submit_puts_the_claim_back_and_waits 
+tests/unit/test_conversation_handoff.py::test_a_claim_interrupted_by_a_crash_is_bound_or_submitted_again 
+[gw0] [  2%] PASSED tests/unit/test_conversation_handoff.py::test_a_claim_interrupted_by_a_crash_is_bound_or_submitted_again 
+tests/unit/test_conversation_handoff.py::test_a_codex_app_thread_continues_by_labelled_handoff 
+[gw0] [  2%] PASSED tests/unit/test_conversation_handoff.py::test_a_codex_app_thread_continues_by_labelled_handoff 
+tests/unit/test_conversation_handoff.py::test_a_damaged_attachment_fails_the_handoff_before_the_source_is_touched[missing] 
+[gw0] [  2%] PASSED tests/unit/test_conversation_handoff.py::test_a_damaged_attachment_fails_the_handoff_before_the_source_is_touched[missing] 
+tests/unit/test_conversation_handoff.py::test_a_damaged_attachment_fails_the_handoff_before_the_source_is_touched[corrupt] 
+[gw0] [  3%] PASSED tests/unit/test_conversation_handoff.py::test_a_damaged_attachment_fails_the_handoff_before_the_source_is_touched[corrupt] 
+tests/unit/test_conversation_handoff_dispatch_races.py::test_dispatch_rechecks_order_after_a_handoff_restores_an_earlier_message 
+[gw0] [  3%] PASSED tests/unit/test_conversation_handoff_dispatch_races.py::test_dispatch_rechecks_order_after_a_handoff_restores_an_earlier_message 
+tests/unit/test_conversation_handoff_dispatch_races.py::test_dispatch_refreshes_a_message_restored_since_its_scan 
+[gw1] node down: Not properly terminated
+[gw1] [  3%] FAILED tests/unit/test_daemon_inspection_properties.py::test_the_export_query_matches_the_sweep_it_replaced 
+
+worker gw1 crashed and worker restarting disabled
+[gw0] [  3%] PASSED tests/unit/test_conversation_handoff_dispatch_races.py::test_dispatch_refreshes_a_message_restored_since_its_scan 
+tests/unit/test_conversation_handoff_dispatch_races.py::test_a_submit_returning_after_handoff_rollback_cannot_rebind_its_cancelled_job 
+[gw0] [  3%] PASSED tests/unit/test_conversation_handoff_dispatch_races.py::test_a_submit_returning_after_handoff_rollback_cannot_rebind_its_cancelled_job 
+tests/unit/test_conversation_handoff_dispatch_races.py::test_settlement_of_an_old_cancelled_job_cannot_settle_a_restored_turn 
+[gw0] [  3%] PASSED tests/unit/test_conversation_handoff_dispatch_races.py::test_settlement_of_an_old_cancelled_job_cannot_settle_a_restored_turn 
+tests/unit/test_conversation_handoff_dispatch_races.py::test_an_interrupted_fence_lift_releases_the_active_handoff_for_recovery 
+[gw0] [  3%] PASSED tests/unit/test_conversation_handoff_dispatch_races.py::test_an_interrupted_fence_lift_releases_the_active_handoff_for_recovery 
+tests/unit/test_conversation_handoff_dispatch_races.py::test_a_notification_failure_after_commit_keeps_the_handoff_files 
+[gw0] [  3%] PASSED tests/unit/test_conversation_handoff_dispatch_races.py::test_a_notification_failure_after_commit_keeps_the_handoff_files 
+tests/unit/test_conversation_handoff_dispatch_races.py::test_a_claim_a_crash_interrupted_is_released_or_settled_when_its_submit_fails 
+[gw0] [  3%] PASSED tests/unit/test_conversation_handoff_dispatch_races.py::test_a_claim_a_crash_interrupted_is_released_or_settled_when_its_submit_fails 
+tests/unit/test_conversation_handoff_dispatch_races.py::test_handoff_rollbacks_do_not_use_up_provider_readmissions 
+[gw0] [  3%] PASSED tests/unit/test_conversation_handoff_dispatch_races.py::test_handoff_rollbacks_do_not_use_up_provider_readmissions 
+tests/unit/test_conversation_handoff_dispatch_races.py::test_a_waiting_message_with_no_job_moves_and_a_claimed_one_refuses 
+[gw0] [  3%] PASSED tests/unit/test_conversation_handoff_dispatch_races.py::test_a_waiting_message_with_no_job_moves_and_a_claimed_one_refuses 
+tests/unit/test_conversation_service.py::test_the_tick_starts_a_catalog_run_every_interval_and_never_waits_for_it 
+[gw0] [  3%] PASSED tests/unit/test_conversation_service.py::test_the_tick_starts_a_catalog_run_every_interval_and_never_waits_for_it 
+tests/unit/test_conversation_service.py::test_with_the_timer_off_the_catalog_runs_only_on_request 
+[gw0] [  3%] PASSED tests/unit/test_conversation_service.py::test_with_the_timer_off_the_catalog_runs_only_on_request 
+tests/unit/test_conversation_service.py::test_a_wedged_catalog_run_is_stopped_and_reaped_later 
+[gw0] [  3%] PASSED tests/unit/test_conversation_service.py::test_a_wedged_catalog_run_is_stopped_and_reaped_later 
+tests/unit/test_conversation_service.py::test_a_tracked_run_that_declined_is_logged_with_why_and_one_after_close_is_not 
+[gw0] [  3%] PASSED tests/unit/test_conversation_service.py::test_a_tracked_run_that_declined_is_logged_with_why_and_one_after_close_is_not 
+tests/unit/test_conversation_service.py::test_catalog_refresh_starts_a_run_without_waiting_and_resets_the_timer 
+[gw0] [  3%] PASSED tests/unit/test_conversation_service.py::test_catalog_refresh_starts_a_run_without_waiting_and_resets_the_timer 
+tests/unit/test_conversation_service.py::test_close_stops_the_catalog_run_and_starts_none_after 
+[gw0] [  3%] PASSED tests/unit/test_conversation_service.py::test_close_stops_the_catalog_run_and_starts_none_after 
+tests/unit/test_conversation_service.py::test_begin_close_spends_the_catalog_grace_while_the_daemon_drains[0] 
+[gw0] [  3%] PASSED tests/unit/test_conversation_service.py::test_begin_close_spends_the_catalog_grace_while_the_daemon_drains[0] 
+tests/unit/test_conversation_service.py::test_begin_close_spends_the_catalog_grace_while_the_daemon_drains[4] 
+[gw0] [  3%] PASSED tests/unit/test_conversation_service.py::test_begin_close_spends_the_catalog_grace_while_the_daemon_drains[4] 
+tests/unit/test_conversation_service.py::test_begin_close_spends_the_catalog_grace_while_the_daemon_drains[10] 
+[gw0] [  3%] PASSED tests/unit/test_conversation_service.py::test_begin_close_spends_the_catalog_grace_while_the_daemon_drains[10] 
+tests/unit/test_conversation_service.py::test_begin_close_spends_the_catalog_grace_while_the_daemon_drains[21] 
+[gw0] [  4%] PASSED tests/unit/test_conversation_service.py::test_begin_close_spends_the_catalog_grace_while_the_daemon_drains[21] 
+tests/unit/test_conversation_service.py::test_begin_close_quietly_reaps_a_run_that_already_declined 
+[gw0] [  4%] PASSED tests/unit/test_conversation_service.py::test_begin_close_quietly_reaps_a_run_that_already_declined 
+tests/unit/test_conversation_service.py::test_begin_close_grace_starts_after_a_slow_term_send 
+[gw0] [  4%] PASSED tests/unit/test_conversation_service.py::test_begin_close_grace_starts_after_a_slow_term_send 
+tests/unit/test_conversation_service.py::test_close_at_each_catalog_start_boundary[before-lock] 
+[gw0] [  4%] PASSED tests/unit/test_conversation_service.py::test_close_at_each_catalog_start_boundary[before-lock] 
+tests/unit/test_conversation_service.py::test_close_at_each_catalog_start_boundary[in-spawn] 
+[gw0] [  4%] PASSED tests/unit/test_conversation_service.py::test_close_at_each_catalog_start_boundary[in-spawn] 
+tests/unit/test_conversation_service.py::test_close_at_each_catalog_start_boundary[before-handoff] 
+[gw0] [  4%] PASSED tests/unit/test_conversation_service.py::test_close_at_each_catalog_start_boundary[before-handoff] 
+tests/unit/test_conversation_service.py::test_close_at_each_catalog_start_boundary[after-handoff] 
+[gw0] [  4%] PASSED tests/unit/test_conversation_service.py::test_close_at_each_catalog_start_boundary[after-handoff] 
+tests/unit/test_conversation_service.py::test_close_bounds_the_start_handoff_and_the_late_starter_reaps[0] 
+[gw0] [  4%] PASSED tests/unit/test_conversation_service.py::test_close_bounds_the_start_handoff_and_the_late_starter_reaps[0] 
+tests/unit/test_conversation_service.py::test_close_bounds_the_start_handoff_and_the_late_starter_reaps[0.5] 
+[gw0] [  4%] PASSED tests/unit/test_conversation_service.py::test_close_bounds_the_start_handoff_and_the_late_starter_reaps[0.5] 
+tests/unit/test_conversation_service.py::test_close_bounds_the_start_handoff_and_the_late_starter_reaps[1] 
+[gw0] [  4%] PASSED tests/unit/test_conversation_service.py::test_close_bounds_the_start_handoff_and_the_late_starter_reaps[1] 
+tests/unit/test_conversation_service.py::test_each_catalog_run_gets_its_own_sixty_seconds_and_sigterm_first[after-sigterm] 
+[gw0] [  4%] PASSED tests/unit/test_conversation_service.py::test_each_catalog_run_gets_its_own_sixty_seconds_and_sigterm_first[after-sigterm] 
+tests/unit/test_conversation_service.py::test_each_catalog_run_gets_its_own_sixty_seconds_and_sigterm_first[after-sigkill] 
+[gw0] [  4%] PASSED tests/unit/test_conversation_service.py::test_each_catalog_run_gets_its_own_sixty_seconds_and_sigterm_first[after-sigkill] 
+tests/unit/test_conversation_service.py::test_close_escalates_to_sigkill_when_a_run_outlasts_sigterm 
+[gw0] [  4%] PASSED tests/unit/test_conversation_service.py::test_close_escalates_to_sigkill_when_a_run_outlasts_sigterm 
+tests/unit/test_conversation_service.py::test_close_kills_a_real_run_that_ignores_sigterm 
+[gw0] [  4%] PASSED tests/unit/test_conversation_service.py::test_close_kills_a_real_run_that_ignores_sigterm 
+tests/unit/test_conversation_service.py::test_a_run_in_flight_when_close_begins_is_stopped_too 
+[gw0] [  4%] PASSED tests/unit/test_conversation_service.py::test_a_run_in_flight_when_close_begins_is_stopped_too 
+tests/unit/test_conversation_service.py::test_catalog_lifecycle_invariants_hold_for_random_interleavings[0] 
+[gw0] node down: Not properly terminated
+[gw0] [  4%] FAILED tests/unit/test_conversation_service.py::test_catalog_lifecycle_invariants_hold_for_random_interleavings[0] 
+
+worker gw0 crashed and worker restarting disabled
+
+=================================== FAILURES ===================================
+_______________ tests/unit/test_daemon_inspection_properties.py ________________
+[gw1] darwin -- Python 3.15.2 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/builds-v0/.tmpeWSQek/bin/python
+worker 'gw1' crashed while running 'tests/unit/test_daemon_inspection_properties.py::test_the_export_query_matches_the_sweep_it_replaced'
+___________________ tests/unit/test_conversation_service.py ____________________
+[gw0] darwin -- Python 3.15.2 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/builds-v0/.tmpeWSQek/bin/python
+worker 'gw0' crashed while running 'tests/unit/test_conversation_service.py::test_catalog_lifecycle_invariants_hold_for_random_interleavings[0]'
+=========== xdist: worker gw0 crashed and worker restarting disabled ===========
+=========================== short test summary info ============================
+FAILED tests/unit/test_daemon_inspection_properties.py::test_the_export_query_matches_the_sweep_it_replaced - worker 'gw1' crashed while running 'tests/unit/test_daemon_inspection_properties.py::test_the_export_query_matches_the_sweep_it_replaced'
+FAILED tests/unit/test_conversation_service.py::test_catalog_lifecycle_invariants_hold_for_random_interleavings[0] - worker 'gw0' crashed while running 'tests/unit/test_conversation_service.py::test_catalog_lifecycle_invariants_hold_for_random_interleavings[0]'
+=================== 2 failed, 93 passed in 708.28s (0:11:48) ===================
