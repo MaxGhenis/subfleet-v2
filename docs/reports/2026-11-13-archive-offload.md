@@ -292,6 +292,7 @@ Other checks: `ast.parse` of every changed Python file and `git diff --check` pa
 - **`$TMPDIR/uv-cache`:** the brief's cache, which already existed. Kept.
 - **`<worktree>/sf-ao-fix2-pytest-cache-files-e09tzd4a`:** pytest's own cache temporary, logged by the harness and already gone (pytest renames it into `.pytest_cache`). Nothing to delete.
 - **The worktree's ignored `.hypothesis/` and `.pytest_cache/`:** test databases inside the worktree.
-- **The scratch folder `$TMPDIR/sf-ao-fix2`:** removed at the end with a guarded `shutil.rmtree`, if time allowed. The final answer says whether it was.
+- **The scratch folder `$TMPDIR/sf-ao-fix2`** (`/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ao-fix2`): removed with a guarded `shutil.rmtree` that asserted `sf-ao-fix2` in the resolved path. Its `bt/` basetemps took 212 s, the rest under a second, exit 0 both times; nothing is left. The logs, harness, runner and importer list it held are in `2026-11-13-archive-offload-fix2-data/`.
+- **`$TMPDIR/sf-ao-fix2-rm.py`:** the removal script, a file just outside the scratch folder; deleted after use with the same name assertion.
 
-Head built: see the final answer (this section is committed with it).
+Commits on 6b53f6056: d0f5ee6fc (red tests), b1391df36 (catch-up marker), 94f6be5fc (code), fba3fad43 (`ledger-first` test), 16a51cafe (contract and docstrings; the code and contract head), then the report and `2026-11-13-archive-offload-fix2-data/` (02be59274 and the cleanup note after it). The branch tip is the head named in this job's final answer.
