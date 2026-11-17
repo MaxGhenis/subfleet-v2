@@ -149,8 +149,151 @@ def test_resume_keeps_source_effort_when_policy_aliases_share_a_model_id(
         settings = json.loads(argv[argv.index("--settings") + 1])
         assert settings["env"].get("CLAUDE_CODE_EFFORT_LEVEL") == effort
     assert daemon.store.get_job(resumed_id)["pinned_model"] == "opus_alternate"
+    assert_resume_pins_source_model_id(daemon, resumed_id)
     assert resumed.native_session_id == "native-source-session"
     assert daemon._children == {}
+
+
+# Review r3 of #310 (D-EFFORT-ENV1 fix round 3): the recorded alias is kept only while it
+# names an entry at the source attempt's provider model ID; otherwise the resume pins that ID.
+
+#: A synthetic successor ID for `haiku`, so its old ID is left to another alias or to none.
+NEXT_HAIKU_ID = "claude-haiku-9-9-synthetic"
+#: The fix of a resume refused for its source's model (C-12.4, C-25.7).
+RESUME_MODEL_FIX = "submit a fresh job: a resume always runs on its source's model"
+
+
+def assert_resume_pins_source_model_id(daemon, job_id):
+    """The round's invariant: an accepted resume pins a policy entry whose `id` is its
+    source attempt's provider model ID, the identity its launch checks."""
+    pinned = daemon.store.get_job(job_id)["pinned_model"]
+    manifest = json.loads((daemon.root / "jobs" / job_id / "manifest.json").read_text())
+    assert daemon.policy["models"][pinned]["id"] == manifest["resume"]["model_id"]
+
+
+def launch_resume(daemon, monkeypatch, job_id):
+    """Admit a resume and run `_launch` to the adapter's native continuation. What that
+    call received, or [] when `_launch` refused before it (a `spawn_error`)."""
+    daemon._admit()
+    attempt = daemon.store.list_attempts(job_id)[0]
+    calls = []
+
+    class ObserveResume(FakeAdapter):
+        def resume_launch(self, spec, aid, adir, lane, env, native, prompt, guard, model_id=None, effort=None):
+            calls.append((lane.lane_id, native, model_id, effort))
+            raise AdapterError("stopped after observing native launch")
+
+        def build_launch(self, *args):
+            raise AssertionError("a resume must not start a fresh provider session")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(module, "get_adapter", lambda _: ObserveResume())
+        Daemon._launch(daemon, attempt)
+    assert daemon._children == {}
+    return calls
+
+
+def claude_lane(daemon):
+    lane = daemon.store.get_lane("codex-1")
+    daemon.store.put_lane(replace(lane, lane_id="claude-1", provider="claude",
+        account_key="claude:fixture", credential=Credential("claude", lane.home, "home")))
+    daemon.desktop_prober = lambda: None
+    register("claude", FakeAdapter)
+
+
+def reload_policy(daemon):
+    """The daemon's policy as edited in memory, written and read back as the daemon reads it."""
+    policy_path = daemon.root / "policy.json"
+    policy_path.write_text(json.dumps(daemon.policy))
+    daemon.policy = load_policy(policy_path)
+
+
+@pytest.mark.parametrize("model_short", ["Astra", "astra-v1-only-name", None, "astra", "gpt-6-astra"])
+def test_c23_32_imported_resume_runs_at_its_source_model_id_whatever_v1_named_it(
+        state_daemon, monkeypatch, model_short):
+    """C-12.4, C-23.32 (review r3 of #310, P1): the importer records v1's own name for the
+    requested model, which it resolved without case and by scope. A name that is no current
+    key, retired alias or ID resumes as before the alias was kept: on the source's lane, at
+    its provider model ID. `None`, the alias and the ID are controls. The imported row is
+    read, never rewritten."""
+    daemon, harness = state_daemon
+    source_id, attempt = finished_source(daemon, harness)
+    evidence = json.dumps({"imported": True, "imported_external": False, "model_short": model_short,
+                           "v1_class": None, "v1_lane": "codex-a",
+                           "v1_meta": "/legacy/runs/20260905-111855-astra/meta.json", "salvage_refs": []},
+                          sort_keys=True)
+    daemon.store.update_attempt(attempt["attempt_id"], evidence_json=evidence)
+    source_attempt = daemon.store.get_attempt(attempt["attempt_id"])
+    assert source_attempt["model_requested"] == "gpt-6-astra"
+    resumed_id = resume_job(daemon, harness, source_id)
+    assert daemon.store.get_attempt(attempt["attempt_id"]) == source_attempt
+    resumed = daemon.store.get_job(resumed_id)
+    assert (resumed["pinned_lane"], resumed["pinned_model"]) == (source_attempt["lane_id"], "astra")
+    assert_resume_pins_source_model_id(daemon, resumed_id)
+    assert launch_resume(daemon, monkeypatch, resumed_id) == [
+        (source_attempt["lane_id"], "native-source-session", "gpt-6-astra",
+         daemon.policy["models"]["astra"].get("effort"))]
+    assert daemon.store.get_attempt(attempt["attempt_id"]) == source_attempt
+    assert source_attempt["evidence_json"] == evidence
+
+
+@pytest.mark.parametrize("change", ["id-rollover", "alias-removed", "alias-retired"])
+def test_resume_after_a_policy_change_pins_an_entry_at_its_source_model_id(state_daemon, monkeypatch, change):
+    """C-12.4 (review r3 of #310, P2 and P3): after the source's alias moved to a new ID with
+    the old one kept under another alias, or the alias was removed, the resume pins the old
+    ID; the first current entry at that ID supplies the effort, as before the alias was kept,
+    and the launch passes its identity check. A retired alias still resolves (control)."""
+    daemon, harness = state_daemon
+    models = daemon.policy["models"]
+    models["opus"]["effort"] = "low"
+    models["opus_alternate"] = {**models["opus"], "effort": "high"}
+    reload_policy(daemon)
+    claude_lane(daemon)
+    source_model = "haiku" if change == "id-rollover" else "opus_alternate"
+    source_id, source_attempt = finished_source(daemon, harness, pinned_lane="claude-1", pinned_model=source_model)
+    old_id = source_attempt["model_requested"]
+    assert json.loads(source_attempt["evidence_json"])["model_short"] == source_model
+    models = daemon.policy["models"]
+    if change == "id-rollover":
+        models["haiku_legacy"] = {**models["haiku"]}
+        models["haiku"] = {**models["haiku"], "id": NEXT_HAIKU_ID, "effort": "high"}
+        expected = "haiku_legacy"
+    else:
+        del models["opus_alternate"]
+        if change == "alias-retired":
+            daemon.policy.setdefault("retired", {})["opus_alternate"] = "opus"
+        expected = "opus"
+    reload_policy(daemon)
+    resumed_id = resume_job(daemon, harness, source_id)
+    # The launch first: before this round an ID rollover was accepted, then refused here.
+    launched = launch_resume(daemon, monkeypatch, resumed_id)
+    assert (daemon.store.get_job(resumed_id)["pinned_model"], launched) == (expected, [
+        ("claude-1", "native-source-session", old_id, daemon.policy["models"][expected].get("effort"))])
+    assert_resume_pins_source_model_id(daemon, resumed_id)
+
+
+def test_resume_is_refused_unknown_pinned_model_when_no_entry_holds_its_source_model_id(state_daemon):
+    """C-12.4, C-25.7 (review r3 of #310, P2 and P3): when no policy entry holds the source
+    attempt's model ID, the resume is refused at its pin, before the request digest, as
+    `unknown-pinned-model` (code 7) naming no policy path. The caller cannot change a resume's
+    pin, so the repair is a fresh job."""
+    daemon, harness = state_daemon
+    claude_lane(daemon)
+    source_id, source_attempt = finished_source(daemon, harness, pinned_lane="claude-1", pinned_model="haiku")
+    old_id = source_attempt["model_requested"]
+    daemon.policy["models"]["haiku"]["id"] = NEXT_HAIKU_ID
+    reload_policy(daemon)
+    with pytest.raises(AdapterError) as raised:
+        resume_job(daemon, harness, source_id)
+    refusal = raised.value
+    assert type(refusal) is AdapterError
+    assert (refusal.reason, refusal.code) == ("unknown-pinned-model", 7)
+    assert str(refusal) == (f"unknown pinned model {old_id!r}; policy models: "
+                            + ", ".join(daemon.policy["models"]))
+    assert "policy.json" not in str(refusal) and "pinned_model" not in str(refusal)
+    assert refusal.fix == RESUME_MODEL_FIX
+    assert protocol.refusal_text(refusal) == (f"unknown pinned model {old_id}", RESUME_MODEL_FIX)
+    assert [job["job_id"] for job in daemon.store.list_jobs()] == [source_id]
 
 
 @pytest.mark.parametrize("when", ["before-submit", "while-queued"])
