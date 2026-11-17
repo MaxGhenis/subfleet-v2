@@ -432,7 +432,7 @@ Started **2026-11-17 13:37:54 UTC**, from the first command's `date -u`. The sec
 - an offline prompt hook that arrived during a real wake claim, held inside `reserve`, was still blocked after 15 s: it waited out the claim.
 
 **Change** (`6df091e85`).
-- `activity_lock` takes `wait_s` and yields whether it holds the lock, through `delivery_lock`'s polling, now shared as `_file_lock` (`notice_claims.py:40`). An error opening the lock file counts as not held.
+- `activity_lock` takes `wait_s` and yields whether it holds the lock, through `delivery_lock`'s polling, now shared as `_file_lock` (`notice_claims.py:40`). An error opening the lock file counts as not held. `wait_s` has no default (`1b6fe3958`): a caller that forgot it would otherwise run its body unlocked. `git grep` finds no call without it.
 - `ACTIVITY_LOCK_WAIT_S = 0.25` (`notice_claims.py:36`).
 - **Hook.** Publication waits at most 0.25 s, then `os.replace`s its record whether or not it holds the lock (`notice_claims.py:197`), so round 3's ruling stands: activity is never lost. A hook that publishes without the lock is racing a claim already in progress, the race review r4 accepts in its section 2. A hook that completed before the claim took the lock is still visible to that claim, which lists the records only after taking the lock.
 - **Claim** (`subfleet/caller_wakes.py:470`). It waits at most 0.25 s. If it doesn't get the lock, it returns before its transaction: no claim, no attempt counted, and no held memo. The pass goes on to the next caller, and the next pass, about a second later, judges this caller afresh.
@@ -528,6 +528,7 @@ The [isolation plugin](2026-11-12-wake-caller-data/fix-r4/r4_isolation.py.txt) s
 | `fold-corrupt-after` | the two, plus the corrupt-caller case | 3 passed | 15:08–15:09 | 58 to 43 |
 | `notice-claims-file` | `test_notice_claims.py` in full, after the test fixes | 37 passed | 15:10–15:12 | 32 to 49 |
 | `guards-final` | the four guard files, after the contract change | 437 passed | 15:14–15:17 | 72 to 79 |
+| `required-wait` | after `wait_s` lost its default: `test_notice_claims.py` in full, the two fake P2 cases, round 3's three cases and `test_human_prompt_during_header_render_prevents_wake` | 46 passed | 15:22–15:23 | 37 to 50 |
 
 **Notes on the runs.**
 - **Importer files** ([list](2026-11-12-wake-caller-data/fix-r4/importer-files.txt)). A `git grep -lP` for imports of `hooks`, `notice_claims` and `caller_wakes` under `tests/` found 23 test files and one fixture module. That is round 3's 21, plus `test_hooks_install_differential.py` and `test_hooks_install_equality.py`, which came in with the release/217 merge. The fixture module, `tests/fixtures/home_resolvers_release_217.py`, brought in its user `test_live_store_guard_st3_children.py`. All 24 test files ran, `tests/fake/test_caller_notice_wakes.py` in full.
@@ -560,7 +561,7 @@ The runs left four bytecode caches in the worktree: `subfleet/__pycache__` (58 f
 
 `$TMPDIR/uv-cache`, the brief's cache, existed before this job and stays. The scratch folder stays, with its logs, venv, base tree and the review agent's probe.
 
-No process this job started is still running. No live state was read or changed, and no push or GitHub write ran.
+No process this job started is still running: every run's runner waited on its pytest child, every test thread was joined, and the review agent reported starting nothing that outlives it. No live state was read or changed, and no push or GitHub write ran.
 
 ### Commits
 
@@ -570,6 +571,8 @@ All on the detached HEAD, each adding named files only:
 - `6df091e85` Fix review r4 of #307: fold offline activity; bound the activity lock
 - `cd7ea9d9c` Contract: C-15.9 after review r4 of #307
 - `632fc4499` Tests: a fold never drops a corrupt record; tighten the lock-wait bound
-- This section and its data follow in their own commit.
+- `591ab86d2` Report: fix round 4 of #307 (this section and its data)
+- `1b6fe3958` Require activity_lock's wait_s
+- This list's update and the `required-wait` log follow in their own commit.
 
-Head built: the commit that adds this section, on top of `632fc4499`.
+Head built: the commit that updates this section, on top of `1b6fe3958`.
