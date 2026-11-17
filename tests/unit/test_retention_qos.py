@@ -16,7 +16,9 @@ from subfleet import retention_holders as rholders
 from subfleet import retention_qos as rqos
 from subfleet.guardian import TASKPOLICY
 
-pytestmark = pytest.mark.skipif(not os.access(TASKPOLICY, os.X_OK), reason="needs taskpolicy(8) (macOS)")
+# One listing a pass (D-HOLDERS-LSOF1): see `catch_up` in tests/conftest.py.
+pytestmark = [pytest.mark.skipif(not os.access(TASKPOLICY, os.X_OK), reason="needs taskpolicy(8) (macOS)"),
+              pytest.mark.retention_catch_up]
 
 
 class Spawned(Exception):

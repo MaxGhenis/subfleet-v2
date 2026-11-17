@@ -28,6 +28,14 @@ from tests.unit.retention_delete_world import (
 )
 from tests.unit.retention_world import World, git, snapshot, trust_temporary_directories
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+# Invariant 6's normal passes here run that catch-up: the in-flight test expects
+# `n-normal` pruned beside a journalled deletion, and a marked job must stay
+# through every follow-up pass (fix round 2: CI run 43537300647 failed the
+# in-flight test at ec6d40517).
+pytestmark = pytest.mark.retention_catch_up
+
 
 @pytest.fixture
 def world(tmp_path, monkeypatch):

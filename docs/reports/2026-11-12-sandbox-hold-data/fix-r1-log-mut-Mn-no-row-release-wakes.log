@@ -1,0 +1,60 @@
+FF....                                                                   [100%]
+=================================== FAILURES ===================================
+_ test_a_release_with_no_row_of_its_target_changes_and_records_nothing[p5-sandbox-release] _
+
+stale = 'task', released = 'sandbox'
+
+    @pytest.mark.parametrize("stale,released", [("task", "sandbox"), ("sandbox", "task")],
+                             ids=["p5-sandbox-release", "task-release"])
+    def test_a_release_with_no_row_of_its_target_changes_and_records_nothing(stale, released):
+        """p5 and its mirror: the stale hold was the other kind, and the released target has
+        no row. The reply says nothing was held or woken; every row is as it was, and a
+        pass then gives the job back at its own hold's end (50), not at the release."""
+        with fleet() as (service, harness, clock, signals):
+            ident, task = stale_hold_of(service, harness, clock, stale)
+            before = store_image(service)
+            answer = sandbox_release(service) if released == "sandbox" else release(service, task)
+>           assert answer == {"released": "workspace-write" if released == "sandbox" else task,
+                              "was_held": False, "woken": 0, "task_holds": []}
+E           AssertionError: assert {'released': ...sk_holds': []} == {'released': ...sk_holds': []}
+E             
+E             Omitting 3 identical items, use -vv to show
+E             Differing items:
+E             {'woken': 1} != {'woken': 0}
+E             Use -v to get more diff
+
+tests/fake/test_sandbox_hold_release_rows.py:60: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4423255968:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4423255968:daemon.py:1088 reset credits: automatic redemption off; no-reset marker absent
+_ test_a_release_with_no_row_of_its_target_changes_and_records_nothing[task-release] _
+
+stale = 'sandbox', released = 'task'
+
+    @pytest.mark.parametrize("stale,released", [("task", "sandbox"), ("sandbox", "task")],
+                             ids=["p5-sandbox-release", "task-release"])
+    def test_a_release_with_no_row_of_its_target_changes_and_records_nothing(stale, released):
+        """p5 and its mirror: the stale hold was the other kind, and the released target has
+        no row. The reply says nothing was held or woken; every row is as it was, and a
+        pass then gives the job back at its own hold's end (50), not at the release."""
+        with fleet() as (service, harness, clock, signals):
+            ident, task = stale_hold_of(service, harness, clock, stale)
+            before = store_image(service)
+            answer = sandbox_release(service) if released == "sandbox" else release(service, task)
+>           assert answer == {"released": "workspace-write" if released == "sandbox" else task,
+                              "was_held": False, "woken": 0, "task_holds": []}
+E           AssertionError: assert {'released': ...sk_holds': []} == {'released': ...sk_holds': []}
+E             
+E             Omitting 3 identical items, use -vv to show
+E             Differing items:
+E             {'woken': 1} != {'woken': 0}
+E             Use -v to get more diff
+
+tests/fake/test_sandbox_hold_release_rows.py:60: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4422778416:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4422778416:daemon.py:1088 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_sandbox_hold_release_rows.py::test_a_release_with_no_row_of_its_target_changes_and_records_nothing[p5-sandbox-release]
+FAILED tests/fake/test_sandbox_hold_release_rows.py::test_a_release_with_no_row_of_its_target_changes_and_records_nothing[task-release]
+2 failed, 4 passed in 15.77s

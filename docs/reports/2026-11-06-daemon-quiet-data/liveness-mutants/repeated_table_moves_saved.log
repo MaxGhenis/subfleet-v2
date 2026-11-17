@@ -1,0 +1,14 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____ test_repeated_table_cannot_advance_saved_liveness_even_after_minute ______
+/Users/maxghenis/.subfleet/worktrees/20261106-082944-daemon-quiet-build/tests/unit/test_liveness_write_pacing.py:223: in test_repeated_table_cannot_advance_saved_liveness_even_after_minute
+    assert evidence(daemon) == saved
+E   AssertionError: assert {'owned_ident...00:00 2026'}}} == {'owned_ident...00:00 2026'}}}
+E     
+E     Omitting 2 identical items, use -vv to show
+E     Differing items:
+E     {'last_observed_alive_at': '2026-10-22T11:03:00.000Z'} != {'last_observed_alive_at': '2026-10-22T11:00:00.000Z'}
+E     Use -v to get more diff
+=========================== short test summary info ============================
+FAILED tests/unit/test_liveness_write_pacing.py::test_repeated_table_cannot_advance_saved_liveness_even_after_minute
+1 failed in 9.50s

@@ -1,0 +1,40 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_____ test_later_events_do_not_increase_batch_lookup_steps[without-batch] ______
+
+has_batch = False
+
+    @pytest.mark.parametrize("has_batch", [False, True], ids=["without-batch", "with-batch"])
+    def test_later_events_do_not_increase_batch_lookup_steps(has_batch):
+        with event_store() as store:
+            payload = '{"batch": {"label": "b"}}' if has_batch else "{}"
+            for job, later in (("short", 10), ("long", 10000)):
+                seed(store, [(job, "job.submitted", payload)] +
+                     [(job, "attempt.observed_alive", "{}") for _ in range(later)])
+            small, large = (steps(store, batches, [job]) for job in ("short", "long"))
+>           assert large <= small * 1.1 + 5, (small, large)
+E           AssertionError: (74, 50020)
+E           assert 50020 <= ((74 * 1.1) + 5)
+
+test_batch_submission_queries.py:170: AssertionError
+_______ test_later_events_do_not_increase_batch_lookup_steps[with-batch] _______
+
+has_batch = True
+
+    @pytest.mark.parametrize("has_batch", [False, True], ids=["without-batch", "with-batch"])
+    def test_later_events_do_not_increase_batch_lookup_steps(has_batch):
+        with event_store() as store:
+            payload = '{"batch": {"label": "b"}}' if has_batch else "{}"
+            for job, later in (("short", 10), ("long", 10000)):
+                seed(store, [(job, "job.submitted", payload)] +
+                     [(job, "attempt.observed_alive", "{}") for _ in range(later)])
+            small, large = (steps(store, batches, [job]) for job in ("short", "long"))
+>           assert large <= small * 1.1 + 5, (small, large)
+E           AssertionError: (77, 50023)
+E           assert 50023 <= ((77 * 1.1) + 5)
+
+test_batch_submission_queries.py:170: AssertionError
+=========================== short test summary info ============================
+FAILED test_batch_submission_queries.py::test_later_events_do_not_increase_batch_lookup_steps[without-batch]
+FAILED test_batch_submission_queries.py::test_later_events_do_not_increase_batch_lookup_steps[with-batch]
+2 failed, 48 deselected in 28.19s
