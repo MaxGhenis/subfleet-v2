@@ -934,3 +934,297 @@ credential store or caller file was read or changed.
 Head built: the commit holding this section's last edit, on top of
 `dc515a2ad` (the section's first commit) and `e2af521cd` (code, tests,
 contract and runner). Finished at 22:16 UTC, 2 h 41 min after the start.
+
+## Fix round 3
+
+Round 3's fix of review r3 (`review-r3.md`, head `a6443ab04`). Start:
+`2026-11-17 04:09:26 UTC` (`date -u`, first command). Load was 17 to 200. All
+values in tests and probes are made up; no environment value was printed.
+
+### Findings and changes
+
+**P1, `daemon_log.py:183`: fix r2's reading lost a mask bb118f63d had.**
+- Cause: fix r2's `_rendered` drops format characters as well as controls. So
+  `x​Bearer\x1b[0m <token>` reads `xBearer <token>` there, and `\bBearer`
+  doesn't match. bb118f63d's reading dropped only the controls, so it read
+  `x​Bearer <token>`, a `Bearer` token. The text as written doesn't match
+  either: the escape splits `Bearer` from its space.
+- Probe, before (`probe-before.txt` in scratch): at `a6443ab04` the marker was
+  shown on message, tail and follow; at `bb118f63d` it was hidden on all three.
+- Change: `subfleet/daemon_log.py`.
+  - `_HIDDEN_CONTROL` and `_rendered_controls` are bb118f63d's reading.
+  - `_readings` lists the readings a text gets: fix r2's (`_rendered`, runs
+    joined across `\x1c` to `\x1f`) when it holds a control or format
+    character, and bb118f63d's too (runs split at whitespace, as there) when it
+    holds a control character. A text with no control character reads as
+    itself in bb118f63d's reading, so that reading is skipped then.
+  - `_controls_shown` takes a list of checks. A run is written only if, in
+    every reading, each of its runs reads as nothing or as a run that reading's
+    scrub holds. Otherwise the whole joined run is `[REDACTED]`.
+  - The formatter, `_terminal_safe` (the tail) and the follower use it.
+- Why no input loses a mask it had at bb118f63d: bb118f63d's own check runs
+  unchanged, on the same scrubbed text, whenever it ran there; the head adds
+  checks and never removes one.
+- Tests:
+  - `tests/unit/test_worker_failure_url_and_terminal.py::test_r3_a_format_character_before_bearer_keeps_bb118f63ds_mask`:
+    the review's input on message, control, request, tail and follow.
+  - `tests/unit/test_worker_failure_r3_properties.py::test_r3_no_character_bb118f63d_masked_is_written`:
+    the differential. bb118f63d's terminal layer (`_CONTROL`,
+    `_HIDDEN_CONTROL`, `_TERMINAL_SEQUENCE`, `_rendered`, `_visible`,
+    `_terminal_safe`, `_controls_shown`, the formatter's `_scrubbed`,
+    `scrubbed_tail` and `LogFollower`) is copied into the test, driven by the
+    live scrubber on both sides. Over 120 generated texts, with invisible and
+    control characters before, inside and after key words, the handler, tail
+    and follower mask every character the oracle masks, and every run the head
+    writes without a `[REDACTED]` is one the oracle writes. Values are drawn
+    from letters nothing else in the output holds, each used once, so a
+    missing letter is a masked one.
+  - `test_r3_the_frozen_oracle_masks_review_r3s_input` checks the oracle.
+- Shown: before (run 5, the final tests on an `a6443ab04` copy) the five route
+  cases and the differential failed. The differential's first counterexample
+  was the review's shape, `x​Bearer\x1b[0m FGHIJKLM`. After: all passed
+  (runs 4 and 6). H1 (bb118f63d's reading dropped) is killed: 6 failed.
+
+**P1, `handoff.py:115`: approval masking missed URL passwords.** Two causes:
+- **(a) The shell-metacharacter refusal.** Fix r2's password runs to the last
+  `@`. In `redis://:<pw>@cache.test/x?x=2&owner=@me` that span holds `&`, so
+  `redact.py:162` refused it and the command was shown in plaintext with
+  `spans=[]`.
+- **(b) The composition.** Release masks first and ends a password at its
+  first `@`. So `https://alice:p@ss/<marker>@host.test` became
+  `https://alice:[masked url-password, 1 chars]@ss/<marker>@host.test`. The
+  mask holds spaces, which the head's `\S` can't cross, so the head's pass
+  found nothing. `ss/<marker>` was shown, at `a6443ab04` and at `bb118f63d`
+  (probed). Review r3's ten routes have no approval route, so they didn't
+  catch it.
+- Change: `subfleet/conversations/redact.py`. `handoff.py:115` is unchanged.
+  - `_APPROVAL_URL_PASSWORD_RE` is the head's URL rule, reading a mask an
+    earlier pass wrote (`\[masked [a-z-]+, \d+ chars\]`) as part of a password.
+  - `url_passwords` tries it once from each run of scheme characters that
+    `://` follows, as `_linear_sub` does.
+  - `_masked_password` masks each piece between the earlier masks and the
+    shell metacharacters (`_SHELL_META`), and keeps those.
+  - The other rules (PEM, JWT, token, `Bearer`) keep their refusal.
+  - Review r3's URL is now `redis://:[masked url-password, 32 chars]&[masked url-password, 6 chars]@me`.
+    Round 2's is `https://alice:[masked url-password, 1 chars][masked url-password, 25 chars]@host.test`.
+  - Each head span's length and SHA-256 describe original characters, not a
+    mask. `approval.get` calls `mask_approval` (`service.py:1627`), so it gets
+    the same result. Its `reveal` path is unchanged.
+- **Deviation from the ruling, for the hub.** The ruling says no password
+  character may stay unmasked. IR-20 (`test_approval_masking_hides_tokens_but_never_a_command`,
+  C-27.1 "the display includes every field that changes what is granted")
+  says an approval never hides a shell metacharacter. I kept IR-20.
+  - So a password's `&`, `;`, `|`, `` ` ``, `$(`, `>` or `<` stays in view. Every
+    other password character is masked.
+  - Masking them would let a command hide `;<command>;` inside a "password"
+    from the person approving it.
+  - A password of shell metacharacters only (`https://u:;@host`) gives no
+    span.
+  - If the hub rules the other way, H6 shows the change: `_PASSWORD_KEPT_RE`
+    drops its metacharacters. IR-20's text then needs amending.
+- Tests, in `tests/unit/test_worker_failure_r3_properties.py`:
+  - `test_r3_review_urls_mask_their_whole_password`: both review URLs, each in
+    `curl "…"`, `curl …` and bare.
+  - `test_r3_an_approval_masks_every_password_character_but_shell_metacharacters`:
+    60 generated URLs. Passwords are 1 to 5 pieces of 6 to 9 characters,
+    joined by `@`, `/`, `?`, `&` and `:`. Users are empty, plain or hold `@`.
+    Queries and fragments may hold `@` (`?x=2&owner=@me`, `#@top`). Commands
+    are `curl "…"`, `curl …`, bare or `git clone … && echo done`.
+  - Each case checks four things. There is a span. No password piece is
+    shown. From the user's `:` the output holds only masks and shell
+    metacharacters, then what followed the password or a suffix of it, so no
+    password character but a metacharacter shows. Every shell metacharacter
+    of the command is shown, in order.
+- Shown: before, both failed (run 5); the generator's first failure was
+  `curl "https://:222222@host.test?x=2&owner=@me"`. After, both passed. H4,
+  H5 and H6 (one per part) are each killed.
+
+**P2, `daemon_log.py:876`: an invisible key split across follower feeds.**
+- Cause: two gaps in `LogFollower`.
+  - `_write` read only the text it was writing as a terminal shows it. A
+    value whose key ended the line before (already written, in the context)
+    was checked against the context's scrub as written, where
+    `pass​word:` is no key.
+  - `feed` settled a break by the text as written only. So a private key's
+    first line that a format character splits
+    (`-----BEGIN RSA PRIV​ATE KEY-----`) settled, and its body was
+    written before the key's end arrived.
+- The finding fails on `bb118f63d` too (review r3; probe:
+  `follow-split SHOWN` there).
+- Change: `subfleet/daemon_log.py`.
+  - `_terminal_safe` takes `around`, the context plus the written text. Each
+    reading of it is scrubbed too, and a run must be held there as well. The
+    follower's own margin marks (`|`, `+`) count as held, as in its existing
+    rule.
+  - `_settled_end` takes the earliest break `handoff.settled_end` gives in the
+    text and in each reading. A reading drops no line feed, so its `n`th line
+    start is the text's. `feed` and `__init__` use it.
+- Limit: the follower checks new lines against at most `FOLLOW_CONTEXT`
+  (8,192) characters of what it wrote. A key further back than that isn't
+  read; that was already so for keys without invisible characters.
+- Tests, in `tests/unit/test_worker_failure_r3_properties.py`:
+  - `test_r3_an_invisible_key_split_across_feeds_is_still_a_password`: the
+    review's three steps, with and without an earlier line.
+  - `test_r3_a_follower_fed_in_any_split_hides_what_it_hides_whole`: 120
+    generated texts, split at random points, after every line, or both. Fed in
+    pieces, then flushed, the follower masks every character it masks fed
+    whole, and every one `scrubbed_tail` masks.
+  - `test_r3_a_private_key_an_invisible_character_splits_is_held_until_it_ends`
+    covers the settle rule.
+- Shown: before (run 5 and the direct property run on the copy) the named
+  test, the private-key test and the property failed. The property's
+  counterexample was the review's shape:
+  `['pass​word:\n', 'FGHIJKLM\n', '\n']`. After, all passed. H2 (context
+  not read) and H3 (settled by the text only) are each killed.
+
+**P3, the PR body.** Not edited (the brief forbids `gh pr edit`). What it
+should now say is below.
+
+### What the PR body should now say
+
+- The build round: causes at all three sites with #26's cadence, through the
+  handler. "1,185 passed, 2 skipped; 7/7 mutants killed" are the build
+  round's own counts and should say so.
+- Drop "**Gap, not fixed here:** an underscore-scheme URL already leaks". Fix
+  r1 hides it, with review r1's other URL forms. Review r3 confirmed the
+  underscore cases pass.
+- Fix r1 and fix r2: the list in "What the PR body should now say" under
+  "Fix r2" above stands.
+- Fix r3:
+  - A text with control characters is read in bb118f63d's terminal reading as
+    well as fix r2's, so no input loses a mask it had at bb118f63d. A
+    differential test against a frozen copy of bb118f63d's terminal layer
+    pins this.
+  - `daemon logs --follow` reads the text it follows in each reading, and
+    settles a break only where each reading does. Fed in any split, it hides
+    what it hides fed whole.
+  - An approval masks a URL's whole password. It reads through release's
+    mask, and around shell metacharacters, which stay in view (IR-20).
+  - C-5.10 and its change-log line amended.
+- Current counts: fix r3's runs below. CI runs the whole suite.
+
+### Mutants
+
+`.venv/bin/python docs/reports/2026-11-12-worker-failure-mutants.py --scratch
+$TMPDIR/sf-wcp-fix3/mutants --out $TMPDIR/sf-wcp-fix3/mutants/mutants.json
+--budget 420 H1… H6`, under `timeout 590`, 05:30 to 05:40 UTC. Results:
+`docs/reports/2026-11-12-worker-failure-mutants-r3.json`. Every restored hash
+matched. All 35 mutants build and parse; F14 and F15 were re-anchored on the
+new code (`_readings`' guard, `_controls_shown`'s test).
+
+| Mutant | Killed by | Result | Seconds | Load |
+|---|---|---|---:|---|
+| H1 bb118f63d's reading dropped | the five route cases and the differential | 6 failed | 129 | 167 → 120 |
+| H2 the follower's context not read | the split property | 1 failed, 1 passed | 51 | 120 → 97 |
+| H3 a break settled by the text only | the private-key test | 1 failed | 23 | 97 → 79 |
+| H4 the approval password stops at a mask | the review URLs | 1 failed | 17 | 79 → 61 |
+| H5 a password with a metacharacter shown whole | the review URLs and the property | 2 failed | 61 | 61 → 94 |
+| H6 metacharacters masked | the property | 1 failed | 120 | 94 → 173 |
+
+H2's named test passed under it: with no context check, the review's three
+steps are still caught by the settle change (H3's part). The property killed
+it.
+
+The run outlasted the tool's 600 s limit, which moved it to the background,
+and `timeout 590` stopped it during its final `guarded_rmtree`, after H6's
+result was written. The partial copy went with the scratch folder. Not re-run:
+B1 to B7, F1 to F16 (F14 and F15 included) and G1 to G6.
+
+### Commands and results
+
+Every pytest run set `TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)`,
+`UV_CACHE_DIR=$TMPDIR/uv-cache`, `-p no:cacheprovider` and a new
+`--basetemp=$TMPDIR/sf-wcp-fix3/pytest-NN-…`. The prefix was `uv run --no-sync
+--with 'pytest-xdist>=3.6' python -m pytest … -n 4` (its interpreter is
+CPython 3.15.2), except runs 5, 15 and 16: `.venv/bin/python -m pytest`, one
+worker. Times are UTC.
+
+| # | When | Files | Result | Load |
+|---|---|---|---|---|
+| 0 | 04:19 | `uv sync --group dev` | installed | 155 |
+| 1 | 04:45 | new tests, `-x`, before the fix | 4 failed, 1 passed; one failure was my run-containment check, too strict (fixed) | 91 |
+| 2 | 04:53 | new tests, before the fix | 8 failed, 3 passed: the two properties found nothing | – |
+| 3 | 04:57 | the two properties, generators biased, before | split property failed; differential passed | – |
+| 4 | 05:15 | new and changed tests, after the fix | **13 passed** | 98 |
+| 5 | 05:21 | final new tests on an `a6443ab04` copy (before) | **10 failed, 2 passed** (the oracle check and the split property) | – |
+| – | 05:26 | the two properties, direct calls, on the copy and the head | copy: both failed, on the review's shapes; head: both passed | – |
+| 6 | 05:44 | the four worker-failure files | **270 passed** | 58 → 39 |
+| 7 | 05:46 | `test_scrub_release_first`, `test_conversation_redact`, `test_scrub_release_frozen`, `test_scrub_inline_headers` | **309 passed**, 205 s | 71 |
+| 8 | 05:50 | `test_daemon_log_tail`, `_scrubbing`, `_reminders`, `_trailing_reminders` | stopped by `timeout 570` at about 99%, no `F` or `E` | 34 → 59 |
+| 12 | 06:02 | the same, `-v` | stopped by `timeout 540`: **257 of 259 passed, none failed** | 117 |
+| 14 | 06:13 | `test_daemon_log_handler`, `_sites` | **3 failed, 208 passed** (below) | 95 |
+| 15 | 06:22 | the four-MiB test on the copy, one worker | 3 passed, 19.9 s | 81 → 69 |
+| 16 | 06:22 | the same on the head, one worker | **3 passed**, 13.1 s | 60 → 46 |
+| 17 | 06:23 | `test_state_contract`, `test_test_module_names`, `test_invariants_index`, `test_handler_refusals` | **435 passed**, 119 s | 37 → 17 |
+| 18 | 06:26 | `test_daemon_log_cut_windows`, `_first_pass`, `_mutation_tool`, `tests/fake/test_daemon_launch`, `test_reset_credit_incident`, `test_daemon_verbs`, `test_launch_env_round7`, `test_lockwatch`, `test_scrub_review_r2`, `r4`, `r5`, `r9b`, `test_sessions_handoff` | **594 passed, 1 skipped**, 475 s | 49 |
+
+Runs 9 to 11 and 13 were collections or a run that collected nothing (zsh
+doesn't split an unquoted variable into paths).
+
+Run 14's failures:
+- `test_a_four_mib_record_is_written_bounded_and_scrubbed_within_the_time_bound[traceback]`
+  and `[both]`: 1.016 s and 1.524 s against the 1 s bound, with four workers.
+  Alone, the head passed all three cases in 13.1 s (run 16), faster than the
+  pre-fix copy's 19.9 s (run 15). Those inputs hold no control or format
+  character, so the change adds one regex scan to them. Review r3 saw two
+  one-second timing failures on `bb118f63d` as well.
+- `test_no_daemon_module_logs_a_caught_exception_raw`: names
+  `subfleet/daemon.py:5568` and three more. This round didn't change
+  `daemon.py`; review r3 reports this lint failing identically before fix r2.
+
+Run 12's two unfinished tests are both in `test_daemon_log_trailing_reminders`:
+`test_no_tag_is_left_in_what_is_resolved` and
+`test_a_margin_file_ending_in_a_reminder_is_refused_only_where_the_masks_differ`.
+The first calls only `_reminders_resolved`, which calls none of the changed
+functions. I didn't check the second's call path or time it on base.
+
+Run 18's skip: `test_scrub_review_r5.py:125`, the 95,040-cell class, opt-in.
+
+Other commands:
+- `git show`/`git diff`/`git log`/`git grep` reads, and `git archive` of
+  `bb118f63d`'s `subfleet` and of `a6443ab04` into scratch;
+- `.venv/bin/python -I` probes from scratch scripts: approval masking at both
+  heads, the terminal routes at both heads, the private-key follower case;
+- an anchor check that all 35 mutants build and parse;
+- commits, by named files only:
+  - `fb03222a5`: code and tests;
+  - `c0fa49b2e`: each generator draws its review's shape first;
+  - `d84c4947a`: the runner;
+  - `d555e5be8` and `ee4f86a07`: the contract;
+  - this report's commit, with `docs/reports/2026-11-12-worker-failure-mutants-r3.json`.
+
+### Did not run
+
+- `test_sessions_handoff_excerpts.py`, whose heavy property never finished in
+  rounds 1 and 2;
+- the two unfinished tests of run 12;
+- mutants other than H1 to H6;
+- the whole suite. CI runs it.
+
+### Deviations
+
+- Shell metacharacters in a URL password stay in view (IR-20). See P1 above.
+- The contract's new sentences sit in C-5.10, as in fixes r1 and r2. C-27.1
+  and C-23.14 aren't amended. C-5.10 now states the approval rule.
+- The new property tests' generators draw the review's shapes first about
+  half the time. Plain generators found nothing in 60 examples (run 2).
+- The PR body isn't edited; its new content is listed above.
+- The ultracode note asks for a Workflow. A headless run gets no completion
+  notice, so the work stayed inline.
+- One command outran the tool's limit and was moved to the background (the
+  mutant run, above). I started nothing in the background myself.
+
+Folders outside scratch:
+- `$TMPDIR/uv-cache` existed before this job and is shared, so I left it.
+- `uv sync` created `.venv` in the workspace.
+- pytest's own `sf-test-homes-*` folders (`tests/conftest.py`) are removed at
+  its session end.
+- The harness wrote the background run's output under
+  `/private/tmp/claude-501/` (its own task file, not mine to remove).
+
+Scratch `$TMPDIR/sf-wcp-fix3` held the probes, the copies, the run outputs and
+the basetemps. It is removed at the end with a guarded `shutil.rmtree` that
+asserts `sf-wcp-fix3` is in the path and is the folder's name.
+
+Head built: the commit holding this section, on top of `ee4f86a07` (code,
+tests, runner and contract).
