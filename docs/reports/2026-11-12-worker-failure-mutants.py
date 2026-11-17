@@ -16,7 +16,8 @@ mutated files are hashed before and after: the runner never writes to them.
 
 Fix r1 replaced the build round's runner, which rewrote `subfleet/daemon.py` in place
 (review r1 of #308, P3). The build round's seven mutants (B1 to B7) are here with their
-anchors as the code reads now; fix r1's (F1 to F16) and fix r2's (G1 to G6) follow.
+anchors as the code reads now; fix r1's (F1 to F16), fix r2's (G1 to G6) and fix r3's (H1 to
+H6) follow.
 """
 from __future__ import annotations
 
@@ -36,6 +37,8 @@ ROUTES = "tests/unit/test_worker_failure_url_and_terminal.py"
 HANDOFF = "subfleet/sessions/handoff.py"
 DAEMON = "subfleet/daemon.py"
 DAEMON_LOG = "subfleet/daemon_log.py"
+REDACT = "subfleet/conversations/redact.py"
+R3 = "tests/unit/test_worker_failure_r3_properties.py"
 ONE_SHOT = ('                    self.log.error("worker %s failed: %s", key, failure_class(exc), '
             'exc_info=True)')
 #: Fix r2 made the URL rule one line, its password one branch: to the last `@` before
@@ -159,15 +162,14 @@ MUTANTS = [
            [f"{CAUSE}::test_raise_signature_reads_the_whole_chain"], "the chain's first link only"),
     # Finding 5: escapes reach the output.
     mutant("F14-escapes-not-neutralized", DAEMON_LOG,
-           [("        if any(_UNSHOWN.search(part) for part in (line, *blocks)):", "        if False:  # MUTANT"),
-            ("    if not _UNSHOWN.search(source):\n        return scrubbed",
-             "    if True:  # MUTANT\n        return scrubbed")],
+           [("    if not _UNSHOWN.search(source):\n        return []",
+             "    if True:  # MUTANT\n        return []")],
            [f"{ROUTES}::test_osc52_and_screen_clear_are_written_as_visible_escapes",
             f"{ROUTES}::test_no_control_character_but_tab_and_line_breaks_is_ever_written"],
            "the handler, the tail and the follower write control characters as they are"),
     mutant("F15-terminal-reading-ignored", DAEMON_LOG,
-           [("        return match.group() if not plain or plain in shown else REDACTED",
-             "        return match.group()  # MUTANT")],
+           [("                if plain and not all(plain in held for held in shown):",
+             "                if False:  # MUTANT")],
            [f"{ROUTES}::test_a_key_an_escape_splits_is_still_a_password"],
            "no run hidden for what the terminal reading hides"),
     # Finding 6 (P3): the chain is rendered whole again.
@@ -210,6 +212,41 @@ MUTANTS = [
            [('_SHOWN_RUN = re.compile(r"(?:[^\\s]|[\\x1c-\\x1f])+")', '_SHOWN_RUN = re.compile(r"\\S+")  # MUTANT')],
            [f"{ROUTES}::test_r2_words_a_separator_joins_are_one_run_that_hides_nothing"],
            "a run ends at an information separator"),
+    # Fix r3 (review r3 of #308). P1: bb118f63d's reading dropped, as fix r2 had it.
+    mutant("H1-bb118f63d-reading-dropped", DAEMON_LOG,
+           [("    return [(_rendered, _SHOWN_RUN), (_rendered_controls, _RUN)]",
+             "    return [(_rendered, _SHOWN_RUN)]  # MUTANT")],
+           [f"{ROUTES}::test_r3_a_format_character_before_bearer_keeps_bb118f63ds_mask",
+            f"{R3}::test_r3_no_character_bb118f63d_masked_is_written"],
+           "a text is read only as fix r2 read it"),
+    # P2: the follower reads only what it writes as a terminal shows it, as before.
+    mutant("H2-follower-context-not-read", DAEMON_LOG,
+           [("        if around:\n            shown.append(", "        if False:  # MUTANT\n            shown.append(")],
+           [f"{R3}::test_r3_an_invisible_key_split_across_feeds_is_still_a_password",
+            f"{R3}::test_r3_a_follower_fed_in_any_split_hides_what_it_hides_whole"],
+           "the follower's earlier text is not read as a terminal shows it"),
+    mutant("H3-follower-settles-in-the-text-only", DAEMON_LOG,
+           [("    for reading, _ in _readings(text):\n        read = reading(text)",
+             "    for reading, _ in []:  # MUTANT\n        read = reading(text)")],
+           [f"{R3}::test_r3_a_private_key_an_invisible_character_splits_is_held_until_it_ends"],
+           "a break is settled by the text alone, not its terminal readings"),
+    # P1: an approval's URL password, each part of the fix undone alone.
+    mutant("H4-approval-password-stops-at-a-mask", REDACT,
+           [('    r"((?:" + _MASK + r"|(?!://)\\S)*(?=@))(@)")', '    r"((?:(?!://)\\S)*(?=@))(@)")  # MUTANT')],
+           [f"{R3}::test_r3_review_urls_mask_their_whole_password"],
+           "the head's URL password cannot read through release's mask"),
+    mutant("H5-approval-password-refused-for-a-metacharacter", REDACT,
+           [("                          match.group(1) + _masked_password(match.group(2), path) + match.group(3)))",
+             "                          match.group(0) if any(meta in match.group(2) for meta in _SHELL_META)"
+             " else match.group(1) + _masked_password(match.group(2), path) + match.group(3)))  # MUTANT")],
+           [f"{R3}::test_r3_review_urls_mask_their_whole_password",
+            f"{R3}::test_r3_an_approval_masks_every_password_character_but_shell_metacharacters"],
+           "a URL password holding a shell metacharacter is shown whole, as fix r2 had it"),
+    mutant("H6-approval-password-hides-metacharacters", REDACT,
+           [('_PASSWORD_KEPT_RE = re.compile(_MASK + "|" + "|".join(re.escape(meta) for meta in _SHELL_META))',
+             '_PASSWORD_KEPT_RE = re.compile(_MASK)  # MUTANT')],
+           [f"{R3}::test_r3_an_approval_masks_every_password_character_but_shell_metacharacters"],
+           "a shell metacharacter in a URL password is masked with it"),
 ]
 
 
