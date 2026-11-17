@@ -384,3 +384,192 @@ The [cleanup record](2026-11-12-wake-caller-data/fix-r3-cleanup.json) records th
 **Commits.** All three named-file staging/commit attempts failed with exit 128 because the sandbox denied the assigned worktree's `index.lock` (`Operation not permitted`). As instructed, work continued; no alternate Git metadata or branch was created. No commit could be made, and HEAD remains the supplied base. No history was rewritten or pushed. The changed files and evidence remain for the hub to collect.
 
 Head built: `7ce23f716e23830243cb2dfc66b87ebcd7eff0b7`.
+
+## Fix round 4
+
+Started **2026-11-17 13:37:54 UTC**, from the first command's `date -u`. The section was written by about 15:35 UTC. The base was `7d7923d4d`: the hub's merge of release/217 (`4aed7a3c9`) onto round 3's fix (`963d1afb9`). It was a clean, detached checkout in the assigned workspace. The findings are review r4's (`review-r4.md`); line numbers below are this head's.
+
+### P1: the prune column test failed on `notices.wake_state` (fixed in the test)
+
+- **Cause.** `test_prune_requires_every_migrated_column` dropped a column's indexes by `PRAGMA index_info`, which lists only an index's key columns. `notices_caller_wake` names `wake_state` only in its WHERE clause, so `DROP COLUMN` failed with `error in index notices_caller_wake after drop column: no such column: wake_state`. Prune itself was right.
+- **Change** (`c02d8bd0b`, `tests/unit/test_prune_217.py:196`). The test also drops every index on the table whose `sqlite_master.sql` names the column, by a word-boundary match. Since `\b` counts `_` as a word character, `wake_at` doesn't match `wake_state`. An index missed this way would make `DROP COLUMN` fail loudly. An extra index dropped would still be followed by prune's own column check.
+- **Schema unchanged.** Migration 11's schema, partial index included, is exactly as it was (hub ruling; D-SCHEMA-SLOTS1): `git diff 7d7923d4d -- subfleet/store.py subfleet/store_schema.sql` is empty.
+- **Test.**
+  - At `7d7923d4d`: 1 failed (`[notices.wake_state]`, the error above), 19 passed (run `p1-before`).
+  - After the change: 20 passed (`p1-after`). Every parameter, `[notices.wake_state]` included, reaches `PruneRefused` matching `table\.column`; the store is unchanged and no backup is written.
+  - The whole file: 33 passed, none skipped (`prune-file`). Round 3 never ran it.
+
+### P2: activity files grew without bound (fixed)
+
+- **Cause.** Each offline or busy-fallback SessionStart or UserPromptSubmit hook published one record in `<key>.activity.d/`, and only `reconcile` removed them. A session that ended while the daemon was down kept its records for good. Each hook read every record first, so an outage cost N² reads.
+- **Change** (`6df091e85`). The offline hook calls `notice_claims.fold_activity` (`subfleet/notice_claims.py:216`) once it holds the delivery lock (`subfleet/hooks.py:515`), before it reads the store. The fold, under the delivery lock and then the activity lock (the daemon's order):
+  1. snapshots the records: the aggregate (`activity_path`, which `read_activity` and `reconcile` already replayed) and the published ones;
+  2. writes `_merge_activity` of them to the aggregate with one atomic replace (a temporary file, fsync, `os.replace`), and fsyncs the folder;
+  3. unlinks exactly the published records in its snapshot, as `reconcile` does.
+
+  No reader changed. The properties:
+  - **The fold equals `_merge_activity` over the folded set:** the latest `at` with its `source`, and the latest `human_at`.
+  - **A record published after the snapshot isn't in it, so it survives.**
+  - **A crash between the replace and the unlinks loses nothing.** The folded records stay beside the aggregate, and merging is idempotent, so reads give the same value. `reconcile` applies it once, since `apply_activity` takes maxima.
+  - **A corrupt record still fences its caller.** It raises ValueError in the snapshot, before anything is written or removed. The hook calls the fold inside its existing `try`, so a fold that fails, on a corrupt record or an OSError, makes the hook print nothing, just as a failed receipt write does. The notice stays `pending` for the next hook or the wake.
+  - **A fold that can't take the activity lock within 0.25 s is skipped,** and the next hook folds.
+- **The bound.** Between hooks, a session keeps **one** activity file, the aggregate. Its entries under `hooks/notice-receipts/` are at most **five**: the receipt, the delivery-lock file, the activity-lock file, the aggregate and the empty `.activity.d` folder. While hooks overlap, add one record for each hook that has published but not folded yet. The same goes for one that found the delivery lock taken since the last fold or reconcile. A hook now reads that many records, not every record since the last reconcile.
+- **Tests** in `tests/unit/test_notice_claims.py`. Each failed at `7d7923d4d` (runs `p2-before`, `p2-before-counts` and `fold-corrupt-before`) and passes now (`p2-after`, `fold-corrupt-after`):
+
+| Test | At `7d7923d4d` | After |
+| --- | --- | --- |
+| `test_c15_9_offline_hooks_keep_a_constant_number_of_activity_files` (`:440`): 12 offline hooks with the daemon unreachable | Files after each hook: 1, 2, 3, … 12 | 1 after every hook. `read_activity` returns the merged value: latest time, its source, latest personal time. At most 5 entries. Reconcile replays that value and removes the file. |
+| `test_c15_9_a_corrupt_activity_record_still_fences_only_its_own_caller` (`:474`) | The other caller's files: 1, 2, … 6 | The other caller keeps 1 file and is woken. The corrupt caller prints and publishes nothing, keeps its corrupt file and isn't woken. |
+| `test_c15_9_a_fold_never_drops_a_corrupt_record` (`:508`; added after the in-session review below) | The hook printed its notice despite a record corrupted after its own check | The hook prints nothing. `fold_activity` raises before writing or removing anything, and `reconcile` refuses too. |
+| `test_c15_9_a_record_published_during_a_fold_survives_it[before-replace,after-replace]` (`:546`) | No fold ran (`[] == [True]`) | The late record survives, `read_activity` includes it, and the next fold takes it. |
+| `test_c15_9_a_crash_between_a_folds_replace_and_its_unlinks_loses_nothing` (`:588`) | `DID NOT RAISE Crash`: no fold ran | The aggregate equals the merge, beside its 3 records (4 files). Reads are unchanged. Reconcile applies the value once and removes all four. |
+
+### P2: `activity_lock` waited with no timeout (fixed)
+
+**Proved against the engine first.** With the lock held from another file descriptor, at `7d7923d4d` (`p2-before`):
+- the `caller-notices` pass (`CallerWakeEngine.pass_once`), with a due notice for that caller, was still blocked after 15 s and hadn't reached the next caller;
+- an offline prompt hook was still blocked after 15 s;
+- an offline prompt hook that arrived during a real wake claim, held inside `reserve`, was still blocked after 15 s: it waited out the claim.
+
+**Change** (`6df091e85`).
+- `activity_lock` takes `wait_s` and yields whether it holds the lock, through `delivery_lock`'s polling, now shared as `_file_lock` (`notice_claims.py:40`). An error opening the lock file counts as not held.
+- `ACTIVITY_LOCK_WAIT_S = 0.25` (`notice_claims.py:36`).
+- **Hook.** Publication waits at most 0.25 s, then `os.replace`s its record whether or not it holds the lock (`notice_claims.py:197`), so round 3's ruling stands: activity is never lost. A hook that publishes without the lock is racing a claim already in progress, the race review r4 accepts in its section 2. A hook that completed before the claim took the lock is still visible to that claim, which lists the records only after taking the lock.
+- **Claim** (`subfleet/caller_wakes.py:470`). It waits at most 0.25 s. If it doesn't get the lock, it returns before its transaction: no claim, no attempt counted, and no held memo. The pass goes on to the next caller, and the next pass, about a second later, judges this caller afresh.
+- **Lock order is unchanged.** The daemon and a hook's fold take the delivery lock and then the activity lock. A publishing hook takes the activity lock alone and releases it before trying the delivery lock.
+
+**Tests** (call times are from `p2-after`):
+
+| Test | At `7d7923d4d` | After |
+| --- | --- | --- |
+| `test_c15_9_a_held_activity_lock_skips_its_caller_without_stalling_the_pass` (fake, `tests/fake/test_caller_notice_wakes.py:1264`) | Blocked after 15 s | Returns (0.89 s call). The held caller's notice is `pending`, with `transport` and `wake_state` NULL, `wake_attempts` 0 and no streak. The other caller is woken in the same pass. Once the lock is released, a later pass wakes the held caller once. |
+| `test_c15_9_an_offline_hook_does_not_wait_out_a_wake_claim` (fake, `:1295`) | Blocked after 15 s | Returns (0.63 s call) and prints nothing, since the pass holds the delivery lock. Its activity is published, and the wake goes (the accepted race). |
+| `test_c15_9_an_offline_hook_returns_while_another_process_holds_the_activity_lock` (unit, `:649`) | Blocked after 15 s | Returns (0.90 s call: two 0.25 s waits plus the hook's work). Its activity is published and it still prints its notice. |
+| `test_c15_9_the_activity_lock_waits_a_bounded_time` (unit, `:633`) | TypeError: no `wait_s` | Not held, after at least 0.2 s and under 2.2 s |
+
+**Why 0.25 s for both sides.**
+- **The daemon** holds the delivery lock while it waits, so neither a fold nor another claim can hold the activity lock. It can only meet a hook's publication (a rename, microseconds) or a stopped process. 0.25 s is far above the first, and caps the cost of the second at 0.25 s per held caller per pass: at most 8 s if all 32 callers a pass examines were held.
+- **A hook** gains nothing by waiting longer for a claim in progress: its record lands after that claim's read either way. Its wait only orders it against other hooks' publications and folds, which take milliseconds. A prompt's added delay is at most 0.5 s: one wait to publish and one to fold.
+
+### P3: the claim's `except` comment (fixed)
+
+The `except (OSError, ValueError, KeyError)` at `caller_wakes.py:494` (`:486` at `7d7923d4d`) now names what it covers: invalid activity, the conversation binding, the registry and transcript reads, the eligibility judgement and the reservation. It also says that the claim's transaction rolls back, the notices stay `pending` and unclaimed, and the next pass retries them. I didn't narrow it.
+
+### P3: the PR body (listed for the hub's rewrite)
+
+Not edited here. It should now say:
+- **"What changes", migration bullet:** "Schema 11 (numbered, additive) adds notice-local wake state and a `caller_wake_sessions` table for activity, streak and cooldown. #314 also carries slot 11; the two are coordinated under D-SCHEMA-SLOTS1." This drops "No other open PR on release/217 adds a numbered migration."
+- **"What changes", hooks bullet:** "Online hooks take an atomic surface claim, and PostToolUse claims its job's notice, under the caller's delivery lock. With the daemon unreachable or busy, a SessionStart or UserPromptSubmit hook first publishes its activity, one record per hook, even when that lock is taken. Under the lock it writes a receipt before printing and folds the session's activity records into one file, so a session keeps one activity file between hooks. The wake's final claim rereads activity under a short activity lock. No one waits for that lock more than 0.25 s: a hook publishes anyway, and a claim leaves the caller for a later pass."
+- **Invariant 4:** replace "is delivered in the first pass after its gate or retry falls due" with "is delivered when the bounded rotation reaches it, at most 32 callers examined and 8 woken per pass, once its gate or retry falls due" (round 3's text).
+- **Guard count:** 437 at this head, not 425.
+- **"Next":** CI, then review round 5.
+
+### In-session review
+
+One read-only general-purpose agent reviewed `7d7923d4d..cd7ea9d9c`, in the foreground, for about 10 minutes, on synthetic state under the job scratch. It found no defect in the production change. Its scratch probe raced publishers with the lock wait forced to 0 against a folder holding the delivery lock: all 600 records were folded, none were left, and the final value was the maximum. It made two test findings, both fixed in `632fc4499`:
+1. The corrupt-record test never reached the fold, because the hook's check before publishing refused the record first. `test_c15_9_a_fold_never_drops_a_corrupt_record` now corrupts a record after that check. At `7d7923d4d` the hook printed its notice anyway (`fold-corrupt-before`).
+2. The lock-wait test's upper bound (`wait_s + 15 s`) meant little. It is now `wait_s + 2 s`.
+
+This is supporting evidence only; review round 5 is the independent review.
+
+### Left, with why
+
+- **Daemon-startup sweep of folders whose sessions no longer exist: not done; for the hub to file.**
+  - The folder names are SHA-256 hashes of session ids, so a sweep needs every live session id.
+  - "No longer exists" can't be proved safely: a registry row is missing during an app restart or an account switch (`CLOSED_FAILURES`), so a sweep could delete a live session's records.
+  - With the fold, a gone session leaves at most five entries, not one per hook run.
+- **A holder that never lets go of the activity lock** (a stopped hook process; the harness kills a hook at its timeout, which releases the flock).
+  - Folds for that session are skipped, so its records can pile up again until a reconcile, which doesn't take the activity lock, or until the holder exits.
+  - The pass skips that caller, 0.25 s each pass, until the lock frees or its notices leave the window at 24 h.
+- **Two concurrent hooks with exactly equal `at`.** The merge keeps the later record in reading order. A fold can change that order for a record it didn't fold. Both values are equally "latest", so either source is a correct answer.
+
+### Contract
+
+`docs/acceptance-contract.md` (`cd7ea9d9c`):
+- **The C-15.9 clause** now states the 0.25 s bound on both sides and what each does when the lock is missed. It also describes the hook's fold under the delivery lock and then the activity lock, the one-file bound with its concurrent excess, and how a late record and a crash are handled.
+- **A change-log line** heads "Changes in version 3".
+
+No clause was renumbered.
+
+### Commands and results
+
+**Setup.**
+- Scratch: `$TMPDIR/sf-wcall-fix4`, where `TMPDIR` is `getconf DARWIN_USER_TEMP_DIR`. The cache was `UV_CACHE_DIR=$TMPDIR/uv-cache`.
+- `uv sync --group dev` with `UV_PROJECT_ENVIRONMENT` in scratch exited 0 at 13:41 UTC (Python 3.15.2).
+
+**Every run** went through [run.py](2026-11-12-wake-caller-data/fix-r4/run.py.txt):
+- the command was `uv run --no-sync --with 'pytest-xdist>=3.6'` (plus `--with 'pytest-repeat>=0.9'` for the repeats) `pytest -p r4_isolation -p no:cacheprovider -n 4 --timeout=300`, with a new `--basetemp=$TMPDIR/sf-wcall-fix4/pytest-<run>`;
+- `TMPDIR`, `HYPOTHESIS_STORAGE_DIRECTORY` and the failed-state keep folder were in scratch, and `PYTHONDONTWRITEBYTECODE=1` was set;
+- `SUBFLEET_HOME`, `SUBFLEET_ROOT`, `SUBFLEET_JOB`, `SUBFLEET_ATTEMPT` and `CLAUDE_CODE_SESSION_ID` were unset;
+- each run had a 540 s cap, which no run reached.
+
+The [isolation plugin](2026-11-12-wake-caller-data/fix-r4/r4_isolation.py.txt) skips a test before it runs `ps`, `lsof`, `security`, `launchctl`, `agent-secret`, `git push` or a write-shaped `gh`. Every run's command, exit code, UTC times and load are in [runs.jsonl](2026-11-12-wake-caller-data/fix-r4/runs.jsonl), and each log is beside it.
+
+| Run, in order | Selection | Result | UTC | Load |
+| --- | --- | --- | --- | --- |
+| `p1-before` | the prune column test, at `7d7923d4d`, `-n 2` | 1 failed (`[notices.wake_state]`), 19 passed | 13:43–13:44 | 81 to 80 |
+| `p1-after` | the same, after the fix | 20 passed | 13:54 | 81 to 67 |
+| `p2-before` | the nine new P2 cases, at `7d7923d4d` | 9 failed, as intended | 14:01–14:02 | 70 to 67 |
+| `p2-before-counts` | the two count cases, reworded to list counts, at `7d7923d4d` | 2 failed: counts 1…12 and 1…6 | 14:03 | 67 to 68 |
+| `p2-after` | the nine cases, after the fix | 9 passed | 14:09–14:10 | 115 to 103 |
+| `changed-files` | `test_notice_claims.py` and `test_caller_notice_wakes.py` in full | 104 passed | 14:11–14:13 | 93 to 58 |
+| `prune-file` | **step 2:** all of `tests/unit/test_prune_217.py` | **33 passed** | 14:14–14:18 | 43 to 80 |
+| `repeat20` | **step 3:** `-k` for round 3's three cases, `--count=20 -n 4` | **60 passed: 20 `[busy]`, 20 `[socket]`, 20 `[offline]`** | 14:18–14:20 | 77 to 110 |
+| `importers-a` | **step 4:** `test_caller_notice_wakes.py` in full, `test_notice_claims.py`, `test_hooks.py`, `test_sessions_notice_wake.py`, `test_notice_rendering.py` | 280 passed, 1 skipped | 14:23–14:29 | 70 to 54 |
+| `importers-b` | `test_notice_delivery.py`, `test_notice_header.py`, both `test_unadmittable_pin_*` files, `test_stopped_daemon.py`, `test_operator_notices.py`, `test_suggest_hint.py` | 177 passed, 36 skipped | 14:30–14:36 | 41 to 83 |
+| `importers-c` | `test_descriptor_review_fixes.py`, `test_doctor.py`, `test_hook_cost.py`, `test_hooks_native_guard.py`, `test_review_pr127_service.py`, `test_hooks_install_differential.py`, `test_hooks_install_equality.py` | 163 passed, 3 skipped | 14:37–14:39 | 67 to 61 |
+| `importers-d` | `test_live_store_guard.py`, `test_live_store_guard_round4.py`, `test_live_store_guard_st3_children.py` | 340 passed, 6 failed: `test_the_installed_subfleetd_without_subfleet_home`, every case (below) | 14:39–14:43 | 56 to 55 |
+| `st3-venv` | those 6, on the scratch venv's own interpreter, one process | 6 passed | 14:43–14:44 | 48 to 47 |
+| `compat-collect` | `--collect-only` for `test_compat.py` and the e2e file | 1,615 and 44 collected | 14:44 | 49 to 47 |
+| `compat-1`, `compat-2` | `test_compat.py`, in two halves of its collected ids | 808 passed; 807 passed | 14:45–14:48 | 45 to 50 |
+| `e2e-conversations` | `tests/e2e/test_conversations.py` | 44 skipped by the isolation plugin | 14:48 | 50 to 48 |
+| `guards` | **step 5:** `tests/fake/test_state_contract.py tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py tests/unit/test_handler_refusals.py` | **437 passed** | 14:49–14:50 | 45 to 29 |
+| `fold-corrupt-before` | the new fold-corrupt case and the tightened bound, on a `git archive` of `7d7923d4d` with this test file copied in | 2 failed, as intended | 15:07–15:08 | 47 to 58 |
+| `fold-corrupt-after` | the two, plus the corrupt-caller case | 3 passed | 15:08–15:09 | 58 to 43 |
+| `notice-claims-file` | `test_notice_claims.py` in full, after the test fixes | 37 passed | 15:10–15:12 | 32 to 49 |
+| `guards-final` | the four guard files, after the contract change | 437 passed | 15:14–15:17 | 72 to 79 |
+
+**Notes on the runs.**
+- **Importer files** ([list](2026-11-12-wake-caller-data/fix-r4/importer-files.txt)). A `git grep -lP` for imports of `hooks`, `notice_claims` and `caller_wakes` under `tests/` found 23 test files and one fixture module. That is round 3's 21, plus `test_hooks_install_differential.py` and `test_hooks_install_equality.py`, which came in with the release/217 merge. The fixture module, `tests/fixtures/home_resolvers_release_217.py`, brought in its user `test_live_store_guard_st3_children.py`. All 24 test files ran, `tests/fake/test_caller_notice_wakes.py` in full.
+- **Markers.** Each importer run deselected `real_lsof` and `real_cwd`, as earlier rounds did. None of these files carries either marker, so nothing was deselected.
+- **`importers-d`'s 6 failures** come from the environment, not this change. Under `uv run --with`, `sys.executable` is uv's overlay interpreter, whose `bin/` has no `subfleetd` script (`run uv sync --group dev to install subfleetd`). On the project venv's interpreter all 6 passed (`st3-venv`).
+
+### What didn't run
+
+- **`tests/e2e/test_conversations.py`:** all 44 cases were skipped by the isolation plugin, because each starts a daemon that runs a command the brief bars. Round 3 skipped them too.
+- **Other skips: 40 in all.**
+  - 36 in `test_stopped_daemon.py`, whose real `ps` reads of a SIGSTOPped test holder test the client's lock check, not notice code.
+  - `test_hooks.py::test_the_hook_command_with_the_daemons_markers_spawns_nothing_and_surfaces_only_jobs`, which runs `/bin/ps -axww` over the whole machine.
+  - 3 in `importers-c`: `test_doctor.py:605` and `:617`, and one the plugin reported at its own line, so its test isn't named in the log.
+- **No mutants ran.** Each new test's failure on `7d7923d4d` stands in for one.
+- **The whole suite didn't run** (CI runs it). Nothing was pushed, so no CI ran on this head; the run after the hub's push is the first full one.
+
+### Deviations from the brief
+
+1. **No Workflow, though ultracode was on.** In this headless run, a Workflow reports back through a notification that never arrives. I used one foreground review agent instead (above).
+2. **A write outside scratch.** My first `git grep` for importers redirected into `/tmp/sf-wcall-fix4-importers.txt`, and the same command deleted it. The grep was then redone into scratch.
+3. **Groups and split runs.** Step 4 ran as four file groups, `test_compat.py` in two halves and the e2e file alone, so each fit the cap.
+4. **Runs not under `uv run`.** `st3-venv` and `compat-collect` ran on the scratch venv's interpreter directly, in one process, which is still within `-n 4`.
+5. **One base run used an exported tree.** `fold-corrupt-before` ran on a `git archive` of `7d7923d4d` in scratch (`base-tree`), with the current test file copied in and `PYTHONPATH` pointing at it. That case was added after the fix, following the in-session review.
+6. **Fail-closed fold.** The hook's fold sits inside its existing `try`, so a fold error makes the hook print nothing, as a failed receipt write does. The brief didn't say which way a fold error should go.
+7. **A tool output saved under `~/.claude`.** The harness saved one long command output under `~/.claude/projects/…/tool-results/`. I didn't read it; I read the file in the worktree.
+
+### Folders outside scratch
+
+The runs left four bytecode caches in the worktree: `subfleet/__pycache__` (58 files), `subfleet/adapters/__pycache__` (5), `subfleet/conversations/__pycache__` (5) and `subfleet/sessions/__pycache__` (11), all under `/Users/maxghenis/.subfleet/worktrees/20261117-083630-wcall-fix-r4/`. Each was checked to hold only `.pyc` files and no tracked file. Each was moved into `sf-wcall-fix4/outside` and removed with `shutil.rmtree`, guarded by an assertion that `sf-wcall-fix4` is in the path ([cleanup.json](2026-11-12-wake-caller-data/fix-r4/cleanup.json)).
+
+`$TMPDIR/uv-cache`, the brief's cache, existed before this job and stays. The scratch folder stays, with its logs, venv, base tree and the review agent's probe.
+
+No process this job started is still running. No live state was read or changed, and no push or GitHub write ran.
+
+### Commits
+
+All on the detached HEAD, each adding named files only:
+- `c02d8bd0b` Tests: drop partial indexes naming the column in the prune column check
+- `d67875011` Tests: review r4 probes for #307's activity journal and activity lock
+- `6df091e85` Fix review r4 of #307: fold offline activity; bound the activity lock
+- `cd7ea9d9c` Contract: C-15.9 after review r4 of #307
+- `632fc4499` Tests: a fold never drops a corrupt record; tighten the lock-wait bound
+- This section and its data follow in their own commit.
+
+Head built: the commit that adds this section, on top of `632fc4499`.

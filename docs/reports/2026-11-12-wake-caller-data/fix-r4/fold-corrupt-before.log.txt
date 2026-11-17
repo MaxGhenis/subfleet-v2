@@ -1,0 +1,82 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.15.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: $TMPDIR/sf-wcall-fix4/base-tree
+configfile: pyproject.toml
+plugins: xdist-3.8.0, timeout-2.4.0, hypothesis-6.168.1
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+created: 2/2 workers
+2 workers [2 items]
+
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+______________ test_c15_9_the_activity_lock_waits_a_bounded_time _______________
+[gw0] darwin -- Python 3.15.2 $TMPDIR/uv-cache/builds-v0/.tmp0gTnXJ/bin/python
+
+core = namespace(root=PosixPath('$TMPDIR/sf-wcall-fix4/pytest-fold-corrupt-b... store=<subfleet.store.Store object at 0x10cbb81a0>, _pin_notice_jobs=<function core.<locals>.<lambda> at 0x10c9d16f0>)
+
+    def test_c15_9_the_activity_lock_waits_a_bounded_time(core):
+        """Review r4 of #307, P2: `activity_lock` waited with no timeout. It now gives up
+        after `wait_s` and says so, as `delivery_lock` does."""
+        fd = hold_activity_lock(core.root, SESSION)
+        try:
+            start = time.monotonic()
+>           with notice_claims.activity_lock(core.root, SESSION, wait_s=0.2) as held:
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_notice_claims.py:639: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/contextlib.py:367: in helper
+    return _GeneratorContextManager(func, args, kwds)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <contextlib._GeneratorContextManager object at 0x10c9d1d30>
+func = <function activity_lock at 0x10c3cda60>
+args = (PosixPath('$TMPDIR/sf-wcall-fix4/pytest-fold-corrupt-before/popen-gw0/test_c15_9_the_activity_lock_w0'), 'receipt-session')
+kwds = {'wait_s': 0.2}
+
+    def __init__(self, func, args, kwds):
+>       self.gen = func(*args, **kwds)
+                   ^^^^^^^^^^^^^^^^^^^
+E       TypeError: activity_lock() got an unexpected keyword argument 'wait_s'
+
+/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/contextlib.py:171: TypeError
+________________ test_c15_9_a_fold_never_drops_a_corrupt_record ________________
+[gw1] darwin -- Python 3.15.2 $TMPDIR/uv-cache/builds-v0/.tmp0gTnXJ/bin/python
+
+core = namespace(root=PosixPath('$TMPDIR/sf-wcall-fix4/pytest-fold-corrupt-b...ke_engine.<locals>.<lambda> at 0x10a50dc70>, _lane_session_ids=<function wake_engine.<locals>.<lambda> at 0x10a50dbc0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10a099ba0>
+
+    def test_c15_9_a_fold_never_drops_a_corrupt_record(core, monkeypatch):
+        """Review r4 of #307, P2: a record that turns up corrupt after the hook's own check
+        (here, between its publication and its fold) stops the fold before it writes or
+        removes anything, and the hook prints nothing, so the record still fences its
+        caller. The daemon's reconcile refuses it too."""
+        clock = [1800000000.0]
+        wake_engine(core, monkeypatch, clock)
+        assert offline_hook(core) == ""
+        aggregate = notice_claims.activity_path(core.root, SESSION)
+        folded = aggregate.read_text() if aggregate.exists() else None
+        add_notice(core)
+        corrupt = aggregate.with_suffix(".d") / f"{1:020d}-{'0' * 32}.json"
+        contents = json.dumps({"at": -1, "source": None, "human_at": None})
+        publish = notice_claims.record_offline_activity
+    
+        def publish_then_corrupt(*args, **kwargs):
+            publish(*args, **kwargs)
+            corrupt.write_text(contents)
+    
+        monkeypatch.setattr(notice_claims, "record_offline_activity", publish_then_corrupt)
+        clock[0] += 1
+>       assert offline_hook(core) == ""
+E       assert '{"hookSpecif...how <id>"}}\n' == ''
+E         
+E         + {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": "subfleet: 1 detached run dispatched by this session finished while it was not running:\n\njob-done succeeded; rc=0; -o /fake/result.md\n\nList: subfleet runs --mine \u00b7 details: subfleet runs show <id>"}}
+
+tests/unit/test_notice_claims.py:529: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_notice_claims.py::test_c15_9_the_activity_lock_waits_a_bounded_time
+FAILED tests/unit/test_notice_claims.py::test_c15_9_a_fold_never_drops_a_corrupt_record
+============================== 2 failed in 40.41s ==============================
