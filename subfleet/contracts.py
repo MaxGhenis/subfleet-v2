@@ -96,6 +96,13 @@ class OutcomeClass(str, enum.Enum):  # C-9.2
     UNKNOWN = "unknown"
 
 
+# D-WALL1, D-WALL-RETRY1: settled outside faults give back their provider time.
+# State and killed_by must also permit exclusion; a live or stopped attempt counts.
+WALL_EXEMPT_OUTCOME_CLASSES = (
+    OutcomeClass.LIMITED.value, OutcomeClass.TRANSIENT.value, OutcomeClass.AUTH_DEAD.value,
+)
+
+
 class ReadingLabel(str, enum.Enum):  # C-9.1
     PROVIDER = "provider"
     STALE_PROVIDER = "stale-provider"
