@@ -168,18 +168,19 @@ def _often(first, choices: list):
 
 
 @st.composite
-def keyed_texts(draw) -> str:
+def keyed_texts(draw, key="Bearer", cut=0, before="x\u200b", inside="", after="\x1b[0m", separator=" ") -> str:
     """One or two values, each after a key: a word may come before the key, and an
     invisible or control character before it, inside it, after it and after its
-    separator. Each part's first choice is drawn about half the time, so review r3's P1
-    shape (`x\u200bBearer\x1b[0m <value>`) is drawn often."""
+    separator. Each part is its first choice (the arguments, review r3's P1 shape
+    `x\u200bBearer\x1b[0m <value>` by default) about half the time, so that shape is
+    drawn often and others around it."""
     letters = draw(st.permutations(POOL))
     parts = []
     for index in range(draw(st.integers(1, 2))):
-        key = draw(_often("Bearer", KEYS))
-        cut = draw(st.one_of(st.just(0), st.integers(0, len(key))))
-        parts += [draw(_often("x\u200b", BEFORE)), draw(MAYBE_INVISIBLE), key[:cut], draw(MAYBE_INVISIBLE),
-                  key[cut:], draw(_often("\x1b[0m", ["", *INVISIBLES])), draw(_often(" ", SEPARATORS)),
+        name = draw(_often(key, KEYS))
+        at = min(draw(st.one_of(st.just(cut), st.integers(0, len(name)))), len(name))
+        parts += [draw(_often(before, BEFORE)), draw(MAYBE_INVISIBLE), name[:at], draw(_often(inside, INVISIBLES)),
+                  name[at:], draw(_often(after, ["", *INVISIBLES])), draw(_often(separator, SEPARATORS)),
                   draw(MAYBE_INVISIBLE), "".join(letters[index * VALUE_LENGTH:(index + 1) * VALUE_LENGTH]),
                   draw(st.sampled_from(ENDS)), draw(st.sampled_from(["", " ", "\n"]))]
     return "".join(parts)
@@ -188,8 +189,9 @@ def keyed_texts(draw) -> str:
 @st.composite
 def split_texts(draw) -> tuple[str, list[str]]:
     """A keyed text and the feeds it arrives in: cut after some of its lines, or at any
-    points, or both."""
-    text = draw(keyed_texts()) + "\n"
+    points, or both. Its first choices are review r3's P2 shape, a key an invisible
+    character splits, then its value on the next line (`pass\u200bword:\n<value>`)."""
+    text = draw(keyed_texts(key="password", cut=4, before="", inside="\u200b", after="", separator=":\n")) + "\n"
     cuts = set(draw(st.lists(st.integers(0, len(text)), max_size=6)))
     if draw(st.booleans()):
         cuts |= {at + 1 for at, char in enumerate(text) if char == "\n"}
