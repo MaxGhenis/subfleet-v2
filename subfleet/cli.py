@@ -3782,7 +3782,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--caller-family", choices=("claude", "codex"),
                        help="submitting model family (overrides SUBFLEET_CALLER_FAMILY and detection)")
     p_run.add_argument("--allow-same-family", action="store_true",
-                       help="authorize a same-family model pin or fallback for reviews")
+                       help="authorize a same-family model pin (-m) or fallback for reviews; "
+                            "refused inside a Subfleet job")
     p_run.add_argument("--subject", metavar="TEXT",
                        help="review subject: a GitHub PR URL or caller key (requires --task review)")
     p_run.add_argument("--round", type=int, metavar="N",
