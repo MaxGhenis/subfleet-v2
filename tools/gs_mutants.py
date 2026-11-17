@@ -92,7 +92,7 @@ MUTATIONS = {
                                "[a non-ASCII rule name w/o manifest blocked]"),
     "11-a-newline-name-looked-up": ("a staged name holding \\001 (a newline) looked up, not denied",
                                     f"{SYNC}::test_same_decisions_axiom_hand_authored_rulespec"
-                                    "[a newline in the name blocked, a \\001 manifest staged]"),
+                                    "[a newline in the name blocked, a \\\\001 manifest staged]"),
     "12-relative-diff": ("--no-relative dropped from the hand block's diff",
                          f"{SYNC}::test_a_relative_diff_config_hides_no_staged_file"),
     "13-brief-keys-by-path-text": ("[axiom-brief-regime] keys each brief by its path text again: no `.` collapse in "
