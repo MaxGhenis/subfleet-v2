@@ -887,8 +887,9 @@ scratch `$TMPDIR/sf-scrubop-fix1`, a new `--basetemp` with `pytest` in its name.
 - **Beyond the brief:** the inner-opener data URI case (the fuzz's), `within_line_scrub` and the helper's
   `within` flag, and three unit tests.
 - **Folders outside the job's scratch:** none; `$TMPDIR/sf-scrubop-fix1` (`/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-scrubop-fix1`)
-  held the archives, scripts, mutant copies and basetemps, and is removed at the end with a guarded
-  `shutil.rmtree`. The shared `$TMPDIR/uv-cache` stays. Tool output went to the harness's own task folder.
+  held the archives, scripts, mutant copies and basetemps (281 MB); it was removed at 19:35 UTC with a
+  guarded `shutil.rmtree` and confirmed gone. The scripts (`probe.py`, `fuzz.py`, `p11.py`, `mutants.py`)
+  stay in the job checkout's untracked `.fix-r1/`. The shared `$TMPDIR/uv-cache` stays. Tool output went to the harness's own task folder.
 
 ### Corrected claims
 
