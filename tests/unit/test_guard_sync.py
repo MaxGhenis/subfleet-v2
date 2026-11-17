@@ -36,6 +36,12 @@ Two changes, each held to an invariant below:
   be in, and refuses more than 16 places to check. The supplied blocks and prefilter line are kept as
   ``<name>.before.*``; ``<rule>.sh``, ``prefilter.txt`` and the pin are what the hub installs in the Claude
   hook.
+* Fix r2 (2026-11-17, review r2 of #303): the 16-place bound counted path strings, so `cd .; cd ./.; …` made
+  16 keys for one checkout, and 16 real checkouts still outlasted the timeout. Both blocks now resolve each
+  folder before they use it and check it once; the hand block stops its git work at a 20 s budget and
+  denies. It also read git's quoted staged names, so a non-ASCII rule name got through; it now reads them raw
+  (``-z``), and with ``--no-relative``. The fix r1 text is kept under ``claude-blocks/fix-r1/`` for the undo
+  chain.
 
 Invariants:
 
@@ -65,9 +71,18 @@ I5 (no configured command runs) Neither hook makes git run a repository's ``core
    (``DriftTests.test_the_git_config_pin_…``), and a checkout whose fsmonitor writes a marker leaves it
    absent while the decision stands (``test_no_git_call_runs_the_repositorys_fsmonitor``, with git's own
    index read and the unpinned Claude block as controls that write it).
-I6 (bounded work) The hand-authored-rulespec block's git processes do not grow with the staged files, and
-   a command with more than 16 folders or briefs to check is refused on both sides
-   (``test_the_staged_file_count_…``, ``test_more_than_16_…``).
+I6 (bounded work) The hand-authored-rulespec block's git processes do not grow with the staged files
+   (``test_the_staged_file_count_…``). Both blocks resolve each folder before they use it, so every
+   spelling of one checkout or brief is checked once (``test_one_checkout_spelled_…``,
+   ``test_one_brief_spelled_…``) and a folder that is not there starts no git process
+   (``test_a_folder_that_is_not_there_…``). The hand block's git work stops at a 20 s budget and then
+   denies (``test_the_hand_block_denies_when_its_time_budget_…``); either block refuses more than 64
+   paths to resolve, and the brief block more than 16 distinct briefs (``test_too_many_places_…``). Since
+   fix r2 the bound is time, not a count of path strings.
+I8 (every staged name) The hand-authored-rulespec block reads staged names raw, so a name under the anchor is
+   checked with its own bytes, whatever they are, and one it cannot look up is denied
+   (``test_same_decisions_axiom_hand_authored_rulespec``, fix r2's rows;
+   ``test_a_relative_diff_config_hides_no_staged_file``).
 I7 (later rules' inputs) Each rule after the two blocks gives the same denial, reason for reason, when a
    command the blocks run on and allow comes first (``test_later_rules_decide_alike_…``).
 """
@@ -587,6 +602,40 @@ HAND_CASES = [
      "(cd {rulespec} && true); git commit -m x", "plain", [f"{SECTION}.yaml"]),
     ("git log naming commit is not a commit", {"rulespec": {f"{SECTION}.yaml": YAML}}, {},
      "git -C {rulespec} log --grep commit", "plain", []),
+    # fix r2 (2026-11-17, review r2 of #303): the block read git's quoted names, and git quotes a name holding a
+    # byte outside printable ASCII, a double quote, a backslash or a control character (the last three even
+    # with core.quotepath=off); the anchor never matched the leading quote, so both sides and the hub's cut
+    # allowed each. The ASCII row is the control. The block now reads the names raw (-z): every name under the
+    # anchor is checked with its own bytes, and a name holding a newline, which the line-based lookup cannot
+    # carry, is denied with or without its manifest. The denial shows a control byte as ?.
+    ("an ASCII rule name w/o manifest blocked", {"rulespec": {"il/statutes/s-1.yaml": YAML}}, {},
+     "git commit -m x", "rulespec", ["il/statutes/s-1.yaml"]),
+    ("a non-ASCII rule name w/o manifest blocked", {"rulespec": {"il/statutes/sécti-2.yaml": YAML}}, {},
+     "git commit -m x", "rulespec", ["il/statutes/sécti-2.yaml"]),
+    ("a non-ASCII rule name with its manifest allowed",
+     {"rulespec": {"il/statutes/sécti-2.yaml": YAML, ".axiom/encoding-manifests/il/statutes/sécti-2.json": "{}"}},
+     {}, "git commit -m x", "rulespec", []),
+    ("a double quote in the name w/o manifest blocked", {"rulespec": {'il/statutes/a"b.yaml': YAML}}, {},
+     "git commit -m x", "rulespec", ['il/statutes/a"b.yaml']),
+    ("a double quote in the name with its manifest allowed",
+     {"rulespec": {'il/statutes/a"b.yaml': YAML, '.axiom/encoding-manifests/il/statutes/a"b.json': "{}"}}, {},
+     "git commit -m x", "rulespec", []),
+    ("a backslash in the name w/o manifest blocked", {"rulespec": {"il/statutes/a\\b.yaml": YAML}}, {},
+     "git commit -m x", "rulespec", ["il/statutes/a\\b.yaml"]),
+    ("a tab in the name w/o manifest blocked", {"rulespec": {"il/statutes/a\tb.yaml": YAML}}, {},
+     "git commit -m x", "rulespec", ["il/statutes/a?b.yaml"]),
+    ("a tab in the name with its manifest allowed",
+     {"rulespec": {"il/statutes/a\tb.yaml": YAML, ".axiom/encoding-manifests/il/statutes/a\tb.json": "{}"}}, {},
+     "git commit -m x", "rulespec", []),
+    ("a newline in the name blocked, its manifest staged",
+     {"rulespec": {"il/statutes/x\ny.yaml": YAML, ".axiom/encoding-manifests/il/statutes/x\ny.json": "{}"}}, {},
+     "git commit -m x", "rulespec", ["il/statutes/x?y.yaml"]),
+    # the lookup carries a newline as \001, so a manifest named with \001 in its place must not let it through
+    ("a newline in the name blocked, a \\001 manifest staged",
+     {"rulespec": {"il/statutes/x\ny.yaml": YAML, ".axiom/encoding-manifests/il/statutes/x\x01y.json": "{}"}}, {},
+     "git commit -m x", "rulespec", ["il/statutes/x?y.yaml"]),
+    ("a non-ASCII name through git -C blocked", {"rulespec": {"il/statutes/sécti-2.yaml": YAML}}, {},
+     "git -C {rulespec} commit -m x", "plain", ["il/statutes/sécti-2.yaml"]),
 ]
 
 
@@ -756,19 +805,161 @@ def test_the_staged_file_count_does_not_multiply_git_processes(tmp_path):
     assert 0 < starts["overlay", 60] <= 4, starts
 
 
+#: Fix r2's denials (2026-11-17): the hand block's time budget, and the paths either block will resolve.
+HAND_BUDGET = ("[hand-authored-rulespec] The guard's 20 s budget for checking staged indexes ran out before it "
+               "checked every folder this command commits from")
+HAND_TOOMANY = "[hand-authored-rulespec] This command names more than 64 folders to commit from"
+BRIEF_TOOMANY = "[axiom-brief-regime] This command names more than 16 briefs to read"
+#: Review r2's case: the payload cwd spelled 15 ways (cd ., cd ./., cd ././., ...), then a commit and a stash.
+SPELLED_15 = "; ".join("cd " + "/".join(["."] * n) for n in range(1, 16))
+#: A git that logs its first argument and sleeps before running the real one: an exported bash function, which
+#: both hooks' bash imports and which their PATH (/usr/bin first) cannot bypass.
+SLOW_GIT = "() {{ printf '%s\\n' \"$1\" >> '{log}'; sleep {pause}; command git \"$@\"; }}"
+#: A grep that logs every regular file it reads (its last argument), then runs the real one.
+LOGGED_GREP = "() {{ [ -f \"${{@: -1}}\" ] && printf '%s\\n' \"${{@: -1}}\" >> '{log}'; command grep \"$@\"; }}"
+
+
+def side_reason(fix: AxiomFixture, side: str, rule: str, command: str, cwd: Path, env: dict) -> str:
+    return fix.claude(rule, command, cwd, env=env) if side == "claude" else fix.overlay(command, cwd, env=env)
+
+
+def stage_index(fix: AxiomFixture, repo: Path, paths: list[str]) -> None:
+    """Stage ``paths`` (one blob each) in ``repo``'s index without writing them to disk."""
+    blob = fix.git(repo, "hash-object", "-w", "--stdin", stdin=YAML).strip()
+    fix.git(repo, "read-tree", "HEAD")
+    fix.git(repo, "update-index", "--index-info", stdin="".join(f"100644 {blob}\t{path}\n" for path in paths))
+
+
 @needs_jq
-def test_more_than_16_places_to_check_is_refused(tmp_path):
-    """I6: a command naming more than 16 folders (or briefs) to check is refused on both sides, so the
-    work stays bounded and never runs into the hook's timeout, which allows."""
+def test_one_checkout_spelled_many_ways_is_checked_once(tmp_path):
+    """I6 (fix r2): review r2's P1. The block keyed each folder by its path text, and `.`, `..`, repeated `/` and
+    links each made a new key for the same checkout, every one costing three git processes and a pass over
+    the whole index. Each folder is now resolved (`cd -P`, `pwd -P`) before git runs and checked once, so the
+    review's 15 spellings, and spellings through `..`, `//`, a trailing `/` and a link, cost what one `cd`
+    costs, on both sides (git `start` events in GIT_TRACE2_EVENT). The decisions stand: the hand block finds
+    every rule file's manifest, and the overlay's stash-shared rule denies the stash."""
     fix = AxiomFixture(tmp_path)
+    fix.git(fix.rulespec, "worktree", "add", "-q", "-b", "wt", str(fix.home / "rulespec-wt"))
+    rules = [f"il/statutes/s-{i:03d}.yaml" for i in range(40)]
+    stage_index(fix, fix.rulespec, rules + [".axiom/encoding-manifests/" + r[:-5] + ".json" for r in rules])
+    (fix.home / "rulespec-link").symlink_to(fix.rulespec)
+    others = (f"cd il/..; cd .//il/../il/..; cd {fix.rulespec}/; cd {fix.home}/rulespec-link; "
+              f"pushd {fix.home}//rulespec/./il/..; cd ~/rulespec; cd ../rulespec/il/statutes/../..")
+    commands = {"one cd": "cd .; git commit -m x; git stash",
+                "review r2's 15": f"{SPELLED_15}; git commit -m x; git stash",
+                "other spellings": f"{others}; git commit -m x; git stash"}
+    starts = {}
+    for side in ("claude", "overlay"):
+        for name, command in commands.items():
+            trace = tmp_path / f"trace-{side}-{len(starts)}.json"
+            reason = side_reason(fix, side, "hand-authored-rulespec", command, fix.rulespec,
+                                 {"GIT_TRACE2_EVENT": str(trace)})
+            assert reason == "" if side == "claude" else reason.startswith("[stash-shared] "), (name, reason)
+            starts[side, name] = git_starts(trace)
+    for side in ("claude", "overlay"):
+        assert len({starts[side, name] for name in commands}) == 1, starts
+    assert starts["claude", "one cd"] == 3, starts
+
+
+@needs_jq
+def test_the_hand_block_denies_when_its_time_budget_is_spent(tmp_path):
+    """I6 (fix r2): the block's git work is bounded by time, not by a count of folders. Here git sleeps 7 s
+    before each call, and three distinct rulespec checkouts would cost nine calls, 63 s, past the 60 s hook
+    timeout, which allows. The block checks its budget (20 s from its start) before each git call, so after
+    three calls (21 s) it stops, on both sides, and denies with its own reason: it never allows a folder it
+    did not check. The assertions count calls, not seconds."""
+    fix = AxiomFixture(tmp_path)
+    checkouts = [fix.home / f"rulespec-{n}" for n in range(3)]
+    for repo in checkouts:
+        repo.mkdir()
+        fix.git(repo, "init", "-q", "-b", "main")
+        fix.git(repo, "commit", "-q", "--allow-empty", "-m", "init")
+        fix.git(repo, "remote", "add", "origin", ORIGIN)
+        fix.stage(repo, {f"{SECTION}.yaml": YAML, f".axiom/encoding-manifests/{SECTION}.json": "{}"})
+    command = "; ".join(f"git -C {repo} commit -m x" for repo in checkouts)
+    for side in ("claude", "overlay"):
+        log = tmp_path / f"git-calls-{side}"
+        reason = side_reason(fix, side, "hand-authored-rulespec", command, fix.plain,
+                             {"BASH_FUNC_git%%": SLOW_GIT.format(log=log, pause=7)})
+        assert reason.startswith(HAND_BUDGET), (side, reason)
+        calls = log.read_text().splitlines()
+        assert 1 <= len(calls) <= 3, (side, calls)
+
+
+@needs_jq
+def test_a_folder_that_is_not_there_starts_no_git_process(tmp_path):
+    """Review r2's question 3: a candidate folder that does not exist is dropped before git runs (git would fail
+    there anyway), so no git process starts, however many there are; the command is allowed on both sides."""
+    fix = AxiomFixture(tmp_path)
+    gone = tmp_path / "gone"
     hops = "; ".join(f"cd d{i}" for i in range(17))
-    reason = fix.same("hand-authored-rulespec", f"{hops}; git commit -m x", fix.plain)
-    assert reason.startswith("[hand-authored-rulespec] This command commits from more than 16 folders"), reason
-    reason = fix.same("axiom-brief-regime", f"{hops}; subfleet run -C ~/TheAxiomFoundation -p b.md", fix.plain)
-    assert reason.startswith("[axiom-brief-regime] This command names more than 16 briefs"), reason
-    # 16 folders (the payload cwd and 15 more) are each checked; none is a rulespec checkout
-    hops = "; ".join(f"cd d{i}" for i in range(15))
-    assert fix.same("hand-authored-rulespec", f"{hops}; git commit -m x", fix.plain) == ""
+    command = (f"{hops}; git commit -m x; git -C nowhere commit -m y; cd {tmp_path}/also-gone && git commit -m z; "
+               "pushd ../gone-too; git commit -m w")
+    for side in ("claude", "overlay"):
+        trace = tmp_path / f"trace-{side}.json"
+        reason = side_reason(fix, side, "hand-authored-rulespec", command, gone, {"GIT_TRACE2_EVENT": str(trace)})
+        assert reason == "", (side, reason)
+        assert git_starts(trace) == 0, side
+
+
+@needs_jq
+def test_one_brief_spelled_17_ways_is_read_once(tmp_path):
+    """Fix r2: the brief block keyed each brief by its path text too, so 17 spellings of one brief were refused as
+    17 briefs. Each brief's folder is now resolved before it is read: 17 spellings (`./`, `..`, a link) of one
+    brief are read once (two greps of that one file) and not refused, on both sides, and the same 17 of a
+    brief without the regime block are denied for that."""
+    fix = AxiomFixture(tmp_path)
+    (fix.home / "briefs-link").symlink_to(fix.briefs)
+    for brief, denied in (("with-regime.md", False), ("no-regime.md", True)):
+        spellings = ([f"{fix.briefs}/" + "./" * n + brief for n in range(8)]
+                     + [f"{fix.briefs}" + "/../briefs" * n + "/" + brief for n in range(1, 9)]
+                     + [f"{fix.home}/briefs-link/{brief}"])
+        assert len(set(spellings)) == 17
+        command = "subfleet run --task build -C ~/TheAxiomFoundation " + " ".join(f"-p {s}" for s in spellings)
+        for side in ("claude", "overlay"):
+            log = tmp_path / f"reads-{side}-{brief}"
+            reason = side_reason(fix, side, "axiom-brief-regime", command, fix.plain,
+                                 {"BASH_FUNC_grep%%": LOGGED_GREP.format(log=log)})
+            assert reason.startswith(BRIEF_REASON) if denied else reason == "", (side, brief, reason)
+            reads = [path for path in (log.read_text().splitlines() if log.exists() else []) if path.endswith(brief)]
+            assert reads == [os.path.realpath(fix.briefs / brief)] * 2, (side, brief, reads)
+
+
+@needs_jq
+def test_too_many_places_to_check_is_refused(tmp_path):
+    """I6 (fix r2): each block resolves at most 64 paths, counted after `.` and repeated `/` collapse, and the brief
+    block reads at most 16 distinct briefs; past either bound both sides refuse, never allow. Spellings that
+    differ by `..` stay apart until resolved, so 65 of them are refused even for one folder; that bounds the
+    resolving, and the hand block's git work is bounded by its time budget
+    (test_the_hand_block_denies_when_its_time_budget_is_spent)."""
+    fix = AxiomFixture(tmp_path)
+    hops = "; ".join("cd il/.." for _ in range(64))
+    reason = fix.same("hand-authored-rulespec", f"{hops}; git commit -m x", fix.rulespec)
+    assert reason.startswith(HAND_TOOMANY), reason
+    hops = "; ".join("cd il/.." for _ in range(63))
+    assert fix.same("hand-authored-rulespec", f"{hops}; git commit -m x", fix.rulespec) == ""
+    paths = " ".join(f"-p {fix.briefs}" + "/../briefs" * n + "/with-regime.md" for n in range(65))
+    reason = fix.same("axiom-brief-regime", f"subfleet run -C ~/TheAxiomFoundation {paths}", fix.plain)
+    assert reason.startswith(BRIEF_TOOMANY), reason
+    for n in range(17):
+        (fix.briefs / f"b{n}.md").write_text("Update the landing page.\n", encoding="utf-8")
+    briefs = " ".join(f"-p b{n}.md" for n in range(16))
+    assert fix.same("axiom-brief-regime", f"subfleet run -C ~/TheAxiomFoundation {briefs}", fix.briefs) == ""
+    reason = fix.same("axiom-brief-regime", f"subfleet run -C ~/TheAxiomFoundation {briefs} -p b16.md", fix.briefs)
+    assert reason.startswith(BRIEF_TOOMANY), reason
+
+
+@needs_jq
+def test_a_relative_diff_config_hides_no_staged_file(tmp_path):
+    """Fix r2, found while fixing P2: with diff.relative=true in a checkout's config, `git diff` run from a subfolder
+    prints paths relative to it and drops the rest, so `cd <rulespec>/il && git commit` hid every rule file from
+    the anchor. The block's diff passes --no-relative; both sides deny."""
+    fix = AxiomFixture(tmp_path)
+    fix.stage(fix.rulespec, {f"{SECTION}.yaml": YAML})
+    fix.git(fix.rulespec, "config", "diff.relative", "true")
+    for command in (f"cd {fix.rulespec}/il && git commit -m x", f"git -C {fix.rulespec}/il/statutes commit -m x"):
+        reason = fix.same("hand-authored-rulespec", command, fix.plain)
+        assert reason.startswith(HAND_PREFIX + f"{SECTION}.yaml. "), (command, reason)
 
 
 CORPUS_ORIGIN = "https://github.com/TheAxiomFoundation/axiom-corpus.git"
