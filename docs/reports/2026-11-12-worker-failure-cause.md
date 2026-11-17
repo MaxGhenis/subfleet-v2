@@ -1121,9 +1121,10 @@ new code (`_readings`' guard, `_controls_shown`'s test).
 | H5 a password with a metacharacter shown whole | the review URLs and the property | 2 failed | 61 | 61 → 94 |
 | H6 metacharacters masked | the property | 1 failed | 120 | 94 → 173 |
 
-H2's named test passed under it: with no context check, the review's three
-steps are still caught by the settle change (H3's part). The property killed
-it.
+H2's named test passed under it; the property killed it. My reading, not
+checked: with no context check, the settle change still holds
+`pass\u200bword:` back until its value arrives, so the review's three steps are
+written together.
 
 The run outlasted the tool's 600 s limit, which moved it to the background,
 and `timeout 590` stopped it during its final `guarded_rmtree`, after H6's
@@ -1149,8 +1150,8 @@ worker. Times are UTC.
 | 5 | 05:21 | final new tests on an `a6443ab04` copy (before) | **10 failed, 2 passed** (the oracle check and the split property) | – |
 | – | 05:26 | the two properties, direct calls, on the copy and the head | copy: both failed, on the review's shapes; head: both passed | – |
 | 6 | 05:44 | the four worker-failure files | **270 passed** | 58 → 39 |
-| 7 | 05:46 | `test_scrub_release_first`, `test_conversation_redact`, `test_scrub_release_frozen`, `test_scrub_inline_headers` | **309 passed**, 205 s | 71 |
-| 8 | 05:50 | `test_daemon_log_tail`, `_scrubbing`, `_reminders`, `_trailing_reminders` | stopped by `timeout 570` at about 99%, no `F` or `E` | 34 → 59 |
+| 7 | 05:46 | `test_scrub_release_first`, `test_conversation_redact`, `test_scrub_release_frozen`, `test_scrub_inline_headers` | **309 passed**, 205 s, `test_inline_headers_and_bearer_keep_scrubbing_linear` included | – → 71 |
+| 8 | 05:50 | `test_daemon_log_tail`, `_scrubbing`, `_reminders`, `_trailing_reminders` | stopped by `timeout 570` at about 99%, no `F` or `E` | – → 34 |
 | 12 | 06:02 | the same, `-v` | stopped by `timeout 540`: **257 of 259 passed, none failed** | 117 |
 | 14 | 06:13 | `test_daemon_log_handler`, `_sites` | **3 failed, 208 passed** (below) | 95 |
 | 15 | 06:22 | the four-MiB test on the copy, one worker | 3 passed, 19.9 s | 81 → 69 |
@@ -1164,8 +1165,9 @@ doesn't split an unquoted variable into paths).
 Run 14's failures:
 - `test_a_four_mib_record_is_written_bounded_and_scrubbed_within_the_time_bound[traceback]`
   and `[both]`: 1.016 s and 1.524 s against the 1 s bound, with four workers.
-  Alone, the head passed all three cases in 13.1 s (run 16), faster than the
-  pre-fix copy's 19.9 s (run 15). Those inputs hold no control or format
+  With one worker the head passed all three cases (13.1 s in all, run 16), as
+  the pre-fix copy did just before (19.9 s, run 15, at a higher load). Those
+  inputs (`four_mib`: frames and three assignments) hold no control or format
   character, so the change adds one regex scan to them. Review r3 saw two
   one-second timing failures on `bb118f63d` as well.
 - `test_no_daemon_module_logs_a_caught_exception_raw`: names
