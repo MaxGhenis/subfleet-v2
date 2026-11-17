@@ -1,7 +1,8 @@
 """Which processes still hold a retiring job's trees (design 5.4).
 
-One ``lsof`` listing of every process serves a whole batch of jobs, so a pass
-pays for two listings however many jobs it retires (review of ccc85387, finding
+One ``lsof`` listing of every process serves a whole batch of jobs, and a pass
+takes one listing at most (D-HOLDERS-LSOF1: check 1 for its quarantines and check
+2 for the last pass's archives), however many jobs it retires (review of ccc85387, finding
 4: a listing took 46 s to 6 min under load). A process holds a tree if it has
 its current or root directory in it, a text or memory mapping of a file in it,
 any descriptor on a directory in it, or a descriptor open for writing on a file
@@ -24,6 +25,7 @@ import threading
 import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
+from typing import Any
 
 from .launch_env import build_environment
 from . import retention_qos as rqos
@@ -44,6 +46,21 @@ class Watch:
 
 
 Holders = Callable[[Mapping[str, Watch]], dict[str, list[str]]]
+
+
+class Busy(dict):
+    """A reader's answer, job id -> busy reasons, with what the listing asked
+    about in `stats` (counts only: no path or command), for the listing's log line."""
+
+    def __init__(self, busy: Mapping[str, list[str]], stats: Mapping[str, int] | None = None):
+        super().__init__(busy)
+        self.stats = dict(stats or {})
+
+
+def reader_name(holders: Callable[..., Any]) -> str:
+    """What a listing's log line calls its reader: the built-in readers' names, or
+    the callable's own (a test's stand-in)."""
+    return str(getattr(holders, "reader", None) or getattr(holders, "__name__", None) or type(holders).__name__)
 
 
 def _under(name: str, prefixes: Iterable[str]) -> bool:
@@ -135,4 +152,9 @@ def lsof_holders(watches: Mapping[str, Watch], *, timeout: float = 900,
                                  else f"lsof did not finish in {timeout:g} s") from None
     if process.returncode != 0 or not out:
         raise ScanFailed(f"lsof exited {process.returncode}: {err.decode('utf-8', 'replace').strip()[-300:]}")
-    return parse(out.decode("utf-8", "surrogateescape"), watches, own_pid=os.getpid())
+    text = out.decode("utf-8", "surrogateescape")
+    return Busy(parse(text, watches, own_pid=os.getpid()),
+                {"processes": sum(1 for line in text.split("\n") if line[:1] == "p")})
+
+
+lsof_holders.reader = "lsof"

@@ -138,3 +138,9 @@ def test_the_daemon_withdraws_an_outcome_unread_for_notice_keep_days(state_daemo
     assert left == {written["young"]}
     del daemon.policy["retention"]["notice_keep_days"]                  # the default, 7
     assert daemon._prune_service_notices() == 0
+
+
+# Release/217 (#294, D-NOTICE-KEEP1) wrote these tests against the one-pass rule. Under #297 a
+# job archived in a pass retires after the next pass's listing (C-8.4), so one maintenance
+# call runs the catch-up passes the daemon would (as fix round 2 did for its modules).
+pytestmark = pytest.mark.retention_catch_up
