@@ -13,7 +13,7 @@ import pytest
 
 from subfleet import cli, policy as policy_module, scheduler
 from subfleet.contracts import Exit
-from subfleet.policy import load_policy, review_family_warnings, routing_chain
+from subfleet.policy import load_policy, routing_chain
 
 from tests.routing_strategies import BASE_POLICY, NOW, view_of
 from test_route_check import JOB, check, fleet, reading, with_
@@ -53,6 +53,7 @@ def test_p2_sol_first_routing_matrix(capsys):
     the model `evaluate` chooses with both families' lanes up."""
     shipped = load_policy(DEFAULT_POLICY)
     assert shipped["_review_family_warnings"] == []
+    shipped["reserve"]["models"] = []       # no fable reserve on the synthetic Claude lane
     view = view_of(lanes_up(), NOW)
     rows = []
     for tier_index, tier in enumerate(TIERS):
@@ -112,7 +113,7 @@ def test_p2_a_policy_without_sol_but_with_astra_routes_claude_callers_to_astra()
     loaded = copy.deepcopy(BASE_POLICY)
     loaded.pop("review_family_defaults", None)
     del loaded["models"]["sol61"]
-    assert review_family_warnings(loaded) == []
+    assert policy_module.review_family_warnings(loaded) == []
     assert [routing_chain(loaded, "review", index, caller_family="claude") for index in range(4)] == [["astra"]] * 4
 
 
@@ -150,6 +151,7 @@ def test_p3_a_same_family_lane_pin_is_a_review_same_family_refusal(family, lane,
 
 def test_p3_same_family_lane_pin_with_a_same_family_model_and_consent_runs():
     shipped = load_policy(DEFAULT_POLICY)
+    shipped["reserve"]["models"] = []
     job = review_job("claude", "standard", pinned_lane="claude-1", pinned_model="opus", allow_same_family=True)
     decision = scheduler.evaluate(shipped, view_of(lanes_up(), NOW), job)
     assert (decision.chosen_lane, decision.chosen_model) == ("claude-1", "opus")

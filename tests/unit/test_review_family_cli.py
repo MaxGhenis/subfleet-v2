@@ -48,7 +48,9 @@ def test_why_existing_job_uses_its_recorded_family(daemon, monkeypatch):
 
 @pytest.mark.parametrize("allowed", [False, True])
 def test_run_forwards_same_family_authorization(daemon, workdir, allowed):
-    server = daemon({"submit": lambda request: {"job_id": JOB, "created": True, "state": "queued"}})
+    # #314's fix: a submission carrying a caller family needs `review.subject.v1`.
+    server = daemon({"submit": lambda request: {"job_id": JOB, "created": True, "state": "queued"},
+                     "capabilities": lambda request: {"capabilities": ["review.subject.v1"]}})
     argv = ["run", "--task", "review", "--tier", "hard", "--caller-family", "codex",
             "-C", str(workdir), "-d", "review"]
     if allowed:
