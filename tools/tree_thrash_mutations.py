@@ -47,6 +47,8 @@ FAILURE = TESTS + "test_a_failing_workspace_reaches_the_job_when_capacity_first_
 DESKTOP = TESTS + "test_a_closure_race_with_a_desktop_lane_never_refreshes_the_registry_under_the_store_lock"
 REOPEN = TESTS + "test_reopening_the_original_lane_during_preparation_reuses_its_original_evaluation"
 SWEEP_REOPEN = TESTS + "test_a_reopened_lane_before_the_sweep_keeps_its_unused_tree"
+CAP_PROBE = TESTS + "test_six_fresh_writers_under_a_cap_of_two_cut_only_the_two_placed_trees"
+SPARED_RETRY = TESTS + "test_preparation_spends_no_route_retry"
 
 DEFER = "            deferred_workspace = fresh_workspace\n"
 PREPARE_GATE = (
@@ -68,6 +70,9 @@ FAILED = (
 )
 RACE_HOLD = "                            if fresh_workspace and not deferred_workspace and not decision.chosen_lane:\n"
 READY = "                    deferred_workspace = False\n"
+CAP_CHECK = ("                        if not decision.chosen_lane or at_limit or provider_at_limit "
+             "or provider_behind or fifo_behind:\n")
+SPARED = "                    tries -= 1                # preparation spends no route retry\n"
 SWEEP_ELIGIBILITY = (
     '            if hold.get("reason") != "disk" and not scheduler.unadmittable(\n'
     '                    self.policy, self._pin_view(self._desktop_identity()), job, far_s=0):\n'
@@ -95,6 +100,12 @@ MUTATIONS = {
         "self._pin_view(desktop_account, refresh=True), decision_job, far_s=0)", DESKTOP),
     "reuse-standing-decision-with-old-basis": ("                    decision = evaluated_decision\n", "", REOPEN),
     "forget-sweep-eligibility-recheck": (SWEEP_ELIGIBILITY, "", SWEEP_REOPEN),
+    # Review r2: the provisional check skips the fleet cap, so a writer past it
+    # gets a tree and then waits `fleet-full` at the reservation recheck.
+    "cap-after-cut": (CAP_CHECK, CAP_CHECK.replace(" or at_limit or", " or (at_limit and not deferred_workspace) or"),
+                      CAP_PROBE),
+    # Review r2: preparation spends a route retry, so two later moves exhaust them.
+    "preparation-spends-a-retry": (SPARED, "", SPARED_RETRY),
 }
 
 
@@ -110,6 +121,8 @@ KILL_EVIDENCE = {
     "refresh-registry-under-store-lock": "registry refresh under the store write lock",
     "reuse-standing-decision-with-old-basis": 'assert cuts == [job] and attempt["lane_id"] == "codex-1"',
     "forget-sweep-eligibility-recheck": "assert swept(service) == 0",
+    "cap-after-cut": "assert sorted(cuts) == sorted(placed)",
+    "preparation-spends-a-retry": 'assert cuts == [job] and attempt["lane_id"] == "codex-1"',
 }
 
 
@@ -133,6 +146,9 @@ def pytest(tests: list[str], *, timeout: float, temp_root: Path, junit: Path | N
             output = decoded(exc.stdout) + decoded(exc.stderr)
             exit_code, timed_out = 124, True
         failed = [match.group(1) for match in re.finditer(r"^FAILED (\S+)", output, re.M)]
+        # A selected node may be a module or a test whose parameters it leaves out.
+        selected = [test for test in tests if any(
+            name == test or name.startswith((test + "::", test + "[")) for name in failed)]
         evidence = [line for line in output.splitlines()
                     if line.startswith((">", "E ", "FAILED "))]
         infrastructure = timed_out or any(re.search(
@@ -140,7 +156,7 @@ def pytest(tests: list[str], *, timeout: float, temp_root: Path, junit: Path | N
             for line in evidence if line.startswith(("E ", "FAILED ")))
         return {"test": tests[0] if len(tests) == 1 else "baseline-controls", "tests": tests,
                 "exit_code": exit_code, "seconds": round(time.monotonic() - started, 3),
-                "failed": failed, "selected_failed": any(test in failed for test in tests),
+                "failed": failed, "selected_failed": bool(selected),
                 "timed_out": timed_out, "infrastructure_error": infrastructure,
                 "failure_evidence": evidence, "output": output}
 
@@ -154,6 +170,9 @@ def main() -> int:
     parser.add_argument("--control-test", action="append", default=[], metavar="NODE_ID",
                         help="additional healthy control; repeat to prepend several controls")
     parser.add_argument("--junit-dir", type=Path, help="save each control/mutant collection's testcase timings")
+    parser.add_argument("--against", action="append", default=[], metavar="NODE_ID",
+                        help="survey: run each named mutant against these tests (modules allowed) instead of its "
+                             "selected regression, and report what fails; repeat for several")
     parser.add_argument("--temp-root", type=Path,
                         default=Path(os.environ["TMPDIR"]) if os.environ.get("TMPDIR") else Path(tempfile.gettempdir()),
                         help="writable directory under the Darwin user temporary directory")
@@ -193,7 +212,7 @@ def main() -> int:
                 old = new = ""
             else:
                 old, new, test = MUTATIONS[name]
-                tests = [test]
+                tests = args.against or [test]
                 if original.count(old) != 1:
                     raise RuntimeError(f"{name}: anchor occurs {original.count(old)} times, expected one")
             DAEMON.write_text(original.replace(old, new, 1) if old else original)
@@ -220,10 +239,14 @@ def main() -> int:
                 if infrastructure or (name == "baseline" and result["exit_code"]):
                     print(result["output"], file=sys.stderr)
                     raise RuntimeError(f"{name}: baseline or infrastructure failure, exit {result['exit_code']}")
-                if name != "baseline" and result["exit_code"] and not intended_failure:
+                result["survey"] = bool(args.against) and name != "baseline"
+                if result["survey"]:
+                    results["runs"][-1]["survey"] = True
+                if name != "baseline" and result["exit_code"] and not intended_failure and not result["survey"]:
                     print(result["output"], file=sys.stderr)
                     raise RuntimeError(f"{name}: failed outside its intended assertion")
-                status = "PASS" if name == "baseline" else "KILLED" if result["killed"] else "SURVIVED"
+                status = ("PASS" if name == "baseline" else "KILLED" if result["killed"] else
+                          "SURVIVED" if not result["exit_code"] else "FAILED " + ",".join(result["failed"]))
                 print(f"{status}\t{name}\t{result['seconds']:.3f}s\t{result['test']}", flush=True)
                 if name != "baseline" and not result["killed"]:
                     exit_code = 1
