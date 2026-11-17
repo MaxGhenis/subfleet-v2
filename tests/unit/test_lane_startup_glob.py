@@ -130,10 +130,21 @@ def test_glob_literal_escapes_each_character_picomatch_reads():
 
 
 @pytest.mark.parametrize("pattern", ["/a/*", "/a/?", "/a[!]b", "/a/(x)", "/a,b", '/a"b', "!{/a..b,/c}/**",
-                                     "!(a)", "/a{b,c", "/a]b", "!{/a{b,c},/d}/**", "!{/a}/**"])
+                                     "!(a)", "/a{b,c", "/a]b", "!{/a{b},/d}/**", "!{/a}/**", "/a{,/b{,/c}/x"])
 def test_the_oracle_refuses_syntax_it_does_not_state(pattern):
     with pytest.raises(glob.Unsupported):
         glob.compile_pattern(pattern)
+
+
+def test_the_oracle_reads_nested_braces_as_picomatch_does():
+    """Review r2 of #326, P1 1: `/a{,/b{,/c}}` names `/a`, `/a/b` and `/a/b/c`, as the
+    bundle's picomatch compiles it (`^(?:\\/a(|\\/b(|\\/c))\\/CLAUDE\\.md)$`); the
+    recordings hold its verdicts on such patterns under every metacharacter."""
+    test = glob.matcher(["/a{,/b{,/c}}/CLAUDE.md"], lambda p: p)
+    assert [test(f"{folder}/CLAUDE.md") for folder in ("/a", "/a/b", "/a/b/c", "/a/b/c/d", "/a/c", "/ab", "/")] == [
+        True, True, True, False, False, False, False]
+    assert glob.expand("/a[.]{,/[,-,]b{,/[}]c}}/X") == ["/a[.]/X", "/a[.]/[,-,]b/X", "/a[.]/[,-,]b/[}]c/X"]
+    assert glob.expand("!{/r,/s[]]}/**") == ["!/r/**", "!/s[]]/**"]
 
 
 def test_the_oracle_states_picomatch_test_rules():
