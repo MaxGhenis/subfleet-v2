@@ -8,6 +8,7 @@ import json
 import re
 import logging
 import os
+import re
 import sqlite3
 import subprocess
 import tempfile
@@ -199,6 +200,9 @@ def test_prune_requires_every_migrated_column(tmp_path, table, column):
     database = tmp_path / 'state.sqlite3'
     with sqlite3.connect(database) as conn:
         for index in conn.execute(f'PRAGMA index_list("{table}")').fetchall():
+            # A partial index can depend on the removed column only in WHERE,
+            # which PRAGMA index_info does not include (notices.wake_state);
+            # an automatic index has no SQL, only index_info.
             indexed = {row[2] for row in conn.execute(f'PRAGMA index_info("{index[1]}")')}
             definition = conn.execute(
                 "SELECT sql FROM sqlite_master WHERE type='index' AND name=?", (index[1],)).fetchone()[0] or ''

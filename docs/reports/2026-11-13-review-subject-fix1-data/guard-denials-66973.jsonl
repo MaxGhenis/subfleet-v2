@@ -1,0 +1,6 @@
+{"reason": "external executable outside strict allowlist", "at": 124709.521375875, "frames": []}
+{"reason": "external executable outside strict allowlist", "at": 124709.523723708, "frames": []}
+{"reason": "external executable outside strict allowlist", "at": 124710.595421666, "frames": [{"file": "unit/test_cli.py", "line": 1412, "function": "test_the_offline_banner_is_prose_on_stderr"}, {"file": "unit/test_offline.py", "line": 89, "function": "build_store"}]}
+{"reason": "external executable outside strict allowlist", "at": 124710.595657166, "frames": [{"file": "unit/test_cli.py", "line": 1412, "function": "test_the_offline_banner_is_prose_on_stderr"}, {"file": "unit/test_offline.py", "line": 89, "function": "build_store"}]}
+{"reason": "external executable outside strict allowlist", "at": 124710.595997291, "frames": [{"file": "unit/test_cli.py", "line": 1412, "function": "test_the_offline_banner_is_prose_on_stderr"}, {"file": "unit/test_offline.py", "line": 89, "function": "build_store"}]}
+{"reason": "external executable outside strict allowlist", "at": 124710.596135291, "frames": [{"file": "unit/test_cli.py", "line": 1412, "function": "test_the_offline_banner_is_prose_on_stderr"}, {"file": "unit/test_offline.py", "line": 89, "function": "build_store"}]}

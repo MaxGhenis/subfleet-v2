@@ -153,18 +153,25 @@ Review and caller flags:
 
 | Command | Behavior |
 | --- | --- |
-| `subfleet run --caller-family claude -C DIR -p PROMPT --task research` | Record the requesting family; overrides `SUBFLEET_CALLER_FAMILY` and detection. |
-| `subfleet run --task review --subject PR_URL -C DIR -p PROMPT` | Normalize a GitHub PR URL and assign its next review round, up to four. |
-| `subfleet run --task review --subject KEY --round 2 -C DIR -p PROMPT` | Keep the caller-chosen round, including a re-run of an earlier round. |
+| `subfleet run --caller-family claude -C DIR -p PROMPT --task research --tier standard` | Record the requesting family; overrides `SUBFLEET_CALLER_FAMILY` and detection. |
+| `subfleet run --task review --subject PR_URL --tier standard -C DIR -p PROMPT` | Normalize a GitHub PR URL and assign its next review round, up to four. |
+| `subfleet run --task review --subject KEY --round 2 --tier standard -C DIR -p PROMPT` | Keep the caller-chosen round, including a re-run of an earlier round. |
+| `subfleet resume JOB_ID --caller-family codex` | Continue the source review's subject and round; the optional family flag overrides detection. |
 | `subfleet why --task review --tier hard --caller-family codex` | Explain the other-family reviewer chain; caller detection matches `run`. |
 | `subfleet run --task review --tier hard --caller-family codex -m astra --allow-same-family -C DIR -p PROMPT` | Explicitly authorize a same-family review and record the exception on the job. |
 
 `--subject` and `--round` require `--task review`; `--round` also requires a
 subject. A fifth round requires a person. A review with no subject keeps its
-ordinary round behavior. `runs --json` and `runs show --json` include `caller_family`,
-`review_subject`, `review_round` and boolean `allow_same_family`; readable `runs` labels review rounds.
+ordinary behavior. `runs --json` and `runs show --json` include `caller_family`,
+`review_subject`, `review_round` and boolean `allow_same_family`; readable `runs` appends review labels after
+workdir, preserving its existing columns. Submissions carrying these fields or
+a caller family require a daemon advertising `review.subject.v1`; otherwise the
+CLI asks you to restart the daemon on the newer version.
 `runs --mine` and `wait --mine` recognize Codex's `CODEX_THREAD_ID` (then
-`CODEX_SESSION_ID`), after `CLAUDE_CODE_SESSION_ID` and `SUBFLEET_SESSION_ID`.
+`CODEX_SESSION_ID`). With only one family's markers, session precedence is
+`CLAUDE_CODE_SESSION_ID`, `SUBFLEET_SESSION_ID`, then the Codex ids. With both
+families' markers, the nearest Claude or Codex ancestor selects the native
+family and session; an unresolved review requires `--caller-family`.
 
 Reviews with a known caller family try only the other family's models from the
 chosen tier upward. When that chain has none, the defaults are `sol61` for a

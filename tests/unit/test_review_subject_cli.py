@@ -17,6 +17,10 @@ def _submitted(request):
             "created": True, "state": "queued"}
 
 
+def _capabilities(request):
+    return {"capabilities": [protocol.REVIEW_SUBJECT_CAPABILITY]}
+
+
 @pytest.mark.parametrize("detected", [
     {}, {"CLAUDECODE": "1"}, {"CLAUDE_CODE_SESSION_ID": "claude-thread"},
     {"CODEX_THREAD_ID": "codex-thread"}, {"CODEX_SESSION_ID": "codex-session"},
@@ -46,7 +50,6 @@ def test_invalid_caller_family_is_refused_by_name(explicit, env, source):
     ({"CODEX_THREAD_ID": "thread"}, "codex"),
     ({"CODEX_SESSION_ID": "session"}, "codex"),
     ({"CODEX_HOME": "/installation", "CODEX_MANAGED_BY_BUN": "1"}, None),
-    ({"CLAUDECODE": "1", "CODEX_THREAD_ID": "thread"}, "claude"),
 ])
 def test_native_caller_family_detection(env, expected):
     assert cli.caller_family(env=env) == expected
@@ -67,15 +70,13 @@ def test_nested_submission_detects_the_lane_family_after_launch_environment_sele
     ({}, None), ({"CODEX_SESSION_ID": "root-session"}, "root-session"),
     ({"CODEX_THREAD_ID": "thread", "CODEX_SESSION_ID": "root-session"}, "thread"),
     ({"SUBFLEET_SESSION_ID": "override", "CODEX_THREAD_ID": "thread"}, "override"),
-    ({"CLAUDE_CODE_SESSION_ID": "claude", "SUBFLEET_SESSION_ID": "override",
-      "CODEX_THREAD_ID": "thread"}, "claude"),
 ])
 def test_codex_session_fallback_preserves_existing_precedence(env, expected):
     assert cli.session_id(env) == expected
 
 
 def test_run_forwards_explicit_family_and_review_fields(daemon, root, workdir, monkeypatch):
-    server = daemon({"submit": _submitted})
+    server = daemon({"submit": _submitted, "capabilities": _capabilities})
     monkeypatch.setenv("CLAUDECODE", "1")
     monkeypatch.setenv("SUBFLEET_CALLER_FAMILY", "claude")
     assert cli.main(["run", "--task", "review", "--tier", "standard", "-d",
@@ -88,7 +89,7 @@ def test_run_forwards_explicit_family_and_review_fields(daemon, root, workdir, m
 
 
 def test_run_forwards_detected_codex_identity(daemon, root, workdir, monkeypatch):
-    server = daemon({"submit": _submitted})
+    server = daemon({"submit": _submitted, "capabilities": _capabilities})
     monkeypatch.setenv("CODEX_THREAD_ID", "codex-thread")
     monkeypatch.setenv("CODEX_SESSION_ID", "root-session")
     assert cli.main(["run", "--task", "build", "--tier", "standard", "-d",
@@ -102,7 +103,7 @@ def test_run_forwards_detected_codex_identity(daemon, root, workdir, monkeypatch
 def test_resume_records_the_current_caller_identity(daemon, root, workdir, monkeypatch):
     source = {"job_id": JOB, "state": "succeeded", "caller_family": "claude",
               "caller_session": "original", "workdir": str(workdir), "lane_id": "claude-1"}
-    server = daemon({"show": lambda request: source, "submit": _submitted})
+    server = daemon({"show": lambda request: source, "submit": _submitted, "capabilities": _capabilities})
     monkeypatch.setenv("CODEX_THREAD_ID", "current-thread")
     assert cli.main(["resume", JOB]) == 0
     sent = server.args("submit")
@@ -125,7 +126,7 @@ def test_session_job_submissions_record_the_cli_caller_family(
         daemon, root, workdir, monkeypatch, explicit, env, expected):
     """Handoff and revive share the submitting caller's family detection."""
     from subfleet.sessions.client import Sessions
-    server = daemon({"submit": _submitted})
+    server = daemon({"submit": _submitted, "capabilities": _capabilities})
     for name, value in env.items():
         monkeypatch.setenv(name, value)
     args = protocol.SubmitArgs(request_id="session-family", kind="dispatch", workdir=str(workdir),
@@ -177,7 +178,7 @@ def test_explicit_fifth_round_reaches_the_daemon_refusal(daemon, root, workdir, 
     def refuse(request):
         assert request.args["review_round"] == 5
         return protocol.fail(request.id, Exit.REFUSED, "review: key has had 4 rounds; a fifth needs a person.")
-    daemon({"submit": refuse})
+    daemon({"submit": refuse, "capabilities": _capabilities})
     assert cli.main(["run", "--task", "review", "--tier", "standard", "--subject", "key",
                      "--round", "5", "-d", "-C", str(workdir), "hi"]) == Exit.REFUSED
     assert "a fifth needs a person" in capsys.readouterr().err
@@ -255,3 +256,44 @@ def test_run_help_documents_caller_and_review_flags(capsys):
     assert exited.value.code == 0
     help_text = capsys.readouterr().out
     assert all(flag in help_text for flag in ("--caller-family", "--subject", "--round"))
+
+
+@pytest.mark.parametrize("flags", [
+    ["--subject", "synthetic-pr"],
+    ["--subject", "synthetic-pr", "--round", "3"],
+    ["--caller-family", "codex"],
+])
+@pytest.mark.parametrize("capabilities", [None, []])
+def test_run_refuses_review_metadata_on_an_older_daemon(
+        daemon, root, workdir, capsys, flags, capabilities):
+    handlers = {"submit": _submitted}
+    if capabilities is not None:
+        handlers["capabilities"] = lambda request: {"capabilities": capabilities}
+    server = daemon(handlers)
+    assert cli.main(["run", "--task", "review", "--tier", "standard", "-d",
+                     "-C", str(workdir), *flags, "review it"]) == Exit.DAEMON_UNAVAILABLE
+    assert "submit" not in server.ops()
+    error = capsys.readouterr().err
+    assert "review.subject.v1" in error and "subfleet daemon stop" in error
+
+
+def test_batch_refuses_caller_family_on_an_older_daemon(daemon, root, workdir, tmp_path, capsys):
+    manifest = tmp_path / "batch.json"
+    manifest.write_text(json.dumps({"jobs": [{"model": "astra", "workdir": str(workdir),
+                                             "prompt_text": "synthetic build"}]}))
+    server = daemon({"submit": _submitted, "capabilities": lambda request: {"capabilities": []}})
+    assert cli.main(["run", "--batch", str(manifest), "--caller-family", "codex", "-d"]) == Exit.DAEMON_UNAVAILABLE
+    assert "submit" not in server.ops()
+    assert "review.subject.v1" in capsys.readouterr().err
+
+
+def test_session_submission_refuses_caller_family_on_an_older_daemon(daemon, root):
+    from subfleet.sessions.client import Sessions
+    server = daemon({"submit": _submitted, "capabilities": lambda request: {"capabilities": []}})
+    args = protocol.SubmitArgs(request_id="synthetic-family", kind="dispatch", workdir="unused",
+                               prompt_path="unused", sandbox="read-only", caller_family="codex")
+    with pytest.raises(protocol.ProtocolError, match="review.subject.v1") as refused:
+        Sessions(cli.Client(root)).submit(args)
+    assert refused.value.code == Exit.DAEMON_UNAVAILABLE
+    assert "subfleet daemon stop" in refused.value.fix
+    assert "submit" not in server.ops()

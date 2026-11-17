@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import sqlite3
 import json
-import re
 from pathlib import Path
+import re
 
 import pytest
 
@@ -222,7 +222,7 @@ def _schema_before_migration(conn, migration):
             for statement in reversed(statements):
                 parts = statement.split()
                 if statement.startswith('CREATE TABLE IF NOT EXISTS '):
-                    conn.execute(f'DROP TABLE "{parts[5]}"')
+                    conn.execute(f'DROP TABLE IF EXISTS "{parts[5]}"')
                     continue
                 assert parts[:2] == ['ALTER', 'TABLE'] and parts[3:5] == ['ADD', 'COLUMN']
                 # New columns can have indexes in today's schema. Remove those

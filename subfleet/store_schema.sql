@@ -1,4 +1,5 @@
--- subfleet v2 store schema, version 11 (caller family and review subjects/rounds).
+-- subfleet v2 store schema, version 13 (#307 storage, caller family and review subjects/rounds,
+-- then the same-family review authorization).
 -- See docs/acceptance-contract.md section 3.
 -- Applied by subfleet/store.py with journal_mode=WAL, synchronous=FULL, foreign_keys=ON.
 -- Version 2 (C-3.1, additive and numbered) adds identity, label, and
@@ -243,7 +244,7 @@ CREATE INDEX IF NOT EXISTS notices_job ON notices(job_id, state);
 CREATE INDEX IF NOT EXISTS notices_caller_wake ON notices(created_at, notice_id)
   WHERE job_id IS NOT NULL AND state='pending' AND wake_state IS NULL;
 
--- #307 migration 11 compatibility: caller activity and wake bounds.
+-- D-SCHEMA-SLOTS1: #307's caller activity storage, without its wake runtime.
 CREATE TABLE IF NOT EXISTS caller_wake_sessions (
   session_id TEXT PRIMARY KEY,
   active_at REAL NOT NULL DEFAULT 0,

@@ -137,8 +137,41 @@ def fail(code: Exit | int, message: str, fix: str | None = None) -> int:
 
 # --- environment -------------------------------------------------------------
 
-def session_id(env: dict[str, str] | None = None) -> str | None:
+def _caller_markers(env: dict[str, str]) -> tuple[bool, bool]:
+    return ("CLAUDECODE" in env or "CLAUDE_CODE_SESSION_ID" in env,
+            "CODEX_THREAD_ID" in env or "CODEX_SESSION_ID" in env)
+
+
+def _ancestor_caller_family() -> str | None:
+    """Identify the nearest model executable when nested callers inherit both markers."""
+    pid, seen = os.getppid(), set()
+    for _ in range(64):
+        if pid <= 1 or pid in seen:
+            return None
+        seen.add(pid)
+        try:
+            result = subprocess.run(["ps", "-o", "ppid=,comm=", "-p", str(pid)],
+                                    capture_output=True, text=True, timeout=0.5, check=False)
+            if result.returncode:
+                return None
+            parent, executable = result.stdout.strip().split(maxsplit=1)
+            pid = int(parent)
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            return None
+        name = Path(executable.strip()).name.lower()
+        if name in ("claude", "codex"):
+            return name
+    return None
+
+
+def session_id(env: dict[str, str] | None = None, *, family: str | None = None) -> str | None:
     env = os.environ if env is None else env
+    if all(_caller_markers(env)):
+        family = family or caller_family(env=env)
+        names = (("CLAUDE_CODE_SESSION_ID", "SUBFLEET_SESSION_ID") if family == "claude" else
+                 ("SUBFLEET_SESSION_ID", "CODEX_THREAD_ID", "CODEX_SESSION_ID") if family == "codex" else
+                 ("SUBFLEET_SESSION_ID",))
+        return next((env[name].strip() for name in names if env.get(name, "").strip()), None)
     return (env.get("CLAUDE_CODE_SESSION_ID") or env.get("SUBFLEET_SESSION_ID")
             or env.get("CODEX_THREAD_ID") or env.get("CODEX_SESSION_ID") or "").strip() or None
 
@@ -158,11 +191,23 @@ def caller_family(explicit: str | None = None,
             source = "--caller-family" if explicit is not None else "SUBFLEET_CALLER_FAMILY"
             raise ValueError(f"{source}: invalid caller family {value!r}; choose claude or codex")
         return value
-    if "CLAUDECODE" in env or "CLAUDE_CODE_SESSION_ID" in env:
+    claude, codex = _caller_markers(env)
+    if claude and codex:
+        return _ancestor_caller_family()
+    if claude:
         return "claude"
-    if "CODEX_THREAD_ID" in env or "CODEX_SESSION_ID" in env:
+    if codex:
         return "codex"
     return None
+
+
+def _review_caller_family(task: str | None, explicit: str | None = None) -> str | None:
+    family = caller_family(explicit)
+    if task == "review" and family is None and all(_caller_markers(os.environ)):
+        raise ProtocolError("review: cannot identify the caller family from the process ancestry",
+                            Exit.REFUSED, "pass --caller-family claude or --caller-family codex",
+                            reason="refused-args")
+    return family
 
 
 def cmd_wake(args: argparse.Namespace) -> int:
@@ -300,14 +345,17 @@ def in_claude_session(env: dict[str, str] | None = None) -> bool:
         (env.get("CLAUDE_CODE_SESSION_ID") or "").strip())
 
 
-def caller_pid(env: dict[str, str] | None = None) -> int | None:
+def caller_pid(env: dict[str, str] | None = None, *, family: str | None = None) -> int | None:
     """Claude's established process marker; Codex's thread ids are not pids.
 
     No Codex PID marker is established here. A fresh command's parent shell
-    also cannot identify the persistent caller process, so known Codex callers
-    skip the daemon's session-instance comparison while keeping worktree holds.
+    also cannot identify the persistent caller process, so a submission that
+    carries a Codex thread id skips the daemon's session-instance comparison
+    while keeping worktree holds.
     """
     env = os.environ if env is None else env
+    if family == "codex" or all(_caller_markers(env)) and (family or caller_family(env=env)) != "claude":
+        return None
     try:
         value = int((env.get("CLAUDE_PID") or "").strip())
     except ValueError:
@@ -446,17 +494,12 @@ def format_runs(rows: Sequence[dict[str, Any]]) -> str:
     if not normalised:
         return "no recorded jobs"
     id_width = max(24, *(len(str(row["id"] or "-")) for row in normalised))
-    names = [str(row["name"] or "-")
-             + (f" [round {row['review_round']}]"
-                if row["task"] == "review" and row["review_round"] is not None else "")
-             for row in normalised]
-    name_width = max(16, *(len(name) for name in names))
     lines = [
         f"{'id':<{id_width}} {'family':<7} {'model':<16} {'lane':<12} "
         f"{'rc':>9} {'bytes':>9} {'seconds':>8} {'notice':<10} {'caller':<10} "
-        f"{'name':<{name_width}} workdir"
+        "workdir"
     ]
-    for row, name in zip(normalised, names):
+    for row in normalised:
         state = row["state"]
         if state in LIVE_STATES and "exit" in (row["receipts"] or {}):
             # C-17.5: the guardian's receipt says it finished; the row has not
@@ -471,6 +514,8 @@ def format_runs(rows: Sequence[dict[str, Any]]) -> str:
         seconds = as_number(row["duration_s"])
         duration = "-" if seconds is None else f"{seconds:.1f}"
         caller = row["caller_session"] or ""
+        review_label = (f"  {row['name'] or '-'} [round {row['review_round']}]"
+                        if row["task"] == "review" and row["review_round"] is not None else "")
         lines.append(
             f"{str(row['id'] or '-'):<{id_width}} "
             f"{str(row['family'] or '-'):<7.7} "
@@ -478,8 +523,7 @@ def format_runs(rows: Sequence[dict[str, Any]]) -> str:
             f"{str(row['lane'] or '-'):<12.12} "
             f"{rc:>9.9} {int(as_number(row['out_bytes']) or 0):>9} {duration:>8} "
             f"{str(row['notice'] or '-'):<10.10} {(caller[:8] or '-'):<10.10} "
-            f"{name:<{name_width}} "
-            f"{row['workdir'] or '-'}"
+            f"{row['workdir'] or '-'}{review_label}"
         )
     return "\n".join(lines)
 
@@ -963,9 +1007,11 @@ def _prepare_submit(args: argparse.Namespace,
                               "run: --allow-unmeasured-reserve requires a nonblank reason of at most 2000 characters")
     _apply_deprecations(args)
     try:
-        family = caller_family(getattr(args, "caller_family", None))
+        family = _review_caller_family(args.task, getattr(args, "caller_family", None))
     except ValueError as exc:
         return None, fail(Exit.INVALID_INPUT, f"run: {exc}")
+    except ProtocolError as exc:
+        return None, _protocol_failure(exc)
     workdir, error = _validate_run(args)
     if error is not None:
         return None, error
@@ -1000,12 +1046,12 @@ def _prepare_submit(args: argparse.Namespace,
         in_place=bool(args.in_place),
         independent=bool(args.independent),
         parent_job_id=args.parent or os.environ.get("SUBFLEET_TURN_JOB"),
-        caller_session=session_id(),
+        caller_session=session_id(family=family),
         caller_family=family,
         allow_same_family=bool(getattr(args, "allow_same_family", False)),
         review_subject=getattr(args, "subject", None),
         review_round=getattr(args, "round", None),
-        caller_pid=caller_pid(),
+        caller_pid=caller_pid(family=family),
         no_preamble=bool(args.no_preamble),
         dry_run=bool(args.dry_run or args.why),
         isolated_review=bool(getattr(args, "isolated_review", False)),
@@ -1098,6 +1144,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     minted = not args.request_id
     try:
         client = _client(args)
+        _require_review_capability(client, submit)
         if submit.push_branch is not None:
             refused = _push_unsupported(client, "run")
             if refused is not None:
@@ -1324,6 +1371,15 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
         prepared.append((options["name"], submit))
 
     client, root = _client(args), _root(args)
+    try:
+        for _, submit in prepared:
+            _require_review_capability(client, submit)
+    except DaemonUnavailable as exc:
+        return _daemon_down(exc)
+    except DaemonError as exc:
+        return _daemon_error(exc)
+    except ProtocolError as exc:
+        return _protocol_failure(exc)
     if any(submit.push_branch is not None for _, submit in prepared):
         try:
             refused = _push_unsupported(client, "run --batch")
@@ -1726,6 +1782,17 @@ def _push_unsupported(client: Client, verb: str) -> int | None:
     return fail(Exit.DAEMON_UNAVAILABLE,
                 f"{verb} --push-branch: this daemon does not advertise `{protocol.PUSH_CAPABILITY}`, so it "
                 f"would drop the branch and never push; it is older than this CLI", RESTART_DAEMON)
+
+
+def _require_review_capability(client: Client, submit: protocol.SubmitArgs) -> None:
+    """C-25.1: an older daemon must never silently discard review metadata."""
+    if all(value is None for value in (submit.review_subject, submit.review_round, submit.caller_family)):
+        return
+    if protocol.REVIEW_SUBJECT_CAPABILITY not in _daemon_capabilities(client):
+        raise ProtocolError(
+            f"this daemon does not advertise `{protocol.REVIEW_SUBJECT_CAPABILITY}`; "
+            "it is older than this CLI and would discard the review subject, round or caller family",
+            Exit.DAEMON_UNAVAILABLE, RESTART_DAEMON, reason="refused-args")
 
 
 def _listed(row: dict[str, Any], *, kind: str | None, include_turns: bool) -> bool:
@@ -2243,7 +2310,7 @@ def _source_lane(source: dict[str, Any]) -> str | None:
 def cmd_resume(args: argparse.Namespace) -> int:
     """Continue a job on the lane that owns its provider-side thread."""
     try:
-        family = caller_family()
+        family = caller_family(getattr(args, "caller_family", None))
     except ValueError as exc:
         return fail(Exit.INVALID_INPUT, f"resume: {exc}")
     try:
@@ -2262,6 +2329,9 @@ def cmd_resume(args: argparse.Namespace) -> int:
     # CLI's cwd when the real job/worktree was inside the envelope.
     if isinstance(source.get("job"), dict):
         source = {**source, **source["job"]}
+    if source.get("task") == "review" and family is None and all(_caller_markers(os.environ)):
+        return fail(Exit.REFUSED, "resume: cannot identify the review caller family from the process ancestry",
+                    "pass --caller-family claude or --caller-family codex")
     exclusions = source.get("exclusions", source.get("exclusions_json", []))
     if isinstance(exclusions, str):
         try:
@@ -2292,12 +2362,15 @@ def cmd_resume(args: argparse.Namespace) -> int:
         name=source.get("name"),
         parent_job_id=args.id,
         independent=True,  # a continuation may follow an explicitly cancelled job
-        caller_session=session_id(),
+        caller_session=session_id(family=family),
         caller_family=family,
-        caller_pid=caller_pid(),
+        caller_pid=caller_pid(family=family),
+        review_subject=source.get("review_subject"),
+        review_round=source.get("review_round"),
     )
     minted = not args.request_id
     try:
+        _require_review_capability(client, submit)
         result = client.call_settled("submit", _asdict(submit), request_id=request_id,
                                      minted=minted, on_lost=_resubmitting("resume", request_id))
     except OutcomeUnknown as exc:
@@ -3820,6 +3893,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_resume.add_argument("prompt", nargs="?")
     p_resume.add_argument("-o", "--output", help="also write the final response here")
     p_resume.add_argument("--request-id", metavar="ID", type=ids.request_id_arg)
+    p_resume.add_argument("--caller-family", choices=("claude", "codex"),
+                          help="submitting model family (overrides caller detection)")
     _add_json(p_resume)
     p_resume.set_defaults(handler=cmd_resume)
 

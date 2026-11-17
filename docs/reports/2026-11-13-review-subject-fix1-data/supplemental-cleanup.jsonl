@@ -1,0 +1,11 @@
+{"event": "inventory", "path": "/Users/maxghenis/.subfleet/worktrees/20261115-180648-rv-a2-fix-r1b/.hypothesis", "category": "generated-test-cache"}
+{"event": "inventory", "path": "/Users/maxghenis/.subfleet/worktrees/20261115-180648-rv-a2-fix-r1b/build", "category": "generated-test-cache"}
+{"event": "inventory", "path": "/Users/maxghenis/.subfleet/worktrees/20261115-180648-rv-a2-fix-r1b/sf-a2-fix1-extra-cleanup", "category": "disposal-directory"}
+{"event": "move-start", "original": "/Users/maxghenis/.subfleet/worktrees/20261115-180648-rv-a2-fix-r1b/.hypothesis", "disposal": "/Users/maxghenis/.subfleet/worktrees/20261115-180648-rv-a2-fix-r1b/sf-a2-fix1-extra-cleanup/.hypothesis"}
+{"event": "delete-start", "original": "/Users/maxghenis/.subfleet/worktrees/20261115-180648-rv-a2-fix-r1b/.hypothesis", "disposal": "/Users/maxghenis/.subfleet/worktrees/20261115-180648-rv-a2-fix-r1b/sf-a2-fix1-extra-cleanup/.hypothesis"}
+{"event": "delete-done", "original": "/Users/maxghenis/.subfleet/worktrees/20261115-180648-rv-a2-fix-r1b/.hypothesis", "exists": false, "disposal_exists": false}
+{"event": "move-start", "original": "/Users/maxghenis/.subfleet/worktrees/20261115-180648-rv-a2-fix-r1b/build", "disposal": "/Users/maxghenis/.subfleet/worktrees/20261115-180648-rv-a2-fix-r1b/sf-a2-fix1-extra-cleanup/build"}
+{"event": "delete-start", "original": "/Users/maxghenis/.subfleet/worktrees/20261115-180648-rv-a2-fix-r1b/build", "disposal": "/Users/maxghenis/.subfleet/worktrees/20261115-180648-rv-a2-fix-r1b/sf-a2-fix1-extra-cleanup/build"}
+{"event": "delete-done", "original": "/Users/maxghenis/.subfleet/worktrees/20261115-180648-rv-a2-fix-r1b/build", "exists": false, "disposal_exists": false}
+{"event": "delete-start", "original": "/Users/maxghenis/.subfleet/worktrees/20261115-180648-rv-a2-fix-r1b/sf-a2-fix1-extra-cleanup"}
+{"event": "delete-done", "original": "/Users/maxghenis/.subfleet/worktrees/20261115-180648-rv-a2-fix-r1b/sf-a2-fix1-extra-cleanup", "exists": false}

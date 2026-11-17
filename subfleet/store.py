@@ -45,9 +45,8 @@ LAUNCH_CAPABILITY_MIGRATION = 9
 PROVIDER_QOS_MIGRATION = 10
 NOTICE_WAKE_MIGRATION = 11
 REVIEW_SUBJECT_MIGRATION = 12
-SCHEMA_VERSION = REVIEW_SUBJECT_MIGRATION
-#: #307 schema compatibility: unread notices from before caller waking stay stale.
-NOTICE_WAKE_PREDATES = "before-migration"
+REVIEW_FAMILY_MIGRATION = 13
+SCHEMA_VERSION = REVIEW_FAMILY_MIGRATION
 #: C-12.4: jobs whose attempts in the last 24 h had no shell or no writes. A
 #: range on `reserved_at`, which `attempts_reserved` indexes, in the stored
 #: spelling (`restricted_window`): `julianday(reserved_at)` could use no index and
@@ -133,9 +132,7 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         "ALTER TABLE jobs ADD COLUMN provider_qos TEXT "
         "CHECK (provider_qos IS NULL OR provider_qos IN ('utility','default'))",
     ),
-    # #307 owns migration 11. Retain its additive schema and safe historical
-    # notice state so a direct upgrade and an upgrade after #307 agree. This
-    # supplies storage compatibility without installing the caller-wake runtime.
+    # D-SCHEMA-SLOTS1: #307's exact storage schema, without its wake runtime.
     NOTICE_WAKE_MIGRATION: (
         "ALTER TABLE notices ADD COLUMN wake_state TEXT "
         "CHECK (wake_state IS NULL OR wake_state IN ('claimed','delivered','undeliverable','stale'))",
@@ -147,8 +144,7 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         "session_id TEXT PRIMARY KEY, active_at REAL NOT NULL DEFAULT 0, source TEXT, "
         "wake_streak INTEGER NOT NULL DEFAULT 0, last_wake_at REAL)",
     ),
-    # D-REVIEW-SUBJECT1 / D-REVIEW-FAMILY1: caller attribution, durable review
-    # subject/round and the explicit same-family authorization.
+    # D-REVIEW-SUBJECT1: caller attribution and a review's durable subject/round.
     # The schema file creates jobs_review_subject after these columns exist.
     REVIEW_SUBJECT_MIGRATION: (
         "ALTER TABLE jobs ADD COLUMN caller_family TEXT "
@@ -156,6 +152,10 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         "ALTER TABLE jobs ADD COLUMN review_subject TEXT",
         "ALTER TABLE jobs ADD COLUMN review_round INTEGER "
         "CHECK (review_round IS NULL OR review_round BETWEEN 1 AND 4)",
+    ),
+    # D-SCHEMA-SLOTS1, D-REVIEW-FAMILY1: everything #330 adds beyond #314's
+    # slots. The explicit same-family authorization.
+    REVIEW_FAMILY_MIGRATION: (
         "ALTER TABLE jobs ADD COLUMN allow_same_family INTEGER NOT NULL DEFAULT 0 "
         "CHECK (allow_same_family IN (0,1))",
     ),
@@ -380,20 +380,37 @@ class Store:
                 # Columns first, then the schema file: `store_schema.sql` always
                 # describes the newest version, and its indexes cannot be created
                 # over an older table until that table has caught up (C-3.1).
-                migrated_from = None
-                if version and version < SCHEMA_VERSION:
-                    self.connection.execute("BEGIN IMMEDIATE")
-                    self._migrate(version)          # records one schema_version row per step
-                    self.connection.commit()
-                    migrated_from, version = version, SCHEMA_VERSION
                 schema = Path(__file__).with_name("store_schema.sql").read_text()
-                self.connection.executescript("BEGIN IMMEDIATE;\n" + schema)
-                if (migrated_from is not None and migrated_from < 3) or (version and version < 3):
+                self.connection.execute("BEGIN IMMEDIATE")
+                migrated_from = None
+                if version:
+                    self._migrate(version)
+                    if version < SCHEMA_VERSION:
+                        migrated_from = version
+                # executescript commits any open transaction before it starts.
+                # Execute complete statements ourselves so the migration DDL,
+                # schema, versions and audit events commit or roll back together.
+                statement = ""
+                for line in schema.splitlines(keepends=True):
+                    statement += line
+                    if sqlite3.complete_statement(statement):
+                        self.connection.execute(statement)
+                        statement = ""
+                if statement.strip():
+                    self.connection.execute(statement)
+                if version and version < 3:
                     columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(jobs)")}
                     for name, declaration in (("isolated_review", "INTEGER NOT NULL DEFAULT 0"),
                                               ("review_root", "TEXT"), ("round_lease", "TEXT")):
                         if name not in columns:
                             self.connection.execute(f"ALTER TABLE jobs ADD COLUMN {name} {declaration}")
+                if migrated_from is not None:
+                    # Versions are written only after every schema statement
+                    # succeeds, still inside the same SQLite transaction.
+                    for step in range(migrated_from + 1, SCHEMA_VERSION + 1):
+                        self.connection.execute("INSERT INTO schema_version VALUES (?,?)", (step, utc_now()))
+                        self.connection.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
+                                                (utc_now(), "schema.migrated", _json({"version": step})))
                 if not version:
                     self.connection.execute("INSERT INTO schema_version VALUES (?,?)", (SCHEMA_VERSION, utc_now()))
                 if not version or migrated_from is not None:
@@ -412,15 +429,18 @@ class Store:
         }
 
     def _migrate(self, version: int) -> None:
-        """C-3.1: carry an older database forward, one numbered step at a time.
+        """C-3.1: reconcile additive columns, including shared migration slots.
 
         Runs inside the caller's open transaction, so a database is either fully
         migrated or untouched, and before `store_schema.sql` is applied, so the
         newest schema's indexes find their columns. Each `ADD COLUMN` is skipped
         when the column is already there, so an interrupted upgrade re-runs safely.
         """
-        for step in range(version + 1, SCHEMA_VERSION + 1):
-            added = set()
+        # An old #314 store and a #307 store both report 11 with different
+        # columns. Old #330 could also record 12 before failing its schema.
+        # Recheck slots 11 onward by presence even when the version already
+        # says 12 or 13 (D-SCHEMA-SLOTS1).
+        for step in range(min(version + 1, NOTICE_WAKE_MIGRATION), SCHEMA_VERSION + 1):
             for statement in MIGRATIONS.get(step, ()):
                 if statement.startswith("ALTER TABLE "):
                     _alter, _table_kw, table, _add, _column_kw, column, *_rest = statement.split()
@@ -429,23 +449,13 @@ class Store:
                     # The schema file creates any table absent from an old store.
                     if not present or column in present:
                         continue
-                    added.add((table, column))
                 self.connection.execute(statement)
-            if ("notices", "wake_state") in added:
-                # #307 compatibility: only pre-feature unread notices are stale.
-                # A replay over an existing column must retain new pending wakes.
-                self.connection.execute(
-                    "UPDATE notices SET wake_state='stale',wake_reason=? "
-                    "WHERE wake_state IS NULL AND state IN ('pending','offered')", (NOTICE_WAKE_PREDATES,))
-            if step == LAUNCH_CAPABILITY_MIGRATION and self.connection.execute(
+            if step > version and step == LAUNCH_CAPABILITY_MIGRATION and self.connection.execute(
                     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='attempts'").fetchone():
                 self.connection.execute(
                     "UPDATE attempts SET capability=CASE WHEN has_shell=0 THEN 'none' "
                     "WHEN has_shell=1 AND (SELECT sandbox FROM jobs WHERE jobs.job_id=attempts.job_id)="
                     "'workspace-write' THEN 'writable' WHEN has_shell=1 THEN 'commands' ELSE NULL END")
-            self.connection.execute("INSERT INTO schema_version VALUES (?,?)", (step, utc_now()))
-            self.connection.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
-                                    (utc_now(), "schema.migrated", _json({"version": step})))
 
     @property
     def conn(self) -> sqlite3.Connection:

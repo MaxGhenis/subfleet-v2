@@ -1,0 +1,15 @@
+{"reason": "forbidden executable", "at": 123434.254166375, "frames": []}
+{"reason": "forbidden executable", "at": 123434.254412833, "frames": []}
+{"reason": "forbidden executable", "at": 123434.254510166, "frames": []}
+{"reason": "forbidden executable", "at": 123434.254586041, "frames": []}
+{"reason": "forbidden executable", "at": 123434.254656, "frames": []}
+{"reason": "git push shaped command", "at": 123434.254772541, "frames": []}
+{"reason": "external gh command", "at": 123434.254840041, "frames": []}
+{"reason": "external gh command", "at": 123434.254899583, "frames": []}
+{"reason": "external gh command", "at": 123434.254961875, "frames": []}
+{"reason": "native process inspection", "at": 123434.255024166, "frames": []}
+{"reason": "forbidden executable", "at": 123434.25550125, "frames": []}
+{"reason": "forbidden executable", "at": 123434.255599875, "frames": []}
+{"reason": "git push shaped command", "at": 123434.255690125, "frames": []}
+{"reason": "external gh command", "at": 123434.255779291, "frames": []}
+{"reason": "unapproved taskpolicy wrapper", "at": 123434.255854125, "frames": []}

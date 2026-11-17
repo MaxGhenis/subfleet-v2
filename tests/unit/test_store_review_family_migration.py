@@ -1,4 +1,4 @@
-"""D-REVIEW-FAMILY1 I6: migration 12 follows #307's actual migration 11."""
+"""D-REVIEW-FAMILY1 I6, D-SCHEMA-SLOTS1: migration 13 follows #314's slots 11 and 12."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ import sqlite3
 
 import pytest
 
-from subfleet.store import (MIGRATIONS, NOTICE_WAKE_PREDATES, REVIEW_SUBJECT_MIGRATION,
-                            SCHEMA_VERSION, Store, job_flags)
+from subfleet.store import (MIGRATIONS, NOTICE_WAKE_MIGRATION, REVIEW_FAMILY_MIGRATION,
+                            REVIEW_SUBJECT_MIGRATION, SCHEMA_VERSION, Store, job_flags)
 
 from test_store_review_subject_migration import FIELDS, rows, version_10_store
 
@@ -35,6 +35,8 @@ def schema(path):
 
 
 def apply_pr307_migration_11(path):
+    # #307's own code also marks unread notices stale; this head never does
+    # (D-SCHEMA-SLOTS1: slot 11 is storage only), so the history it left stays.
     with sqlite3.connect(path) as conn:
         for statement in PR307_MIGRATION_11:
             conn.execute(statement)
@@ -57,12 +59,13 @@ def test_i6_schema_10_and_actual_pr307_11_reach_identical_schema_and_keep_existi
                              "VALUES ('old-3','kept',?,?, 'before')", (state + " text", state))
     before = rows(direct)
     apply_pr307_migration_11(through_11)
-    assert REVIEW_SUBJECT_MIGRATION == SCHEMA_VERSION == 12
+    after_307 = rows(through_11)
+    assert (NOTICE_WAKE_MIGRATION, REVIEW_SUBJECT_MIGRATION, REVIEW_FAMILY_MIGRATION, SCHEMA_VERSION) == (11, 12, 13, 13)
     assert MIGRATIONS[11] == PR307_MIGRATION_11
     migrated_rows = []
     for path in (direct, through_11):
         with Store(path) as store:
-            assert store.one("SELECT MAX(version) AS version FROM schema_version")["version"] == 12
+            assert store.one("SELECT MAX(version) AS version FROM schema_version")["version"] == SCHEMA_VERSION
             for old in before["jobs"]:
                 job = store.get_job(old["job_id"])
                 assert {field: job[field] for field in FIELDS} == dict.fromkeys(FIELDS)
@@ -72,23 +75,25 @@ def test_i6_schema_10_and_actual_pr307_11_reach_identical_schema_and_keep_existi
         assert after["caller_wake_sessions"] == []
         assert after["jobs"] == [{**job, **dict.fromkeys(FIELDS), "allow_same_family": 0}
                                  for job in before["jobs"]]
-        for old, new in zip(before["notices"], after["notices"], strict=True):
+        # Notice history is kept exactly: the direct path gains empty wake
+        # columns, and #307's own stale marks survive the upgrade unchanged.
+        reference = before["notices"] if path == direct else after_307["notices"]
+        for old, new in zip(reference, after["notices"], strict=True):
             assert {key: new[key] for key in old} == old
-            unread = old["state"] in {"pending", "offered"}
-            assert {key: new[key] for key in WAKE_FIELDS} == {
-                "wake_state": "stale" if unread else None, "wake_attempts": 0, "wake_next_at": None,
-                "wake_at": None, "wake_reason": "before-migration" if unread else None}
+            if path == direct:
+                assert {key: new[key] for key in WAKE_FIELDS} == {
+                    "wake_state": None, "wake_attempts": 0, "wake_next_at": None,
+                    "wake_at": None, "wake_reason": None}
         for table in before.keys() - {"jobs", "notices", "schema_version", "events"}:
             assert after[table] == before[table], table
         assert after["events"][:len(before["events"])] == before["events"]
         assert [json.loads(row["data_json"])["version"] for row in after["events"]
-                if row["kind"] == "schema.migrated"] == [11, 12]
+                if row["kind"] == "schema.migrated"] == [11, 12, 13]
         with Store(path):
             pass
         assert rows(path) == after
         migrated_rows.append(after)
     assert schema(direct) == schema(through_11)
-    assert migrated_rows[0]["notices"] == migrated_rows[1]["notices"]
 
 
 def test_schema_11_with_pr307_notices_retains_new_pending_wakes_and_activity(tmp_path):
@@ -103,14 +108,14 @@ def test_schema_11_with_pr307_notices_retains_new_pending_wakes_and_activity(tmp
     with Store(path) as store:
         assert store.get_job("old-0")["caller_family"] is None
         assert store.get_job("old-0")["allow_same_family"] is False
-        assert store.one("SELECT MAX(version) AS version FROM schema_version")["version"] == 12
+        assert store.one("SELECT MAX(version) AS version FROM schema_version")["version"] == SCHEMA_VERSION
         assert store.query("SELECT * FROM caller_wake_sessions") == before["caller_wake_sessions"]
     after = rows(path)
     assert after["notices"] == before["notices"]
     assert {row[1] for row in schema(path)} >= {"caller_wake_sessions", "notices_caller_wake"}
 
 
-def test_replayed_migration_11_does_not_stale_a_pending_wake_on_an_existing_column(tmp_path):
+def test_replayed_migration_11_keeps_a_pending_wake_on_an_existing_column(tmp_path):
     path = version_10_store(tmp_path / "partial.sqlite3")
     with sqlite3.connect(path) as conn:
         conn.execute(PR307_MIGRATION_11[0])
@@ -122,7 +127,6 @@ def test_replayed_migration_11_does_not_stale_a_pending_wake_on_an_existing_colu
         assert notice["wake_reason"] is None
         assert notice["wake_attempts"] == 0
         assert store.query("SELECT * FROM caller_wake_sessions") == []
-    assert NOTICE_WAKE_PREDATES == "before-migration"
 
 
 @pytest.mark.parametrize("allow", [False, True])
