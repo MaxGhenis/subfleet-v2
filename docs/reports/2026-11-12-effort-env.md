@@ -417,7 +417,7 @@ Setup: `uv sync --group dev` exited 0 (CPython 3.15.2, with the GIL). The listed
 
 Every "before" run used this head's `subfleet/`. At a1788cb9a, `git diff --quiet HEAD -- subfleet` showed it unchanged from c07e5f193. The PR's changed lines in `subfleet/daemon.py` hash the same at 276afddd8 and at c07e5f193 (diff from 4fd796b49^2 and from 4aed7a3c9 respectively), and `subfleet/refusals.py` had no PR lines.
 
-Other commands, all exit 0: `date -u`; `git status`/`log`/`diff`/`rev-parse`/`merge-base`; reading the review, report and contract; `gh pr view 310 --repo MaxGhenis/subfleet-v2` (a read); `uv sync --group dev`; edits by Python string replacement with uniqueness assertions; the `shasum` check of the moved snippet; `git add` of named files and `git commit` (five commits, none refused).
+Other commands, all exit 0: `date -u`; `git status`/`log`/`diff`/`rev-parse`/`merge-base`; reading the review, report and contract; `gh pr view 310 --repo MaxGhenis/subfleet-v2` (a read); `uv sync --group dev`; edits by Python string replacement with uniqueness assertions; the `shasum` check of the moved snippet; `git add` and `git commit` (seven commits including the last, none refused; one staged a directory, as listed under deviations); `fix-r3/cleanup.py`.
 
 ### Not run
 
