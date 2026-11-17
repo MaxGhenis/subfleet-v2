@@ -460,4 +460,124 @@ Head built: `5c645aaa1` (the fix). This section is committed on top of it.
 
 ## Fix round 3 (review r2)
 
-Draft in progress (started 2026-11-17 16:52 UTC, detached at `001e57a28`); filled in as each item lands.
+A headless Opus lane did this round on 2026-11-17, from 16:52 to about 19:45 UTC, in a detached checkout of `001e57a28` (`fix/tree-thrash-217` with release/217 at `4aed7a3c9` merged in). Host load averaged 235–280 throughout. Nothing was pushed and no live state was read. Commits: `11d5bc53f` (re-freeze), `b11795dd2` (mutants), `eb024d030` (new tests), `c828c239e` (contract), `986b6cdc7` (mutant targets), then this report.
+
+### 1. The oracle predated #301 (P2): re-frozen
+
+**Old oracle on the merged tree: fails, as the review predicted, but only on `waits`.** `test_i2_i5_generated_reservations_holds_and_capacity_clocks_equal_the_base` at `001e57a28`: 1 failed in 503.40 s (call 369.80 s). Hypothesis generated 13 scenarios: 11 passed, 2 failed, and it stopped shrinking after five minutes. Every failing scenario closed both lanes (`closed_bits=3`), the case #301's rewritten unprepared shortcut handles. All scenarios that closed one lane or none passed, including ones with a job pinned to the closed lane. In each failure only `waits` differed: `trace`, `holds`, `clocks` and `demand` were equal. The key is `"unprepared:" + "|".join(refused)` in the old oracle and `"unprepared:" + scheduler.verdict_signature(...)` after #301; the clocks happened to match at these recheck counts.
+
+**Re-freeze.** The fixture is now `tests/fixtures/tree_thrash_4aed7a3c977d.py`; `tree_thrash_a8624a4899a2.py` was removed by name. It holds `Daemon._admit_pass` from `git show 4aed7a3c9:subfleet/daemon.py`, cut by AST line range (`lineno - 1` to `end_lineno`) and copied byte for byte:
+- lines 7870–9261 (the hub's cross-check agrees);
+- method SHA-256 `d76c4b7913de5da0e913563b53415e72abff7eadf2f5302628be6f30f74c480f` (the hub's prefix `d76c4b7913de5da0` agrees);
+- full source SHA-256 `d0f3258f0795389797a3ebf6644dd05d765a115cf80286c59eb5e1fef7250883`.
+
+The same extraction run on `a8624a489` reproduced the old fixture byte for byte (lines 7561–8914, `a894326e…`), which validates the method. `BASE`, `BASE_METHOD_SHA256` and both docstrings are updated. The fixture's docstring now gives the five re-freeze steps: take the merged release/217 commit, extract by AST, write and `git rm` by name, update the constants, then check the diff and run I2/I5.
+
+**Only this PR's hunks separate the oracle from HEAD.** HEAD's `_admit_pass` is lines 7874–9327, SHA-256 `0631a71e…`. Compared line by line (`difflib`, no context):
+- frozen release/217 method → HEAD's method: 10 hunks, +68 −6 lines;
+- inside the method, `a8624a489` → `e5f6dc7be` (the PR's own change before the merge): 10 hunks, +68 −6 lines;
+- the two hunk lists are identical in content (`True`).
+
+For scale, release/217 itself changed the method in 12 hunks (+46 −8) since `a8624a489`: #301's capacity-news flag, the unprepared shortcut's route evaluation, verdict-signature key and clock ceiling, the `probe-pending` and `route-moved` clock clips, and a second census skip range.
+
+**The re-frozen oracle passes.** `-n 2` run of I2/I5 and the measured shape: 2 passed in 370.19 s. I2/I5 took 90.04 s and the measured shape 341.96 s (all phases, JUnit).
+
+**Measured shape, fresh base counts: 200 cuts, 40 reservations, 160 give-backs.** The test asserts these exactly for the base and 40 / 40 / 0 for head with the same trace, and it passed against the release/217 oracle. Review r2's 80 / 10 / 70 came from its own probe (20 writers, five rounds), which is not in the repository; I did not rerun that probe.
+
+### 2. Cuts under caps, FIFO, a provider cap and the ramp (P2)
+
+**`cap-after-cut` survived every existing test it ran against.** The mutant replaces `at_limit` with `(at_limit and not deferred_workspace)` in the provisional check. Against the pre-round tests (`b11795dd2`'s module, two workers), `test_a_fresh_waiter_runs_no_git_and_writes_no_tree` (four cases) and the old I2/I5 property both passed under the mutant: SURVIVED in 492.46 s. Two broader surveys (the whole module serially; 15 functions without the measured shape on two workers) each hit the 585 s cap without a verdict.
+
+**New tests** (`tests/fake/test_admission_tree_thrash.py`):
+- **I2/I5 head run:** after both looks, `sorted(cuts) == sorted(placed)`. With static lanes, caps and leases nothing races Git, so every cut is a placement.
+- **Review r2's probe:** `test_six_fresh_writers_under_a_cap_of_two_cut_only_the_two_placed_trees`, with `max_active_attempts=2`, no lane slot cap and one pass. The first two writers are placed and cut; the other four wait `fleet-full` (one at its look, three held by the pass before theirs, so `waiting` or `queued`) with no tree under `worktrees/`.
+- **`test_a_fresh_waiter_runs_no_git_and_writes_no_tree`** now builds each setup twice. It admits the setup through the base oracle first and takes that hold, then requires HEAD to give the same hold, explicitly listed in `NO_CUT_HOLDS`, with no Git, no cut and no attempt. New cases:
+
+| Case | Setup | Hold (base = HEAD) |
+|---|---|---|
+| `cap` | cap 2 full of running writers | `fleet-full` |
+| `fifo` | cap 2, one running; an older writer of the same tier waits on its output lease, so the last slot is kept for it (C-6.9) | `slot-kept` |
+| `provider-cap` | `providers.<codex provider>.max_active_attempts = 1`, one running | `provider-cap` |
+| `ramp` | `admission.ramp = {enabled, per_minute 1, window_s 60}`, one start made | `ramp` |
+
+The four existing cases (`no-slot`, `lease`, `disk`, `retention`) now check the base too, and the base agrees with each.
+
+**Left out: `probe`.** A `probe-pending` waiter needs a lane that is not proven or measured and a job whose route requires an admission probe. `_prepare_route` then reserves and runs a probe attempt (`_probe_choice`, `_recover_probes`), which `fleet_factory` replaces with `pytest.fail`. The test would need a probe stand-in that answers, or a probe already recorded as reserved for another identity, beyond `fleet_factory`'s policy settings.
+
+**Which test kills `cap-after-cut`: the `fifo` case, not the probe.** Results:
+- `test_six_fresh_writers_…`: the mutant SURVIVED (185.96 s). A fleet that is already full is refused by the route evaluation itself: the scheduler adds a `fleet` capacity block (`scheduler.py:828`), so the decision has no lane and `dominant_rejection` labels it `fleet-full`. The provisional `at_limit` never decides those looks. This is from reading the code; the survival is the measured fact. The review's prediction that the third writer gets a tree did not hold.
+- `test_a_fresh_waiter_runs_no_git_and_writes_no_tree[fifo]`: KILLED (106.16 s, clean archive). `at_limit` binds here because FIFO lowers the limit to `cap − 1`, which the scheduler's count does not know. The failure is `assert not cuts and not calls and not service.store.list_attempts(job)`, with `cuts == [job]`: the writer got a tree, then waited `slot-kept`.
+- I2/I5 with the head-run assertion under the mutant: two runs, at 570 s and in a run the background limit stopped, ended without a verdict. Whether the generated scenarios reach a FIFO kept slot is unproven.
+
+The runner now selects the `fifo` case for `cap-after-cut`.
+
+### 3. Preparation's spared retry (P3)
+
+**`preparation-spends-a-retry` survived the existing tests.** It deletes `tries -= 1  # preparation spends no route retry`. Against the pre-round `test_reopening_the_original_lane_during_preparation_reuses_its_original_evaluation` and `test_the_placement_reuses_one_evaluation_and_pins_the_submitted_head`: SURVIVED in 228.48 s.
+
+**Test:** `test_preparation_spends_no_route_retry` wraps `_route_stands` and returns `("moved", 0, None)` for the first two checks after the tree exists. With `ROUTE_TRIES == 3`, the job must still be placed with its one tree: checks `[0, 1, 1, 1]`, one attempt on `codex-1`.
+
+**Killed** (136.76 s): `assert len(attempts) == 1, service._holds.get(job)` failed with `{'reason': 'route-moved', 'tries': 3}`, after `cuts == [job]` had passed. Without the line, the job waits `route-moved` with a tree, as the review said.
+
+### 4. The contract's race list (P3)
+
+C-6.20 now says that once the provisional checks permit preparation, any change committed while Git runs can leave the job unplaced with its tree, under the recheck's hold and clock. It then lists examples and says they are not a complete list: a lane closure, a lease, a retention fence, a capacity change, a task hold (C-11.10), a policy reload, a route that moves on its last retry (C-6.3), or a cancellation, after which the tree goes back as an ended job's does. The 2026-11-06 change-log line says the same, marked "amended 2026-11-17, review r2". The merge kept both change-log lines: D-ADMIT-IDLE1's four entries (lines 15–18) and D-TREE-THRASH1's (line 35).
+
+The PR body's race sentence had the same closed list, so a full replacement body is in `docs/reports/2026-11-06-tree-thrash-review-r2-pr.md`. It also describes the re-frozen oracle and the new tests. I did not run `gh pr edit`.
+
+### Mutants
+
+Every mutant in `tools/tree_thrash_mutations.py --list` ran on the final source, each from a `git archive` copy with no `.git`, serially, with system Git first in `PATH`. The healthy control (`baseline`: every selected regression in one collection) passed in 484.58 s.
+
+| Mutant | Before this round | Killed by (`tests/fake/test_admission_tree_thrash.py`) | Seconds |
+|---|---|---|---:|
+| `eager-waiter-tree` | killed in the build | `test_a_fresh_waiter_runs_no_git_and_writes_no_tree[no-slot]` | 144.22 |
+| `reserve-without-tree` | never run | `test_the_placement_reuses_one_evaluation_and_pins_the_submitted_head` | 174.40 |
+| `lose-prepared-baseline` | never run | same | 186.72 |
+| `forget-racing-giveback` | killed in the build | `test_a_closure_race_with_a_desktop_lane_never_refreshes_the_registry_under_the_store_lock` | 173.30 |
+| `swallow-workspace-refusal` | killed in the build | `test_a_failing_workspace_reaches_the_job_when_capacity_first_allows_placement[False]` | 188.72 |
+| `evaluate-again-after-git` | never run | `test_the_placement_reuses_one_evaluation_and_pins_the_submitted_head` | 324.58 |
+| `refresh-registry-under-store-lock` | killed in the build | `test_a_closure_race_with_a_desktop_lane_never_refreshes_the_registry_under_the_store_lock` | 272.49 |
+| `reuse-standing-decision-with-old-basis` | killed in the build | `test_reopening_the_original_lane_during_preparation_reuses_its_original_evaluation` | 186.73 |
+| `forget-sweep-eligibility-recheck` | never run | `test_a_reopened_lane_before_the_sweep_keeps_its_unused_tree` (`assert swept(service) == 0`, got 1) | 221.98 |
+| `cap-after-cut` (new) | survived (above) | `test_a_fresh_waiter_runs_no_git_and_writes_no_tree[fifo]` | 106.16 |
+| `preparation-spends-a-retry` (new) | survived (above) | `test_preparation_spends_no_route_retry` | 136.76 |
+
+**One caveat: `forget-sweep-eligibility-recheck` ran on a contaminated copy.** An outer `timeout` stopped an earlier `cap-after-cut` survey before the runner restored its archive, so the daemon in that copy still carried the `cap-after-cut` edit. The sweep test sets no fleet cap (`limit` is `None`, so `at_limit` is always false), so that edit is inert there; I did not rerun it on a clean copy. That archive was restored before the clean `cap-after-cut` kill above.
+
+Two runner changes: `--against` surveys a mutant against chosen tests (modules allowed) and reports what fails, and `--workers` passes `-n` through.
+
+### Timing and CI shards
+
+New cases, serial, all phases, at load about 280 (`new-tests-2.xml`): `cap` 26.71 s, `fifo` 41.64 s, `provider-cap` 25.96 s, `ramp` 42.18 s, six-writer probe 23.72 s, spared retry 15.78 s. Each no-cut case now runs its setup twice, base and head: `no-slot` 88.60 s, `lease` 25.49 s, `disk` 49.03 s, `retention` 45.38 s. The whole run was 10 passed in 428.27 s.
+
+This host ran about eight times slower than CI. Fix round 2 measured the measured shape at 41 s locally under load 167, under 14 s on CI, and 342 s here.
+
+`tools/ci_shard_plugin.py` with the current map puts `test_admission_tree_thrash.py` (26.7 s measured) on shard 4/7 and `test_admission_tree_thrash_head.py` (2.3 s) on shard 2/7. The map predicts 30.2 minutes for every shard. At the eightfold ratio, this round's additions come to roughly 45–55 CI seconds on shard 4, which keeps it near 31 minutes, under 35. That is an estimate, not a measurement; I did not run `tests/unit/test_ci_shard_plugin.py`. No split is proposed.
+
+### Commands
+
+Environment: `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"`, `UV_CACHE_DIR=$TMPDIR/uv-cache`, scratch in `$TMPDIR/sf-tthrash-fix2`, `PATH=/usr/bin:/bin:/opt/homebrew/bin`, `PYTHONPATH` unset, Python 3.15.2. Every run had its own `--basetemp`.
+- `uv sync --group dev`: passed. `uv run --no-sync --with 'pytest-xdist>=3.6'`: xdist 3.8.0.
+- Old oracle: `.venv/bin/python -m pytest -q -p no:cacheprovider -s --hypothesis-verbosity=verbose --hypothesis-show-statistics --timeout=1200 --timeout-method=thread … ::test_i2_i5_…`: exit 1, 1 failed in 503.40 s.
+- New oracle: `uv run --no-sync --with 'pytest-xdist>=3.6' python -m pytest -n 2 … ::test_i2_i5_… ::test_measured_shape_…`: exit 0, 2 passed in 370.19 s.
+- New cases, first run (`-n 4 -k "fresh_waiter or six_fresh or spends_no_route"`): 7 passed, 3 failed in 188.57 s. The failures were my test's wrong expectations: the cap hold is `fleet-full`, not `no-slot`; the ramp window was too wide; and pass-held jobs stay `queued`. All three are corrected.
+- New cases, second run (serial): exit 0, 10 passed in 428.27 s.
+- Mutation runs: `WORKTREE/.venv/bin/python tools/tree_thrash_mutations.py <mutant> [--against NODE …] --timeout 560 --temp-root "$TMPDIR/sf-tthrash-fix2/mut-tmp" --output …/mut-<tag>.json`, inside `timeout 570`, from archives of `b11795dd2` (survival) and `986b6cdc7` (kills), four at a time through `xargs -P`. Results are above.
+- `.venv/bin/python` with `tools/ci_shard_plugin.py`'s `plan`/`shard_of` on `.github/test-shards.json`: shards above.
+- `git config --show-origin --get-regexp '^protocol\.'`: no entries (exit 1).
+- `gh pr view 295 --json body,headRefOid` (read only): head `e5f6dc7be`.
+
+### Not run
+
+Load and the 10-minute tool limit stopped these:
+- Ordered step 3 as one run of both modules: the main module's cases ran in the runs above, except I1, I3 and I6 generated, the hold-after-second, closed-after-evaluation, one-cut race, lease-arrival and two-pinned-lanes cases, and `failing_workspace[True]`. `test_admission_tree_thrash_head.py` did not run.
+- Step 4 (`test_unrun_worktrees.py`, `test_detached_retention_fence.py`). This environment has no `protocol.*` git setting, so review r2's `transport 'file' not allowed` errors are not expected here, but I did not observe it either way.
+- Step 5 (#301's `test_idle_*.py` and `test_admission_store_wakes.py` beside this change).
+- Step 6 (the fourteen-module admission suite).
+- The I2/I5 verdict under `cap-after-cut`.
+- A clean-copy rerun of `forget-sweep-eligibility-recheck`.
+- `tests/unit/test_ci_shard_plugin.py`.
+- Python 3.12 and 3.14.
+
+No refusal or event key was added, so `test_handler_refusals.py` was not needed.
