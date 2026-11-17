@@ -173,6 +173,11 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     "mcp-workdir-changed": ("the workdir no longer offers the requested MCP servers", "submit with a new request id"),
     "claude-mcp-config": ("the job's MCP config cannot give the servers it names",
                           "submit the job again with --mcp naming servers its workdir offers"),
+    # Writable Claude launches' startup settings (C-12.9, D-LANE-STARTUP1).
+    "claude-startup-root": ("a writable Claude launch keeps personal startup files out only below /, and this "
+                            "job's repository root is / (C-12.9)", "run the job in a folder below /"),
+    "claude-startup-size": ("a writable Claude launch's startup settings would pass their size cap (C-12.9)",
+                            "run the job from a shorter path, or with fewer instruction files linked outside it"),
     # Isolated review (C-6.5, C-23.3).
     "isolation-sandbox": ("isolated review requires -s read-only and -D REVIEW_ROOT",
                           "pass -I -s read-only -D REVIEW_ROOT"),
