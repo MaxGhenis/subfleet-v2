@@ -463,28 +463,41 @@ class CallerWakeEngine:
                 # hook that completed before this claim must be visible here,
                 # even though this pass held delivery_lock during its prompt.
                 # No files are consumed here, so a rollback cannot lose input.
-                with notice_claims.activity_lock(self.daemon.root, session), self.store.transaction(
-                        "notice.wake_claimed", data={"session_id": session}) as tx:
-                    notice_claims.apply_activity(tx, session, notice_claims.read_activity(self.daemon.root, session))
-                    # Judge the registry, transcript and activity again after rendering.
-                    if self.daemon._conversation_binding(session):
+                # The wait is bounded (review r4 of #307): if a hook holds the
+                # lock longer, this caller's notices stay pending, unclaimed, for
+                # a later pass, and this pass goes on to the next caller.
+                with notice_claims.activity_lock(self.daemon.root, session,
+                                                 wait_s=notice_claims.ACTIVITY_LOCK_WAIT_S) as locked:
+                    if not locked:
                         return
-                    entry = notify_push.find_session(session)
-                    if entry is None or not entry["alive"] or not entry["socket_present"]:
-                        return
-                    current = transcripts.turn_state(path, now=datetime.fromtimestamp(now, timezone.utc))
-                    if current.fingerprint != before.fingerprint or not self._eligibility(
-                            session, entry, current, limits, now)[0]:
-                        return
-                    previous_clock = self.store.one(
-                        "SELECT wake_streak,last_wake_at FROM caller_wake_sessions WHERE session_id=?", (session,)) or {}
-                    claimed = reserve(tx, session, rows, transport="caller-wake", at=now, wake=True)
-                    if claimed:
-                        tx.execute("INSERT INTO caller_wake_sessions(session_id,last_wake_at,wake_streak) VALUES(?,?,1) "
-                                   "ON CONFLICT(session_id) DO UPDATE SET last_wake_at=excluded.last_wake_at,"
-                                   "wake_streak=wake_streak+1", (session, now))
+                    with self.store.transaction("notice.wake_claimed", data={"session_id": session}) as tx:
+                        notice_claims.apply_activity(tx, session,
+                                                     notice_claims.read_activity(self.daemon.root, session))
+                        # Judge the registry, transcript and activity again after rendering.
+                        if self.daemon._conversation_binding(session):
+                            return
+                        entry = notify_push.find_session(session)
+                        if entry is None or not entry["alive"] or not entry["socket_present"]:
+                            return
+                        current = transcripts.turn_state(path, now=datetime.fromtimestamp(now, timezone.utc))
+                        if current.fingerprint != before.fingerprint or not self._eligibility(
+                                session, entry, current, limits, now)[0]:
+                            return
+                        previous_clock = self.store.one(
+                            "SELECT wake_streak,last_wake_at FROM caller_wake_sessions WHERE session_id=?",
+                            (session,)) or {}
+                        claimed = reserve(tx, session, rows, transport="caller-wake", at=now, wake=True)
+                        if claimed:
+                            tx.execute("INSERT INTO caller_wake_sessions(session_id,last_wake_at,wake_streak) "
+                                       "VALUES(?,?,1) ON CONFLICT(session_id) DO UPDATE SET "
+                                       "last_wake_at=excluded.last_wake_at,wake_streak=wake_streak+1", (session, now))
             except (OSError, ValueError, KeyError):
-                return  # invalid activity arriving during render fences only its caller
+                # Raised anywhere in the claim: invalid activity, the conversation
+                # binding, the registry or transcript read, the eligibility
+                # judgement or the reservation. The claim's transaction rolls
+                # back, so the notices stay pending and unclaimed, and the next
+                # pass tries them again; only this caller is held up.
+                return
             if not claimed:
                 return
             result["sessions"] += 1

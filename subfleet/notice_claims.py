@@ -25,19 +25,23 @@ def receipt_path(root: Path, session: str) -> Path:
     return Path(root) / "hooks" / "notice-receipts" / (key + ".json")
 
 
-#: How often a waiting `delivery_lock` tries the lock again.
+#: How often a waiting `delivery_lock` or `activity_lock` tries the lock again.
 LOCK_POLL_S = 0.01
+#: The longest anyone waits for a caller's activity lock (review r4 of #307).
+#: A hook holds it to publish one record (a rename) or, under the delivery lock,
+#: to fold a session's few records; a wake's claim holds it through its
+#: transaction. A hook that cannot take it in time publishes all the same, and a
+#: claim that cannot leaves its caller's notices for a later pass, so neither a
+#: stopped hook nor a slow claim stalls the other side.
+ACTIVITY_LOCK_WAIT_S = 0.25
 
 
 @contextmanager
-def delivery_lock(root: Path, session: str, *, wait_s: float = 0.0, gone=None):
-    """Nonblocking by default: neither a prompt nor one busy caller stalls the pass.
+def _file_lock(path: Path, *, wait_s: float, gone=None):
+    """An exclusive flock on `path`, tried for at most `wait_s`; yields whether held.
 
-    `wait_s` tries a taken lock again for up to that long, and `gone`, when it
-    turns true, ends the wait early: a PostToolUse claim waits out a pass's or a
-    hook's brief hold rather than leave its result to a later wake (C-15.9).
+    An error opening the lock file is reported as not held, never raised.
     """
-    path = receipt_path(root, session).with_suffix(".lock")
     fd = None
     held = False
     try:
@@ -63,6 +67,18 @@ def delivery_lock(root: Path, session: str, *, wait_s: float = 0.0, gone=None):
             os.close(fd)
 
 
+@contextmanager
+def delivery_lock(root: Path, session: str, *, wait_s: float = 0.0, gone=None):
+    """Nonblocking by default: neither a prompt nor one busy caller stalls the pass.
+
+    `wait_s` tries a taken lock again for up to that long, and `gone`, when it
+    turns true, ends the wait early: a PostToolUse claim waits out a pass's or a
+    hook's brief hold rather than leave its result to a later wake (C-15.9).
+    """
+    with _file_lock(receipt_path(root, session).with_suffix(".lock"), wait_s=wait_s, gone=gone) as held:
+        yield held
+
+
 def read_receipts(root: Path, session: str) -> list[dict]:
     try:
         value = json.loads(receipt_path(root, session).read_text())
@@ -79,25 +95,22 @@ def read_receipts(root: Path, session: str) -> list[dict]:
 
 
 def activity_path(root: Path, session: str) -> Path:
-    """The aggregate activity file written by older hooks; still replayed."""
+    """The aggregate activity file: what older hooks wrote, and what a fold writes
+    (`fold_activity`). Replayed with the published records beside it."""
     return receipt_path(root, session).with_suffix(".activity.json")
 
 
 @contextmanager
-def activity_lock(root: Path, session: str):
+def activity_lock(root: Path, session: str, *, wait_s: float = 0.0):
     """Order activity publication against the final wake claim, never rendering.
 
-    Hooks release this short lock before attempting delivery_lock. The daemon
-    takes delivery_lock first, so the two locks cannot form a wait cycle.
+    Yields whether the lock is held; it is tried for at most `wait_s`, so no
+    holder stalls a hook or the pass (review r4 of #307). Hooks release this
+    short lock before attempting delivery_lock. The daemon, and a hook's fold,
+    take delivery_lock first, so the two locks cannot form a wait cycle.
     """
-    path = activity_path(root, session).with_suffix(".lock")
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        yield
-    finally:
-        os.close(fd)
+    with _file_lock(activity_path(root, session).with_suffix(".lock"), wait_s=wait_s) as held:
+        yield held
 
 
 def _read_activity(path: Path) -> dict | None:
@@ -179,10 +192,65 @@ def record_offline_activity(root: Path, session: str, *, event: str, source: str
             json.dump(value, stream)
             stream.flush()
             os.fsync(stream.fileno())
-        with activity_lock(root, session):
+        # Published whether or not the lock came in time: activity is never
+        # lost. Without it, this hook races a claim already in progress.
+        with activity_lock(root, session, wait_s=ACTIVITY_LOCK_WAIT_S):
             os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _fsync_directory(path: Path) -> None:
+    try:
+        fd = os.open(path, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
+def fold_activity(root: Path, session: str) -> int:
+    """Called under delivery_lock: keep a session's activity files bounded.
+
+    Each offline hook publishes one record. A hook that holds the delivery lock
+    then folds every record it reads into the aggregate file with one atomic
+    replace and unlinks exactly the records it folded, as `reconcile` does
+    (review r4 of #307). The fold equals `_merge_activity` over those records:
+    the latest `at` with its `source`, and the latest `human_at`. The delivery
+    lock orders it against `reconcile` and the wake claim; it takes the activity
+    lock second, the daemon's order. A record published after its snapshot
+    survives. A crash between the replace and the unlinks leaves the folded
+    records beside the aggregate, which merge to the same value. A corrupt
+    record raises ValueError before anything is written or removed, so it still
+    fences its caller. Returns how many published records it folded: none when
+    the activity lock stays taken past `ACTIVITY_LOCK_WAIT_S`.
+    """
+    aggregate = activity_path(root, session)
+    with activity_lock(root, session, wait_s=ACTIVITY_LOCK_WAIT_S) as held:
+        if not held:
+            return 0
+        records = _activity_records(root, session)
+        folded = [path for path, _value in records if path != aggregate]
+        if not folded:
+            return 0
+        temporary = aggregate.with_name(f"{aggregate.name}.{uuid4().hex}.tmp")
+        try:
+            with temporary.open("x") as stream:
+                os.chmod(temporary, 0o600)
+                json.dump(_merge_activity(records), stream)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, aggregate)
+        finally:
+            temporary.unlink(missing_ok=True)
+        _fsync_directory(aggregate.parent)      # the replace is durable before any unlink
+        for path in folded:
+            path.unlink(missing_ok=True)
+    return len(folded)
 
 
 def reserve_offline(root: Path, session: str, rows: list[dict]) -> list[dict]:

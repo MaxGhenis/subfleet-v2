@@ -503,13 +503,16 @@ def session_event(event: str, payload: dict[str, Any], root: Path,
         rows = result.get("notices")
         rows = [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
     except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
-        from .notice_claims import delivery_lock, record_offline_activity, reserve_offline
+        from .notice_claims import delivery_lock, fold_activity, record_offline_activity, reserve_offline
         rows, marked = [], False
         try:
             record_offline_activity(root, session, event=event, source=payload.get("source"),
                                     personal=not own_envelope)
             with delivery_lock(root, session) as held:
                 if held:
+                    # Keeps this session's activity files to one, plus any a
+                    # concurrent hook publishes (review r4 of #307).
+                    fold_activity(root, session)
                     pending = _offline_pending(root, session)
                     if launched:
                         pending = [row for row in pending if names_a_job(row)]
