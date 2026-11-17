@@ -1,0 +1,16 @@
+F
+=================================== FAILURES ===================================
+__ test_each_semantic_wake_starts_detached_on_the_next_tick[closure-release] ___
+tests/fake/test_idle_admission_pacing.py:177: in test_each_semantic_wake_starts_detached_on_the_next_tick
+    assert len(clock.starts) == 2, source
+E   AssertionError: closure-release
+E   assert 1 == 2
+E    +  where 1 = len([1000.0])
+E    +    where [1000.0] = namespace(now=1001.15, duration=1.0, placed=0, error=False, during=None, starts=[1000.0], ends=[1001.0], turns=[], offer=<function paced.<locals>.offer at 0x10c2657a0>).starts
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4493171008:daemon.py:997 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4493171008:daemon.py:1087 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_idle_admission_pacing.py::test_each_semantic_wake_starts_detached_on_the_next_tick[closure-release]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 5.20s

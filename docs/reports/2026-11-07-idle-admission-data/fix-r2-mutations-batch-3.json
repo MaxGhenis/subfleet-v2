@@ -1,0 +1,165 @@
+{
+  "baseline": [],
+  "mutations": [
+    {
+      "name": "drop-lane-census-comparison",
+      "command": [
+        "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpjiP1wT/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-n",
+        "4",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-zsar21mg/drop-lane-census-comparison-test/pytest",
+        "--junitxml=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-zsar21mg/drop-lane-census-comparison-test/junit.xml",
+        "tests/fake/test_idle_capacity_news_sources.py::test_a_lane_change_from_another_connection_reaches_admission_only_through_the_census[enrolled]",
+        "tests/fake/test_idle_capacity_news_sources.py::test_a_lane_change_from_another_connection_reaches_admission_only_through_the_census[disabled]",
+        "tests/fake/test_idle_capacity_news_sources.py::test_a_lane_change_from_another_connection_reaches_admission_only_through_the_census[removed]",
+        "tests/fake/test_idle_capacity_news_sources.py::test_a_lane_change_from_another_connection_reaches_admission_only_through_the_census[none]"
+      ],
+      "cwd": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-zsar21mg/drop-lane-census-comparison",
+      "returncode": 1,
+      "tests_run": 4,
+      "passed_tests": [
+        "tests.fake.test_idle_capacity_news_sources::test_a_lane_change_from_another_connection_reaches_admission_only_through_the_census[none]"
+      ],
+      "failures": [
+        {
+          "test": "tests.fake.test_idle_capacity_news_sources::test_a_lane_change_from_another_connection_reaches_admission_only_through_the_census[enrolled]",
+          "assertion": true
+        },
+        {
+          "test": "tests.fake.test_idle_capacity_news_sources::test_a_lane_change_from_another_connection_reaches_admission_only_through_the_census[removed]",
+          "assertion": true
+        },
+        {
+          "test": "tests.fake.test_idle_capacity_news_sources::test_a_lane_change_from_another_connection_reaches_admission_only_through_the_census[disabled]",
+          "assertion": true
+        }
+      ],
+      "errors": [],
+      "elapsed_s": 20.255,
+      "log": "/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/r2-mutation-drop-lane-census-comparison.log",
+      "mutated_file_sha256": "4eac67d993a860d2cfeb358d30bd1d873255e9e1eecf02f9861c6ed21a72018e",
+      "restored_bytes_match": true,
+      "killed_by": [
+        "test_a_lane_change_from_another_connection_reaches_admission_only_through_the_census[enrolled]",
+        "test_a_lane_change_from_another_connection_reaches_admission_only_through_the_census[removed]",
+        "test_a_lane_change_from_another_connection_reaches_admission_only_through_the_census[disabled]"
+      ],
+      "controls_passed": [
+        "test_a_lane_change_from_another_connection_reaches_admission_only_through_the_census[none]"
+      ],
+      "killed": true
+    },
+    {
+      "name": "closure-additions-bring-nothing-forward",
+      "command": [
+        "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpjiP1wT/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-n",
+        "4",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-zsar21mg/closure-additions-bring-nothing-forward-test/pytest",
+        "--junitxml=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-zsar21mg/closure-additions-bring-nothing-forward-test/junit.xml",
+        "tests/fake/test_idle_capacity_news_sources.py::test_c6_10_a_closure_added_brings_every_eligible_wait_forward[provider-limit-on-the-held-lane]",
+        "tests/fake/test_idle_capacity_news_sources.py::test_c6_10_a_closure_added_brings_every_eligible_wait_forward[operator-hold-on-another-lane]"
+      ],
+      "cwd": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-zsar21mg/closure-additions-bring-nothing-forward",
+      "returncode": 1,
+      "tests_run": 2,
+      "passed_tests": [],
+      "failures": [
+        {
+          "test": "tests.fake.test_idle_capacity_news_sources::test_c6_10_a_closure_added_brings_every_eligible_wait_forward[provider-limit-on-the-held-lane]",
+          "assertion": true
+        },
+        {
+          "test": "tests.fake.test_idle_capacity_news_sources::test_c6_10_a_closure_added_brings_every_eligible_wait_forward[operator-hold-on-another-lane]",
+          "assertion": true
+        }
+      ],
+      "errors": [],
+      "elapsed_s": 18.042,
+      "log": "/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/r2-mutation-closure-additions-bring-nothing-forward.log",
+      "mutated_file_sha256": "b7267a8f4106529fb81683c1e7c07ad533ffdb7253d9604559a8d37f6ebb42ed",
+      "restored_bytes_match": true,
+      "killed_by": [
+        "test_c6_10_a_closure_added_brings_every_eligible_wait_forward[provider-limit-on-the-held-lane]",
+        "test_c6_10_a_closure_added_brings_every_eligible_wait_forward[operator-hold-on-another-lane]"
+      ],
+      "controls_passed": [],
+      "killed": true
+    },
+    {
+      "name": "r1-acknowledge-news-before-waiter-checks",
+      "command": [
+        "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpjiP1wT/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-n",
+        "4",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-zsar21mg/r1-acknowledge-news-before-waiter-checks-test/pytest",
+        "--junitxml=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-zsar21mg/r1-acknowledge-news-before-waiter-checks-test/junit.xml",
+        "tests/fake/test_idle_capacity_guard_news.py::test_release_news_survives_temporary_door_hold"
+      ],
+      "cwd": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-zsar21mg/r1-acknowledge-news-before-waiter-checks",
+      "returncode": 1,
+      "tests_run": 9,
+      "passed_tests": [
+        "tests.fake.test_idle_capacity_guard_news::test_release_news_survives_temporary_door_hold[short-operator-disk]",
+        "tests.fake.test_idle_capacity_guard_news::test_release_news_survives_temporary_door_hold[short-provider-machine]",
+        "tests.fake.test_idle_capacity_guard_news::test_release_news_survives_temporary_door_hold[short-provider-disk]",
+        "tests.fake.test_idle_capacity_guard_news::test_release_news_survives_temporary_door_hold[short-operator-ramp]",
+        "tests.fake.test_idle_capacity_guard_news::test_release_news_survives_temporary_door_hold[short-operator-machine]",
+        "tests.fake.test_idle_capacity_guard_news::test_release_news_survives_temporary_door_hold[short-provider-ramp]"
+      ],
+      "failures": [
+        {
+          "test": "tests.fake.test_idle_capacity_guard_news::test_release_news_survives_temporary_door_hold[long-machine]",
+          "assertion": true
+        },
+        {
+          "test": "tests.fake.test_idle_capacity_guard_news::test_release_news_survives_temporary_door_hold[long-ramp]",
+          "assertion": true
+        },
+        {
+          "test": "tests.fake.test_idle_capacity_guard_news::test_release_news_survives_temporary_door_hold[long-disk]",
+          "assertion": true
+        }
+      ],
+      "errors": [],
+      "elapsed_s": 45.188,
+      "log": "/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/r2-mutation-r1-acknowledge-news-before-waiter-checks.log",
+      "mutated_file_sha256": "5b76373ea001f567d32a79987c0a60db7b6e36c5aafdde17e0bbe86c826e0089",
+      "restored_bytes_match": true,
+      "killed_by": [
+        "test_release_news_survives_temporary_door_hold[long-machine]",
+        "test_release_news_survives_temporary_door_hold[long-ramp]",
+        "test_release_news_survives_temporary_door_hold[long-disk]"
+      ],
+      "controls_passed": [],
+      "killed": true
+    }
+  ],
+  "sources_sha256": {
+    "subfleet/daemon.py": "136a3cf79b51a5629371b47babc608c8f1352bc8745a7d58e0cda9e235337168",
+    "subfleet/store.py": "cc7bd67a6690dac28a50359a787783f27da181cf55bbfc658cba817fe1604e1d",
+    "subfleet/scheduler.py": "e33af820f856cafcdc6d42dbe5ba7ae138c3b6ed47eaff61392f3b232f6d6fe2",
+    "subfleet/contracts.py": "8ecdfe59f6b10a49c784706dfb668263c49132847f978e9e5020e15a41852136",
+    "tests/fake/test_idle_capacity_news_sources.py": "a72dc89720df6816c895e4053077db7f0c5b56e475d560162bf13370add6e960",
+    "tests/fake/test_idle_capacity_guard_news.py": "3d9f631dd40ea7876dbda9d5c429b7e1642f1d2984661e65d8352d132c95dff9"
+  },
+  "pristine_bytes_unchanged": true
+}

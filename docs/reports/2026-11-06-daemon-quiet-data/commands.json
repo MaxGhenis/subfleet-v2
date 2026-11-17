@@ -1,0 +1,78 @@
+{
+  "environment": {
+    "TMPDIR": "$(getconf DARWIN_USER_TEMP_DIR)",
+    "UV_CACHE_DIR": "/private/tmp/daemon-quiet-build/uv-cache"
+  },
+  "checks": [
+    {
+      "purpose": "development dependencies",
+      "command": "TMPDIR=\"$(getconf DARWIN_USER_TEMP_DIR)\" UV_CACHE_DIR=/private/tmp/daemon-quiet-build/uv-cache uv sync --group dev --cache-dir /private/tmp/daemon-quiet-build/uv-cache",
+      "result": "passed; 9 packages installed"
+    },
+    {
+      "purpose": "batch focused regression",
+      "command": "TMPDIR=\"$(getconf DARWIN_USER_TEMP_DIR)\" UV_CACHE_DIR=/private/tmp/daemon-quiet-build/uv-cache uv run --no-sync --cache-dir /private/tmp/daemon-quiet-build/uv-cache pytest tests/unit/test_batch_submission_queries.py tests/unit/test_store_contention_queries.py tests/unit/test_status_json.py --basetemp /private/tmp/daemon-quiet-build/batch-first-1 -q",
+      "result": "318 passed in 402.89s"
+    },
+    {
+      "purpose": "liveness and affected existing modules",
+      "command": "TMPDIR=\"$(getconf DARWIN_USER_TEMP_DIR)\" UV_CACHE_DIR=/private/tmp/daemon-quiet-build/uv-cache uv run --no-sync --cache-dir /private/tmp/daemon-quiet-build/uv-cache pytest tests/unit/test_liveness_write_pacing.py tests/unit/test_census_merge_liveness.py tests/unit/test_daemon_settle.py --basetemp /private/tmp/daemon-quiet-build/liveness-plus-existing --tb=short -q",
+      "result": "83 passed in 64.47s"
+    },
+    {
+      "purpose": "final liveness suite after postcommit pace adjustment",
+      "command": "TMPDIR=\"$(getconf DARWIN_USER_TEMP_DIR)\" UV_CACHE_DIR=/private/tmp/daemon-quiet-build/uv-cache uv run --no-sync --cache-dir /private/tmp/daemon-quiet-build/uv-cache pytest tests/unit/test_liveness_write_pacing.py --basetemp /private/tmp/daemon-quiet-build/liveness-final --tb=short -q",
+      "result": "14 passed in 34.55s"
+    },
+    {
+      "purpose": "all required regression files plus new modules",
+      "command": "TMPDIR=\"$(getconf DARWIN_USER_TEMP_DIR)\" UV_CACHE_DIR=/private/tmp/daemon-quiet-build/uv-cache uv run --no-sync --with 'pytest-xdist>=3.6' --cache-dir /private/tmp/daemon-quiet-build/uv-cache pytest -n 4 tests/unit/test_status_json.py tests/unit/test_store_contention_queries.py tests/unit/test_census_merge_liveness.py tests/unit/test_daemon_settle.py tests/unit/test_review130_pass.py tests/unit/test_daemon_verbs.py tests/fake/test_wall_running_time.py tests/fake/test_wall_inspection_order.py tests/fake/test_review_r223_wall_probes.py tests/fake/test_native_maintenance_startup.py tests/fake/test_state_contract.py tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py tests/unit/test_batch_submission_queries.py tests/unit/test_liveness_write_pacing.py --basetemp /private/tmp/daemon-quiet-build/final-regression-1 --tb=short -q",
+      "result": "617 passed, 5 skipped in 1270.80s (0:21:10); exit 0"
+    },
+    {
+      "purpose": "batch benchmark",
+      "command": "TMPDIR=\"$(getconf DARWIN_USER_TEMP_DIR)\" UV_CACHE_DIR=/private/tmp/daemon-quiet-build/uv-cache uv run --no-sync --cache-dir /private/tmp/daemon-quiet-build/uv-cache python docs/reports/2026-11-06-daemon-quiet-data/measure.py --scratch-root /private/tmp/daemon-quiet-build --skip-liveness --output docs/reports/2026-11-06-daemon-quiet-data/results.json",
+      "result": "passed; 100 jobs x 5000 events; five timed samples per operation/version"
+    },
+    {
+      "purpose": "final liveness fake-hour benchmark",
+      "command": "TMPDIR=\"$(getconf DARWIN_USER_TEMP_DIR)\" UV_CACHE_DIR=/private/tmp/daemon-quiet-build/uv-cache uv run --no-sync --cache-dir /private/tmp/daemon-quiet-build/uv-cache python docs/reports/2026-11-06-daemon-quiet-data/measure.py --scratch-root /private/tmp/daemon-quiet-build --liveness-only --output docs/reports/2026-11-06-daemon-quiet-data/results.json",
+      "result": "passed; 3600 commits before, 60 after"
+    },
+    {
+      "purpose": "batch mutation checks",
+      "command": "TMPDIR=\"$(getconf DARWIN_USER_TEMP_DIR)\" UV_CACHE_DIR=/private/tmp/daemon-quiet-build/uv-cache uv run --no-sync --cache-dir /private/tmp/daemon-quiet-build/uv-cache python docs/reports/2026-11-06-daemon-quiet-data/check_batch_mutants.py",
+      "result": "passed; 2/2 mutants killed, 6 expected assertion failures"
+    },
+    {
+      "purpose": "liveness mutation checks",
+      "command": "TMPDIR=\"$(getconf DARWIN_USER_TEMP_DIR)\" UV_CACHE_DIR=/private/tmp/daemon-quiet-build/uv-cache uv run --no-sync --cache-dir /private/tmp/daemon-quiet-build/uv-cache python docs/reports/2026-11-06-daemon-quiet-data/liveness_mutants.py --temp-root /private/tmp/daemon-quiet-build",
+      "result": "passed; 5/5 mutants killed, 7 expected assertion failures"
+    },
+    {
+      "purpose": "whitespace check",
+      "command": "git diff --check",
+      "result": "passed"
+    },
+    {
+      "purpose": "first coherent-step staging",
+      "command": "git add -- subfleet/store.py subfleet/status_json.py tests/unit/test_batch_submission_queries.py",
+      "result": "exit 128; index.lock Operation not permitted"
+    },
+    {
+      "purpose": "first commit attempt",
+      "command": "git commit -m \"perf: bound batch labels to first job submission\"",
+      "result": "exit 128; index.lock Operation not permitted"
+    },
+    {
+      "purpose": "explicit-path first commit attempt after staging denied",
+      "command": "git commit -m \"perf: bound batch labels to first job submission\" -- subfleet/store.py subfleet/status_json.py tests/unit/test_batch_submission_queries.py",
+      "result": "exit 1; new test not known to git after failed staging"
+    },
+    {
+      "purpose": "second coherent-step staging and commit attempt",
+      "command": "git add -- subfleet/contracts.py subfleet/daemon.py tests/unit/test_liveness_write_pacing.py tests/unit/test_census_merge_liveness.py tests/unit/test_daemon_settle.py docs/acceptance-contract.md docs/reports/2026-11-06-daemon-quiet.md && git commit -m \"perf: pace durable attempt liveness observations\"",
+      "result": "exit 128; staging denied index.lock, commit not reached"
+    }
+  ]
+}

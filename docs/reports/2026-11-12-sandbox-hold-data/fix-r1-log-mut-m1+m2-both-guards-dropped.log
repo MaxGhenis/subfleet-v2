@@ -1,0 +1,101 @@
+..FF.F                                                                   [100%]
+=================================== FAILURES ===================================
+_ test_control_a_release_whose_target_has_a_row_still_wakes_the_stale_job[p5-sandbox-release] _
+
+stale = 'task', released = 'sandbox'
+
+    @pytest.mark.parametrize("stale,released", [("task", "sandbox"), ("sandbox", "task")],
+                             ids=["p5-sandbox-release", "task-release"])
+    def test_control_a_release_whose_target_has_a_row_still_wakes_the_stale_job(stale, released):
+        """The control: as above, but the released target's row exists too, ended at 40,
+        so both holds covered the job until the later end, 50. The release deletes its row,
+        records `task.released`, and gives the job its clocks back from 50, as C-11.10's
+        release of a hold already past its end does."""
+        with fleet() as (service, harness, clock, signals):
+            clock[0] = 0
+            task = "build" if stale == "task" else "review"
+            ident = jobs_from(service, harness, [(task, "workspace-write", "dispatch")])["generated-0"]
+            if stale == "task":
+                hold(service, "build", stamp(50), note="task brake")
+                sandbox_hold(service, 40, note="disk brake")
+            else:
+                sandbox_hold(service, 50, note="disk brake")
+                hold(service, "review", stamp(40), note="task brake")
+>           assert job(service, ident)["next_check_at"] == stamp(50)
+E           AssertionError: assert '2026-10-09T16:33:40Z' == '2026-10-09T16:33:50Z'
+E             
+E             - 2026-10-09T16:33:50Z
+E             ?                  ^
+E             + 2026-10-09T16:33:40Z
+E             ?                  ^
+
+tests/fake/test_sandbox_hold_release_rows.py:90: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4485024560:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4485024560:daemon.py:1088 reset credits: automatic redemption off; no-reset marker absent
+_ test_control_a_release_whose_target_has_a_row_still_wakes_the_stale_job[task-release] _
+
+stale = 'sandbox', released = 'task'
+
+    @pytest.mark.parametrize("stale,released", [("task", "sandbox"), ("sandbox", "task")],
+                             ids=["p5-sandbox-release", "task-release"])
+    def test_control_a_release_whose_target_has_a_row_still_wakes_the_stale_job(stale, released):
+        """The control: as above, but the released target's row exists too, ended at 40,
+        so both holds covered the job until the later end, 50. The release deletes its row,
+        records `task.released`, and gives the job its clocks back from 50, as C-11.10's
+        release of a hold already past its end does."""
+        with fleet() as (service, harness, clock, signals):
+            clock[0] = 0
+            task = "build" if stale == "task" else "review"
+            ident = jobs_from(service, harness, [(task, "workspace-write", "dispatch")])["generated-0"]
+            if stale == "task":
+                hold(service, "build", stamp(50), note="task brake")
+                sandbox_hold(service, 40, note="disk brake")
+            else:
+                sandbox_hold(service, 50, note="disk brake")
+                hold(service, "review", stamp(40), note="task brake")
+>           assert job(service, ident)["next_check_at"] == stamp(50)
+E           AssertionError: assert '2026-10-09T16:33:40Z' == '2026-10-09T16:33:50Z'
+E             
+E             - 2026-10-09T16:33:50Z
+E             ?                  ^
+E             + 2026-10-09T16:33:40Z
+E             ?                  ^
+
+tests/fake/test_sandbox_hold_release_rows.py:90: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4483665744:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4483665744:daemon.py:1088 reset credits: automatic redemption off; no-reset marker absent
+____ test_p4_the_sandbox_hold_commit_leaves_taskless_jobs_and_turns_queued _____
+
+    def test_p4_the_sandbox_hold_commit_leaves_taskless_jobs_and_turns_queued():
+        """p4: with jobs queued before the hold, the commit takes the covered review only;
+        a taskless workspace-write job and a workspace-write turn stay queued, untouched,
+        and each gets exactly one attempt at the next pass."""
+        with fleet() as (service, harness, clock, signals):
+            jobs = jobs_from(service, harness, [("review", "workspace-write", "dispatch"),
+                                                (None, "workspace-write", "dispatch"),
+                                                ("build", "workspace-write", "turn"),
+                                                (None, "", "dispatch")])
+            covered, taskless, turn, legacy = (jobs[f"generated-{n}"] for n in range(4))
+            rows = {ident: job(service, ident) for ident in (taskless, turn, legacy)}
+            assert all(row["state"] == "queued" for row in rows.values())
+            events = len(hold_events(service))
+            sandbox_hold(service, 100)
+>           assert [(kind, ident) for kind, ident, _ in hold_events(service, events)] == [
+                ("job.task_held", covered), ("task.held", None)]
+E           AssertionError: assert [('job.task_h....held', None)] == [('job.task_h....held', None)]
+E             
+E             At index 1 diff: ('job.task_held', '20261114-222449-generated-1') != ('task.held', None)
+E             Left contains 2 more items, first extra item: ('job.task_held', '20261114-222449-generated-3')
+E             Use -v to get more diff
+
+tests/fake/test_sandbox_hold_release_rows.py:138: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4483798304:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4483798304:daemon.py:1088 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_sandbox_hold_release_rows.py::test_control_a_release_whose_target_has_a_row_still_wakes_the_stale_job[p5-sandbox-release]
+FAILED tests/fake/test_sandbox_hold_release_rows.py::test_control_a_release_whose_target_has_a_row_still_wakes_the_stale_job[task-release]
+FAILED tests/fake/test_sandbox_hold_release_rows.py::test_p4_the_sandbox_hold_commit_leaves_taskless_jobs_and_turns_queued
+3 failed, 3 passed in 32.31s

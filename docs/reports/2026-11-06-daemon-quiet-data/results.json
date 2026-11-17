@@ -1,0 +1,100 @@
+{
+  "baseline_commit": "a8624a4899a2",
+  "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "python": "3.14.7",
+  "sqlite_python": "3.53.1",
+  "sqlite_shell": "3.51.0 2025-06-12 13:14:41 f0ca7bba1c5e232e5d279fad6338121ab55af0c8c68c84cdfb18ba5114dcaapl (64-bit)",
+  "fixture": {
+    "open_jobs": 100,
+    "events_per_job": 5000,
+    "job_events": 500000,
+    "batch_labeled_jobs": 50,
+    "sqlite_file_bytes": 88985600,
+    "page_cache_kib": 2000
+  },
+  "method": "actual list dispatch and Timers.publish_status; daemon/timer cores assembled without startup; stable empty alerts and no lanes or conversations; median of warmed repetitions; page counts replay traced SQL in fresh cache (OS cache retained)",
+  "before": {
+    "list": {
+      "seconds": [
+        0.32020145800197497,
+        0.4286377920070663,
+        0.5627730840060394,
+        0.39324466600373853,
+        0.6260687920002965
+      ],
+      "median_seconds": 0.4286377920070663,
+      "sqlite_pages_fresh_connection": {
+        "cache_hits": 294,
+        "cache_misses": 13081,
+        "statements": 2
+      },
+      "jobs_returned": 100
+    },
+    "status_write": {
+      "seconds": [
+        0.3131827909965068,
+        0.5101687499991385,
+        0.49799620900012087,
+        1.2004562920046737,
+        0.8738371669896878
+      ],
+      "median_seconds": 0.5101687499991385,
+      "sqlite_pages_fresh_connection": {
+        "cache_hits": 201,
+        "cache_misses": 13073,
+        "statements": 2
+      },
+      "jobs_returned": 100
+    }
+  },
+  "after": {
+    "list": {
+      "seconds": [
+        0.00736070801212918,
+        0.0036453750071814284,
+        0.002858791995095089,
+        0.0019101660000160336,
+        0.00741304099210538
+      ],
+      "median_seconds": 0.0036453750071814284,
+      "sqlite_pages_fresh_connection": {
+        "cache_hits": 641,
+        "cache_misses": 271,
+        "statements": 2
+      },
+      "jobs_returned": 100
+    },
+    "status_write": {
+      "seconds": [
+        0.007116249995306134,
+        0.0020088329911231995,
+        0.0027228330000070855,
+        0.0057783329975791276,
+        0.011313082999549806
+      ],
+      "median_seconds": 0.0057783329975791276,
+      "sqlite_pages_fresh_connection": {
+        "cache_hits": 548,
+        "cache_misses": 263,
+        "statements": 2
+      },
+      "jobs_returned": 100
+    }
+  },
+  "liveness": {
+    "before": {
+      "fake_duration_s": 3600,
+      "inspection_interval_s": 1,
+      "observed_alive_commits_per_attempt_hour": 3600,
+      "ownership_events": {},
+      "last_saved_observation": "2026-11-06T14:24:59.000Z"
+    },
+    "after": {
+      "fake_duration_s": 3600,
+      "inspection_interval_s": 1,
+      "observed_alive_commits_per_attempt_hour": 60,
+      "ownership_events": {},
+      "last_saved_observation": "2026-11-06T14:24:00.000Z"
+    }
+  }
+}
