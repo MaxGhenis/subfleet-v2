@@ -447,17 +447,33 @@ def test_a_closure_race_with_a_desktop_lane_never_refreshes_the_registry_under_t
     assert service._holds[job].get("unprepared")
 
 
-@pytest.mark.parametrize("reason", ["no-slot", "lease", "disk", "retention"])
-def test_a_fresh_waiter_runs_no_git_and_writes_no_tree(
-        fleet_factory, repo, monkeypatch, immutable_source, reason):  # noqa: F811
-    """I4/I5: capacity, a path lease, the door, and retention precede tree work."""
-    service, harness, cuts = fleet_factory(slots=1, synthetic=True)
+#: The hold each provisional check gives a fresh waiter; the base gives the same.
+NO_CUT_HOLDS = {"no-slot": "no-slot", "lease": "lease-held", "disk": "disk", "retention": "lease-held",
+                "cap": "fleet-full", "fifo": "slot-kept", "provider-cap": "provider-cap", "ramp": "ramp"}
+
+
+def fresh_waiter(make, repository, monkeypatch, reason, *, base):
+    """One fresh writer that a placement check holds, on the base or this change."""
+    capped = reason in ("cap", "fifo", "provider-cap", "ramp")
+    service, harness, cuts = make(base=base, slots=None if capped else 1, synthetic=True,
+                                  cap=2 if reason in ("cap", "fifo") else None)
+    if reason == "provider-cap":
+        provider = service.store.one("SELECT provider FROM lanes WHERE lane_id='codex-1'")["provider"]
+        service.policy.setdefault("providers", {}).setdefault(provider, {})["max_active_attempts"] = 1
+    elif reason == "ramp":
+        service.policy["admission"]["ramp"] = {"enabled": True, "per_minute": 1, "window_s": 60}
     extra = {}
-    if reason == "no-slot":
-        running = submit(service, harness, repo)
+    if reason in ("no-slot", "cap", "fifo", "provider-cap", "ramp"):
+        # The cap of two is full; under FIFO one slot of two is taken.
+        running = [submit(service, harness, repository) for _ in range(2 if reason == "cap" else 1)]
         service._admit()
-        assert service.store.list_attempts(running)
+        assert all(service.store.list_attempts(job) for job in running)
         cuts.clear()
+    if reason == "fifo":
+        # An older writer of the same tier waits on its output; the last slot is kept for it (C-6.9).
+        older = service.root / "older.md"
+        submit(service, harness, repository, out_path=str(older))
+        service.store.acquire_lease(f"out:{older}", "another-job")
     elif reason == "lease":
         output = service.root / "answer.md"
         extra["out_path"] = str(output)
@@ -465,10 +481,24 @@ def test_a_fresh_waiter_runs_no_git_and_writes_no_tree(
         from tests.fake.test_unrun_worktrees import disk
         disk(service, monkeypatch, 39)
     elif reason == "retention":
-        service.store.acquire_lease(folders.exclusive_key(str(repo)), "retention:test")
-    job = submit(service, harness, repo, **extra)
+        service.store.acquire_lease(folders.exclusive_key(str(repository)), "retention:test")
+    job = submit(service, harness, repository, **extra)
     if reason == "lease":
         service.store.acquire_lease(f"out:{output}", "another-job")
+    return service, cuts, job
+
+
+@pytest.mark.parametrize("reason", list(NO_CUT_HOLDS))
+def test_a_fresh_waiter_runs_no_git_and_writes_no_tree(
+        fleet_factory, repo, monkeypatch, immutable_source, reason):  # noqa: F811
+    """I4/I5: capacity, caps, FIFO, a path lease, the door, retention and the ramp precede tree work.
+
+    The base oracle admits the same setup first; its hold is the one expected.
+    """
+    oracle, _, waiter = fresh_waiter(fleet_factory, repo, monkeypatch, reason, base=True)
+    oracle._admit()
+    base_reason = oracle._holds[waiter]["reason"]
+    service, cuts, job = fresh_waiter(fleet_factory, repo, monkeypatch, reason, base=False)
     run = subprocess.run
     calls = []
 
@@ -480,15 +510,54 @@ def test_a_fresh_waiter_runs_no_git_and_writes_no_tree(
 
     # Caching submit's immutable source inspection must not hide an accidental
     # Git inspection in the waiting look itself, even before a subprocess runs.
-    for name in ("git_head", "git_toplevel", "git_common_dir", "_git_prefix"):
-        monkeypatch.setattr(daemon_module, name, lambda *args, _name=name, **kwargs: pytest.fail(
-            f"waiting fresh job invoked {_name}"))
-    monkeypatch.setattr(subprocess, "run", no_git)
-    service._admit()
+    with monkeypatch.context() as guarded:
+        for name in ("git_head", "git_toplevel", "git_common_dir", "_git_prefix"):
+            guarded.setattr(daemon_module, name, lambda *args, _name=name, **kwargs: pytest.fail(
+                f"waiting fresh job invoked {_name}"))
+        guarded.setattr(subprocess, "run", no_git)
+        service._admit()
     assert not cuts and not calls and not service.store.list_attempts(job)
     assert not (service.root / "worktrees" / job).exists()
-    assert service._holds[job]["reason"] == {
-        "no-slot": "no-slot", "lease": "lease-held", "disk": "disk", "retention": "lease-held"}[reason]
+    assert service._holds[job]["reason"] == base_reason == NO_CUT_HOLDS[reason]
+
+
+def test_six_fresh_writers_under_a_cap_of_two_cut_only_the_two_placed_trees(
+        fleet_factory, repo, immutable_source):  # noqa: F811
+    """Review r2's probe: the fleet cap comes before Git, so cuts equal placements (C-6.20)."""
+    service, harness, cuts = fleet_factory(slots=None, cap=2, synthetic=True)
+    jobs = [submit(service, harness, repo) for _ in range(6)]
+    service._admit()
+    placed = [row["job_id"] for row in service.store.list_attempts()]
+    assert placed == jobs[:2]
+    assert sorted(cuts) == sorted(placed)
+    for job in jobs[2:]:
+        # The first is held at its look; the pass holds the rest before theirs.
+        assert service.store.get_job(job)["state"] in ("queued", "waiting")
+        assert service._holds[job]["reason"] == "fleet-full"
+        assert not os.path.lexists(service.root / "worktrees" / job)
+    assert sorted(os.listdir(service.root / "worktrees")) == sorted(placed)
+
+
+def test_preparation_spends_no_route_retry(fleet_factory, repo, immutable_source):  # noqa: F811
+    """C-6.3, C-6.20: two route moves after Git still leave a third check, which places the job."""
+    service, harness, cuts = fleet_factory(slots=None, synthetic=True)
+    job = submit(service, harness, repo)
+    stands = service._route_stands
+    checks = []
+
+    def moved_twice_after_git(basis, decision):
+        checks.append(len(cuts))
+        if cuts and len([check for check in checks if check]) <= 2:
+            return "moved", 0, None             # a commit overtook the check
+        return stands(basis, decision)
+
+    service._route_stands = moved_twice_after_git
+    service._admit()
+    assert daemon_module.ROUTE_TRIES == 3
+    assert cuts == [job]
+    attempts = service.store.list_attempts(job)
+    assert len(attempts) == 1, service._holds.get(job)
+    assert checks == [0, 1, 1, 1] and attempts[0]["lane_id"] == "codex-1"
 
 
 def test_the_placement_reuses_one_evaluation_and_pins_the_submitted_head(fleet_factory, repo):  # noqa: F811
@@ -606,6 +675,11 @@ def test_i2_i5_generated_reservations_holds_and_capacity_clocks_equal_the_base(
         # A second due look checks C-6.10's unchanged-verdict backoff too.
         due_waiters(service)
         service._admit()
+        if not base:
+            # Static lanes, caps and leases: nothing races Git, so every tree
+            # cut is a placement (C-6.20), whatever caps the scenario sets.
+            placed = [row["job_id"] for row in service.store.list_attempts()]
+            assert sorted(cuts) == sorted(placed)
         ids = {job: f"job-{i}" for i, job in enumerate(jobs)}
 
         def normalized(value):

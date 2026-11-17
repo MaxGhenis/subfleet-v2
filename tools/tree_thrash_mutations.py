@@ -126,7 +126,8 @@ KILL_EVIDENCE = {
 }
 
 
-def pytest(tests: list[str], *, timeout: float, temp_root: Path, junit: Path | None = None) -> dict:
+def pytest(tests: list[str], *, timeout: float, temp_root: Path, junit: Path | None = None,
+           workers: int = 0) -> dict:
     """Infrastructure failures cannot masquerade as a killed mutant."""
     with tempfile.TemporaryDirectory(prefix="tree-thrash-mutant-", dir=temp_root) as directory:
         env = {**os.environ, "TMPDIR": directory, "PYTHONDONTWRITEBYTECODE": "1", "HYPOTHESIS_PROFILE": "ci",
@@ -135,6 +136,8 @@ def pytest(tests: list[str], *, timeout: float, temp_root: Path, junit: Path | N
                    "--basetemp", str(Path(directory) / "pytest"), *tests]
         if junit:
             command.extend(["--junitxml", str(junit)])
+        if workers:
+            command.extend(["-n", str(workers)])          # needs pytest-xdist in this interpreter
         started = time.monotonic()
         try:
             run = subprocess.run(command, capture_output=True, text=True, env=env, timeout=timeout)
@@ -170,6 +173,7 @@ def main() -> int:
     parser.add_argument("--control-test", action="append", default=[], metavar="NODE_ID",
                         help="additional healthy control; repeat to prepend several controls")
     parser.add_argument("--junit-dir", type=Path, help="save each control/mutant collection's testcase timings")
+    parser.add_argument("--workers", type=int, default=0, help="pytest-xdist workers per collection (at most 4)")
     parser.add_argument("--against", action="append", default=[], metavar="NODE_ID",
                         help="survey: run each named mutant against these tests (modules allowed) instead of its "
                              "selected regression, and report what fails; repeat for several")
@@ -221,7 +225,7 @@ def main() -> int:
                 timeout = args.control_timeout if name == "baseline" and args.control_timeout else args.timeout
                 junit = (args.junit_dir / f"{args.output.stem if args.output else 'tree-thrash-mutants'}-{name}.xml"
                          if args.junit_dir else None)
-                result = pytest(tests, timeout=timeout, temp_root=args.temp_root, junit=junit)
+                result = pytest(tests, timeout=timeout, temp_root=args.temp_root, junit=junit, workers=args.workers)
                 result["mutation"] = name
                 expected = KILL_EVIDENCE.get(name)
                 intended_failure = bool(expected and any(expected in line for line in result["failure_evidence"]))
