@@ -180,6 +180,11 @@
   },
   "admission": {
     "lane_spread": 2,
+    "lane_order": {
+      "claude": "fill",
+      "codex": "reset"
+    },
+    "expiring_s": 21600,
     "weekly_reserve": 0.02,
     "five_hour_reserve": 0.1,
     "desktop_recent_s": 1800,

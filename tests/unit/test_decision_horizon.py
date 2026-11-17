@@ -106,6 +106,7 @@ def view_at(case: dict, instant: datetime) -> tuple[dict, list]:
                                case["attempts"], case["jobs"], now=instant, reading_ttl_s=TTL)
     held = [lane_id for lane_id, end in case["overrides"].items() if end > instant]
     view["readings"] = [row for row in view["readings"] if row["lane_id"] not in held]
+    view["fill_readings"] = [row for row in view["fill_readings"] if row["lane_id"] not in held]
     return view, [case["overrides"][lane_id] for lane_id in held]
 
 
@@ -123,6 +124,7 @@ def clocks(case: dict, instant: datetime) -> tuple:
     return (tuple(capacity.fresh_provider(row, now=instant, reading_ttl_s=TTL) for row in case["readings"]),
             tuple(window_not_renewed(row, instant) for row in case["readings"]),
             tuple(recent_evidence(row, instant) for row in case["readings"]),
+            tuple(fill_window_clocks(row, instant) for row in case["readings"]),
             tuple(not row["released_at"] and capacity._time(row["until_at"]) > instant for row in case["closures"]),
             tuple(end > instant for end in case["overrides"].values()))
 
@@ -139,6 +141,16 @@ def recent_evidence(row: dict, instant: datetime) -> bool:
     """The explanatory reading timestamp uses recent evidence, even without a reset."""
     return bool(row.get('label') in ('provider', 'stale-provider') and row.get('utilization') is not None
                 and 0 <= (instant - capacity._time(row['observed_at'])).total_seconds() <= TTL)
+
+
+def fill_window_clocks(row: dict, instant: datetime) -> tuple:
+    """Independent open-window and expiring clocks for the default Claude order."""
+    if (not row["lane_id"].startswith("claude-") or row.get("label") not in ("provider", "stale-provider")
+            or row.get("utilization") is None or not row.get("resets_at")):
+        return ()
+    observed, reset = capacity._time(row["observed_at"]), capacity._time(row["resets_at"])
+    return (observed <= instant, reset > instant,
+            row["window"] == "seven_day" and reset - timedelta(seconds=21600) <= instant < reset)
 
 
 def test_the_clock_alone_changes_no_decision_before_its_horizon():
@@ -231,7 +243,8 @@ def judgements(case: dict, instant: datetime) -> dict:
             if model["provider"] == lane_row["provider"]:
                 found[(lane_row["lane_id"], short)] = scheduler.judge_lane(
                     setup, short, lane_row, readings, closures,
-                    in_flight=setup["in_flight"].get(lane_row["lane_id"], 0), unavailable={})
+                    in_flight=setup["in_flight"].get(lane_row["lane_id"], 0), unavailable={},
+                    fill_readings=[row for row in view["fill_readings"] if row["lane_id"] == lane_row["lane_id"]])
     return found
 
 
@@ -241,6 +254,7 @@ def lane_clocks(case: dict, lane_id: str, instant: datetime) -> tuple:
                   if row["lane_id"] == lane_id),
             tuple(window_not_renewed(row, instant) for row in case["readings"] if row["lane_id"] == lane_id),
             tuple(recent_evidence(row, instant) for row in case["readings"] if row["lane_id"] == lane_id),
+            tuple(fill_window_clocks(row, instant) for row in case["readings"] if row["lane_id"] == lane_id),
             tuple(not row["released_at"] and capacity._time(row["until_at"]) > instant
                   for row in case["closures"] if row["lane_id"] == lane_id))
 
@@ -287,7 +301,8 @@ def rank_keys(case: dict, instant: datetime, lane_id: str | None = None) -> dict
         for short, model in POLICY["models"].items():
             if model["provider"] == lane_row["provider"]:
                 _, detail = scheduler.judge_lane(setup, short, lane_row, readings, closures,
-                    in_flight=setup["in_flight"].get(identity, 0), unavailable={})
+                    in_flight=setup["in_flight"].get(identity, 0), unavailable={},
+                    fill_readings=[row for row in view["fill_readings"] if row["lane_id"] == identity])
                 found[(identity, short)] = scheduler.rank_key(setup, short, identity, detail)
     return found
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import asdict, dataclass, is_dataclass
@@ -236,6 +237,50 @@ def latest_readings(readings: Iterable[Any], *, now: str | datetime,
     return [latest[key][1] for key in sorted(latest)]
 
 
+#: `Store.CANONICAL_TS` as a pattern: the one timestamp shape `utc_now` writes,
+#: whose strings sort as the instants they name.
+_CANONICAL_TS = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
+
+
+def fill_candidates(readings: Iterable[Any], *, now: str | datetime) -> list[dict[str, Any]]:
+    """C-11.11, C-3.7: the readings `Store.fill_reading_candidates` returns at
+    `now`, chosen from `readings` by its rule and kept in their given order.
+
+    Of the `provider` and `stale-provider` readings with a finite numeric
+    utilization: per lane, scope and window, the ties at the greatest canonical
+    timestamp no later than `now` (in whole seconds, as a view's clock), every
+    canonical one after it, and every one with another timestamp shape. Every
+    reading fill can read at `now` or a later clock is among them
+    (`scheduler.fill_ranking_usage` takes the latest numeric provider
+    observation no later than its clock). So a view holds the same fill rows
+    whether it was built from that query or from every reading, and it holds the
+    query's rows as the query returned them: no reader of `fill_readings` sees
+    rows other than those it saw before (`capacity.lane_horizons` reads a reset
+    from any of them, even one a later observation has replaced)."""
+    instant = _iso(_time(now))
+
+    def usable(row: Mapping[str, Any]) -> bool:
+        used = row.get("utilization")
+        # Not `math.isfinite` on an int: SQLite's integers are all in range, and
+        # a Python int too large for a float is left for its reader to refuse.
+        return (row.get("label") in ("provider", "stale-provider")
+                and (isinstance(used, int) and not isinstance(used, bool)
+                     or isinstance(used, float) and math.isfinite(used)))
+
+    def canonical(at: Any) -> bool:
+        return isinstance(at, str) and _CANONICAL_TS.fullmatch(at) is not None
+
+    rows = [row for row in (_row(item) for item in readings) if usable(row)]
+    top: dict[tuple[Any, Any, Any], str] = {}
+    for row in rows:
+        at, key = row["observed_at"], (row["lane_id"], row["scope"], row["window"])
+        if canonical(at) and at <= instant and (key not in top or at > top[key]):
+            top[key] = at
+    return [row for row in rows
+            if not canonical(at := row["observed_at"]) or at > instant
+            or at == top.get((row["lane_id"], row["scope"], row["window"]))]
+
+
 def fresh_provider(reading: Mapping[str, Any], *, now: str | datetime,
                    reading_ttl_s: int = READING_TTL_S) -> bool:
     """C-6.4: only current numeric provider evidence grants measured slots."""
@@ -271,7 +316,8 @@ def fresh_until(readings: Iterable[Mapping[str, Any]], *, now: str | datetime,
     return min(ends, default=None)
 
 
-def lane_horizons(view: Mapping[str, Any], *, reading_ttl_s: int = READING_TTL_S) -> dict[str, datetime]:
+def lane_horizons(view: Mapping[str, Any], *, reading_ttl_s: int = READING_TTL_S,
+                  policy: Mapping[str, Any] | None = None) -> dict[str, datetime]:
     """C-6.3: per lane, the first instant after the view's `now` at which the
     clock alone may change how `scheduler.evaluate` judges that lane on the
     view's rows; a lane with no such instant is left out.
@@ -298,7 +344,11 @@ def lane_horizons(view: Mapping[str, Any], *, reading_ttl_s: int = READING_TTL_S
 
     A reading's label (`stale-provider` past `reading_ttl_s`) and its age are
     evidence, not judgement; the check gives them again at its own clock."""
+    from .policy import admission_settings, lane_order
+    policy = policy or {}
     instant = _time(view["now"])
+    providers = {_row(lane)["lane_id"]: _row(lane)["provider"] for lane in view.get("lanes", ())}
+    expiring_s = admission_settings(policy)["expiring_s"]
     found: dict[str, datetime] = {}
 
     def note(lane_id: str, clock: datetime | None) -> None:
@@ -319,6 +369,23 @@ def lane_horizons(view: Mapping[str, Any], *, reading_ttl_s: int = READING_TTL_S
                 note(row["lane_id"], expiry)
             if row.get("resets_at") and max(instant, observed) < (reset := _time(row["resets_at"])) <= expiry:
                 note(row["lane_id"], reset)
+    # Fill's evidence is kept separately: a newer future or non-provider row
+    # may hide the latest usable provider observation in the admission view.
+    for item in view.get("fill_readings", view.get("readings", ())):
+        row = _row(item)
+        used = row.get("utilization")
+        if (lane_order(policy, providers.get(row["lane_id"], "")) != "fill"
+                or row.get("label") not in ("provider", "stale-provider")
+                or not isinstance(used, (int, float)) or isinstance(used, bool) or not math.isfinite(used)):
+            continue
+        observed = _time(row["observed_at"])
+        if observed > instant:
+            note(row["lane_id"], observed)
+        elif row.get("resets_at") and (reset := _time(row["resets_at"])) > instant:
+            note(row["lane_id"], reset)
+            if (row["window"] == "seven_day" and expiring_s is not None
+                    and (reset - instant).total_seconds() > expiring_s):
+                note(row["lane_id"], reset - timedelta(seconds=expiring_s))
     for item in view.get("closures", ()):
         row = _row(item)
         if not row.get("released_at") and (until := _time(row["until_at"])) > instant:
@@ -327,7 +394,8 @@ def lane_horizons(view: Mapping[str, Any], *, reading_ttl_s: int = READING_TTL_S
 
 
 def decision_horizon(view: Mapping[str, Any], *, reading_ttl_s: int = READING_TTL_S,
-                     ends: Iterable[str | datetime] = ()) -> datetime | None:
+                     ends: Iterable[str | datetime] = (),
+                     policy: Mapping[str, Any] | None = None) -> datetime | None:
     """C-6.3: the first instant after the view's `now` at which a routing decision
     taken on the view's rows may change with no row changing; None when nothing
     in it waits on the clock.
@@ -344,7 +412,7 @@ def decision_horizon(view: Mapping[str, Any], *, reading_ttl_s: int = READING_TT
     probe (C-11.7) that turns `unmeasured` when the closure ends (review of
     f48df54). It is the earliest of every lane's own (`lane_horizons`) and of
     `ends`; C-6.3's check reads the lanes' own, never this fleet-wide one."""
-    clocks = [*lane_horizons(view, reading_ttl_s=reading_ttl_s).values(), *(_time(end) for end in ends)]
+    clocks = [*lane_horizons(view, reading_ttl_s=reading_ttl_s, policy=policy).values(), *(_time(end) for end in ends)]
     return min(clocks, default=None)
 
 
@@ -399,7 +467,8 @@ def build_view(lanes: Iterable[Any], readings: Iterable[Any] = (), closures: Ite
                desktop_account: str | None = None,
                desktop: DesktopIdentity | None = None,
                desktop_in_use: bool | None = None,
-               weekly_samples: Iterable[Any] | None = None) -> dict[str, Any]:
+               weekly_samples: Iterable[Any] | None = None,
+               fill_readings: Iterable[Any] | None = None) -> dict[str, Any]:
     """C-6.4, C-9.1, C-9.6, C-10.3–4: assemble an immutable-input snapshot.
 
     V1-owned and desktop lanes remain visible for status and rejection evidence.
@@ -410,10 +479,15 @@ def build_view(lanes: Iterable[Any], readings: Iterable[Any] = (), closures: Ite
     the desktop app's own credential, with the cached `~/.claude.json` email kept
     beside it as a hint and never as the authority. `desktop_account` remains for
     callers that have only that hint; `desktop` wins when both are given.
+
+    `fill_readings` (C-11.11) holds the rows `fill_candidates` chooses from
+    `fill_readings` when given, else from `readings`.
     """
     instant = _time(now) if now is not None else datetime.now(timezone.utc)
     timestamp = _iso(instant)
     reading_rows = [_row(item) for item in readings]
+    # C-3.7: the same fill rows from the store's query as from every reading.
+    fill_rows = fill_candidates(fill_readings if fill_readings is not None else reading_rows, now=instant)
     evidence = latest_readings(reading_rows, now=instant, reading_ttl_s=reading_ttl_s)
     history = []
     cutoff = instant - timedelta(hours=24)
@@ -455,7 +529,8 @@ def build_view(lanes: Iterable[Any], readings: Iterable[Any] = (), closures: Ite
                                for row in lane["readings"])
         roster.append(lane)
     roster.sort(key=lambda lane: _display_order(lane, now=instant, reading_ttl_s=reading_ttl_s))
-    return {"lanes": roster, "readings": evidence, "weekly_samples": history, "closures": active_closures,
+    return {"lanes": roster, "readings": evidence, "fill_readings": fill_rows,
+            "weekly_samples": history, "closures": active_closures,
             "attempts": attempt_rows, "jobs": job_rows,
             "in_flight": {lane["lane_id"]: counts[lane["lane_id"]] for lane in roster},
             "in_flight_turns": {lane["lane_id"]: turn_counts[lane["lane_id"]] for lane in roster},
@@ -634,8 +709,9 @@ def store_rows(store: Any, *, now: str | datetime | None = None) -> dict[str, li
     a view build holds no read connection (review of 5841d8b, finding 2)."""
     # Every reading that can be a key's newest, not every reading.
     readings = getattr(store, "latest_reading_candidates", store.list_readings)()
+    fill_readings = store.fill_reading_candidates(now=now) if hasattr(store, "fill_reading_candidates") else readings
     history = store.weekly_projection_samples(now=now) if hasattr(store, "weekly_projection_samples") else readings
-    return {"lanes": store.lane_rows(), "readings": readings, "weekly_samples": history,
+    return {"lanes": store.lane_rows(), "readings": readings, "fill_readings": fill_readings, "weekly_samples": history,
             "closures": store.list_closures(),
             "attempts": store.list_attempts(), "jobs": store.list_jobs()}
 

@@ -1,0 +1,1486 @@
+{
+  "admitted_first_attempts": 287,
+  "cost_model": {
+    "attempt_quantiles": {
+      "claude:seven_day": {
+        "max": 0.57,
+        "median": 0.01502083000749022,
+        "observed_attempts": 77,
+        "p90": 0.06999999999999997,
+        "p95": 0.1280000000000001,
+        "p99": 0.3115999999999982,
+        "positive_attempts": 73,
+        "positive_median": 0.015669788444035628,
+        "positive_p95": 0.13599999999999965
+      },
+      "codex:seven_day": {
+        "max": 0.10499999999999998,
+        "median": 0.009999999999999995,
+        "observed_attempts": 216,
+        "p90": 0.03194520182273451,
+        "p95": 0.040000000000000036,
+        "p99": 0.07872547634581537,
+        "positive_attempts": 188,
+        "positive_median": 0.010000000000000009,
+        "positive_p95": 0.0400058928365018
+      }
+    },
+    "imputed": {
+      "limited:claude:five_hour": 3,
+      "limited:claude:seven_day": 3,
+      "unobserved:claude:five_hour": 82,
+      "unobserved:claude:seven_day": 5,
+      "unobserved:codex:seven_day": 8
+    },
+    "job_quantiles": {
+      "claude:seven_day": {
+        "max": 0.69,
+        "median": 0.01618136222346671,
+        "observed_jobs": 71,
+        "p90": 0.06999999999999995,
+        "p95": 0.12999999999999998,
+        "p99": 0.36799999999999866,
+        "positive_jobs": 68,
+        "positive_median": 0.019095915996739703,
+        "positive_p95": 0.1389999999999999
+      },
+      "codex:seven_day": {
+        "max": 0.10499999999999998,
+        "median": 0.010000000000000009,
+        "observed_jobs": 207,
+        "p90": 0.033856351951573695,
+        "p95": 0.040000000000000036,
+        "p99": 0.08013962843145898,
+        "positive_jobs": 184,
+        "positive_median": 0.010000000000000009,
+        "positive_p95": 0.040007706016963886
+      }
+    },
+    "positive_external_intervals": 240,
+    "positive_workload_intervals": 334,
+    "renewal_intervals_excluded": 423
+  },
+  "limitations": [
+    "Recorded attempt/retry arrivals, durations, models and eligible candidate sets are fixed; no counterfactual retries, promotions or closure changes.",
+    "Job creation arrivals are counted, but placement occurs at recorded attempt reservation timestamps. Requests with no recorded admission have no observable attempt cost and are not placed.",
+    "Turn affinity is the factual selected lane, because the separate conversation store was not copied.",
+    "Observed positive utilization deltas are allocated by active overlap; unrelated usage while attempts run cannot be separated.",
+    "Usage deltas are normalized fractions of original account limits; lane-specific subscription capacity differences are not modeled.",
+    "Full demand is charged at admission; successful siblings or provider/window medians impute limited and unobserved demand. Ranking moves only when a factual sensor timestamp arrives.",
+    "Renewal intervals are excluded from cost attribution; post-reset spend without a renewed observation is discarded when the next cycle's factual reading arrives.",
+    "Historical readings and their ages are retained, so this replay does not estimate the benefit of additional busy-lane sensor reads.",
+    "Unused weekly capacity uses the last pre-reset observation plus workload corrections; external use after that observation is unobserved.",
+    "Only observed scheduled account resets can be reported. Pre-reset readings can be stale by hours or days.",
+    "Hourly account counts include enabled accounts even while historical closures prevent admission; unknown/expired account observations are classified below 10%, which can overstate preserved whole accounts.",
+    "The model is uncalibrated; compare its reset modeled limited count with actual recorded limits before interpreting variant differences.",
+    "A cost-model limited fraction is an estimate, not a prediction of provider errors or the actual live limited rate."
+  ],
+  "monotonicity_export": {
+    "consecutive_open_window_pairs": {
+      "all": 40972,
+      "claude": 982,
+      "claude:five_hour": 278,
+      "claude:seven_day": 704,
+      "codex": 39990,
+      "codex:seven_day": 39990
+    },
+    "definition": "Consecutive provider/stale-provider numeric observations by lane, scope and window; identical non-null reset; both observations before reset; exact utilization comparison.",
+    "first_observation": "2026-10-24T00:05:21Z",
+    "last_observation": "2026-11-08T00:07:15Z",
+    "readings": 41803,
+    "utilization_decreases": {
+      "all": 0,
+      "claude": 0,
+      "claude:five_hour": 0,
+      "claude:seven_day": 0,
+      "codex": 0,
+      "codex:seven_day": 0
+    }
+  },
+  "monotonicity_through_until": {
+    "consecutive_open_window_pairs": {
+      "all": 40930,
+      "claude": 980,
+      "claude:five_hour": 278,
+      "claude:seven_day": 702,
+      "codex": 39950,
+      "codex:seven_day": 39950
+    },
+    "definition": "Consecutive provider/stale-provider numeric observations by lane, scope and window; identical non-null reset; both observations before reset; exact utilization comparison.",
+    "first_observation": "2026-10-24T00:05:21Z",
+    "last_observation": "2026-11-07T23:49:21Z",
+    "readings": 41759,
+    "utilization_decreases": {
+      "all": 0,
+      "claude": 0,
+      "claude:five_hour": 0,
+      "claude:seven_day": 0,
+      "codex": 0,
+      "codex:seven_day": 0
+    }
+  },
+  "packing_metrics": {
+    "hourly": "168 hourly samples at since + h hours, starting h=0, after same-time readings, resets and admissions; all enabled account groups are included. Latest account seven_day physical modeled utilization is used; unknown or expired windows count as zero. Partial is inclusive 10%..90%; whole is below 10%.",
+    "hours": "Each placed attempt contributes its recorded duration, clipped at the replay end; aliases group by account, but output names lanes only.",
+    "variants": "Only Claude lane order/spread varies. Codex always uses reset and spread=2. The duplicate fill spread=2 expiring=21600 variant appears once."
+  },
+  "period": {
+    "since": "2026-10-31T23:51:40Z",
+    "until": "2026-11-07T23:51:40Z"
+  },
+  "recorded_attempt_arrivals": 309,
+  "recorded_job_arrivals": 473,
+  "recorded_limited_share": 0.009709,
+  "recorded_outcomes": {
+    "content-filter": 2,
+    "limited": 3,
+    "ok": 228,
+    "transient": 28,
+    "unfinished": 11,
+    "unknown": 37
+  },
+  "recorded_outcomes_by_provider": {
+    "claude": {
+      "limited": 3,
+      "ok": 63,
+      "transient": 11,
+      "unfinished": 4,
+      "unknown": 4
+    },
+    "codex": {
+      "content-filter": 2,
+      "ok": 165,
+      "transient": 17,
+      "unfinished": 7,
+      "unknown": 33
+    }
+  },
+  "reserves": {
+    "five_hour": 0.1,
+    "weekly": 0.02
+  },
+  "snapshot_bytes": 55074816,
+  "snapshot_method": "Copy the supplied offline export to a temporary file; replay only that copy with mode=ro and query_only=ON.",
+  "snapshot_sha256": "d32bef807da530aca0ff3cca9cc9161a089b2dedbe0f6066da89156c958eff06",
+  "turn_attempts": 0,
+  "usage_readings_loaded": 20814,
+  "variants": [
+    {
+      "attempt_hours_by_lane": {
+        "claude-1": 26.44416,
+        "claude-10": 16.193773,
+        "claude-19": 44.829166,
+        "claude-4": 18.799995,
+        "claude-7": 8.422359,
+        "claude-8": 28.918035,
+        "claude-9": 13.526241,
+        "codex-1": 57.694144,
+        "codex-2": 60.422532,
+        "codex-3": 72.100253,
+        "codex-4": 36.151444,
+        "codex-5": 44.447027,
+        "codex-6": 44.785815
+      },
+      "attempts": 309,
+      "by_provider": {
+        "claude": {
+          "accounts_taking_work": 7,
+          "attempt_hours": 157.133729,
+          "attempts": 85,
+          "hourly_account_pool": 8,
+          "hourly_mean_partial_accounts": 4.619048,
+          "hourly_mean_whole_accounts": 2.196429,
+          "hourly_samples": 168,
+          "limited_attempts": 7,
+          "limited_share": 0.082353,
+          "measured_placements": 80,
+          "top_1_attempt_hour_share": 0.285293,
+          "top_2_attempt_hour_share": 0.469328,
+          "top_3_attempt_hour_share": 0.637618,
+          "weekly_account_resets": 8,
+          "weekly_unused_sum": 2.14176
+        },
+        "codex": {
+          "accounts_taking_work": 6,
+          "attempt_hours": 315.601215,
+          "attempts": 224,
+          "hourly_account_pool": 6,
+          "hourly_mean_partial_accounts": 3.72619,
+          "hourly_mean_whole_accounts": 0.815476,
+          "hourly_samples": 168,
+          "limited_attempts": 2,
+          "limited_share": 0.008929,
+          "measured_placements": 179,
+          "top_1_attempt_hour_share": 0.228454,
+          "top_2_attempt_hour_share": 0.419906,
+          "top_3_attempt_hour_share": 0.602713,
+          "weekly_account_resets": 6,
+          "weekly_unused_sum": 0.2
+        }
+      },
+      "changed_placements": 81,
+      "expiring_s": 21600,
+      "lane_order": {
+        "claude": "reset",
+        "codex": "reset"
+      },
+      "lane_spread": {
+        "claude": 2,
+        "codex": 2
+      },
+      "limited_attempts": 9,
+      "limited_share": 0.029126,
+      "measured_placements": 259,
+      "missing_decisions": 0,
+      "placements_by_lane": {
+        "claude-1": 16,
+        "claude-10": 6,
+        "claude-19": 22,
+        "claude-4": 13,
+        "claude-7": 3,
+        "claude-8": 14,
+        "claude-9": 11,
+        "codex-1": 37,
+        "codex-2": 36,
+        "codex-3": 59,
+        "codex-4": 21,
+        "codex-5": 38,
+        "codex-6": 33
+      },
+      "unmeasured_placements": 50,
+      "variant": "reset, spread=2",
+      "weekly_resets": [
+        {
+          "account_lanes": [
+            "claude-10"
+          ],
+          "lane": "claude-10",
+          "reading_age_s": 45281.0,
+          "reset": "2026-11-03T04:00:00Z",
+          "unused_fraction": 0.32
+        },
+        {
+          "account_lanes": [
+            "codex-4"
+          ],
+          "lane": "codex-4",
+          "reading_age_s": 50.0,
+          "reset": "2026-11-04T06:35:22Z",
+          "unused_fraction": 0.0
+        },
+        {
+          "account_lanes": [
+            "codex-1"
+          ],
+          "lane": "codex-1",
+          "reading_age_s": 62.0,
+          "reset": "2026-11-04T06:35:34Z",
+          "unused_fraction": 0.0
+        },
+        {
+          "account_lanes": [
+            "codex-2"
+          ],
+          "lane": "codex-2",
+          "reading_age_s": 7.0,
+          "reset": "2026-11-04T06:35:42Z",
+          "unused_fraction": 0.0
+        },
+        {
+          "account_lanes": [
+            "codex-5"
+          ],
+          "lane": "codex-5",
+          "reading_age_s": 9.0,
+          "reset": "2026-11-04T06:35:44Z",
+          "unused_fraction": 0.059271
+        },
+        {
+          "account_lanes": [
+            "codex-6"
+          ],
+          "lane": "codex-6",
+          "reading_age_s": 33.0,
+          "reset": "2026-11-04T06:36:08Z",
+          "unused_fraction": 0.05
+        },
+        {
+          "account_lanes": [
+            "codex-3"
+          ],
+          "lane": "codex-3",
+          "reading_age_s": 46.0,
+          "reset": "2026-11-04T06:37:23Z",
+          "unused_fraction": 0.090729
+        },
+        {
+          "account_lanes": [
+            "claude-11",
+            "claude-18"
+          ],
+          "lane": "claude-18",
+          "reading_age_s": 508568.0,
+          "reset": "2026-11-05T16:00:00Z",
+          "unused_fraction": 0.97
+        },
+        {
+          "account_lanes": [
+            "claude-8"
+          ],
+          "lane": "claude-8",
+          "reading_age_s": 266905.0,
+          "reset": "2026-11-06T15:00:00Z",
+          "unused_fraction": 0.55
+        },
+        {
+          "account_lanes": [
+            "claude-1"
+          ],
+          "lane": "claude-1",
+          "reading_age_s": 213619.0,
+          "reset": "2026-11-07T06:00:00Z",
+          "unused_fraction": 0.03
+        },
+        {
+          "account_lanes": [
+            "claude-9"
+          ],
+          "lane": "claude-9",
+          "reading_age_s": 210223.0,
+          "reset": "2026-11-07T13:00:00Z",
+          "unused_fraction": 0.019958
+        },
+        {
+          "account_lanes": [
+            "claude-19",
+            "claude-6"
+          ],
+          "lane": "claude-19",
+          "reading_age_s": 215465.0,
+          "reset": "2026-11-07T14:00:00Z",
+          "unused_fraction": 0.0
+        },
+        {
+          "account_lanes": [
+            "claude-4"
+          ],
+          "lane": "claude-4",
+          "reading_age_s": 214430.0,
+          "reset": "2026-11-07T14:00:00Z",
+          "unused_fraction": 0.121802
+        },
+        {
+          "account_lanes": [
+            "claude-7"
+          ],
+          "lane": "claude-7",
+          "reading_age_s": 217592.0,
+          "reset": "2026-11-07T14:00:00Z",
+          "unused_fraction": 0.13
+        }
+      ],
+      "weekly_unused_mean": 0.167269,
+      "weekly_unused_sum": 2.34176,
+      "within_five_percent_five_hour": 0
+    },
+    {
+      "attempt_hours_by_lane": {
+        "claude-1": 26.44416,
+        "claude-10": 19.191136,
+        "claude-19": 24.856407,
+        "claude-4": 39.169862,
+        "claude-7": 7.469233,
+        "claude-8": 30.213903,
+        "claude-9": 9.789029,
+        "codex-1": 57.694144,
+        "codex-2": 60.422532,
+        "codex-3": 72.100253,
+        "codex-4": 36.151444,
+        "codex-5": 44.447027,
+        "codex-6": 44.785815
+      },
+      "attempts": 309,
+      "by_provider": {
+        "claude": {
+          "accounts_taking_work": 7,
+          "attempt_hours": 157.133729,
+          "attempts": 85,
+          "hourly_account_pool": 8,
+          "hourly_mean_partial_accounts": 4.291667,
+          "hourly_mean_whole_accounts": 2.196429,
+          "hourly_samples": 168,
+          "limited_attempts": 15,
+          "limited_share": 0.176471,
+          "measured_placements": 70,
+          "top_1_attempt_hour_share": 0.249277,
+          "top_2_attempt_hour_share": 0.441559,
+          "top_3_attempt_hour_share": 0.609849,
+          "weekly_account_resets": 8,
+          "weekly_unused_sum": 2.379958
+        },
+        "codex": {
+          "accounts_taking_work": 6,
+          "attempt_hours": 315.601215,
+          "attempts": 224,
+          "hourly_account_pool": 6,
+          "hourly_mean_partial_accounts": 3.72619,
+          "hourly_mean_whole_accounts": 0.815476,
+          "hourly_samples": 168,
+          "limited_attempts": 2,
+          "limited_share": 0.008929,
+          "measured_placements": 179,
+          "top_1_attempt_hour_share": 0.228454,
+          "top_2_attempt_hour_share": 0.419906,
+          "top_3_attempt_hour_share": 0.602713,
+          "weekly_account_resets": 6,
+          "weekly_unused_sum": 0.2
+        }
+      },
+      "changed_placements": 91,
+      "expiring_s": 21600,
+      "lane_order": {
+        "claude": "fill",
+        "codex": "reset"
+      },
+      "lane_spread": {
+        "claude": 2,
+        "codex": 2
+      },
+      "limited_attempts": 17,
+      "limited_share": 0.055016,
+      "measured_placements": 249,
+      "missing_decisions": 0,
+      "placements_by_lane": {
+        "claude-1": 16,
+        "claude-10": 7,
+        "claude-19": 17,
+        "claude-4": 17,
+        "claude-7": 4,
+        "claude-8": 14,
+        "claude-9": 10,
+        "codex-1": 37,
+        "codex-2": 36,
+        "codex-3": 59,
+        "codex-4": 21,
+        "codex-5": 38,
+        "codex-6": 33
+      },
+      "unmeasured_placements": 60,
+      "variant": "fill, spread=2, expiring=21600",
+      "weekly_resets": [
+        {
+          "account_lanes": [
+            "claude-10"
+          ],
+          "lane": "claude-10",
+          "reading_age_s": 45281.0,
+          "reset": "2026-11-03T04:00:00Z",
+          "unused_fraction": 0.25
+        },
+        {
+          "account_lanes": [
+            "codex-4"
+          ],
+          "lane": "codex-4",
+          "reading_age_s": 50.0,
+          "reset": "2026-11-04T06:35:22Z",
+          "unused_fraction": 0.0
+        },
+        {
+          "account_lanes": [
+            "codex-1"
+          ],
+          "lane": "codex-1",
+          "reading_age_s": 62.0,
+          "reset": "2026-11-04T06:35:34Z",
+          "unused_fraction": 0.0
+        },
+        {
+          "account_lanes": [
+            "codex-2"
+          ],
+          "lane": "codex-2",
+          "reading_age_s": 7.0,
+          "reset": "2026-11-04T06:35:42Z",
+          "unused_fraction": 0.0
+        },
+        {
+          "account_lanes": [
+            "codex-5"
+          ],
+          "lane": "codex-5",
+          "reading_age_s": 9.0,
+          "reset": "2026-11-04T06:35:44Z",
+          "unused_fraction": 0.059271
+        },
+        {
+          "account_lanes": [
+            "codex-6"
+          ],
+          "lane": "codex-6",
+          "reading_age_s": 33.0,
+          "reset": "2026-11-04T06:36:08Z",
+          "unused_fraction": 0.05
+        },
+        {
+          "account_lanes": [
+            "codex-3"
+          ],
+          "lane": "codex-3",
+          "reading_age_s": 46.0,
+          "reset": "2026-11-04T06:37:23Z",
+          "unused_fraction": 0.090729
+        },
+        {
+          "account_lanes": [
+            "claude-11",
+            "claude-18"
+          ],
+          "lane": "claude-18",
+          "reading_age_s": 508568.0,
+          "reset": "2026-11-05T16:00:00Z",
+          "unused_fraction": 0.97
+        },
+        {
+          "account_lanes": [
+            "claude-8"
+          ],
+          "lane": "claude-8",
+          "reading_age_s": 266905.0,
+          "reset": "2026-11-06T15:00:00Z",
+          "unused_fraction": 0.58
+        },
+        {
+          "account_lanes": [
+            "claude-1"
+          ],
+          "lane": "claude-1",
+          "reading_age_s": 213619.0,
+          "reset": "2026-11-07T06:00:00Z",
+          "unused_fraction": 0.03
+        },
+        {
+          "account_lanes": [
+            "claude-9"
+          ],
+          "lane": "claude-9",
+          "reading_age_s": 210223.0,
+          "reset": "2026-11-07T13:00:00Z",
+          "unused_fraction": 0.159958
+        },
+        {
+          "account_lanes": [
+            "claude-19",
+            "claude-6"
+          ],
+          "lane": "claude-19",
+          "reading_age_s": 215465.0,
+          "reset": "2026-11-07T14:00:00Z",
+          "unused_fraction": 0.0
+        },
+        {
+          "account_lanes": [
+            "claude-4"
+          ],
+          "lane": "claude-4",
+          "reading_age_s": 214430.0,
+          "reset": "2026-11-07T14:00:00Z",
+          "unused_fraction": 0.0
+        },
+        {
+          "account_lanes": [
+            "claude-7"
+          ],
+          "lane": "claude-7",
+          "reading_age_s": 217592.0,
+          "reset": "2026-11-07T14:00:00Z",
+          "unused_fraction": 0.39
+        }
+      ],
+      "weekly_unused_mean": 0.184283,
+      "weekly_unused_sum": 2.579958,
+      "within_five_percent_five_hour": 0
+    },
+    {
+      "attempt_hours_by_lane": {
+        "claude-1": 26.44416,
+        "claude-10": 19.191136,
+        "claude-19": 20.182441,
+        "claude-4": 39.169862,
+        "claude-7": 12.1432,
+        "claude-8": 30.213903,
+        "claude-9": 9.789029,
+        "codex-1": 57.694144,
+        "codex-2": 60.422532,
+        "codex-3": 72.100253,
+        "codex-4": 36.151444,
+        "codex-5": 44.447027,
+        "codex-6": 44.785815
+      },
+      "attempts": 309,
+      "by_provider": {
+        "claude": {
+          "accounts_taking_work": 7,
+          "attempt_hours": 157.133729,
+          "attempts": 85,
+          "hourly_account_pool": 8,
+          "hourly_mean_partial_accounts": 4.291667,
+          "hourly_mean_whole_accounts": 2.196429,
+          "hourly_samples": 168,
+          "limited_attempts": 9,
+          "limited_share": 0.105882,
+          "measured_placements": 71,
+          "top_1_attempt_hour_share": 0.249277,
+          "top_2_attempt_hour_share": 0.441559,
+          "top_3_attempt_hour_share": 0.609849,
+          "weekly_account_resets": 8,
+          "weekly_unused_sum": 2.319958
+        },
+        "codex": {
+          "accounts_taking_work": 6,
+          "attempt_hours": 315.601215,
+          "attempts": 224,
+          "hourly_account_pool": 6,
+          "hourly_mean_partial_accounts": 3.72619,
+          "hourly_mean_whole_accounts": 0.815476,
+          "hourly_samples": 168,
+          "limited_attempts": 2,
+          "limited_share": 0.008929,
+          "measured_placements": 179,
+          "top_1_attempt_hour_share": 0.228454,
+          "top_2_attempt_hour_share": 0.419906,
+          "top_3_attempt_hour_share": 0.602713,
+          "weekly_account_resets": 6,
+          "weekly_unused_sum": 0.2
+        }
+      },
+      "changed_placements": 90,
+      "expiring_s": 21600,
+      "lane_order": {
+        "claude": "fill",
+        "codex": "reset"
+      },
+      "lane_spread": {
+        "claude": 4,
+        "codex": 2
+      },
+      "limited_attempts": 11,
+      "limited_share": 0.035599,
+      "measured_placements": 250,
+      "missing_decisions": 0,
+      "placements_by_lane": {
+        "claude-1": 16,
+        "claude-10": 7,
+        "claude-19": 14,
+        "claude-4": 17,
+        "claude-7": 7,
+        "claude-8": 14,
+        "claude-9": 10,
+        "codex-1": 37,
+        "codex-2": 36,
+        "codex-3": 59,
+        "codex-4": 21,
+        "codex-5": 38,
+        "codex-6": 33
+      },
+      "unmeasured_placements": 59,
+      "variant": "fill, spread=4, expiring=21600",
+      "weekly_resets": [
+        {
+          "account_lanes": [
+            "claude-10"
+          ],
+          "lane": "claude-10",
+          "reading_age_s": 45281.0,
+          "reset": "2026-11-03T04:00:00Z",
+          "unused_fraction": 0.25
+        },
+        {
+          "account_lanes": [
+            "codex-4"
+          ],
+          "lane": "codex-4",
+          "reading_age_s": 50.0,
+          "reset": "2026-11-04T06:35:22Z",
+          "unused_fraction": 0.0
+        },
+        {
+          "account_lanes": [
+            "codex-1"
+          ],
+          "lane": "codex-1",
+          "reading_age_s": 62.0,
+          "reset": "2026-11-04T06:35:34Z",
+          "unused_fraction": 0.0
+        },
+        {
+          "account_lanes": [
+            "codex-2"
+          ],
+          "lane": "codex-2",
+          "reading_age_s": 7.0,
+          "reset": "2026-11-04T06:35:42Z",
+          "unused_fraction": 0.0
+        },
+        {
+          "account_lanes": [
+            "codex-5"
+          ],
+          "lane": "codex-5",
+          "reading_age_s": 9.0,
+          "reset": "2026-11-04T06:35:44Z",
+          "unused_fraction": 0.059271
+        },
+        {
+          "account_lanes": [
+            "codex-6"
+          ],
+          "lane": "codex-6",
+          "reading_age_s": 33.0,
+          "reset": "2026-11-04T06:36:08Z",
+          "unused_fraction": 0.05
+        },
+        {
+          "account_lanes": [
+            "codex-3"
+          ],
+          "lane": "codex-3",
+          "reading_age_s": 46.0,
+          "reset": "2026-11-04T06:37:23Z",
+          "unused_fraction": 0.090729
+        },
+        {
+          "account_lanes": [
+            "claude-11",
+            "claude-18"
+          ],
+          "lane": "claude-18",
+          "reading_age_s": 508568.0,
+          "reset": "2026-11-05T16:00:00Z",
+          "unused_fraction": 0.97
+        },
+        {
+          "account_lanes": [
+            "claude-8"
+          ],
+          "lane": "claude-8",
+          "reading_age_s": 266905.0,
+          "reset": "2026-11-06T15:00:00Z",
+          "unused_fraction": 0.58
+        },
+        {
+          "account_lanes": [
+            "claude-1"
+          ],
+          "lane": "claude-1",
+          "reading_age_s": 213619.0,
+          "reset": "2026-11-07T06:00:00Z",
+          "unused_fraction": 0.03
+        },
+        {
+          "account_lanes": [
+            "claude-9"
+          ],
+          "lane": "claude-9",
+          "reading_age_s": 210223.0,
+          "reset": "2026-11-07T13:00:00Z",
+          "unused_fraction": 0.159958
+        },
+        {
+          "account_lanes": [
+            "claude-19",
+            "claude-6"
+          ],
+          "lane": "claude-19",
+          "reading_age_s": 215465.0,
+          "reset": "2026-11-07T14:00:00Z",
+          "unused_fraction": 0.33
+        },
+        {
+          "account_lanes": [
+            "claude-4"
+          ],
+          "lane": "claude-4",
+          "reading_age_s": 214430.0,
+          "reset": "2026-11-07T14:00:00Z",
+          "unused_fraction": 0.0
+        },
+        {
+          "account_lanes": [
+            "claude-7"
+          ],
+          "lane": "claude-7",
+          "reading_age_s": 217592.0,
+          "reset": "2026-11-07T14:00:00Z",
+          "unused_fraction": 0.0
+        }
+      ],
+      "weekly_unused_mean": 0.179997,
+      "weekly_unused_sum": 2.519958,
+      "within_five_percent_five_hour": 0
+    },
+    {
+      "attempt_hours_by_lane": {
+        "claude-1": 26.44416,
+        "claude-10": 19.191136,
+        "claude-19": 20.182441,
+        "claude-4": 39.169862,
+        "claude-7": 12.1432,
+        "claude-8": 30.213903,
+        "claude-9": 9.789029,
+        "codex-1": 57.694144,
+        "codex-2": 60.422532,
+        "codex-3": 72.100253,
+        "codex-4": 36.151444,
+        "codex-5": 44.447027,
+        "codex-6": 44.785815
+      },
+      "attempts": 309,
+      "by_provider": {
+        "claude": {
+          "accounts_taking_work": 7,
+          "attempt_hours": 157.133729,
+          "attempts": 85,
+          "hourly_account_pool": 8,
+          "hourly_mean_partial_accounts": 4.291667,
+          "hourly_mean_whole_accounts": 2.196429,
+          "hourly_samples": 168,
+          "limited_attempts": 9,
+          "limited_share": 0.105882,
+          "measured_placements": 71,
+          "top_1_attempt_hour_share": 0.249277,
+          "top_2_attempt_hour_share": 0.441559,
+          "top_3_attempt_hour_share": 0.609849,
+          "weekly_account_resets": 8,
+          "weekly_unused_sum": 2.319958
+        },
+        "codex": {
+          "accounts_taking_work": 6,
+          "attempt_hours": 315.601215,
+          "attempts": 224,
+          "hourly_account_pool": 6,
+          "hourly_mean_partial_accounts": 3.72619,
+          "hourly_mean_whole_accounts": 0.815476,
+          "hourly_samples": 168,
+          "limited_attempts": 2,
+          "limited_share": 0.008929,
+          "measured_placements": 179,
+          "top_1_attempt_hour_share": 0.228454,
+          "top_2_attempt_hour_share": 0.419906,
+          "top_3_attempt_hour_share": 0.602713,
+          "weekly_account_resets": 6,
+          "weekly_unused_sum": 0.2
+        }
+      },
+      "changed_placements": 90,
+      "expiring_s": 21600,
+      "lane_order": {
+        "claude": "fill",
+        "codex": "reset"
+      },
+      "lane_spread": {
+        "claude": null,
+        "codex": 2
+      },
+      "limited_attempts": 11,
+      "limited_share": 0.035599,
+      "measured_placements": 250,
+      "missing_decisions": 0,
+      "placements_by_lane": {
+        "claude-1": 16,
+        "claude-10": 7,
+        "claude-19": 14,
+        "claude-4": 17,
+        "claude-7": 7,
+        "claude-8": 14,
+        "claude-9": 10,
+        "codex-1": 37,
+        "codex-2": 36,
+        "codex-3": 59,
+        "codex-4": 21,
+        "codex-5": 38,
+        "codex-6": 33
+      },
+      "unmeasured_placements": 59,
+      "variant": "fill, spread=null, expiring=21600",
+      "weekly_resets": [
+        {
+          "account_lanes": [
+            "claude-10"
+          ],
+          "lane": "claude-10",
+          "reading_age_s": 45281.0,
+          "reset": "2026-11-03T04:00:00Z",
+          "unused_fraction": 0.25
+        },
+        {
+          "account_lanes": [
+            "codex-4"
+          ],
+          "lane": "codex-4",
+          "reading_age_s": 50.0,
+          "reset": "2026-11-04T06:35:22Z",
+          "unused_fraction": 0.0
+        },
+        {
+          "account_lanes": [
+            "codex-1"
+          ],
+          "lane": "codex-1",
+          "reading_age_s": 62.0,
+          "reset": "2026-11-04T06:35:34Z",
+          "unused_fraction": 0.0
+        },
+        {
+          "account_lanes": [
+            "codex-2"
+          ],
+          "lane": "codex-2",
+          "reading_age_s": 7.0,
+          "reset": "2026-11-04T06:35:42Z",
+          "unused_fraction": 0.0
+        },
+        {
+          "account_lanes": [
+            "codex-5"
+          ],
+          "lane": "codex-5",
+          "reading_age_s": 9.0,
+          "reset": "2026-11-04T06:35:44Z",
+          "unused_fraction": 0.059271
+        },
+        {
+          "account_lanes": [
+            "codex-6"
+          ],
+          "lane": "codex-6",
+          "reading_age_s": 33.0,
+          "reset": "2026-11-04T06:36:08Z",
+          "unused_fraction": 0.05
+        },
+        {
+          "account_lanes": [
+            "codex-3"
+          ],
+          "lane": "codex-3",
+          "reading_age_s": 46.0,
+          "reset": "2026-11-04T06:37:23Z",
+          "unused_fraction": 0.090729
+        },
+        {
+          "account_lanes": [
+            "claude-11",
+            "claude-18"
+          ],
+          "lane": "claude-18",
+          "reading_age_s": 508568.0,
+          "reset": "2026-11-05T16:00:00Z",
+          "unused_fraction": 0.97
+        },
+        {
+          "account_lanes": [
+            "claude-8"
+          ],
+          "lane": "claude-8",
+          "reading_age_s": 266905.0,
+          "reset": "2026-11-06T15:00:00Z",
+          "unused_fraction": 0.58
+        },
+        {
+          "account_lanes": [
+            "claude-1"
+          ],
+          "lane": "claude-1",
+          "reading_age_s": 213619.0,
+          "reset": "2026-11-07T06:00:00Z",
+          "unused_fraction": 0.03
+        },
+        {
+          "account_lanes": [
+            "claude-9"
+          ],
+          "lane": "claude-9",
+          "reading_age_s": 210223.0,
+          "reset": "2026-11-07T13:00:00Z",
+          "unused_fraction": 0.159958
+        },
+        {
+          "account_lanes": [
+            "claude-19",
+            "claude-6"
+          ],
+          "lane": "claude-19",
+          "reading_age_s": 215465.0,
+          "reset": "2026-11-07T14:00:00Z",
+          "unused_fraction": 0.33
+        },
+        {
+          "account_lanes": [
+            "claude-4"
+          ],
+          "lane": "claude-4",
+          "reading_age_s": 214430.0,
+          "reset": "2026-11-07T14:00:00Z",
+          "unused_fraction": 0.0
+        },
+        {
+          "account_lanes": [
+            "claude-7"
+          ],
+          "lane": "claude-7",
+          "reading_age_s": 217592.0,
+          "reset": "2026-11-07T14:00:00Z",
+          "unused_fraction": 0.0
+        }
+      ],
+      "weekly_unused_mean": 0.179997,
+      "weekly_unused_sum": 2.519958,
+      "within_five_percent_five_hour": 0
+    },
+    {
+      "attempt_hours_by_lane": {
+        "claude-1": 26.44416,
+        "claude-10": 19.191136,
+        "claude-19": 24.856407,
+        "claude-4": 39.169862,
+        "claude-7": 7.469233,
+        "claude-8": 30.213903,
+        "claude-9": 9.789029,
+        "codex-1": 57.694144,
+        "codex-2": 60.422532,
+        "codex-3": 72.100253,
+        "codex-4": 36.151444,
+        "codex-5": 44.447027,
+        "codex-6": 44.785815
+      },
+      "attempts": 309,
+      "by_provider": {
+        "claude": {
+          "accounts_taking_work": 7,
+          "attempt_hours": 157.133729,
+          "attempts": 85,
+          "hourly_account_pool": 8,
+          "hourly_mean_partial_accounts": 4.291667,
+          "hourly_mean_whole_accounts": 2.196429,
+          "hourly_samples": 168,
+          "limited_attempts": 15,
+          "limited_share": 0.176471,
+          "measured_placements": 70,
+          "top_1_attempt_hour_share": 0.249277,
+          "top_2_attempt_hour_share": 0.441559,
+          "top_3_attempt_hour_share": 0.609849,
+          "weekly_account_resets": 8,
+          "weekly_unused_sum": 2.379958
+        },
+        "codex": {
+          "accounts_taking_work": 6,
+          "attempt_hours": 315.601215,
+          "attempts": 224,
+          "hourly_account_pool": 6,
+          "hourly_mean_partial_accounts": 3.72619,
+          "hourly_mean_whole_accounts": 0.815476,
+          "hourly_samples": 168,
+          "limited_attempts": 2,
+          "limited_share": 0.008929,
+          "measured_placements": 179,
+          "top_1_attempt_hour_share": 0.228454,
+          "top_2_attempt_hour_share": 0.419906,
+          "top_3_attempt_hour_share": 0.602713,
+          "weekly_account_resets": 6,
+          "weekly_unused_sum": 0.2
+        }
+      },
+      "changed_placements": 91,
+      "expiring_s": null,
+      "lane_order": {
+        "claude": "fill",
+        "codex": "reset"
+      },
+      "lane_spread": {
+        "claude": 2,
+        "codex": 2
+      },
+      "limited_attempts": 17,
+      "limited_share": 0.055016,
+      "measured_placements": 249,
+      "missing_decisions": 0,
+      "placements_by_lane": {
+        "claude-1": 16,
+        "claude-10": 7,
+        "claude-19": 17,
+        "claude-4": 17,
+        "claude-7": 4,
+        "claude-8": 14,
+        "claude-9": 10,
+        "codex-1": 37,
+        "codex-2": 36,
+        "codex-3": 59,
+        "codex-4": 21,
+        "codex-5": 38,
+        "codex-6": 33
+      },
+      "unmeasured_placements": 60,
+      "variant": "fill, spread=2, expiring=null",
+      "weekly_resets": [
+        {
+          "account_lanes": [
+            "claude-10"
+          ],
+          "lane": "claude-10",
+          "reading_age_s": 45281.0,
+          "reset": "2026-11-03T04:00:00Z",
+          "unused_fraction": 0.25
+        },
+        {
+          "account_lanes": [
+            "codex-4"
+          ],
+          "lane": "codex-4",
+          "reading_age_s": 50.0,
+          "reset": "2026-11-04T06:35:22Z",
+          "unused_fraction": 0.0
+        },
+        {
+          "account_lanes": [
+            "codex-1"
+          ],
+          "lane": "codex-1",
+          "reading_age_s": 62.0,
+          "reset": "2026-11-04T06:35:34Z",
+          "unused_fraction": 0.0
+        },
+        {
+          "account_lanes": [
+            "codex-2"
+          ],
+          "lane": "codex-2",
+          "reading_age_s": 7.0,
+          "reset": "2026-11-04T06:35:42Z",
+          "unused_fraction": 0.0
+        },
+        {
+          "account_lanes": [
+            "codex-5"
+          ],
+          "lane": "codex-5",
+          "reading_age_s": 9.0,
+          "reset": "2026-11-04T06:35:44Z",
+          "unused_fraction": 0.059271
+        },
+        {
+          "account_lanes": [
+            "codex-6"
+          ],
+          "lane": "codex-6",
+          "reading_age_s": 33.0,
+          "reset": "2026-11-04T06:36:08Z",
+          "unused_fraction": 0.05
+        },
+        {
+          "account_lanes": [
+            "codex-3"
+          ],
+          "lane": "codex-3",
+          "reading_age_s": 46.0,
+          "reset": "2026-11-04T06:37:23Z",
+          "unused_fraction": 0.090729
+        },
+        {
+          "account_lanes": [
+            "claude-11",
+            "claude-18"
+          ],
+          "lane": "claude-18",
+          "reading_age_s": 508568.0,
+          "reset": "2026-11-05T16:00:00Z",
+          "unused_fraction": 0.97
+        },
+        {
+          "account_lanes": [
+            "claude-8"
+          ],
+          "lane": "claude-8",
+          "reading_age_s": 266905.0,
+          "reset": "2026-11-06T15:00:00Z",
+          "unused_fraction": 0.58
+        },
+        {
+          "account_lanes": [
+            "claude-1"
+          ],
+          "lane": "claude-1",
+          "reading_age_s": 213619.0,
+          "reset": "2026-11-07T06:00:00Z",
+          "unused_fraction": 0.03
+        },
+        {
+          "account_lanes": [
+            "claude-9"
+          ],
+          "lane": "claude-9",
+          "reading_age_s": 210223.0,
+          "reset": "2026-11-07T13:00:00Z",
+          "unused_fraction": 0.159958
+        },
+        {
+          "account_lanes": [
+            "claude-19",
+            "claude-6"
+          ],
+          "lane": "claude-19",
+          "reading_age_s": 215465.0,
+          "reset": "2026-11-07T14:00:00Z",
+          "unused_fraction": 0.0
+        },
+        {
+          "account_lanes": [
+            "claude-4"
+          ],
+          "lane": "claude-4",
+          "reading_age_s": 214430.0,
+          "reset": "2026-11-07T14:00:00Z",
+          "unused_fraction": 0.0
+        },
+        {
+          "account_lanes": [
+            "claude-7"
+          ],
+          "lane": "claude-7",
+          "reading_age_s": 217592.0,
+          "reset": "2026-11-07T14:00:00Z",
+          "unused_fraction": 0.39
+        }
+      ],
+      "weekly_unused_mean": 0.184283,
+      "weekly_unused_sum": 2.579958,
+      "within_five_percent_five_hour": 0
+    },
+    {
+      "attempt_hours_by_lane": {
+        "claude-1": 26.44416,
+        "claude-10": 19.191136,
+        "claude-19": 24.856407,
+        "claude-4": 39.169862,
+        "claude-7": 7.469233,
+        "claude-8": 30.213903,
+        "claude-9": 9.789029,
+        "codex-1": 57.694144,
+        "codex-2": 60.422532,
+        "codex-3": 72.100253,
+        "codex-4": 36.151444,
+        "codex-5": 44.447027,
+        "codex-6": 44.785815
+      },
+      "attempts": 309,
+      "by_provider": {
+        "claude": {
+          "accounts_taking_work": 7,
+          "attempt_hours": 157.133729,
+          "attempts": 85,
+          "hourly_account_pool": 8,
+          "hourly_mean_partial_accounts": 4.291667,
+          "hourly_mean_whole_accounts": 2.196429,
+          "hourly_samples": 168,
+          "limited_attempts": 15,
+          "limited_share": 0.176471,
+          "measured_placements": 70,
+          "top_1_attempt_hour_share": 0.249277,
+          "top_2_attempt_hour_share": 0.441559,
+          "top_3_attempt_hour_share": 0.609849,
+          "weekly_account_resets": 8,
+          "weekly_unused_sum": 2.379958
+        },
+        "codex": {
+          "accounts_taking_work": 6,
+          "attempt_hours": 315.601215,
+          "attempts": 224,
+          "hourly_account_pool": 6,
+          "hourly_mean_partial_accounts": 3.72619,
+          "hourly_mean_whole_accounts": 0.815476,
+          "hourly_samples": 168,
+          "limited_attempts": 2,
+          "limited_share": 0.008929,
+          "measured_placements": 179,
+          "top_1_attempt_hour_share": 0.228454,
+          "top_2_attempt_hour_share": 0.419906,
+          "top_3_attempt_hour_share": 0.602713,
+          "weekly_account_resets": 6,
+          "weekly_unused_sum": 0.2
+        }
+      },
+      "changed_placements": 91,
+      "expiring_s": 86400,
+      "lane_order": {
+        "claude": "fill",
+        "codex": "reset"
+      },
+      "lane_spread": {
+        "claude": 2,
+        "codex": 2
+      },
+      "limited_attempts": 17,
+      "limited_share": 0.055016,
+      "measured_placements": 249,
+      "missing_decisions": 0,
+      "placements_by_lane": {
+        "claude-1": 16,
+        "claude-10": 7,
+        "claude-19": 17,
+        "claude-4": 17,
+        "claude-7": 4,
+        "claude-8": 14,
+        "claude-9": 10,
+        "codex-1": 37,
+        "codex-2": 36,
+        "codex-3": 59,
+        "codex-4": 21,
+        "codex-5": 38,
+        "codex-6": 33
+      },
+      "unmeasured_placements": 60,
+      "variant": "fill, spread=2, expiring=86400",
+      "weekly_resets": [
+        {
+          "account_lanes": [
+            "claude-10"
+          ],
+          "lane": "claude-10",
+          "reading_age_s": 45281.0,
+          "reset": "2026-11-03T04:00:00Z",
+          "unused_fraction": 0.25
+        },
+        {
+          "account_lanes": [
+            "codex-4"
+          ],
+          "lane": "codex-4",
+          "reading_age_s": 50.0,
+          "reset": "2026-11-04T06:35:22Z",
+          "unused_fraction": 0.0
+        },
+        {
+          "account_lanes": [
+            "codex-1"
+          ],
+          "lane": "codex-1",
+          "reading_age_s": 62.0,
+          "reset": "2026-11-04T06:35:34Z",
+          "unused_fraction": 0.0
+        },
+        {
+          "account_lanes": [
+            "codex-2"
+          ],
+          "lane": "codex-2",
+          "reading_age_s": 7.0,
+          "reset": "2026-11-04T06:35:42Z",
+          "unused_fraction": 0.0
+        },
+        {
+          "account_lanes": [
+            "codex-5"
+          ],
+          "lane": "codex-5",
+          "reading_age_s": 9.0,
+          "reset": "2026-11-04T06:35:44Z",
+          "unused_fraction": 0.059271
+        },
+        {
+          "account_lanes": [
+            "codex-6"
+          ],
+          "lane": "codex-6",
+          "reading_age_s": 33.0,
+          "reset": "2026-11-04T06:36:08Z",
+          "unused_fraction": 0.05
+        },
+        {
+          "account_lanes": [
+            "codex-3"
+          ],
+          "lane": "codex-3",
+          "reading_age_s": 46.0,
+          "reset": "2026-11-04T06:37:23Z",
+          "unused_fraction": 0.090729
+        },
+        {
+          "account_lanes": [
+            "claude-11",
+            "claude-18"
+          ],
+          "lane": "claude-18",
+          "reading_age_s": 508568.0,
+          "reset": "2026-11-05T16:00:00Z",
+          "unused_fraction": 0.97
+        },
+        {
+          "account_lanes": [
+            "claude-8"
+          ],
+          "lane": "claude-8",
+          "reading_age_s": 266905.0,
+          "reset": "2026-11-06T15:00:00Z",
+          "unused_fraction": 0.58
+        },
+        {
+          "account_lanes": [
+            "claude-1"
+          ],
+          "lane": "claude-1",
+          "reading_age_s": 213619.0,
+          "reset": "2026-11-07T06:00:00Z",
+          "unused_fraction": 0.03
+        },
+        {
+          "account_lanes": [
+            "claude-9"
+          ],
+          "lane": "claude-9",
+          "reading_age_s": 210223.0,
+          "reset": "2026-11-07T13:00:00Z",
+          "unused_fraction": 0.159958
+        },
+        {
+          "account_lanes": [
+            "claude-19",
+            "claude-6"
+          ],
+          "lane": "claude-19",
+          "reading_age_s": 215465.0,
+          "reset": "2026-11-07T14:00:00Z",
+          "unused_fraction": 0.0
+        },
+        {
+          "account_lanes": [
+            "claude-4"
+          ],
+          "lane": "claude-4",
+          "reading_age_s": 214430.0,
+          "reset": "2026-11-07T14:00:00Z",
+          "unused_fraction": 0.0
+        },
+        {
+          "account_lanes": [
+            "claude-7"
+          ],
+          "lane": "claude-7",
+          "reading_age_s": 217592.0,
+          "reset": "2026-11-07T14:00:00Z",
+          "unused_fraction": 0.39
+        }
+      ],
+      "weekly_unused_mean": 0.184283,
+      "weekly_unused_sum": 2.579958,
+      "within_five_percent_five_hour": 0
+    }
+  ],
+  "weekly_reset_coverage": {
+    "account_resets": 14,
+    "by_provider": {
+      "claude": 8,
+      "codex": 6
+    },
+    "oldest_pre_reset_reading_s": 508568.0,
+    "youngest_pre_reset_reading_s": 7.0
+  }
+}
