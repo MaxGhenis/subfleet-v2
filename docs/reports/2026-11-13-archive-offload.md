@@ -196,3 +196,102 @@ An initial completed-importer cleanup returned **1** on a test-created read-only
 Final checks: **7 Python AST parses passed**; source namespace, interrupted-copy clause and all four merged CLI verbs asserted; whole-worktree `git diff --check` passed. Final named-file staging was denied (**128**, `index.lock`), so a final commit could not be reached. No push was attempted outside the disclosed early synthetic-fixture violation.
 
 Head built: `53071cd13b40092a9b98407cf53ef8a3139838a5`
+
+## Fix round 2
+
+Started **2026-11-17 16:52:04 UTC** (`date -u` in the first command); deadline **19:52:04 UTC**. Built on the detached checkout of 6b53f6056, the head the brief named. I read review r2, this report and the PR body first. All tests ran on Python 3.15.2 with the round 1 harness copied to my scratch folder (`SF_AO_FIX2_SCRATCH`, assertion changed to `sf-ao-fix2`); the copy is in `2026-11-13-archive-offload-fix2-data/sf_ao_scope.py`. The harness skipped no test of the offload files. Logs for every run are in `2026-11-13-archive-offload-fix2-data/logs/`. Load average was 190 to 310 throughout.
+
+### First: the release merge broke every offload test that builds an archive
+At 6b53f6056 every offload test that builds an archive fails before it reaches offload code. Release/217's one holder listing per pass (D-HOLDERS-LSOF1, #297, which came in with the hub's merge) leaves a job in `awaiting_check2` after one `maintenance` call. `Archives.build` makes one call and asserts `pruned == [job_id]`.
+- **Evidence:** my first run of the new tests (`logs/r2-red-171754.log`) had 16 failures, all at `test_retention_offload.py:144` with `{'pruned': [] ...}` or a job number one behind. A round 1 test failed the same way (`logs/r1-probe-172118.log`). A probe of `World` plus `maintenance` showed `awaiting_check2: ["job-1"]`.
+- **Fix (b1391df36):** `pytestmark = pytest.mark.retention_catch_up` on `test_retention_offload.py`, `_r1.py` and `_r2.py`. This is how release marks its own retention test modules (`tests/conftest.py` `catch_up`).
+- **Without it,** CI on 6b53f6056 fails every archive-building offload test. The review read 8b14506af, before the merge, so it couldn't see this.
+
+### The findings
+Each red result below is from `logs/r2-red2-172551.log`, after the marker fix and before any code change: **15 failed, 2 passed** in 29 s. The two passes were a round 1 test included as a fixture check, and `test_a_folder_holding_something_besides_ledger_temporaries_is_still_refused`, a guard that should pass both before and after. Green results are from `logs/r2-green2-173659.log`: round 2 plus round 1 files, **42 passed**, 304 s.
+
+| Finding | Cause | Change | Test: red before, green after |
+|---|---|---|---|
+| **P0** resumed offload replaces the good external bundle | The `copying` stub stored `bundle_sha256: None`; a resume re-hashed the current internal bundle, and `_place` replaced the matching external bundle with it | `_offload_one` reads the bundle's SHA-256, and checks its heads, before it writes the stub (`_bundle_sha`; `Failed` and no stub if the bundle is wrong). `_copy_all`, `_verify`, repair, `_remove_internal` and recall compare against that value, and `_copy_all` refuses a bundle with none recorded. `_copy_into` now hashes what it reads: a source that doesn't hash to the recorded SHA-256 (manifest for stored files, stub for the bundle) has its new copy removed again, and the run fails naming it. A matching external copy is never removed (`_place` keeps it). | `test_copying_resume_must_not_replace_good_external_bundle`, red "no location keeps the good bundle" (good `11d1ea18…` in neither of `(None, '9794e00a…')`); green: outcome `offloaded`, external holds the good hash, the changed internal bundle is left and listed in `left_internal`. `test_the_copying_stub_records_the_bundle_checksum_before_any_copy`, red (`copying` stub held `None`). `test_a_resumed_copy_from_a_damaged_internal_bundle_stops_naming_it`, red: before, the changed bundle was copied, read back against its own new hash and **offloaded**; now `failed` naming `commits.bundle`, nothing external, internal untouched. |
+| **P1** remount gives a new `st_dev`; check, restore, recall and resume refuse | `_identity()` was `[st_dev, st_ino, birthtime]` for the folder and every ledger entry | `_identity()` is `[st_ino, birthtime]`; the ledger also binds the stub's volume UUID (`"volume"`), and the resolver still finds the folder only on the mounted volume with that UUID. Ledger entries must be 2-int lists; a 3-int ledger from an earlier build is refused as malformed (nothing was offloaded outside tests, so there is no migration). Round 1's foreign or replaced folder refusals stay green. | `test_remount_with_new_device_number`, red `Failed: the external folder belongs to another archive or source`; green: `check_archive` ok, `restore --to` writes the trees, recall `recalled` and `dropped`. `test_a_resumed_offload_after_a_remount_with_new_device_number[copied, verified, removing]`, all three red (`failed`), green (`offloaded`, check ok). |
+| **P1, `_source()` (UNPROVEN in the review)** | It hashed the state root's `st_dev` too | **The mechanism holds:** a new device number for the state root changed the source name (red: `d2d85eb1…` != `d31e37be…`), which skips a resumed offload ("run it with that target"), makes `--all-on` match nothing, and makes `--drop-external` keep the copy as another source's. `_source()` now hashes the canonical path plus `_identity()` (inode, birth time). Whether macOS really gives the internal data volume a new `st_dev` (a reboot with another disk numbering) is not shown here. | `test_a_state_root_with_a_new_device_number_keeps_its_source`, red; green: same source name, a `verified` archive resumes to `offloaded`, and `recall --all-on` recalls both archives and drops both external copies. |
+| **P2** a `copying` archive whose target is gone can never be cleared | Same as P0: recall refused for lack of a checksum | The checksum is recorded (P0). Recall reads nothing external when the internal copy verifies, so it ends the stub. When the external copy is authoritative, recall now opens it and checks its ledger before changing anything internal. | `test_a_copying_archive_whose_target_is_gone_is_recalled`, red `commits.bundle: offload.json records no checksum; external copy kept`; green: crash at the first `copy-file`, unmount, offload to a new UUID (skipped), recall `recalled`, internal tree as before, the unmounted target's partial copy byte for byte unchanged. Remounted, a later offload to that target takes its own partial copy over and finishes it, and `recall --drop-external` removes it. C-8.8 says this. |
+| **P2** an error or crash during the first ledger write wedges the folder | `_write_owner` removed its temporary only in its second `try`; `_ownership` refused a folder holding anything but `.owner.json` | `_write_owner` removes its temporary on any `Exception` raised anywhere in it. A kill (the tests' `Crash` is a `BaseException`) leaves it, as a real crash would. Under the archive's lock, `_ownership(create=True)` treats a folder holding nothing but `.owner.<pid>.<ns>.tmp` regular files as unclaimed, removes them, flushes and goes on. With a ledger present, it removes such leftovers after the ledger is validated. A folder with anything else in it is still refused, unchanged. New step `ledger-first`, inside `_write_owner` after the temporary is synced and before it is linked. | `test_crash_in_first_ledger_write_wedges_offload` (first fullsync of the temporary raises `EIO`), red: `.owner.13369.….tmp` left; green: none left, the rerun offloads, recall drops. `test_a_crash_in_the_first_ledger_write_leaves_a_temporary_the_rerun_clears` (a kill there), red: the rerun failed; green: offloaded, folder holds only the ledger, `files` and the bundle. `test_the_crash_properties_reach_the_first_ledger_write` (`logs/r2-ledger-first-180805.log`, 1 passed): at 6b53f6056 no `ledger-first` step exists (`grep -c` 0 in that file), so this crash point could not be reached. Guard `test_a_folder_holding_something_besides_ledger_temporaries_is_still_refused` passed before and after. |
+| **P2** modes of user folders named `subfleet-archive` change | `_open_below` marked folders managed by name (`part == FOLDER`) | With `create` or `private`, the stub path's last three components (`subfleet-archive/<source>/<name>`) are the program's, found by position, and the one three from the end must be `subfleet-archive`. Folders at and above `DIR` are only opened (and `DIR` flushed): `create` no longer makes a missing user folder. | `test_a_target_below_a_folder_named_subfleet_archive_keeps_its_modes` (`--to <mount>/subfleet-archive/inner`), red `{'inner': '0o700', 'subfleet-archive': '0o700'}`; green: both 0755, the program's two folders 0700. |
+| **P3, fixed** false `offloaded_to` through a linked state root | `_check_archive` compared an unresolved path with the resolver's resolved one | It compares `os.path.realpath` of both sides | `test_never_offloaded_archive_through_a_symlinked_root` (a link to the state root, and the `/var` form when the root is under `/private/var`), red: `offloaded_to` set; green: no key from `check_archive` or `restore`, and still set once offloaded. |
+| **P3, fixed** a damaged `.owner.json` gives a raw parse error | `json.loads` errors escaped `_ownership` | It raises `Failed` naming `.owner.json` and the archive, and leaves the file as it is. My test first went green on the message but red on "nothing changes": a recall that failed later still created an empty internal `files/`. The recall-opens-external-first change above fixes that, and also stops a recall with the volume unmounted from leaving an empty `files/`. | `test_a_damaged_ownership_marker_fails_naming_the_file`, red `JSONDecodeError`; then red on the empty `files/` (`logs/r2-green1-173137.log`, 1 failed, 41 passed); green: `check_archive` raises `Failed` naming the file, recall `failed` naming it, both CLI calls exit 1, internal and external trees and the stub unchanged. |
+| **P3, fixed** C-17.1 lost `[--json]` | Merge | `outcomes --session ID [--json]`, as release 4aed7a3c9 has it | Text check |
+| **P3, fixed** one folder entry misses its flush on resume | `_open_below` synced a parent only when its own `mkdir` succeeded | Each of the three program folders' parents is flushed on every pass. This was part of the position change above, so it stayed small. | `test_every_program_folders_parent_is_flushed_on_resume` (crash at the flush of `DIR` right after `mkdir(subfleet-archive)`), red "DIR or a program folder never flushed" (`…/vol-a/backups`); green |
+
+Changed existing tests:
+- `test_retention_offload_r1.py::test_copying_recall_never_drops_the_only_good_bundle` asserted the old `bundle_sha256 is None` at the `copied` crash; it now asserts the recorded good hash, and the rest of that test (recall fails, the external bundle survives, the stub stays) is unchanged.
+- The one-good-copy property's checker now also asserts, at every step, that the stub's `bundle_sha256` equals the bundle's original hash, so that invariant holds for the bundle by hash.
+
+### Left for the hub
+- **P3, listed as the brief asked: `restore --check` writes.** It creates and unlinks `<state>/archive/.lock.<name>`, so it fails on a read-only `<state>/archive`. C-8.8 documents the lock. Unchanged: a design call for the hub to file.
+- **New, found this round, not fixed: a crash or error inside a *later* ledger write wedges the folder.** `_copy_into` and `_copy_all` create a file (or `files/`) exclusively, then record its identity in the ledger (`Owner.claim`). If that ledger write fails (an error, which removes the temporary) or the process dies first, the folder keeps an empty entry the ledger doesn't name, and every rerun refuses it as "an external entry this offload did not create". The fix I'd suggest is to treat an empty unrecorded regular file, or an empty folder at a planned path of an owned folder, as an interrupted creation: it holds no bytes, so remove it and create it again. That changes C-8.8's "foreign entries are never adopted or replaced", so it is a call for the hub. For that reason `ledger-first` sits only in the first ledger write: a step inside the later writes would make the crash properties fail on this gap.
+- **The report's invariant 5** (crash at any step) now holds at every `HOOK` step, `ledger-first` included. A crash inside a later ledger write is not a step, as above. The test module's docstring says so.
+
+### Contract
+C-8.8 is amended for:
+- the recorded bundle checksum and what `copying` keeps or replaces;
+- the source name and ledger identity (inode and birth time, volume UUID);
+- ledger temporaries and a damaged ledger;
+- the program's folders by position, and the flush of each one's parent every run;
+- the hash check while copying;
+- recall of a `copying` archive whose target is gone, and what clears its partial copy later;
+- the resolver's UUID sentence and `offloaded_to`;
+- the write-confinement sentence (offload creates `DIR/subfleet-archive/` and `<source>/` when missing, sets both 0700 and flushes them and `DIR`).
+
+It also adds `test_retention_offload_r2.py` to the clause's test list. C-17.1 regains `[--json]`. A new change-log line, dated 2026-11-17, heads "Changes in version 3". The module docstring of `retention_offload.py` says the same.
+
+### Commands and results
+Every pytest run went through `run.sh` (in the data folder): `uv run --no-sync --with 'pytest-xdist>=3.6' python -m pytest -p sf_ao_scope --basetemp=<scratch>/bt/pytest-<label>-<time>`, at most `-n 4`, wrapped in `timeout`. Bash's 600 s cap per call in a headless session set each bound.
+
+| Run (log) | Selection | Result |
+|---|---|---|
+| `uv sync --group dev` | | 0; xdist 3.8.0 through `--with` |
+| `r2-red-171754` | new file, stock code | **16 failed**: the merge breakage above, not the findings |
+| `r1-probe-172118` | one round 1 test | **1 failed**, same breakage |
+| `r2-red2-172551` | new file plus that round 1 test, after the marker | **15 failed, 2 passed**, 29 s (red evidence) |
+| `r2-green1-173137` | round 2 and round 1 files, first fix | **1 failed, 41 passed**, 224 s (the empty `files/`) |
+| `r2-green2-173659` | same, final code | **42 passed**, 304 s |
+| `main-examples-174530` | `test_retention_offload.py` without its 5 properties, `-n 4` | **38 passed**, 118 s |
+| `main-props3-174906` | its one-good-copy, round-trip and dry-run properties, `-n 3` | **3 passed**, 461 s |
+| `main-crash-a-175753` | both crash properties, `OFFLOAD_PROP_EXAMPLES=4`, `-n 2` | **2 passed**, 354 s |
+| `r2-ledger-first-180805` | the added `ledger-first` test | **1 passed**, 118 s |
+| `vol-r1-190149` | `test_retention_volume_offload_r1.py` | **4 passed**, 25 s |
+| `imp-aa-181301` | importers chunk 1 (12 unit files), `-n 4 -v` | cut at 590 s at 19%: **29 passed, 28 skipped** (the harness refusing `git push` in host-push tests), **0 failed** |
+| `imp-archive-182558` | `test_retention_archive.py`, `-n 4 -v` | cut at 570 s: **9 passed, 3 failed**; pytest was killed before it printed tracebacks |
+| `imp-archive-3-183700` | those 3 alone, `-n 3` | **3 passed**, 305 s |
+| `guards-184907` | `test_state_contract.py`, `test_test_module_names.py`, `test_invariants_index.py`, `test_handler_refusals.py`, `-n 4` | **437 progress marks, all passes, reached 100%**; the 570 s bound killed it in teardown before the summary line (round 1 counted 435) |
+
+The 3 `test_retention_archive.py` failures were `test_file_written_after_the_final_check_is_kept_in_conflicts`, `test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit` and `test_corrupted_loose_object_is_not_trusted_for_omission[truncated]`. Each passed alone, which points to load, but their cause is UNPROVEN.
+
+Other checks: `ast.parse` of every changed Python file and `git diff --check` passed before each commit. The importer list (`git grep -l -E 'retention_offload|retention_archive' -- tests`) is 51 files: the 3 offload files plus the 48 in `importers.txt`.
+
+### What didn't run
+- **Importers:** of the 48 files, only part of chunk 1 and part of `test_retention_archive.py` ran. Never started: the other 24 unit files in `importers.txt` (chunks 2 and 3) and all 12 `tests/fake` files. At this load a 12-file chunk reached 19% in 590 s, so the rest could not finish before the deadline. CI's full run is the check.
+- **Crash properties:** 4 examples each, not the default 8.
+- **No CI** for this head, and **no real disk-image remount** (optional in the brief; skipped for time). The remount tests wrap `os.stat`, `os.lstat` and `os.fstat` so every caller sees another `st_dev` for each entry that was under the volume or state root, with inode and birth time unchanged. That simulates a remount; it isn't one.
+- **Not verified on hardware:** power-loss durability; tests replace `F_FULLFSYNC` with `fsync`, as before.
+
+### Deviations from the brief
+1. **The catch-up marker commit (b1391df36)** is outside the review's findings. Without it no offload test that builds an archive can pass at this head.
+2. **`ledger-first` is in the first ledger write only,** for the reason under "Left for the hub". `_write_owner`'s cleanup catches `Exception`, not `BaseException`, so the crash properties' injected kill leaves the temporary, as a real kill would, and the sweep must clear it.
+3. **Beyond the findings:**
+   - `_copy_into` hashes what it copies for offload;
+   - recall opens an authoritative external folder before it changes anything internal;
+   - `_open_below(create=True)` no longer creates missing folders above `DIR`;
+   - an offload resume with no recorded bundle checksum (a stub from an earlier build) fails naming the bundle.
+4. **Runs were bounded at 570–590 s** to fit Bash's 600 s cap. One importer run's tool call was moved to the background by the harness after the bound had already ended pytest (rc 124), and a `du` I ran to size the scratch folder overran the 120 s default and was moved too. I stopped that one with TaskStop. Neither left a process running.
+5. **I created and deleted `/tmp/sfao2-importers-raw.txt`** in one command: a stray redirect, outside the scratch folder and outside the brief's searches rule. No other file outside the worktree and scratch.
+6. **Commits are on the detached checkout,** as the job set it up.
+
+### Folders outside the job's scratch
+- **`$TMPDIR/uv-cache`:** the brief's cache, which already existed. Kept.
+- **`<worktree>/sf-ao-fix2-pytest-cache-files-e09tzd4a`:** pytest's own cache temporary, logged by the harness and already gone (pytest renames it into `.pytest_cache`). Nothing to delete.
+- **The worktree's ignored `.hypothesis/` and `.pytest_cache/`:** test databases inside the worktree.
+- **The scratch folder `$TMPDIR/sf-ao-fix2`:** removed at the end with a guarded `shutil.rmtree`, if time allowed. The final answer says whether it was.
+
+Head built: see the final answer (this section is committed with it).
