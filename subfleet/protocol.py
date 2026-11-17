@@ -211,6 +211,12 @@ class SubmitArgs:
     caller_family: str | None = None
     review_subject: str | None = None
     review_round: int | None = None
+    # C-6.23: explicit authorization to accept a same-family review.
+    allow_same_family: bool = False
+    # C-6.5: which harness marker supplied `caller_session`: `claude` for a
+    # Claude Code session id, `codex` for a Codex thread or session id, None
+    # for any other (or an older client). It decides the Codex writer exemption.
+    caller_session_kind: str | None = None
 
 
 @dataclass
@@ -232,6 +238,7 @@ class GateStartArgs:
     merge_method: str | None = "merge"
     main_model: str | None = None
     dry_run: bool = False
+    caller_family: str | None = None
 
 
 @dataclass
@@ -301,6 +308,8 @@ class WhyArgs:
     allow_desktop: bool = False
     needs_shell: bool | None = None
     sandbox: str | None = None
+    caller_family: str | None = None
+    allow_same_family: bool = False
 
 
 @dataclass

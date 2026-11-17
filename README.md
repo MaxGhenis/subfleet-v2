@@ -157,11 +157,13 @@ Review and caller flags:
 | `subfleet run --task review --subject PR_URL --tier standard -C DIR -p PROMPT` | Normalize a GitHub PR URL and assign its next review round, up to four. |
 | `subfleet run --task review --subject KEY --round 2 --tier standard -C DIR -p PROMPT` | Keep the caller-chosen round, including a re-run of an earlier round. |
 | `subfleet resume JOB_ID --caller-family codex` | Continue the source review's subject and round; the optional family flag overrides detection. |
+| `subfleet why --task review --tier hard --caller-family codex` | Explain the other-family reviewer chain; caller detection matches `run`. |
+| `subfleet run --task review --tier hard --caller-family codex -m astra --allow-same-family -C DIR -p PROMPT` | Explicitly authorize a same-family review and record the exception, and the session that gave it, on the job; refused inside a Subfleet job. |
 
 `--subject` and `--round` require `--task review`; `--round` also requires a
 subject. A fifth round requires a person. A review with no subject keeps its
 ordinary behavior. `runs --json` and `runs show --json` include `caller_family`,
-`review_subject` and `review_round`; readable `runs` appends review labels after
+`review_subject`, `review_round` and boolean `allow_same_family`; readable `runs` appends review labels after
 workdir, preserving its existing columns. Submissions carrying these fields or
 a caller family require a daemon advertising `review.subject.v1`; otherwise the
 CLI asks you to restart the daemon on the newer version.
@@ -170,6 +172,28 @@ CLI asks you to restart the daemon on the newer version.
 `CLAUDE_CODE_SESSION_ID`, `SUBFLEET_SESSION_ID`, then the Codex ids. With both
 families' markers, the nearest Claude or Codex ancestor selects the native
 family and session; an unresolved review requires `--caller-family`.
+
+Reviews with a known caller family try only the other family's models: that
+family's default reviewer first at every tier (`sol61` for a Claude caller,
+`opus` for a Codex caller), then the review chain's other models of that family
+from the chosen tier upward. With the shipped chain a Claude caller's review
+walks `sol61 -> astra`; a Codex caller's walks `opus`, then `haiku` and `sonnet`
+at the lower tiers. Optional policy
+`"review_family_defaults": {"claude": "sol61", "codex": "opus"}` overrides these
+by caller family; older policies need no new key. A code default the policy
+cannot serve (no such model) is dropped with a `daemon.log` warning, and a review
+left with no other-family reviewer waits, naming the family. Without
+other-family capacity the review waits. An explicit same-family model pin, or a
+pin to a lane of the caller's family without `-m`, is refused
+(`review-same-family`) unless `-m` and `--allow-same-family` are both passed;
+the flag also permits the original chain as fallback after independent choices.
+The flag is refused inside a Subfleet job (`SUBFLEET_JOB`, `SUBFLEET_ATTEMPT`,
+`SUBFLEET_TURN_JOB`, or a parent job); `runs show` names the session that gave
+it. It does not stop a desktop session from consenting. `why` also accepts the
+flag. The Codex writer exemption follows the kind of session id a submission
+carries (a Codex thread id), not `--caller-family`. Null caller identity and
+other tasks retain their routing. Gates use recorded caller identity when
+available, requiring a peer from the other family even without `--main-model`.
 
 Writable detached Claude jobs start with no MCP servers. Opt one job into the
 servers it needs by repeating `--mcp NAME`:

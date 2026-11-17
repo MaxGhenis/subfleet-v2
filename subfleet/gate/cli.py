@@ -102,6 +102,8 @@ def run(args, *, client=None, runner=subprocess.run, root: Path | None = None,
         client = client or Client(root)
         payload = {k: v for k, v in vars(args).items() if k not in {"handler", "command", "version"}}
         if args.gate_command != "continue":
+            from ..cli import caller_family
+            payload["caller_family"] = caller_family()
             payload["workdir"] = str(Path(args.workdir or Path.cwd()).expanduser().resolve())
         # Files named by the caller are read by the daemon from absolute paths.
         for key in ("brief", "response"):

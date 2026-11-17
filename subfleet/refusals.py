@@ -84,6 +84,11 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     "reserve-dispatch": ("unmeasured reserve authorization requires a fresh dispatch with explicit "
                          "pinned_lane and pinned_model", None),
     "caller-family": ("caller_family must be claude, codex or null", None),
+    "review-same-family": ("review: the pinned model or lane belongs to the caller's family",
+                           "pin a model or lane of the other family, or pass -m naming a same-family "
+                           "model with --allow-same-family"),
+    "same-family-consent": ("review: --allow-same-family is refused for a submission from inside a "
+                            "Subfleet job; a person gives that consent from their own session", None),
     "review-fields": ("--subject and --round require --task review; --round also requires --subject", None),
     "review-subject": ("review_subject must contain 1 to 2000 printable characters", None),
     "review-round": ("review_round must be a positive whole number from 1 to 4", None),

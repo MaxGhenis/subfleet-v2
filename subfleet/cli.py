@@ -164,16 +164,55 @@ def _ancestor_caller_family() -> str | None:
     return None
 
 
-def session_id(env: dict[str, str] | None = None, *, family: str | None = None) -> str | None:
+#: C-6.5: the family whose harness exports each session-id variable. A
+#: `SUBFLEET_SESSION_ID` is of no known kind.
+SESSION_ID_KINDS = {"CLAUDE_CODE_SESSION_ID": "claude", "CODEX_THREAD_ID": "codex", "CODEX_SESSION_ID": "codex"}
+
+
+def session_source(env: dict[str, str] | None = None, *,
+                   family: str | None = None) -> tuple[str | None, str | None]:
+    """The caller's session id and its kind: the family whose harness marker supplied it.
+
+    The kind never follows `--caller-family` or `SUBFLEET_CALLER_FAMILY` (C-6.5):
+    a Claude session that declares codex still carries a Claude session id.
+    With both families' markers, an id chosen by a declared family has a kind
+    only when the process ancestry names that same family.
+    """
     env = os.environ if env is None else env
     if all(_caller_markers(env)):
         family = family or caller_family(env=env)
         names = (("CLAUDE_CODE_SESSION_ID", "SUBFLEET_SESSION_ID") if family == "claude" else
                  ("SUBFLEET_SESSION_ID", "CODEX_THREAD_ID", "CODEX_SESSION_ID") if family == "codex" else
                  ("SUBFLEET_SESSION_ID",))
-        return next((env[name].strip() for name in names if env.get(name, "").strip()), None)
-    return (env.get("CLAUDE_CODE_SESSION_ID") or env.get("SUBFLEET_SESSION_ID")
-            or env.get("CODEX_THREAD_ID") or env.get("CODEX_SESSION_ID") or "").strip() or None
+        name = next((name for name in names if env.get(name, "").strip()), None)
+        if name is None:
+            return None, None
+        kind = SESSION_ID_KINDS.get(name)
+        return env[name].strip(), (kind if kind and _ancestor_caller_family() == kind else None)
+    for name in ("CLAUDE_CODE_SESSION_ID", "SUBFLEET_SESSION_ID", "CODEX_THREAD_ID", "CODEX_SESSION_ID"):
+        if (env.get(name) or "").strip():
+            return env[name].strip(), SESSION_ID_KINDS.get(name)
+    return None, None
+
+
+def session_id(env: dict[str, str] | None = None, *, family: str | None = None) -> str | None:
+    return session_source(env, family=family)[0]
+
+
+def session_kind(env: dict[str, str] | None = None, *, family: str | None = None) -> str | None:
+    """C-6.5: `claude` or `codex` for the harness that supplied the session id."""
+    return session_source(env, family=family)[1]
+
+
+#: C-6.23: a process launched by a Subfleet job (or a conversation turn) carries
+#: these; same-family consent is refused from it.
+JOB_ENV_MARKERS = ("SUBFLEET_JOB", "SUBFLEET_ATTEMPT", "SUBFLEET_TURN_JOB")
+
+
+def inside_subfleet_job(env: dict[str, str] | None = None) -> str | None:
+    """The job marker in this environment, or None outside a Subfleet job."""
+    env = os.environ if env is None else env
+    return next((name for name in JOB_ENV_MARKERS if (env.get(name) or "").strip()), None)
 
 
 def caller_family(explicit: str | None = None,
@@ -346,8 +385,18 @@ def in_claude_session(env: dict[str, str] | None = None) -> bool:
 
 
 def caller_pid(env: dict[str, str] | None = None, *, family: str | None = None) -> int | None:
+    """Claude's established process marker; Codex's thread ids are not pids.
+
+    No Codex PID marker is established here. A fresh command's parent shell
+    also cannot identify the persistent caller process, so a submission that
+    carries a Codex thread id skips the daemon's session-instance comparison
+    while keeping worktree holds.
+    """
     env = os.environ if env is None else env
-    if family == "codex" or all(_caller_markers(env)) and (family or caller_family(env=env)) != "claude":
+    # C-6.5: a Claude session id keeps its process marker whatever family is
+    # declared, so the daemon's writer-instance check can still identify it.
+    if session_kind(env, family=family) != "claude" and (
+            family == "codex" or all(_caller_markers(env)) and (family or caller_family(env=env)) != "claude"):
         return None
     try:
         value = int((env.get("CLAUDE_PID") or "").strip())
@@ -465,6 +514,7 @@ def job_row(row: dict[str, Any]) -> dict[str, Any]:
         "notice": _first(merged, "notice", "notify", "notice_state"),
         "caller_session": merged.get("caller_session"),
         "caller_family": merged.get("caller_family"),
+        "allow_same_family": bool(merged.get("allow_same_family", False)),
         "review_subject": merged.get("review_subject"),
         "review_round": merged.get("review_round"),
         "task": merged.get("task"),
@@ -1004,6 +1054,13 @@ def _prepare_submit(args: argparse.Namespace,
         return None, fail(Exit.INVALID_INPUT, f"run: {exc}")
     except ProtocolError as exc:
         return None, _protocol_failure(exc)
+    marker = inside_subfleet_job() if getattr(args, "allow_same_family", False) else None
+    if marker or getattr(args, "allow_same_family", False) and getattr(args, "parent", None):
+        # C-6.23: consent to a same-family review is a person's. The daemon
+        # refuses it on a parented submission too; this refuses it earlier.
+        return None, fail(Exit.REFUSED, "run: --allow-same-family is refused inside a Subfleet job "
+                          f"({marker or '--parent'} is set); a person gives that consent from their own session",
+                          "submit the review without --allow-same-family, or ask a person to submit it")
     workdir, error = _validate_run(args)
     if error is not None:
         return None, error
@@ -1039,7 +1096,9 @@ def _prepare_submit(args: argparse.Namespace,
         independent=bool(args.independent),
         parent_job_id=args.parent or os.environ.get("SUBFLEET_TURN_JOB"),
         caller_session=session_id(family=family),
+        caller_session_kind=session_kind(family=family),
         caller_family=family,
+        allow_same_family=bool(getattr(args, "allow_same_family", False)),
         review_subject=getattr(args, "subject", None),
         review_round=getattr(args, "round", None),
         caller_pid=caller_pid(family=family),
@@ -2354,6 +2413,7 @@ def cmd_resume(args: argparse.Namespace) -> int:
         parent_job_id=args.id,
         independent=True,  # a continuation may follow an explicitly cancelled job
         caller_session=session_id(family=family),
+        caller_session_kind=session_kind(family=family),
         caller_family=family,
         caller_pid=caller_pid(family=family),
         review_subject=source.get("review_subject"),
@@ -2626,9 +2686,14 @@ def cmd_why(args: argparse.Namespace) -> int:
         return fail(Exit.INVALID_INPUT, "why: name a job id, or --task T --tier X")
     if args.task and not args.tier:
         return fail(Exit.INVALID_INPUT, "why: --tier is required with --task")
+    try:
+        family = caller_family(getattr(args, "caller_family", None)) if not args.id else None
+    except ValueError as exc:
+        return fail(Exit.INVALID_INPUT, f"why: {exc}")
     why = protocol.WhyArgs(job_id=args.id, task=args.task, tier=args.tier,
                            pinned_model=args.m, exclusions=list(args.exclude or []),
-                           allow_desktop=bool(args.allow_desktop))
+                           allow_desktop=bool(args.allow_desktop), caller_family=family,
+                           allow_same_family=bool(getattr(args, "allow_same_family", False)))
     try:
         result = _client(args).call("why", _asdict(why))
     except DaemonUnavailable as exc:
@@ -3716,6 +3781,9 @@ def build_parser() -> argparse.ArgumentParser:
                        help="minimum capability for --task")
     p_run.add_argument("--caller-family", choices=("claude", "codex"),
                        help="submitting model family (overrides SUBFLEET_CALLER_FAMILY and detection)")
+    p_run.add_argument("--allow-same-family", action="store_true",
+                       help="authorize a same-family model pin (-m) or fallback for reviews; "
+                            "refused inside a Subfleet job")
     p_run.add_argument("--subject", metavar="TEXT",
                        help="review subject: a GitHub PR URL or caller key (requires --task review)")
     p_run.add_argument("--round", type=int, metavar="N",
@@ -3956,6 +4024,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_why.add_argument("id", nargs="?")
     p_why.add_argument("--task", choices=TASK_CHOICES)
     p_why.add_argument("--tier", choices=TIER_CHOICES)
+    p_why.add_argument("--caller-family", choices=("claude", "codex"),
+                       help="review caller family (default: detect as run does)")
+    p_why.add_argument("--allow-same-family", action="store_true",
+                       help="show the review chain with authorized same-family fallback")
     p_why.add_argument("-m", dest="m", metavar="MODEL")
     p_why.add_argument("-x", "--exclude", action="append", default=[], metavar="EMAIL")
     p_why.add_argument("--allow-desktop", action="store_true")

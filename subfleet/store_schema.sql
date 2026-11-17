@@ -1,4 +1,5 @@
--- subfleet v2 store schema, version 12 (#307 storage, caller family and review subjects/rounds).
+-- subfleet v2 store schema, version 13 (#307 storage, caller family and review subjects/rounds,
+-- then the same-family review authorization).
 -- See docs/acceptance-contract.md section 3.
 -- Applied by subfleet/store.py with journal_mode=WAL, synchronous=FULL, foreign_keys=ON.
 -- Version 2 (C-3.1, additive and numbered) adds identity, label, and
@@ -107,6 +108,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   parent_job_id TEXT REFERENCES jobs(job_id),
   caller_session TEXT,
   caller_family TEXT CHECK (caller_family IS NULL OR caller_family IN ('claude','codex')),
+  allow_same_family INTEGER NOT NULL DEFAULT 0 CHECK (allow_same_family IN (0,1)),
   caller_pid INTEGER,
   review_subject TEXT,
   review_round INTEGER CHECK (review_round IS NULL OR review_round BETWEEN 1 AND 4),

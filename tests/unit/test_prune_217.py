@@ -5,6 +5,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+import re
 import logging
 import os
 import re
@@ -200,9 +201,12 @@ def test_prune_requires_every_migrated_column(tmp_path, table, column):
     with sqlite3.connect(database) as conn:
         for index in conn.execute(f'PRAGMA index_list("{table}")').fetchall():
             # A partial index can depend on the removed column only in WHERE,
-            # which PRAGMA index_info does not include (notices.wake_state).
-            sql = conn.execute('SELECT sql FROM sqlite_master WHERE name=?', (index[1],)).fetchone()[0]
-            if sql and re.search(r'\b' + re.escape(column) + r'\b', sql):
+            # which PRAGMA index_info does not include (notices.wake_state);
+            # an automatic index has no SQL, only index_info.
+            indexed = {row[2] for row in conn.execute(f'PRAGMA index_info("{index[1]}")')}
+            definition = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='index' AND name=?", (index[1],)).fetchone()[0] or ''
+            if column in indexed or re.search(r'\b' + re.escape(column) + r'\b', definition):
                 conn.execute(f'DROP INDEX "{index[1]}"')
         conn.execute(f'ALTER TABLE "{table}" DROP COLUMN "{column}"')
     before = _tables(database)

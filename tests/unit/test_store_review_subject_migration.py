@@ -7,7 +7,8 @@ import sqlite3
 
 import pytest
 
-from subfleet.store import NOTICE_WAKE_MIGRATION, REVIEW_SUBJECT_MIGRATION, SCHEMA_VERSION, Store
+from subfleet.store import (NOTICE_WAKE_MIGRATION, REVIEW_FAMILY_MIGRATION, REVIEW_SUBJECT_MIGRATION,
+                            SCHEMA_VERSION, Store)
 
 from test_store_migration_2 import _migration_adding, _schema_before_migration
 
@@ -42,7 +43,8 @@ def rows(path):
 
 
 def test_review_subject_metadata_is_the_next_nullable_migration():
-    assert REVIEW_SUBJECT_MIGRATION == SCHEMA_VERSION == 12
+    assert REVIEW_SUBJECT_MIGRATION == 12
+    assert SCHEMA_VERSION == REVIEW_FAMILY_MIGRATION == 13
     assert {_migration_adding(field) for field in FIELDS} == {REVIEW_SUBJECT_MIGRATION}
 
 
@@ -57,15 +59,18 @@ def test_i6_migration_preserves_every_existing_row_and_adds_only_null_job_fields
     after = rows(path)
     assert after.keys() - before.keys() == {"caller_wake_sessions"}
     assert after["caller_wake_sessions"] == []
-    assert after["jobs"] == [{**job, **dict.fromkeys(FIELDS)} for job in before["jobs"]]
+    assert after["jobs"] == [{**job, **dict.fromkeys(FIELDS), "allow_same_family": 0} for job in before["jobs"]]
     for table in before.keys() - {"jobs", "schema_version", "events"}:
         assert after[table] == before[table], table
-    assert after["schema_version"][:-2] == before["schema_version"]
-    assert after["schema_version"][-1]["version"] == REVIEW_SUBJECT_MIGRATION
+    assert after["schema_version"][:-3] == before["schema_version"]
+    assert [row["version"] for row in after["schema_version"][-3:]] == [
+        NOTICE_WAKE_MIGRATION, REVIEW_SUBJECT_MIGRATION, REVIEW_FAMILY_MIGRATION]
+    assert after["schema_version"][-1]["version"] == SCHEMA_VERSION
     assert after["events"][:len(before["events"])] == before["events"]
     assert [(event["kind"], json.loads(event["data_json"])) for event in after["events"][len(before["events"]):]] == [
         ("schema.migrated", {"version": NOTICE_WAKE_MIGRATION}),
         ("schema.migrated", {"version": REVIEW_SUBJECT_MIGRATION}),
+        ("schema.migrated", {"version": REVIEW_FAMILY_MIGRATION}),
         ("schema.applied", {"version": SCHEMA_VERSION}),
     ]
     with Store(path):
