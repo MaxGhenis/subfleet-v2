@@ -13,7 +13,8 @@ The brief's invariants, each with what holds it:
    exist in at least one place whose bytes match the manifest, and the archive
    checks clean through the resolver: `test_every_step_keeps_one_good_copy`.
 2. Never an archive whose job has a retention folder; no write outside
-   `<state>/archive/<name>/`, its lock and log, and `DIR/subfleet-archive/<name>/`:
+   `<state>/archive/<name>/`, its lock and log, and `DIR/subfleet-archive/<source>/<name>/`
+   (besides creating and making private `subfleet-archive/` and `<source>/`):
    `test_skip_*retention_folder*`, `test_offload_and_recall_write_only_their_own_paths`.
 3. Offload then recall leaves `<state>/archive/<name>/` with the same files,
    bytes and modes: `test_offload_then_recall_gives_back_the_archive`.
@@ -23,7 +24,9 @@ The brief's invariants, each with what holds it:
    `test_check_verdicts_match_for_damage_inside_and_outside`.
 5. A rerun after a crash at any step ends where an uninterrupted run ends:
    `test_a_crash_at_any_offload_step_then_a_rerun_ends_the_same`,
-   `test_a_crash_at_any_recall_step_then_a_rerun_ends_the_same`.
+   `test_a_crash_at_any_recall_step_then_a_rerun_ends_the_same`. The steps are
+   `retention_offload.HOOK`'s, `ledger-first` (inside the first ledger write)
+   among them; a crash inside a later ledger write is not one of them.
 6. `--dry-run` writes nothing: `test_dry_run_writes_nothing`.
 
 `OFFLOAD_PROP_EXAMPLES` raises the property example count.

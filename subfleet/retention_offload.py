@@ -11,30 +11,38 @@ Offload, for one archive, under an exclusive lock (``<state>/archive/.lock.<name
 
 1. the stub is written as ``copying`` (format, target volume UUID and name,
    the path under the volume, the manifest's SHA-256, file count and bytes,
-   the original modes, time, Subfleet version);
+   the bundle's SHA-256 read before any byte is copied, the original modes,
+   time, Subfleet version);
 2. ``files/`` and the bundle are copied to ``DIR/subfleet-archive/<source>/<name>/``:
    each path created exclusively, directories 0700, files 0600, each file and
-   directory `F_FULLFSYNC`ed; an ownership marker binds the source, archive
-   and manifest and records each exclusive file creation before its bytes;
+   directory `F_FULLFSYNC`ed; an ownership marker binds the source, archive,
+   manifest and volume UUID and records each exclusive file creation (inode
+   and birth time) before its bytes; a file is copied only from internal
+   bytes that hash to the manifest's SHA-256, or the stub's for the bundle;
 3. the copy is read back: each stored file's SHA-256 against the manifest,
-   the bundle's bytes against the source and its heads against the manifest;
+   the bundle's against the stub and its heads against the manifest;
    a mismatch stops the archive with the internal copy untouched;
 4. the stub reads ``verified``; unless ``--keep-internal`` it is marked
    ``removing``, and only internal entries whose size and SHA-256 still match
    are removed; then it reads ``offloaded``;
 5. one line per archive goes to ``<state>/archive/.offload.jsonl``.
 
-Every step is safe to run again after a crash: ``copying`` checks or replaces
-a partial copy, ``verified`` reads the external copy back again before it
+Every step is safe to run again after a crash: ``copying`` keeps each owned
+external entry that matches the recorded SHA-256 and replaces only owned
+ones that do not, ``verified`` reads the external copy back again before it
 removes anything, and a half-removed internal copy continues once the
 external copy verifies again. `contents` is the one resolver that says where
 an archive's ``files/`` and bundle are: the internal folder, or the external
-folder once removal may have begun (a mounted volume with the recorded UUID).
+folder once removal may have begun (on the mounted volume with the recorded
+UUID; its ledger is matched by inode and birth time, not the device number a
+remount changes).
 
 Nothing here touches an archive whose job still has ``<state>/retention/<job>/``
 (the name minus any ``.N`` suffix), and nothing writes outside
 ``<state>/archive/<name>/``, the lock and log files in ``<state>/archive/``, and
-``DIR/subfleet-archive/<source>/<name>/``. All of it runs offline, without the daemon.
+``DIR/subfleet-archive/<source>/<name>/``, except that offload creates
+``DIR/subfleet-archive/`` and its ``<source>/`` when missing, sets both to 0700
+and flushes them and ``DIR``. All of it runs offline, without the daemon.
 """
 from __future__ import annotations
 
