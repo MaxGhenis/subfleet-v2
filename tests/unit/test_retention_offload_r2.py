@@ -224,6 +224,19 @@ def test_a_crash_in_the_first_ledger_write_leaves_a_temporary_the_rerun_clears(a
     assert not outside.exists()
 
 
+def test_the_crash_properties_reach_the_first_ledger_write(archives, env, monkeypatch):
+    """`ledger-first` is a step, so the crash-at-any-step properties crash
+    there too; a rerun ends where an uninterrupted run ends."""
+    name = install(archives.build(RICH), env)
+    outside = _interrupted(env, name, monkeypatch, "ledger-first")
+    left = os.listdir(outside)
+    assert len(left) == 1 and rof._OWNER_TEMP.match(left[0]), left
+
+    assert outcomes(offload(env)) == {name: "offloaded"}
+    assert not [n for n in os.listdir(outside) if rof._OWNER_TEMP.match(n)]
+    assert rarch.check_archive(env.root, name)["ok"]
+
+
 def test_a_folder_holding_something_besides_ledger_temporaries_is_still_refused(archives, env, monkeypatch):
     name = install(archives.build(RICH), env)
     _fail_first_ledger_sync(monkeypatch, Crash("killed during the first ledger write"))
