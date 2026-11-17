@@ -43,6 +43,8 @@ four prefilter terms ``pw_named`` repeats are in both hooks, so R1 and R3 compar
 Since the guard sync fix r1 (2026-11-15) its step (``base.GS3_TEXT``: the git config pin, the two Axiom
 blocks' new text and the prefilter's wider git term) is undone before the removal. It too edits nothing in
 the region or in those four terms, so R3 now also requires that the fix r1 changes no corpus pair's output.
+Since the fix r2 (2026-11-17) its step (``base.GS4_TEXT``: the two Axiom blocks' new text, nothing else) is
+undone before that.
 
 The disagreements between the two judgments over the corpus, in each direction, are written to
 ``$SEARCH_REL_REPORT`` when it is set (JSON). ``$SEARCH_REL_TIMING`` (a JSON path) runs the cost
@@ -160,7 +162,7 @@ def rebuild_r12d(text: str) -> bytes:
 
 @pytest.fixture(scope="module")
 def r12d_hook(tmp_path_factory) -> Path:
-    data = rebuild_r12d(base.undo(hook_text(), base.GS3_TEXT))
+    data = rebuild_r12d(base.undo(hook_text(), base.GS4_TEXT + base.GS3_TEXT))
     assert hashlib.sha256(data).hexdigest() == base.GS2_HOOK_SHA256
     path = tmp_path_factory.mktemp("r12d-guard") / "never-rules-hook.sh"
     path.write_bytes(data)

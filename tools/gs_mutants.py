@@ -1,6 +1,7 @@
-"""Mutants of the guard sync r2's hook edit (the two Axiom blocks and the Claude prefilter line) and of its fix
-r1 (the git config pin, the batched reads and the blocks' parsing, plus review r1's M3), each to be killed by
-a named test.
+"""Mutants of the guard sync r2's hook edit (the two Axiom blocks and the Claude prefilter line), of its fix
+r1 (the git config pin, the batched reads and the blocks' parsing, plus review r1's M3) and of its fix r2 (each
+folder resolved before git runs, the time budget, raw staged names, --no-relative), each to be killed by a
+named test.
 
     python tools/gs_mutants.py --scratch <dir containing /sf->
 
@@ -36,7 +37,8 @@ BASE = "tests/unit/test_guard_subfleet_root.py"
 FILES = [SYNC, OVERLAY, BASE]
 SELECTION = ("DriftTests or test_private_overlay_bytes or test_gs_undoing or test_merge_undoing"
              " or test_only_the_roots or (axiom_brief_regime and blocked) or (hand_authored_rulespec and blocked)"
-             " or test_fix_r1 or fsmonitor or staged_file_count or later_rules")
+             " or test_fix_r1 or fsmonitor or staged_file_count or later_rules or test_fix_r2 or spelled"
+             " or time_budget or not_there or too_many_places or relative_diff")
 #: The first prefilter literal's line, which the Claude hook's prefilter line (claude-blocks/prefilter.txt) heads.
 PREFILTER_HEAD = "printf '%s' \"$command\" | grep -qE 'pending_deployments|"
 #: The first literal's git term since the fix r1 (2026-11-15); before it, `git([[:space:]]+-C…)?[[:space:]]+commit`.
@@ -44,6 +46,20 @@ COMMIT_TERM = "|git[[:space:]].*(commit|\\\\$)"
 #: The fix r1's git config pin (tests/fixtures/guard/claude-blocks/git-config-pin.txt).
 PIN = "export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=false\n"
 SQUASH_HEAD = "# --- corpus-squash: signed-manifest repos merge-commit, never squash ---\n"
+#: The fix r2's text (2026-11-17) that its mutants revert, each found once in the hook.
+HAND_JOIN = 'function join(base, p) { p = expand(p); return norm(substr(p, 1, 1) == "/" ? p : base "/" p) }'
+HAND_JOIN_R1 = 'function join(base, p) { p = expand(p); return substr(p, 1, 1) == "/" ? p : base "/" p }'
+HAND_RESOLVE = ("gdir=$(CDPATH= cd -P -- \"$hr_d\" 2>/dev/null || exit 1; { pwd -P || printf '%s\\n' \"$hr_d\"; } "
+                "2>/dev/null; echo x) || continue")
+BRIEF_JOIN = ('function join(base, p, file) { p = expand(p); return norm(substr(p, 1, 1) == "/" ? p : base "/" p, '
+              'file) }')
+BRIEF_JOIN_R1 = 'function join(base, p, file) { p = expand(p); return substr(p, 1, 1) == "/" ? p : base "/" p }'
+BRIEF_RESOLVE = ("pf_abs=$(CDPATH= cd -P -- \"${ab_dir:-/}\" 2>/dev/null || exit 1; { pwd -P || printf '%s\\n' "
+                 "\"${ab_dir:-/}\"; } 2>/dev/null; echo x) || continue")
+BUDGET = '[ $((SECONDS - hr_t0)) -lt 15 ] || block "$hr_late"'
+RAW_NAMES = ("diff --cached --name-only -z --no-relative --diff-filter=ACMR 2>/dev/null \\\n"
+             "      | LC_ALL=C tr '\\n\\0' '\\001\\n' \\\n")
+NEWLINE_DENIED = "if (f[i] ~ /\\001/ || ("
 
 DRIFT = f"{SYNC}::DriftTests::"
 #: name -> (what it does, the named test that must kill it)
@@ -65,6 +81,25 @@ MUTATIONS = {
                             f"{SYNC}::test_no_git_call_runs_the_repositorys_fsmonitor[git -C names the checkout]"),
     "7-the-supplied-hand-block": ("[hand-authored-rulespec] back to the hub's 2026-11-11 cut (per-file reads)",
                                   f"{SYNC}::test_the_staged_file_count_does_not_multiply_git_processes"),
+    # the fix r2 (2026-11-17): each of its changes reverted alone
+    "8-hand-keys-by-path-text": ("[hand-authored-rulespec] keys each folder by its path text again: no `.` collapse "
+                                 "in join, no cd -P/pwd -P (a missing folder still skipped)",
+                                 f"{SYNC}::test_one_checkout_spelled_many_ways_is_checked_once"),
+    "9-no-time-budget": ("the three budget checks before the hand block's git calls removed",
+                         f"{SYNC}::test_the_hand_block_denies_when_its_time_budget_is_spent"),
+    "10-quoted-staged-names": ("the hand block's diff without -z and the tr (git's quoted names again)",
+                               f"{SYNC}::test_same_decisions_axiom_hand_authored_rulespec"
+                               "[a non-ASCII rule name w/o manifest blocked]"),
+    "11-a-newline-name-looked-up": ("a staged name holding \\001 (a newline) looked up, not denied",
+                                    f"{SYNC}::test_same_decisions_axiom_hand_authored_rulespec"
+                                    "[a newline in the name blocked, a \\001 manifest staged]"),
+    "12-relative-diff": ("--no-relative dropped from the hand block's diff",
+                         f"{SYNC}::test_a_relative_diff_config_hides_no_staged_file"),
+    "13-brief-keys-by-path-text": ("[axiom-brief-regime] keys each brief by its path text again: no `.` collapse in "
+                                   "join, no cd -P/pwd -P",
+                                   f"{SYNC}::test_one_brief_spelled_17_ways_is_read_once"),
+    "14-git-runs-in-a-missing-folder": ("a folder cd -P cannot enter goes to git as written, instead of being skipped",
+                                        f"{SYNC}::test_a_folder_that_is_not_there_starts_no_git_process"),
 }
 
 #: What the selection needs of HEAD.
@@ -80,6 +115,11 @@ def export(destination: Path) -> None:
         handle.seek(0)
         with tarfile.open(fileobj=handle) as tar:
             tar.extractall(destination, filter="tar")
+
+
+def once(text: str, old: str, new: str) -> str:
+    assert text.count(old) == 1, old
+    return text.replace(old, new)
 
 
 def mutate(tree: Path, name: str) -> None:
@@ -112,6 +152,21 @@ def mutate(tree: Path, name: str) -> None:
     elif name == "7-the-supplied-hand-block":
         assert text.count(hand) == 1
         text = text.replace(hand, (tree / BLOCKS / "hand-authored-rulespec.before.sh").read_text(encoding="utf-8"))
+    elif name == "8-hand-keys-by-path-text":
+        text = once(once(text, HAND_JOIN, HAND_JOIN_R1), HAND_RESOLVE, "[ -d \"$hr_d\" ] || continue; gdir=$hr_d$'\\n'x")
+    elif name == "9-no-time-budget":
+        assert text.count(BUDGET) == 3
+        text = text.replace(BUDGET, ":")
+    elif name == "10-quoted-staged-names":
+        text = once(text, RAW_NAMES, "diff --cached --name-only --no-relative --diff-filter=ACMR 2>/dev/null \\\n")
+    elif name == "11-a-newline-name-looked-up":
+        text = once(text, NEWLINE_DENIED, "if ((")
+    elif name == "12-relative-diff":
+        text = once(text, "--name-only -z --no-relative --diff-filter", "--name-only -z --diff-filter")
+    elif name == "13-brief-keys-by-path-text":
+        text = once(once(text, BRIEF_JOIN, BRIEF_JOIN_R1), BRIEF_RESOLVE, "pf_abs=$ab_dir$'\\n'x")
+    elif name == "14-git-runs-in-a-missing-folder":
+        text = once(text, HAND_RESOLVE, HAND_RESOLVE[:-len("|| continue")] + "|| gdir=$hr_d$'\\n'x")
     else:
         raise KeyError(name)
     path.write_text(text, encoding="utf-8")
