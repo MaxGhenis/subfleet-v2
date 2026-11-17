@@ -55,7 +55,7 @@ from .reconcile import MAX_READMITS, READMIT  # noqa: F401  (re-exported for cal
 from .runner import Clocks, TurnRunner
 from .store import (
     LEGACY_OWNER, MISSED_STEER, PROVIDERS, ConversationError, ConversationStore, _decode_message, _instant, canonical_native,
-    canonical_uuid, steerable_text, steered_into, validate_settings, widens,
+    caller_session_identity, canonical_uuid, steerable_text, steered_into, validate_settings, widens,
     utcnow,
 )
 from .turn import (
@@ -378,13 +378,15 @@ class ConversationService:
 
     def op_conversation_runs(self, args, peer) -> dict:
         """The detached jobs a conversation's turns dispatched (design §12): what
-        its sub-agents are, where each runs and on which model. A Claude turn's
-        tools carry its session id, which `subfleet run` records as the caller."""
+        its sub-agents are, where each runs and on which model. The caller may
+        be a historical native id or a qualified Codex thread id (C-17.6)."""
         conversation = self.store.conversation(args["conversation_id"])
         sid = conversation.get("native_session_id")
         limit = max(1, min(int(args.get("limit") or 50), 200))
         if not sid:
             return {"runs": []}
+        callers = (sid, f"codex:{sid}") if conversation["provider"] == "codex" else (sid,)
+        placeholders = ",".join("?" for _ in callers)
         latest = "(SELECT {col} FROM attempts a WHERE a.job_id=j.job_id ORDER BY a.seq DESC LIMIT 1)"
         rows = self.daemon.store.query(
             "SELECT j.job_id, j.name, j.kind, j.state, j.task, j.tier, j.sandbox, j.wait_reason, j.created_at, "
@@ -395,9 +397,9 @@ class ConversationService:
             "(SELECT COUNT(*) FROM attempts a WHERE a.job_id=j.job_id) AS attempts "
             # A turn is the conversation itself and a revive continues its session:
             # neither is a sub-agent it dispatched.
-            "FROM jobs j WHERE j.caller_session=? AND j.kind NOT IN ('turn','revive') "
+            f"FROM jobs j WHERE j.caller_session IN ({placeholders}) AND j.kind NOT IN ('turn','revive') "
             "ORDER BY j.created_at DESC, j.rowid DESC LIMIT ?",
-            (sid, limit))
+            (*callers, limit))
         return {"runs": rows}
 
     def op_models_list(self, args, peer) -> dict:
@@ -2718,9 +2720,12 @@ class ConversationService:
         return f"{key} is held by {self._who(job_id)}"
 
     def bound_session(self, session_id: str | None) -> dict | None:
-        """C-26.3: the conversation a native session is bound to, of either provider."""
+        """C-26.3: resolve a caller's native session, preserving its provider."""
         if not session_id:
             return None
+        provider, native = caller_session_identity(session_id)
+        if provider:
+            return self.store.by_native(provider, native)
         return self.store.by_native("claude", session_id) or self.store.by_native("codex", session_id)
 
     def bound_sessions(self) -> list[str]:

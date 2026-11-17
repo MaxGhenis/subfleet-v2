@@ -47,6 +47,10 @@ CONFIG_NAMES = frozenset({
     "SUBFLEET_V1_BIN", "CODEX_GUARD_PREFLIGHT_TIMEOUT",
 })
 ALLOWED_NAMES = OBSERVED_NAMES | LOCALE_NAMES | NETWORK_NAMES | CONFIG_NAMES
+# CODEX_THREAD_ID is a caller's identity, not ambient launch configuration.
+# It stays outside the allowlist, like CLAUDE_CODE_SESSION_ID; a Codex provider
+# supplies its own tool-shell thread id. Explicit env.pass retains its existing
+# meaning, and the C-5.1 job markers keep lane callers' CLI behavior unchanged.
 # D-ST1 (C-20.6): a test session's markers and isolated store paths, as
 # tests/conftest.py and the e2e harness set them: a flag, the session directory,
 # its sentinel's identity, or a path beneath the session's own base. None holds

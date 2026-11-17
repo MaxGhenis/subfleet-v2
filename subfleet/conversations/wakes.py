@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 
 from .. import refusals
 from ..launch_env import build_environment, helper_policy
-from .store import ConversationError, canonical_native, utcnow
+from .store import ConversationError, caller_session_identity, canonical_native, utcnow
 from .turn import TERMINAL_STATES
 
 MAX_STREAK = 8
@@ -271,8 +271,10 @@ class WakeEngine:
             parent = self.service.daemon.store.one("SELECT name FROM jobs WHERE job_id=? AND kind='turn'",
                                                   (job["parent_job_id"],)) if job else None
             owned = parent and parent["name"] == f"turn-{cid}"
+            provider, native = caller_session_identity(job["caller_session"] if job else None)
             if not job or not (owned or (conversation["native_session_id"] and job["caller_session"] and
-                    canonical_native(job["caller_session"]) == canonical_native(conversation["native_session_id"]))):
+                    (provider is None or provider == conversation["provider"]) and
+                    native == canonical_native(conversation["native_session_id"]))):
                 # The agent wrote the id: a refusal its timeline shows names none, only
                 # the target's position among at most 16 (C-25.7).
                 raise ConversationError("bad-wake", f"run target {position} of {count} is not this conversation's")
@@ -401,6 +403,8 @@ class WakeEngine:
         conversations = self.store.query("SELECT * FROM conversations")
         by_id = {c["conversation_id"]: c for c in conversations}
         by_session = {canonical_native(c["native_session_id"]): c for c in conversations if c["native_session_id"]}
+        by_native = {(c["provider"], canonical_native(c["native_session_id"])): c
+                     for c in conversations if c["native_session_id"]}
         result = {}
         # The job's caller is the same session resolved by runs --mine and notices.
         for job in self.service.daemon.store.query(
@@ -412,7 +416,9 @@ class WakeEngine:
                 "ORDER BY j.created_at,j.job_id", (cutoff,)):
             if self.store.one("SELECT 1 FROM wake_historical_runs WHERE job_id=?", (job["job_id"],)):
                 continue
-            c = by_id.get((job["parent_name"] or "")[5:]) or by_session.get(canonical_native(job["caller_session"]))
+            provider, native = caller_session_identity(job["caller_session"])
+            caller = by_native.get((provider, native)) if provider else by_session.get(native)
+            c = by_id.get((job["parent_name"] or "")[5:]) or caller
             if not c or job["created_at"] < c["created_at"]:
                 continue
             if not job["parent_name"] and not self.service.daemon.store.one(
