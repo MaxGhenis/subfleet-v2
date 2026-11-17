@@ -832,10 +832,13 @@ hit once), runs its killers with pytest in the copy, and checks the worktree's `
 | p0-2: the opener check's `inner` is the previous reminder's end | `[e-a-value-opens-in-an-earlier-reminder-alone]` |
 | p0-5: no data URI step | `[du-before-alone]` |
 | m5: no inner opener checked | `[m5-a-second-opener-inside-alone]` |
-| p0-1 (an unchecked reminder opens a block), p0-4 (no mirror), m6 (a closer always ends the key), m7 (no carry), p1-1 (the walk restarts behind a key) | **not run**: each driver call hit its 590 s cap after two mutants |
+| m6: a closer always ends the key | `[m6-a-closer-in-a-value-in-the-key-alone]` |
+| m7: no carry through the later layers | `[m7-a-key-before-row-a-alone]`, `[m7-a-data-uri-before-row-a-alone]` |
+| p0-1 (an unchecked reminder opens a block), p0-4 (no mirror), p1-1 (the walk restarts behind a key) | **not run**: each driver call hit its cap (590 s, then 560 s) before reaching them |
 
 Each killed mutant failed on the helper's value-shows assertion (`(length, True, None)`), not on a bounds
-check. On the unfixed head's code (`pre`, a `git archive` of 620f3b514 with the new test file), the new
+check; m7 included (`(180, True, None)`). Expected killers of the three not run: D's row (p0-1), F-held and
+F-never (p0-4), `test_the_erased_key_walk_reads_each_closer_once` and the growth test's scaled shape (p1-1). On the unfixed head's code (`pre`, a `git archive` of 620f3b514 with the new test file), the new
 tests that fail are the same intents restored all at once: 12 failed (the 8 review rows alone, the three
 unit tests, the property), and the 4 P2 rows passed, as they should.
 
@@ -866,14 +869,15 @@ scratch `$TMPDIR/sf-scrubop-fix1`, a new `--basetemp` with `pytest` in its name.
   reads_each_closer_once or drawn_reminder_outcomes"`): **12 failed, 4 passed in 197.5 s**.
 - Edges on the fix, three `-n 4` calls of 8 tests each, capped at 585 s: each printed 4 passes and was
   cut before its summary. **12 passed, none failed, 12 unfinished**; xdist's `-q` doesn't name which.
-- Mutants: as above.
+- Mutants: `mutants.py` in three calls (19:22–19:31 for the last): six killed, as above; the worktree's
+  `handoff.py` hash was checked unchanged after the calls that finished.
 
 ### What didn't run, and deviations
 
 - **Not run:** the rest of `tests/unit/test_sessions_handoff_excerpts.py`; every `tests/unit/test_scrub*.py`
   (shard 1's three included); every other `tests/unit/test_sessions_*.py`; `tests/unit/test_cpu_scaling.py
   tests/fake/test_state_contract.py tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py`;
-  the growth test on both codes; mutants p0-1, p0-4, m6, m7, p1-1; G and F-never at the edges on
+  the growth test on both codes; mutants p0-1, p0-4, p1-1; G and F-never at the edges on
   289f15a5c; the superset mask dump against 289f15a5c and a4aded885. CI's run is the check for these.
   Cause: at this load each long-placement test took 100–150 s, and calls I issued together ran one after
   another, so the edge and mutant calls took 18:11–19:16.
@@ -915,6 +919,6 @@ scratch `$TMPDIR/sf-scrubop-fix1`, a new `--basetemp` with `pytest` in its name.
   `_closer_value_end` gains two keyword arguments whose defaults keep its behaviour.": it reports
   `(closes, low, reach)`, and the default closer test changed (P0-3).
 - "A superset test over 22 rows" (now 34), "the growth test adds two shapes" (now three), "Each of four
-  mutants failed a test" (this round: four more killed, five not run).
+  mutants failed a test" (this round: six more killed, three not run).
 
 Built head: see the final answer.
