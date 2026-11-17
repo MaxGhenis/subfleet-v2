@@ -1,0 +1,31 @@
+{
+ "subfleet": "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/old217/subfleet/__init__.py",
+ "hold": {
+  "refused": "tasks hold: unknown task None",
+  "code": 2,
+  "reason": "unknown-task",
+  "store_unchanged": true,
+  "sandbox_field_kept": false
+ },
+ "release": {
+  "refused": "tasks release: unknown task None",
+  "code": 2,
+  "reason": "unknown-task",
+  "store_unchanged": true,
+  "sandbox_field_kept": false
+ },
+ "hold-if": {
+  "refused": "tasks hold: unknown task None",
+  "code": 2,
+  "reason": "unknown-task",
+  "store_unchanged": true,
+  "sandbox_field_kept": false
+ },
+ "release-if": {
+  "refused": "tasks release: unknown task None",
+  "code": 2,
+  "reason": "unknown-task",
+  "store_unchanged": true,
+  "sandbox_field_kept": false
+ }
+}

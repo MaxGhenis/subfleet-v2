@@ -17,6 +17,10 @@ from tests.caps import capped
 from subfleet.retention import maintenance
 from subfleet.store import Store
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
+
 
 NOW = "2026-09-05T12:00:00Z"
 
