@@ -609,12 +609,14 @@ holds the hub's 17 rows, the corpus comparison, the fallback, the alarm, the dri
 `docs/reports/2026-11-05-search-rel-parser.md` has the measurements. A change to the session
 parser comes here in one reviewed step, between the heredoc's lines, with `hook_sha256` moved.
 The rollback is the previous pair: hook `e869dd4cac5402112c3a135531de861c84089290ee31779f52145474f678dfed` with TRUST
-`36267abbee6e414805defd0672138f0be9b8dd2fd8675f739c77df90332bafc0`.
+`36267abbee6e414805defd0672138f0be9b8dd2fd8675f739c77df90332bafc0`. Once D-CODEX-0169 (below) is installed,
+the previous pair becomes hook `e869dd4c…` with TRUST `5a25280f…`. TRUST `36267abb…` pins codex-cli 0.159.0,
+so preflight refuses it beside a 0.169.0 CLI.
 
 | File | SHA-256 |
 | --- | --- |
 | `never-rules-hook.sh` | `af5e723943b1f7462c19a4cbc5007e70b3c228c050c30f470f204d2f81c1398f` |
-| `TRUST` | `4ff9cb8603f9e84e3fe1870a07c71a7616b08384909b2bc4900035054607cf14` |
+| `TRUST` | `d54b351054199b5a0addb501a47597df16f664dc185168d304451e13c14d88e4` |
 
 TRUST is the installed TRUST of 2026-09-29 (`b3193b97…`), changing only `hook_sha256` and
 appending four dated provenance additions (D-LANE-SCOPE1's three sentences, r2's one, r3's one
@@ -624,7 +626,26 @@ refuses to replace a different overlay in place, so this revision is staged into
 root and swapped in; `tests/unit/test_guard_subfleet_root.py` states and checks the rule's
 invariants against the original hook, and `docs/reports/2026-10-24-guard-subfleet-root.md`
 holds the install steps, the live checks, the known limits and the rollback, which restores
-hook `a60d1c51…` with TRUST `b3193b97…`.
+hook `a60d1c51…` with TRUST `b3193b97…`. D-CODEX-0169 (below) then moved `codex_version` to
+`codex-cli 0.169.0` and appended one more dated sentence.
+
+### Codex pin 0.169.0 (D-CODEX-0169, 2026-11-17)
+
+On a ChatGPT login, codex-cli 0.159.0 answers `model_not_found` for GPT-6.2 Sol and 0.169.0 serves
+it; the hub did not try the versions between. Preflight refuses any Codex whose `--version` differs
+from TRUST's `codex_version`. This revision moves `codex_version` to `codex-cli 0.169.0` and appends
+one dated provenance sentence. The hook bytes,
+`hooks_trust_hash` and `override` stay as they were. It replaces TRUST
+`4ff9cb8603f9e84e3fe1870a07c71a7616b08384909b2bc4900035054607cf14`; the table above gives the new digest.
+
+The live guard keeps hook `e869dd4c…` until D-SEARCH-REL1's `af5e7239…` gets its own install decision,
+so the hub installs a TRUST that differs from this file in `hook_sha256`. `tools/guard_pin_0169.py`
+derives it from the installed TRUST (`36267abb…`) with the same two edits. It refuses unless the result
+differs from this file only in `hook_sha256` and is the pinned `5a25280f…`. It then stages the result
+in a fresh folder, preflights it on every Codex lane it is given and swaps it in, keeping the previous
+TRUST as `TRUST.pre-0.169.0.bak`. Its rollback refuses once a later guard change replaces the hook or
+the TRUST.
+`docs/reports/2026-11-17-codex-0169-pin.md` has the evidence, the install steps and the rollback.
 
 ## Verification
 
