@@ -27,6 +27,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from unittest import mock
 
 import hypothesis
 import hypothesis.strategies as st
@@ -416,14 +417,27 @@ def stored_example() -> str:
                   (total - TAIL, AFTER.format(s="Zq1x100000")), total=total)
 
 
-def assert_keeps_only_what_the_whole_scrub_keeps(text: str) -> None:
+def within_line_scrub(text: str, strip: bool) -> str:
+    """The head's whole-text scrub with quoted values read within a line, as the excerpt rules
+    read them: C-23.14's stated difference (a whole-text scrub also pairs quotes across lines)
+    taken out, so drawn texts can be checked against it (review r1 of #331)."""
+    read = handoff._scrub_named_values
+    with mock.patch.object(handoff, "_scrub_named_values",
+                           lambda *args, **kwargs: read(*args, **{**kwargs, "multiline": False})):
+        return handoff._scrub_rules(text, strip, multiline=True)[0]
+
+
+def assert_keeps_only_what_the_whole_scrub_keeps(text: str, *, within: bool = False) -> None:
     """The invariants, for each limit and both reminder modes: no made-up value the whole-text
     scrub removes shows; a limit bounds the result; within the budget the result is exactly the
-    excerpt scrub, cut; past it the count is the larger of release's and the head's."""
+    excerpt scrub, cut; past it the count is the larger of release's and the head's. With
+    `within`, a value counts as removed only if `within_line_scrub` removes it too."""
     values = set(re.findall(r"Zq\d+x\d+", text))
     assert values
     for strip in (False, True):
         whole = handoff.scrub_secrets(text, strip_reminders=strip, whole=True)[0]
+        if within:
+            whole += "\n" + within_line_scrub(text, strip)
         hidden = {value for value in values if value not in whole}
         scrubbed, count = handoff.scrub_secrets(text, strip_reminders=strip)
         for limit in LIMITS:
@@ -669,21 +683,38 @@ def _scrub_probe(script: str, timeout: int = 300) -> dict:
     return json.loads(result.stdout)
 
 
-@pytest.mark.parametrize("name", sorted(GROWTH_SHAPES))
+#: Review r1 of #331, P1-1: one reminder whose opener a value holds, with a second opener inside it
+#: (where the whole-text block opens), holding a number of keys that grows with the text, and no
+#: private key closer after it. 289f15a5c's walk searched the whole tail again for each key: 1.25 M
+#: characters at 100 keys, 80.0 M at 800.
+SCALED_GROWTH_SHAPES = {
+    "reminder-inner-opener-keys": ("""
+def text(total):
+    m = max(1, total // 185)
+    return ('password = "<system-reminder>"\\n<system-reminder>\\n'
+            + "-----BEGIN PRIVATE KEY-----\\nZq9x5\\n-----END PRIVATE KEY-----\\n" * m
+            + "</system-reminder>\\n" + "-----END PUBLIC KEY-----\\n" * (5 * m))
+""", True),
+}
+
+
+@pytest.mark.parametrize("name", sorted(GROWTH_SHAPES) + sorted(SCALED_GROWTH_SHAPES))
 def test_the_split_step_s_work_is_linear_in_the_blocks(name):
     """C-23.14, C-25.5 (D-SCRUB-BOUNDARY1 fix round 1, P1, invariant 4): `scrub_bounded` of a text
     of many blocks at twice the budget and at eight times it. The instructions the CPU retires grow
     under `COUNT_GROWTH_MAX` (linear work about 4x, less its fixed excerpt scrubs; 13fd1c8bc's
     quadratic look-backs about 16x); where the counter is hidden (CI's virtual machines), the CPU
-    ratio of the two, taken in turn, stays under `GROWTH_RATIO_MAX`."""
-    unit, strip = GROWTH_SHAPES[name]
-    measured = _scrub_probe(f"unit, strip = {unit!r}, {strip!r}\n" + '''
+    ratio of the two, taken in turn, stays under `GROWTH_RATIO_MAX`. A scaled shape's blocks grow
+    with the text (review r1 of #331, P1-1)."""
+    if name in GROWTH_SHAPES:
+        unit, strip = GROWTH_SHAPES[name]
+        build = f"unit = {unit!r}\ndef text(total):\n    return (unit * (total // len(unit) + 1))[:total]\n"
+    else:
+        build, strip = SCALED_GROWTH_SHAPES[name]
+    measured = _scrub_probe(build + f"strip = {strip!r}\n" + '''
 import json
 from subfleet.sessions import handoff
 from tests.cpu_scaling import best_cpu_ratio, counts_instructions, fewest_instructions
-
-def text(total):
-    return (unit * (total // len(unit) + 1))[:total]
 
 small, large = text(2 * handoff.MAX_SCRUB_CHARS), text(8 * handoff.MAX_SCRUB_CHARS)
 
@@ -722,9 +753,24 @@ ERASED_PARTS = st.builds(
     st.sampled_from(["-----BEGIN PRIVATE KEY-----\n", "data:image/png;base64," + "QUJD" * 10 + "\n"]),
     st.booleans(), st.booleans())
 
+_R, _C = "<" + "system-reminder>", "</" + "system-reminder>"
+_BEGIN, _END = "-----BEGIN PRIVATE KEY-----", "-----END PRIVATE KEY-----"
+#: Review r1 of #331: the shapes its findings need, for the differential and the property below:
+#: several reminders whose openers and closers values hold, a value that opens inside an earlier
+#: reminder, an unterminated quote that ends at a closer's line end, a key that opens before a reminder
+#: holding its closer, and a data URI right before a reminder.
+REVIEW_R1_PARTS = st.sampled_from([
+    'password = "' + _R + '"\n', 'token = "' + _C + '"\n', 'password = "' + _C + '"\n',
+    'password = "' + _C + "\n", 'password = "' + _R + _C + _R + '"\n', 'password = "' + _END + "\n",
+    'password = "' + _END + '"\n', _BEGIN + "\n", _END + "\n", _R + "\n", _C + "\n", _R, _C, "x = 1\n",
+    "data:image/png;base64," + "QUJD" * 10, "data:image/png;base64," + "QUJD" * 10 + _R,
+    "Zq7x100003\n", "Zq7x100004\n", "-",
+])
+
 
 @hypothesis.settings(max_examples=300, deadline=None, derandomize=True, database=None)
-@hypothesis.given(parts=st.lists(st.one_of(BLOCK_PARTS, ERASED_PARTS), max_size=40), strip=st.booleans())
+@hypothesis.given(parts=st.lists(st.one_of(BLOCK_PARTS, ERASED_PARTS, REVIEW_R1_PARTS), max_size=40),
+                  strip=st.booleans())
 def test_the_head_resolves_drawn_blocks_as_release_does(parts, strip):
     """D-SCRUB-BOUNDARY1 fix round 1 (differential, invariant 6): over drawn blocks of every layer,
     the head's guarded block step resolves exactly the text and count release's `_resolve_blocks`
@@ -822,16 +868,149 @@ def test_a_data_uri_a_reminder_s_removal_erased_keeps_only_what_the_whole_scrub_
     assert_keeps_only_what_the_whole_scrub_keeps(text)
 
 
-@pytest.mark.parametrize("name", sorted(ERASED) + sorted(CASCADES) + sorted(SPLITS))
+# --- Review r1 of #331: every reminder outcome the erased-key step reads ------------------------
+#
+# Each row hid its value in the whole-text scrub (and in a within-line one) and showed it on 289f15a5c,
+# with reminders stripped (G in both modes). The offsets are 289f15a5c's, limit None and 2,048:
+# - D: an unchecked reminder's run-on raised the step's reach over a later reminder whose opener a value
+#   holds (P0-1): `Zq9x100011` at 44, and 130,936 / 131,225 at the two edges (limit None).
+# - D-longline: the same through a closer taken as held unread, on a line longer than a window: 34 / 33.
+# - E: a value that opens inside an earlier reminder holds the opener (P0-2): 22, and 130,943 / 131,201.
+# - A-unterminated: row A without its closing quote; a value masked to its line's end holds the closer
+#   that ends the line (P0-3): 1 (limit None), 0 (40 and 2,048), and 130,958 / 131,113.
+# - G: the same for a private key's closer, with no reminder at all: 23, in both modes.
+# - F-held, F-never: a key that opens before a reminder the whole-text scrub keeps, which holds its
+#   closer (P0-4): 28, and F-held at 130,984 / 131,140.
+# - DU-before: a data URI just before a reminder whose closer a value holds (P0-5): `Zq9x300002` at 46,
+#   and 130,964 / 131,158.
+# The P2 rows pin the step: m5, a second opener inside a reminder whose opener a value holds (the
+# review's mutant m5 showed it at 22); m6, a closer inside a quoted value in an erased key (m6: 44); and
+# m7, a placeholder (a private key, a data URI) before row A, which only carrying the masks through the
+# later layers keeps hidden.
+
+REVIEW_R1 = {
+    "d-an-unchecked-run-on": ('password = "' + _R + '"\nx = 1\ntoken = "' + _C + '"\npassword = "' + _R + '"\n'
+                              + _BEGIN + "\n" + _C + "\nZq9x100011\n" + _END + "\n"),
+    "d-longline-a-closer-held-unread": (_R + "a" * 17000 + ' x = "y" ' + _C + '\npassword = "' + _R + '"\n'
+                                        + _BEGIN + "\n" + _C + "\nZq9x100111\n" + _END + "\n"),
+    "e-a-value-opens-in-an-earlier-reminder": ('password = "' + _R + _C + _R + '"\n' + _BEGIN + "\n" + _C
+                                               + "\nZq9x100021\n" + _END + "\n"),
+    "a-unterminated": _R + "\n" + _BEGIN + '\npassword = "' + _C + "\nZq9x400001\n" + _END + "\n",
+    "g-a-key-closer-ends-an-unterminated-value": (_BEGIN + '\npassword = "' + _END + "\nZq9x300002\n" + _END
+                                                  + "\n"),
+    "f-held": _BEGIN + '\nZq9x200002\npassword = "' + _R + '"\n' + _END + "\n" + _C + "\n",
+    "f-never": _BEGIN + "\nZq9x200001\n" + _R + "\n" + _END + '\npassword = "' + _C + '"\n',
+    "du-before": ("data:image/png;base64," + "QUJD" * 10 + _R + 'password = "' + _C + '"\nZq9x300001\n' + _C
+                  + "\nZq9x300002\n-"),
+    "m5-a-second-opener-inside": ('password = "' + _R + '"\n' + _BEGIN + "\n" + _R + "\n" + _END + "\n" + _C
+                                  + "\nZq9x100031\n" + _END + "\n"),
+    "m6-a-closer-in-a-value-in-the-key": (_R + "\n" + _BEGIN + '\npassword = "' + _C + '"\ntoken = "' + _END
+                                          + '"\nZq9x100041\n' + _END + "\n"),
+    "m7-a-key-before-row-a": (_BEGIN + "\nk1\n" + _END + "\n" + _R + "\n" + _BEGIN + '\npassword = "' + _C
+                              + '"\nZq9x100051\n' + _END + "\n"),
+    "m7-a-data-uri-before-row-a": ("data:image/png;base64," + "QUJD" * 10 + "\n.\n" + _R + "\n" + _BEGIN
+                                   + '\npassword = "' + _C + '"\nZq9x100061\n' + _END + "\n"),
+}
+
+
+@pytest.mark.parametrize("place", ["alone", "head-edge", "tail-first-line"])
+@pytest.mark.parametrize("name", sorted(REVIEW_R1))
+def test_every_reminder_outcome_the_step_reads_keeps_only_what_the_whole_scrub_keeps(name, place):
+    """C-23.14, C-25.5 (review r1 of #331, P0-1 to P0-5 and P2): with reminders stripped (and kept,
+    for G) the whole-text scrub and a within-line one hide the row's value, and so does every excerpt
+    mode, at every limit, alone, at the head excerpt's edge and on the tail's first line."""
+    text = erased_text(REVIEW_R1[name], place)
+    assert (len(text) <= BUDGET) == (place == "alone")
+    value = re.findall(r"Zq9x\d+", REVIEW_R1[name])[-1]
+    for strip in (True, False) if name.startswith("g-") else (True,):
+        assert value not in handoff.scrub_secrets(text, strip_reminders=strip, whole=True)[0]
+        assert value not in within_line_scrub(text, strip)
+    assert_keeps_only_what_the_whole_scrub_keeps(text)
+
+
+def test_a_value_masked_to_its_line_s_end_holds_the_closer_that_ends_the_line():
+    """Review r1 of #331, P0-3: `_closer_value_end` counts a value that ends exactly at a closer's end
+    (an unterminated quote, masked to its line's end) as holding it; one that ends before the closer
+    doesn't, and an opener's question is unchanged (opens before it, ends after its start)."""
+    lines, reader = handoff._Lines, handoff._SplitReader
+    held = 'k\npassword = "' + _END + "\nZq9x300003\n"
+    closer = handoff._PEM_END_RE.search(held)
+    assert handoff._closer_value_end(held, closer, 0, lines(held), reader()) == closer.end()
+    shut = 'k\npassword = "x" ' + _END + "\n"
+    assert handoff._closer_value_end(shut, handoff._PEM_END_RE.search(shut), 0, lines(shut), reader()) is None
+    opener_held = 'password = "' + _R + '"\n'
+    opener = handoff._REMINDER_START_RE.search(opener_held)
+    assert handoff._closer_value_end(opener_held, opener, 0, lines(opener_held), reader(),
+                                     point=opener.start(), scan=False) == opener_held.index("\n")
+
+
+def test_the_reminder_walk_s_outcome_says_where_it_rests_on_a_closer_held_unread():
+    """Review r1 of #331, P0-1: `_closer_splits` reports `(closes, low, reach)`; a block whose closer
+    a value holds runs on and is known (`low == closes`); a closer on a line longer than a window is
+    held unread, so the block may end there (`low`) or at the end of its run-on (`closes`)."""
+    text = REVIEW_R1["d-longline-a-closer-held-unread"]
+    spans = handoff._block_layer(handoff._SYSTEM_REMINDER_RE, "", text, None)[1]
+    ends: list = []
+    handoff._closer_splits(text, spans, handoff._REMINDER_START_RE, handoff._REMINDER_END_RE,
+                           handoff._SplitReader(), ends=ends)
+    first_closer = text.index(_C) + len(_C)
+    second_closer = text.index(_C, first_closer) + len(_C)
+    assert ends[0] == (second_closer, first_closer, second_closer)
+    text = REVIEW_R1["a-unterminated"]
+    spans = handoff._block_layer(handoff._SYSTEM_REMINDER_RE, "", text, None)[1]
+    ends = []
+    handoff._closer_splits(text, spans, handoff._REMINDER_START_RE, handoff._REMINDER_END_RE,
+                           handoff._SplitReader(), ends=ends)
+    assert ends[0][:2] == (None, None)                 # it surely never closes
+
+
+def test_the_erased_key_walk_reads_each_closer_once():
+    """Review r1 of #331, P1-1: on the quadratic shape (`SCALED_GROWTH_SHAPES`), the walk's searches
+    for a private key closer read the text past the reminder once, whatever the number of keys:
+    289f15a5c's read 1.25 M characters at 100 keys and 80.0 M at 800."""
+    reads = []
+
+    class Counted(handoff._Ahead):
+        def __call__(self, at):
+            cached = 0 <= self.at <= at and (self.match is None or at <= self.match.start())
+            match = super().__call__(at)
+            if not cached and self.pattern is handoff._PEM_END_RE:
+                reads.append((match.end() if match is not None else len(self.text)) - at)
+            return match
+
+    for m in (100, 800):
+        text = ('password = "' + _R + '"\n' + _R + "\n" + (_BEGIN + "\nZq9x5\n" + _END + "\n") * m + _C
+                + "\n" + "-----END PUBLIC KEY-----\n" * (5 * m))
+        reads.clear()
+        with mock.patch.object(handoff, "_Ahead", Counted):
+            handoff._split_masks(text, True, handoff._Tally())
+        assert sum(reads) <= 2 * len(text), (m, sum(reads))
+
+
+@hypothesis.settings(max_examples=300, deadline=None, derandomize=True, database=None)
+@hypothesis.given(parts=st.lists(REVIEW_R1_PARTS, min_size=1, max_size=24))
+def test_drawn_reminder_outcomes_keep_only_what_the_whole_scrub_keeps(parts):
+    """Review r1 of #331 (invariant 1, property): over drawn texts of the review's shapes, no value
+    that the whole-text scrub and a within-line one both hide shows in any excerpt mode, at any limit,
+    in either reminder mode; within the budget each mode is the excerpt scrub, cut. 289f15a5c's step
+    showed such values in the E, F and G classes (review r1's 60 of 6,018 drawn texts)."""
+    text = "".join(parts) + "Zq7x100005\n"
+    assert_keeps_only_what_the_whole_scrub_keeps(text, within=True)
+
+
+@pytest.mark.parametrize("name", sorted(ERASED) + sorted(CASCADES) + sorted(SPLITS) + sorted(REVIEW_R1))
 def test_the_erased_key_step_only_adds_masks(name, monkeypatch):
     """Issue #325 (invariant 3, superset): `_split_masks` with the step resolves the same text and
-    masks every character it masks without the step, which is a4aded885's code path: the step reads
-    its windows last, out of what the other layers left of the read budget."""
-    text = ERASED.get(name) or SPLITS.get(name) or cascade_text(name, "short")
+    masks every character it masks without the step (`_erased_keys` and `_data_uri_run_ons` adding
+    nothing), which is a4aded885's code path but for review r1 of #331's P0-3 (a value masked to its
+    line's end holds the closer that ends it, so more blocks run on): the step reads its windows
+    last, out of what the other layers left of the read budget."""
+    text = ERASED.get(name) or SPLITS.get(name) or REVIEW_R1.get(name) or cascade_text(name, "short")
     for strip in (False, True):
         resolved, masks = handoff._split_masks(text, strip, handoff._Tally())
         with monkeypatch.context() as patched:
-            patched.setattr(handoff, "_erased_keys", lambda *_args: [])
+            patched.setattr(handoff, "_erased_keys", lambda *_args: ([], [], {}))
+            patched.setattr(handoff, "_data_uri_run_ons", lambda *_args: [])
             before, base = handoff._split_masks(text, strip, handoff._Tally())
         covered = {i for a, b in masks for i in range(a, b)}
         assert resolved == before and all(i in covered for a, b in base for i in range(a, b)), (name, strip)
