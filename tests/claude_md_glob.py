@@ -27,7 +27,9 @@ refuses any other syntax (`Unsupported`) rather than guess:
   which picomatch compiles to the class alone (`[!]`, whose content holds none, it
   compiles to `(?:\\[!\\]|[!])`, so that and its kind are refused here); a raw `"`
   is refused, since picomatch's parser drops it and quotes what follows;
-* one level of `{a,b}` alternatives, compiled to a group;
+* `{a,b}` alternatives, compiled to a group, nested to any depth and with empty
+  alternatives (`{,/b{,/c}}`, review r2 of #326), as picomatch nests them
+  (`(|\\/b(|\\/c))`);
 * a final `/**`, compiled with `dot: true` to
   `(?:\\/(?!\\.{1,2}(?:\\/|$))(?:(?:(?!(?:^|\\/)\\.{1,2}(?:\\/|$)).)*?)|$)`.
 
@@ -105,11 +107,12 @@ def fwo(patterns: Iterable[str], resolve: Callable[[str], str] = real_or_same) -
 
 def _body(text: str) -> str:
     out: list[str] = []
-    index, brace = 0, None          # brace: the alternatives so far, while inside `{…}`
-    current: list[str] = out
+    braces: list[list[list[str]]] = []      # open braces: their alternatives so far, innermost last
+    index = 0
     while index < len(text):
+        current = braces[-1][-1] if braces else out
         char = text[index]
-        if text.startswith("/**", index) and index + 3 == len(text) and brace is None:
+        if text.startswith("/**", index) and index + 3 == len(text) and not braces:
             current.append(GLOBSTAR)
             index += 3
             continue
@@ -125,30 +128,27 @@ def _body(text: str) -> str:
                 continue
             raise Unsupported(f"class at {index} of {text!r}")
         if char == "{":
-            if brace is not None:
-                raise Unsupported(f"nested brace in {text!r}")
-            brace, current = [], []
+            braces.append([[]])
             index += 1
             continue
-        if char == "," and brace is not None:
-            brace.append("".join(current))
-            current = []
+        if char == "," and braces:
+            braces[-1].append([])
             index += 1
             continue
-        if char == "}" and brace is not None:
-            brace.append("".join(current))
-            if len(brace) < 2:
+        if char == "}" and braces:
+            alternatives = braces.pop()
+            if len(alternatives) < 2:
                 raise Unsupported(f"a brace with one alternative in {text!r}")
-            out.append("(?:" + "|".join(brace) + ")")
-            brace, current = None, out
+            (braces[-1][-1] if braces else out).append(
+                "(?:" + "|".join("".join(item) for item in alternatives) + ")")
             index += 1
             continue
-        if char in '*?()|+{},]"' or (char == "." and brace is not None):
+        if char in '*?()|+{},]"' or (char == "." and braces):
             # Inside braces picomatch reads two raw dots as a range (`{a..b}`).
             raise Unsupported(f"{char!r} at {index} of {text!r}")
         current.append(re.escape(char))
         index += 1
-    if brace is not None:
+    if braces:
         raise Unsupported(f"unclosed brace in {text!r}")
     return "".join(out)
 
@@ -179,6 +179,39 @@ def matcher(patterns: Iterable[str], resolve: Callable[[str], str] = real_or_sam
 
 def excluded(patterns: Iterable[str], path: str, resolve: Callable[[str], str] = real_or_same) -> bool:
     return matcher(patterns, resolve)(path)
+
+
+def expand(pattern: str) -> list[str]:
+    """The brace-free patterns `pattern`'s alternatives name, in order, with every
+    class and range kept as written: `/a{,/b{,/c}}/X` gives `/a/X`, `/a/b/X` and
+    `/a/b/c/X`. Only for the syntax `compile_pattern` accepts."""
+    def sequence(index: int, inside: bool) -> tuple[list[str], int]:
+        out = [""]
+        while index < len(pattern):
+            char = pattern[index]
+            if inside and char in ",}":
+                return out, index
+            if char == "[":                 # `[c]`, `[]]`, `[c-c]`: the `]` that closes it
+                close = pattern.index("]", index + 2) + 1
+                out = [item + pattern[index:close] for item in out]
+                index = close
+            elif char == "{":
+                choices: list[str] = []
+                index += 1
+                while True:
+                    part, index = sequence(index, True)
+                    choices += part
+                    index += 1
+                    if pattern[index - 1] == "}":
+                        break
+                out = [item + choice for item in out for choice in choices]
+            else:
+                out = [item + char for item in out]
+                index += 1
+        if inside:
+            raise Unsupported(f"unclosed brace in {pattern!r}")
+        return out, index
+    return sequence(0, False)[0]
 
 
 def unglob(pattern: str) -> str:

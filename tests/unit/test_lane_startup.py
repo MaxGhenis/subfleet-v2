@@ -171,23 +171,42 @@ def fixtures(tmp_path, home) -> dict[str, tuple[Path, Path]]:
     return {name: (path, tmp_path / "scratch" / name) for name, path in places.items()}
 
 
+def _chain(spelling: str) -> str | None:
+    """Independently of the adapter: the one pattern naming every ancestor of
+    `spelling` but `/`, each folder name written once (`/a{,/b{,/c}}` for
+    `/a/b/c/R`, review r2 of #326, P1 1)."""
+    folders = _ancestors(spelling)[::-1]            # the top first: /a, /a/b, /a/b/c
+    if not folders:
+        return None
+    pattern, closing = glob_literal(folders[0]), ""
+    for above, folder in zip(folders, folders[1:]):
+        pattern += "{,/" + glob_literal(folder[len(above.rstrip("/")) + 1:])
+        closing += "}"
+    return pattern + closing
+
+
 def _check_i2(excludes: list[str], workdir: Path, home: Path, configs: tuple[str, ...] = ()) -> None:
     root = _toplevel(workdir)
     spellings = _spellings(root)
     for config in (*configs, str(home / ".claude")):
         assert f"{glob_literal(config)}/CLAUDE.md" in excludes
         assert f"{glob_literal(config)}/rules/**" in excludes
-    folders = {*[a for spelling in spellings for a in _ancestors(spelling)], str(home)}
-    for folder in folders:
+    groups = [*dict.fromkeys(chain for chain in map(_chain, spellings) if chain), glob_literal(str(home))]
+    for group in groups:
         for name in STARTUP_FILE_NAMES:
-            assert f"{glob_literal(folder)}/{name}" in excludes, (folder, name)
+            assert f"{group}/{name}" in excludes, (group, name)
+    # The non-negated entries alone exclude the six names of every ancestor and `$HOME`.
+    listed = glob.matcher([item for item in excludes if not item.startswith("!")])
+    for folder in {*[a for spelling in spellings for a in _ancestors(spelling)], str(home)}:
+        for name in FILES:
+            assert listed(f"{folder}/{name}"), (folder, name)
     negations = [item for item in excludes if item.startswith("!")]
     assert len(negations) == 1
     spared = [glob_literal(spelling) for spelling in spellings]
     assert negations[0] == ("!" + (spared[0] if len(spared) == 1 else "{" + ",".join(spared) + "}") + "/**")
     # Nothing else: every entry is one of those.
     named = {f"{glob_literal(c)}/{n}" for c in (*configs, str(home / ".claude")) for n in ("CLAUDE.md", "rules/**")}
-    named |= {f"{glob_literal(f)}/{n}" for f in folders for n in STARTUP_FILE_NAMES}
+    named |= {f"{group}/{n}" for group in groups for n in STARTUP_FILE_NAMES}
     assert set(excludes) == named | set(negations)
 
 
@@ -200,7 +219,8 @@ def _check_i3(excludes: list[str], workdir: Path, home: Path, configs: tuple[str
         return any(path == folder or path.startswith(folder + "/") for folder in folders)
     # Structure: no entry names a path under R, but the personal ones (C, `$HOME`),
     # which name R's own files only when R holds them (the `$HOME` fixture).
-    named = [glob.unglob(entry).removesuffix("/**") for entry in excludes if not entry.startswith("!")]
+    named = [glob.unglob(item).removesuffix("/**") for entry in excludes if not entry.startswith("!")
+             for item in glob.expand(entry)]
     for path in named:
         assert not under(path, spellings) or under(path, personal), path
     personal_files = {os.path.realpath(path + "/x.md" if path.endswith("/rules") else path)
@@ -263,8 +283,9 @@ def test_i3_a_git_spelling_through_a_symlink_spares_both(tmp_path, home, monkeyp
     for spelling in (str(link), os.path.realpath(real)):
         assert not test(f"{spelling}/CLAUDE.md") and not test(f"{spelling}/AGENTS.md")
         assert test(f"{spelling}x/CLAUDE.md")
+    listed = glob.matcher(excludes[:-1])
     for parent in {*_ancestors(str(link)), *_ancestors(os.path.realpath(real))}:
-        assert f"{glob_literal(parent)}/CLAUDE.md" in excludes
+        assert listed(f"{parent}/CLAUDE.md"), parent
 
 
 # --- R when git cannot answer ---------------------------------------------------------
@@ -661,3 +682,259 @@ def test_i7_no_config_dir_joins_and_the_transcript_path_is_unchanged(sandbox, tm
         assert launch.env_add["CLAUDE_CODE_OAUTH_TOKEN"] == TOKEN
         expected = scratch / "projects" / encode_project_dir(Path(workdir).resolve()) / f"{session}.jsonl"
         assert launch.notes["transcript_path"] == str(expected)
+
+
+# --- review r2 of #326 ------------------------------------------------------------------------
+# P1 1: the payload grows linearly with R's length. P1 2: an instruction file inside R that
+# reaches a personal file through a link is excluded. P2: an R whose real folder is `/` is refused.
+
+
+#: macOS `ARG_MAX` (`sysctl kern.argmax`): argv and environment together, in bytes.
+ARG_MAX = 1024 * 1024
+#: macOS `PATH_MAX`, with its terminating NUL.
+PATH_MAX = 1024
+
+
+def _payload_bytes(settings: dict) -> int:
+    return len(lsc.settings_payloads(claude.lane_settings_args(settings))[0].encode())
+
+
+def _deep(base: Path, levels: int, name: str = "x") -> Path:
+    path = base.joinpath(*[name] * levels)
+    path.mkdir(parents=True)
+    return path
+
+
+def test_the_payload_for_a_repository_400_folders_deep_runs(tmp_path, home):
+    """The review's case: a repository 400 one-character folders deep. Listing every
+    ancestor in full gave a 1,096,385-byte `--settings`, and the launch's exec failed
+    with `E2BIG`. Each folder name is written once now: the launch's real argv, run
+    with `/usr/bin/true` in place of Claude, starts."""
+    workdir = _repo(_deep(tmp_path / "d", 400))
+    assert len(str(workdir).encode()) < PATH_MAX
+    scratch = tmp_path / "scratch"
+    argv = list(_build(scratch, _job(scratch, workdir)).argv)
+    payload = lsc.settings_payloads(argv)[0]
+    settings = json.loads(payload)
+    print(f"\n400 deep: path {len(str(workdir).encode())} bytes, payload {len(payload.encode())} bytes, "
+          f"{len(settings['claudeMdExcludes'])} patterns")
+    assert len(payload.encode()) < 64 * 1024
+    _check_i2(settings["claudeMdExcludes"], workdir, home)
+    _check_i3(settings["claudeMdExcludes"], workdir, home)
+    done = subprocess.run(["/usr/bin/true", *argv[1:]], capture_output=True, timeout=60)
+    assert done.returncode == 0
+
+
+def test_the_payload_grows_linearly_with_depth(tmp_path, home):
+    """Four times as deep gives at most a little over four times the bytes (it was
+    about sixteen)."""
+    sizes = {}
+    for levels in (100, 400):
+        workdir = _deep(tmp_path / f"d{levels}", levels)
+        sizes[levels] = _payload_bytes(job_startup_settings(workdir, {"HOME": str(home)}))
+    assert sizes[400] < 4.5 * sizes[100], sizes
+
+
+def _fill(piece: str, prefix: str = "") -> str:
+    """The longest `prefix` + `piece` * n that is a legal macOS path (`PATH_MAX` with its NUL)."""
+    path = prefix
+    while len((path + piece).encode()) < PATH_MAX:
+        path += piece
+    return path
+
+
+@pytest.mark.parametrize("piece", ["/x", '/"', "/,", "/\x01", "/é\x01", '/é"', "/名"],
+                         ids=["plain", "quote", "comma", "control", "nfd-control", "nfd-quote", "cjk"])
+def test_the_payload_at_path_max_stays_far_under_arg_max(piece, monkeypatch, tmp_path):
+    """The costliest legal paths: one-character folders whose character the escapes or
+    JSON widen most, `PATH_MAX - 1` bytes long, with a real path as long again and so
+    up to four spellings of R (the paths do not exist, so git finds no checkout and R
+    is the workdir). The payload stays under 128 KiB (an eighth of `ARG_MAX`, and
+    below the cap), and an argv carrying it starts."""
+    workdir, real = _fill(piece), _fill(piece, prefix="/r")
+    assert len(workdir.encode()) < PATH_MAX and len(real.encode()) < PATH_MAX
+    links = {workdir: real}
+    monkeypatch.setattr(claude.os.path, "realpath", lambda path, **_: links.get(path, path))
+    settings = job_startup_settings(workdir, {"HOME": str(tmp_path / "home")})
+    size = _payload_bytes(settings)
+    print(f"\nPATH_MAX {piece!r}: path {len(workdir.encode())} bytes, payload {size} bytes, "
+          f"{len(settings['claudeMdExcludes'])} patterns")
+    assert size < 128 * 1024 < claude.JOB_STARTUP_SETTINGS_MAX_BYTES < ARG_MAX // 2
+    # Python's `re` cannot nest 500 groups, so the paths the patterns name are compared
+    # (picomatch's verdicts on these patterns are in the report's evidence).
+    named = {glob.unglob(item) for entry in settings["claudeMdExcludes"][:-1] for item in glob.expand(entry)}
+    for spelling in _spellings_with(links, workdir):
+        for folder in _ancestors(spelling):
+            assert f"{folder}/CLAUDE.md" in named and f"{folder}/.claude/rules/**" in named, folder
+        assert f"{spelling}/CLAUDE.md" not in named
+    monkeypatch.undo()
+    done = subprocess.run(["/usr/bin/true", *claude.lane_settings_args(settings)], capture_output=True, timeout=60)
+    assert done.returncode == 0
+
+
+def _spellings_with(links: dict, root: str) -> list[str]:
+    real = links.get(root, root)
+    return list(dict.fromkeys((root, real, unicodedata.normalize("NFC", root), unicodedata.normalize("NFC", real))))
+
+
+def test_a_payload_past_the_cap_is_refused(tmp_path, home, monkeypatch):
+    """A launch whose settings would pass `JOB_STARTUP_SETTINGS_MAX_BYTES` fails with
+    a stated refusal instead of an `E2BIG` at exec."""
+    workdir = _repo(tmp_path / "repo")
+    monkeypatch.setattr(claude, "JOB_STARTUP_SETTINGS_MAX_BYTES", 512)
+    scratch = tmp_path / "scratch"
+    with pytest.raises(claude.AdapterError) as raised:
+        _build(scratch, _job(scratch, workdir))
+    assert raised.value.reason == "claude-startup-size"
+
+
+# P1 2: links to personal files.
+
+
+def _personal(home: Path) -> dict[str, Path]:
+    """The fake home's personal instruction files, each holding a sentinel."""
+    files = {"claude": home / ".claude" / "CLAUDE.md", "rule": home / ".claude" / "rules" / "p.md",
+             "agents": home / "AGENTS.md", "config-agents": home / ".claude" / "AGENTS.md"}
+    for key, path in files.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"PERSONAL-SENTINEL-{key}\n", encoding="utf-8")
+    return files
+
+
+def _verdicts(excludes: list[str], workdir: Path, names: tuple[str, ...]) -> dict[str, set[bool]]:
+    """Each name under R, judged by the oracle in every spelling of R."""
+    test = glob.matcher(excludes)
+    spellings = _spellings(_toplevel(workdir))
+    return {name: {test(f"{spelling}/{name}") for spelling in spellings} for name in names}
+
+
+def test_a_direct_link_to_the_personal_file_is_excluded(tmp_path, home):
+    """The review's case: `repo/CLAUDE.md -> ~/.claude/CLAUDE.md`. Claude Code matches
+    the path it built, under R, so the negation spared it and the personal text
+    loaded. It is excluded in every spelling of R now; R's own files stay."""
+    personal = _personal(home)
+    repo = _repo(tmp_path / "repo")
+    (repo / "AGENTS.md").write_text("repository guidance\n", encoding="utf-8")
+    before = job_startup_settings(repo, {"HOME": str(home)})["claudeMdExcludes"]
+    (repo / "CLAUDE.md").symlink_to(personal["claude"])
+    excludes = job_startup_settings(repo, {"HOME": str(home)})["claudeMdExcludes"]
+    verdicts = _verdicts(excludes, repo, ("CLAUDE.md", "AGENTS.md", "sub/CLAUDE.md"))
+    assert verdicts == {"CLAUDE.md": {True}, "AGENTS.md": {False}, "sub/CLAUDE.md": {False}}
+    # Exactly the link's own path is added, in every spelling of R, before the negation.
+    assert excludes[:len(before) - 1] == before[:-1] and excludes[-1] == before[-1]
+    assert excludes[len(before) - 1:-1] == [glob_literal(f"{spelling}/CLAUDE.md")
+                                            for spelling in _spellings(_toplevel(repo))]
+
+
+def test_a_linked_folder_into_the_personal_folder_is_excluded(tmp_path, home):
+    """`repo/.claude -> ~/.claude` hands R the personal `CLAUDE.md`, `AGENTS.md` and
+    rules at start; `repo/docs -> ~/.claude`, tracked, hands R the personal
+    `CLAUDE.md` when a session touches `docs/`; and a workdir below R whose chain
+    holds `sub/.claude -> ~/.claude` hands it the same."""
+    _personal(home)
+    repo = _repo(tmp_path / "repo")
+    (repo / ".claude").symlink_to(home / ".claude", target_is_directory=True)
+    (repo / "docs").symlink_to(home / ".claude", target_is_directory=True)
+    workdir = repo / "sub"
+    workdir.mkdir()
+    (workdir / ".claude").symlink_to(home / ".claude", target_is_directory=True)
+    _git("add", "docs", cwd=repo)
+    excludes = job_startup_settings(workdir, {"HOME": str(home)})["claudeMdExcludes"]
+    verdicts = _verdicts(excludes, workdir, (".claude/CLAUDE.md", ".claude/AGENTS.md", ".claude/rules/p.md",
+                                             "docs/CLAUDE.md", "docs/rules/p.md", "sub/.claude/CLAUDE.md",
+                                             "sub/.claude/rules/p.md", "CLAUDE.md", "sub/CLAUDE.md"))
+    assert verdicts == {".claude/CLAUDE.md": {True}, ".claude/AGENTS.md": {True}, ".claude/rules/p.md": {True},
+                        "docs/CLAUDE.md": {True}, "docs/rules/p.md": {True}, "sub/.claude/CLAUDE.md": {True},
+                        "sub/.claude/rules/p.md": {True}, "CLAUDE.md": {False}, "sub/CLAUDE.md": {False}}
+
+
+def test_a_chain_of_two_links_to_a_personal_file_is_excluded(tmp_path, home):
+    """`repo/AGENTS.md -> ../hop-1`, `hop-1 -> hop-2`, `hop-2 -> ~/AGENTS.md`, and
+    `repo/CLAUDE.local.md -> repo/notes/local.md -> ~/.claude/CLAUDE.md` (the first
+    hop inside R): the real path decides, however many links lead there."""
+    personal = _personal(home)
+    repo = _repo(tmp_path / "repo")
+    (tmp_path / "hop-2").symlink_to(personal["agents"])
+    (tmp_path / "hop-1").symlink_to(tmp_path / "hop-2")
+    (repo / "AGENTS.md").symlink_to(Path("..") / "hop-1")
+    (repo / "notes").mkdir()
+    (repo / "notes" / "local.md").symlink_to(personal["claude"])
+    (repo / "CLAUDE.local.md").symlink_to(Path("notes") / "local.md")
+    assert os.path.realpath(repo / "AGENTS.md") == os.path.realpath(personal["agents"])
+    excludes = job_startup_settings(repo, {"HOME": str(home)})["claudeMdExcludes"]
+    assert _verdicts(excludes, repo, ("AGENTS.md", "CLAUDE.local.md", "CLAUDE.md")) == {
+        "AGENTS.md": {True}, "CLAUDE.local.md": {True}, "CLAUDE.md": {False}}
+
+
+def test_links_that_stay_inside_r_keep_loading(tmp_path, home):
+    """`CLAUDE.md -> AGENTS.md` and a rules folder linked to another folder of R are
+    R's own guidance: nothing is added for them."""
+    _personal(home)
+    repo = _repo(tmp_path / "repo")
+    (repo / "AGENTS.md").write_text("repository guidance\n", encoding="utf-8")
+    (repo / "CLAUDE.md").symlink_to("AGENTS.md")
+    (repo / "shared-rules").mkdir()
+    (repo / "shared-rules" / "r.md").write_text("rule\n", encoding="utf-8")
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "rules").symlink_to(Path("..") / "shared-rules", target_is_directory=True)
+    _git("add", "-A", cwd=repo)
+    excludes = job_startup_settings(repo, {"HOME": str(home)})["claudeMdExcludes"]
+    _check_i2(excludes, repo, home)
+    assert _verdicts(excludes, repo, ("CLAUDE.md", "AGENTS.md", ".claude/rules/r.md")) == {
+        "CLAUDE.md": {False}, "AGENTS.md": {False}, ".claude/rules/r.md": {False}}
+
+
+def test_a_link_out_of_r_and_a_hard_link_to_a_personal_file_are_excluded(tmp_path, home):
+    """A rules file linked to a folder outside R (not personal, but outside: its real
+    spelling is excluded, so this one is too), and a hard link to the personal
+    `CLAUDE.md`, whose real path is R's but whose file is the personal one."""
+    personal = _personal(home)
+    repo = _repo(tmp_path / "repo")
+    outside = tmp_path / "outside.md"
+    outside.write_text("elsewhere\n", encoding="utf-8")
+    (repo / ".claude" / "rules").mkdir(parents=True)
+    (repo / ".claude" / "rules" / "o.md").symlink_to(outside)
+    (repo / ".claude" / "rules" / "own.md").write_text("own rule\n", encoding="utf-8")
+    try:
+        os.link(personal["claude"], repo / "CLAUDE.md")
+    except OSError as exc:
+        pytest.skip(f"no hard link here: {exc}")
+    excludes = job_startup_settings(repo, {"HOME": str(home)})["claudeMdExcludes"]
+    assert _verdicts(excludes, repo, (".claude/rules/o.md", ".claude/rules/own.md", "CLAUDE.md")) == {
+        ".claude/rules/o.md": {True}, ".claude/rules/own.md": {False}, "CLAUDE.md": {True}}
+
+
+def test_a_workdir_that_is_a_link_to_the_personal_folder_excludes_its_files(tmp_path, home):
+    """A workdir spelled through a link to `~/.claude`: R is the workdir (git finds no
+    checkout), its real path the personal folder. The files Claude Code reaches
+    through R's spelling are excluded, as their real spellings are."""
+    _personal(home)
+    workdir = tmp_path / "work-link"
+    workdir.symlink_to(home / ".claude", target_is_directory=True)
+    excludes = job_startup_settings(workdir, {"HOME": str(home)})["claudeMdExcludes"]
+    test = glob.matcher(excludes)
+    for spelling in (str(workdir), os.path.realpath(workdir)):
+        assert test(f"{spelling}/CLAUDE.md") and test(f"{spelling}/AGENTS.md"), spelling
+    assert test(f"{os.path.realpath(workdir)}/rules/p.md")      # `C/rules/**`, as before
+
+
+# P2: an R whose real folder is `/`.
+
+
+@pytest.mark.parametrize("spelling", ["/", "//", "link"])
+def test_a_root_of_slash_is_refused(spelling, tmp_path, home):
+    """`/`, `//` and a link to `/` as the workdir: the negation would be `!/**` (or a
+    spelling of it) and spare every path. The launch is refused, with its reason."""
+    workdir = spelling
+    if spelling == "link":
+        workdir = tmp_path / "root-link"
+        workdir.symlink_to("/", target_is_directory=True)
+    with pytest.raises(claude.AdapterError) as raised:
+        job_startup_settings(workdir, {"HOME": str(home)})
+    assert raised.value.reason == "claude-startup-root"
+    from subfleet import refusals
+    assert refusals.render("claude-startup-root", None)[0] == str(raised.value)
+    scratch = tmp_path / "scratch"
+    with pytest.raises(claude.AdapterError) as launched:
+        _build(scratch, _job(scratch, Path(workdir)))
+    assert launched.value.reason == "claude-startup-root"
