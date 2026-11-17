@@ -23,6 +23,7 @@ from subfleet.adapters.claude import (
     model_matches_requested, parse_reset_clock, reconstruct_v1_argv,
 )
 from subfleet.adapters.base import AdapterError
+from tests import lane_settings_cases as lsc
 from subfleet.contracts import (
     GUESSED_CLOSURE_S, HEADLESS_MARKER, Attestation, ClockSource, ClosureReason,
     Credential, OutcomeClass, ReadingLabel, Sandbox,
@@ -407,8 +408,9 @@ def without_publish_hook(argv, *, writable_review: bool) -> tuple:
     (d1031); a writable review launch puts `--setting-sources user` before it
     (#221 r2 P3-6: the reviewed tree's project settings never load) and the
     publish hook in it (#221 r1b P1); nothing else does. Returns the argv with
-    that pair and the hook taken out, the lane settings' `--settings` kept."""
-    argv = tuple(argv)
+    that pair and the hook taken out, the lane settings' `--settings` kept, and a
+    writable launch's job-startup keys (D-LANE-STARTUP1) taken out as well."""
+    argv = tuple(lsc.without_job_startup(argv))
     assert argv.count("--settings") == 1
     index = argv.index("--settings")
     settings = json.loads(argv[index + 1])

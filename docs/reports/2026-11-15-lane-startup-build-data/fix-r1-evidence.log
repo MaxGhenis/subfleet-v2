@@ -1,0 +1,103 @@
+# Fix round 1 evidence (review r1 of #326). Scratch paths read <S>; times UTC.
+
+## runs.log (start/end, 1/5/15-minute load)
+runA start 21:14:26 193.35 137.29 128.18
+runA end 21:17:05 119.27 126.03 125.18
+runB start 21:17:36 128.86 127.75 125.83
+runB end 21:20:43 125.26 118.66 121.75
+runC start 21:21:01 123.96 118.82 121.73
+runC end 21:25:36 92.30 132.77 129.61
+runD start 21:27:39
+runD end 21:28:24
+
+## nfd-bundle-before.txt
+nfd   workdir=top:as-stored process.cwd()-is-NFD=True patterns=63 own kept 0/4 [CLAUDE.md=EXCLUDED, AGENTS.md=EXCLUDED, sub/CLAUDE.md=EXCLUDED, .claude/CLAUDE.md=EXCLUDED] outside+personal excluded 7/7 FAIL
+nfd   workdir=top:nfc       process.cwd()-is-NFD=True patterns=63 own kept 0/4 [CLAUDE.md=EXCLUDED, AGENTS.md=EXCLUDED, sub/CLAUDE.md=EXCLUDED, .claude/CLAUDE.md=EXCLUDED] outside+personal excluded 7/7 FAIL
+nfd   workdir=sub:as-stored process.cwd()-is-NFD=True patterns=63 own kept 0/4 [CLAUDE.md=EXCLUDED, AGENTS.md=EXCLUDED, sub/CLAUDE.md=EXCLUDED, .claude/CLAUDE.md=EXCLUDED] outside+personal excluded 7/7 FAIL
+nfd   workdir=sub:nfc       process.cwd()-is-NFD=True patterns=63 own kept 0/4 [CLAUDE.md=EXCLUDED, AGENTS.md=EXCLUDED, sub/CLAUDE.md=EXCLUDED, .claude/CLAUDE.md=EXCLUDED] outside+personal excluded 7/7 FAIL
+ascii workdir=top:as-stored process.cwd()-is-NFD=False patterns=63 own kept 4/4 [CLAUDE.md=kept, AGENTS.md=kept, sub/CLAUDE.md=kept, .claude/CLAUDE.md=kept] outside+personal excluded 7/7 ok
+ascii workdir=sub:as-stored process.cwd()-is-NFD=False patterns=63 own kept 4/4 [CLAUDE.md=kept, AGENTS.md=kept, sub/CLAUDE.md=kept, .claude/CLAUDE.md=kept] outside+personal excluded 7/7 ok
+FAILED
+
+## nfd-bundle-after.txt
+nfd   workdir=top:as-stored process.cwd()-is-NFD=True patterns=63 own kept 4/4 [CLAUDE.md=kept, AGENTS.md=kept, sub/CLAUDE.md=kept, .claude/CLAUDE.md=kept] outside+personal excluded 7/7 ok
+nfd   workdir=top:nfc       process.cwd()-is-NFD=True patterns=63 own kept 4/4 [CLAUDE.md=kept, AGENTS.md=kept, sub/CLAUDE.md=kept, .claude/CLAUDE.md=kept] outside+personal excluded 7/7 ok
+nfd   workdir=sub:as-stored process.cwd()-is-NFD=True patterns=63 own kept 4/4 [CLAUDE.md=kept, AGENTS.md=kept, sub/CLAUDE.md=kept, .claude/CLAUDE.md=kept] outside+personal excluded 7/7 ok
+nfd   workdir=sub:nfc       process.cwd()-is-NFD=True patterns=63 own kept 4/4 [CLAUDE.md=kept, AGENTS.md=kept, sub/CLAUDE.md=kept, .claude/CLAUDE.md=kept] outside+personal excluded 7/7 ok
+ascii workdir=top:as-stored process.cwd()-is-NFD=False patterns=63 own kept 4/4 [CLAUDE.md=kept, AGENTS.md=kept, sub/CLAUDE.md=kept, .claude/CLAUDE.md=kept] outside+personal excluded 7/7 ok
+ascii workdir=sub:as-stored process.cwd()-is-NFD=False patterns=63 own kept 4/4 [CLAUDE.md=kept, AGENTS.md=kept, sub/CLAUDE.md=kept, .claude/CLAUDE.md=kept] outside+personal excluded 7/7 ok
+all ok
+
+## record-nfd-before.txt
+sets 12 paths 1432 agree 1432 disagree 0 (bundle excluded 1165, kept 267); fwo mismatches 0
+bundle verdicts by label (label, excluded): dot-segment/True=64, empty/False=12, exclude/True=957, keep/False=176, keep/True=144, line-terminator/False=79
+
+## record-nfd-after.txt
+sets 12 paths 1432 agree 1432 disagree 0 (bundle excluded 1021, kept 411); fwo mismatches 0
+bundle verdicts by label (label, excluded): dot-segment/True=64, empty/False=12, exclude/True=957, keep/False=320, line-terminator/False=79
+
+## record-main-rerun.txt
+sets 18 paths 1313 agree 1313 disagree 0 (bundle excluded 984, kept 329); fwo mismatches 0
+bundle verdicts by label (label, excluded): dot-segment/True=48, empty/False=18, exclude/True=936, keep/False=240, line-terminator/False=71
+
+## matcher-nfd-seeds-1-3.log
+seed 1 20:50:22
+sets 60 paths 7032 agree 7032 disagree 0 (bundle excluded 4976, kept 2056); fwo mismatches 0
+bundle verdicts by label (label, excluded): backslash-fold/False=1, dot-segment/True=320, empty/False=60, exclude/True=4656, keep/False=1600, line-terminator/False=395
+rc=0
+seed 2 20:51:39
+sets 60 paths 7136 agree 7136 disagree 0 (bundle excluded 5082, kept 2054); fwo mismatches 0
+bundle verdicts by label (label, excluded): dot-segment/True=320, empty/False=60, exclude/True=4761, keep/False=1599, keep/True=1, line-terminator/False=395
+rc=0
+seed 3 20:52:47
+sets 60 paths 7231 agree 7231 disagree 0 (bundle excluded 5177, kept 2054); fwo mismatches 0
+bundle verdicts by label (label, excluded): dot-segment/True=320, empty/False=60, exclude/True=4856, keep/False=1599, keep/True=1, line-terminator/False=395
+rc=0
+
+## matcher-nfd-seeds-4-6.log
+seed 4 20:55:05
+sets 60 paths 7194 agree 7194 disagree 0 (bundle excluded 5139, kept 2055); fwo mismatches 0
+bundle verdicts by label (label, excluded): dot-segment/True=320, empty/False=60, exclude/True=4819, keep/False=1600, line-terminator/False=395
+rc=0
+seed 5 20:56:12
+sets 60 paths 7127 agree 7127 disagree 0 (bundle excluded 5072, kept 2055); fwo mismatches 0
+bundle verdicts by label (label, excluded): dot-segment/True=320, empty/False=60, exclude/True=4752, keep/False=1600, line-terminator/False=395
+rc=0
+seed 6 20:57:01
+sets 60 paths 7008 agree 7008 disagree 0 (bundle excluded 4953, kept 2055); fwo mismatches 0
+bundle verdicts by label (label, excluded): dot-segment/True=320, empty/False=60, exclude/True=4633, keep/False=1600, line-terminator/False=395
+rc=0
+
+## prefix-run.txt (new tests on a git archive of 2234e7196, failures only)
+FAILED tests/unit/test_lane_startup_glob.py::test_job_startup_settings_still_writes_the_recorded_patterns[n000]
+FAILED tests/unit/test_lane_startup_glob.py::test_job_startup_settings_still_writes_the_recorded_patterns[n001]
+FAILED tests/unit/test_lane_startup_glob.py::test_job_startup_settings_still_writes_the_recorded_patterns[n002]
+FAILED tests/unit/test_lane_startup_glob.py::test_job_startup_settings_still_writes_the_recorded_patterns[n005]
+FAILED tests/unit/test_lane_startup_glob.py::test_job_startup_settings_still_writes_the_recorded_patterns[n008]
+FAILED tests/unit/test_lane_startup_glob.py::test_job_startup_settings_still_writes_the_recorded_patterns[n003]
+FAILED tests/unit/test_lane_startup_glob.py::test_job_startup_settings_still_writes_the_recorded_patterns[n006]
+FAILED tests/unit/test_lane_startup_glob.py::test_job_startup_settings_still_writes_the_recorded_patterns[n004]
+FAILED tests/unit/test_lane_startup_glob.py::test_job_startup_settings_still_writes_the_recorded_patterns[n009]
+FAILED tests/unit/test_lane_startup_glob.py::test_job_startup_settings_still_writes_the_recorded_patterns[n010]
+FAILED tests/unit/test_lane_startup_glob.py::test_job_startup_settings_still_writes_the_recorded_patterns[n007]
+FAILED tests/unit/test_lane_startup_glob.py::test_job_startup_settings_still_writes_the_recorded_patterns[n011]
+FAILED tests/unit/test_lane_startup.py::test_r_is_the_workdir_when_the_checkouts_config_moves_git_off_it[root]
+FAILED tests/unit/test_lane_startup.py::test_r_is_the_workdir_when_the_checkouts_config_moves_git_off_it[sibling]
+FAILED tests/unit/test_lane_startup.py::test_r_is_the_workdir_when_a_gitdir_file_points_git_at_a_tree_elsewhere
+FAILED tests/unit/test_lane_startup.py::test_the_git_call_pins_core_fsmonitor_off
+FAILED tests/unit/test_lane_startup.py::test_i3_a_repository_stored_in_nfd_keeps_its_own_guidance[as-stored]
+FAILED tests/unit/test_lane_startup.py::test_i3_a_repository_stored_in_nfd_keeps_its_own_guidance[nfc-spelled]
+FAILED tests/unit/test_lane_startup.py::test_the_pin_is_appended_after_config_the_environment_already_counts
+19 failed, 99 passed in 205.40s (0:03:25)
+
+## runA.txt (last line)
+135 passed in 113.20s (0:01:53)
+
+## runB.txt (last line)
+566 passed in 158.43s (0:02:38)
+
+## runC.txt (last line)
+435 passed in 259.57s (0:04:19)
+
+## runD.txt (last line)
+3 passed in 32.25s

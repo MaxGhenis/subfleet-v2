@@ -379,6 +379,8 @@ def test_claude_publish_hook_rides_only_writable_review_launches(tmp_path, sandb
     # Every Claude launch passes one `--settings` (d1031); the hook rides in it.
     assert launch.argv.count('--settings') == 1
     settings = json.loads(launch.argv[launch.argv.index('--settings') + 1])
+    if sandbox == 'workspace-write':          # D-LANE-STARTUP1's keys share the payload
+        assert settings['env'].pop('CLAUDE_CODE_DISABLE_AUTO_MEMORY') == '1' and 'claudeMdExcludes' in settings
     assert settings['env'] == {'CLAUDE_CODE_RETRY_WATCHDOG': '0'}
     assert ('hooks' in settings) is expected
     if expected:

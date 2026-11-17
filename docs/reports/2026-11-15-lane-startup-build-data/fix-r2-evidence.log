@@ -1,0 +1,175 @@
+# Fix round 2 evidence (review r2 of #326). Tails of each run's output; times UTC.
+
+== before.txt
+E   Failed: DID NOT RAISE AdapterError
+/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-lsa-fix2/prefix/tests/unit/test_lane_startup.py:932: Failed: DID NOT RAISE AdapterError
+=========================== short test summary info ============================
+FAILED tests/unit/test_lane_startup.py::test_i2_i3_each_fixture_workdir[symlinked]
+FAILED tests/unit/test_lane_startup.py::test_i2_i3_each_fixture_workdir[linked-worktree]
+FAILED tests/unit/test_lane_startup.py::test_the_payload_grows_linearly_with_depth
+FAILED tests/unit/test_lane_startup.py::test_the_payload_at_path_max_stays_far_under_arg_max[control]
+FAILED tests/unit/test_lane_startup.py::test_the_payload_for_a_repository_400_folders_deep_runs
+FAILED tests/unit/test_lane_startup.py::test_the_payload_at_path_max_stays_far_under_arg_max[quote]
+FAILED tests/unit/test_lane_startup.py::test_the_payload_at_path_max_stays_far_under_arg_max[plain]
+FAILED tests/unit/test_lane_startup.py::test_the_payload_at_path_max_stays_far_under_arg_max[nfd-quote]
+FAILED tests/unit/test_lane_startup.py::test_the_payload_at_path_max_stays_far_under_arg_max[cjk]
+FAILED tests/unit/test_lane_startup.py::test_the_payload_at_path_max_stays_far_under_arg_max[nfd-control]
+FAILED tests/unit/test_lane_startup.py::test_a_payload_past_the_cap_is_refused
+FAILED tests/unit/test_lane_startup.py::test_the_payload_at_path_max_stays_far_under_arg_max[comma]
+FAILED tests/unit/test_lane_startup.py::test_a_direct_link_to_the_personal_file_is_excluded
+FAILED tests/unit/test_lane_startup.py::test_a_chain_of_two_links_to_a_personal_file_is_excluded
+FAILED tests/unit/test_lane_startup.py::test_a_workdir_that_is_a_link_to_the_personal_folder_excludes_its_files
+FAILED tests/unit/test_lane_startup.py::test_a_root_of_slash_is_refused[link]
+FAILED tests/unit/test_lane_startup.py::test_links_that_stay_inside_r_keep_loading
+FAILED tests/unit/test_lane_startup.py::test_a_root_of_slash_is_refused[/] - ...
+FAILED tests/unit/test_lane_startup.py::test_a_linked_folder_into_the_personal_folder_is_excluded
+FAILED tests/unit/test_lane_startup.py::test_a_link_out_of_r_and_a_hard_link_to_a_personal_file_are_excluded
+FAILED tests/unit/test_lane_startup.py::test_a_root_of_slash_is_refused[//]
+21 failed, 11 passed in 97.38s (0:01:37)
+
+== seam-before.txt
+WARNING  subfleet.daemon.4424061952:daemon.py:10400 guardian 987654321 started without a responsibility root (disclaim available: True); censuses of what it starts read three sources (C-5.5, D-CEN1)
+/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-lsa-fix2/prefix/tests/fake/test_prompt_seam.py:78: ValueError: too many values to unpack (expected 1, got 2)
+=========================== short test summary info ============================
+FAILED tests/fake/test_prompt_seam.py::test_c6_7_original_digest_and_actual_adapter_prompt[workspace-write-True-haiku]
+FAILED tests/fake/test_prompt_seam.py::test_c6_7_original_digest_and_actual_adapter_prompt[workspace-write-False-haiku]
+2 failed, 6 passed in 75.01s (0:01:15)
+
+== deep/out.txt
+review-400: path 839 bytes, 1 spellings, payload 13580 bytes, 15 patterns, 2411 paths (2403 excluded, 8 kept expected), 0 differ, 2604 ms
+plain: path 1022 bytes, 2 spellings, payload 33255 bytes, 21 patterns, 6142 paths (6126 excluded, 16 kept expected), 0 differ, 9331 ms
+quote: path 1022 bytes, 2 spellings, payload 76065 bytes, 21 patterns, 6142 paths (6126 excluded, 16 kept expected), 0 differ, 7631 ms
+comma: path 1022 bytes, 2 spellings, payload 61795 bytes, 21 patterns, 6142 paths (6126 excluded, 16 kept expected), 0 differ, 3357 ms
+control: path 1022 bytes, 2 spellings, payload 68930 bytes, 21 patterns, 6142 paths (6126 excluded, 16 kept expected), 0 differ, 5941 ms
+nfd-control: path 1020 bytes, 4 spellings, payload 92259 bytes, 33 patterns, 4922 paths (4890 excluded, 32 kept expected), 0 differ, 3643 ms
+nfd-quote: path 1020 bytes, 4 spellings, payload 97947 bytes, 33 patterns, 4922 paths (4890 excluded, 32 kept expected), 0 differ, 5503 ms
+brace: path 1022 bytes, 2 spellings, payload 47525 bytes, 21 patterns, 6142 paths (6126 excluded, 16 kept expected), 0 differ, 100934 ms
+cjk: path 1020 bytes, 2 spellings, payload 34693 bytes, 21 patterns, 3076 paths (3060 excluded, 16 kept expected), 0 differ, 10780 ms
+all ok
+
+== runA.txt
+bringing up nodes...
+bringing up nodes...
+
+...............................................................          [100%]
+423 passed in 344.51s (0:05:44)
+
+== runB-aa.txt
+bringing up nodes...
+bringing up nodes...
+
+.........                                                                [100%]
+513 passed in 493.04s (0:08:13)
+
+== runB-ab.txt
+.......................                                                  [100%]
+815 passed in 484.90s (0:08:04)
+
+== runB-ac.txt
+.........                                                                [100%]
+1881 passed in 513.02s (0:08:33)
+
+== runB-ad.txt
+............................................
+
+== runB-ad-2-full.txt
+bringing up nodes...
+bringing up nodes...
+
+................................................                         [100%]
+1200 passed in 133.98s (0:02:13)
+
+== runB-ae-full.txt
+bringing up nodes...
+bringing up nodes...
+
+.....................................
+
+== runB-ae-2-full.txt
+bringing up nodes...
+bringing up nodes...
+
+....................................................................     [100%]
+860 passed in 373.72s (0:06:13)
+
+== runC-full.txt
+bringing up nodes...
+bringing up nodes...
+
+.......                                                                  [100%]
+439 passed in 134.70s (0:02:14)
+
+== base-tree collected tests that passed
+tests/fake/test_prompt_seam.py::test_c6_7_original_digest_and_actual_adapter_prompt[read-only-False-astra]
+tests/fake/test_prompt_seam.py::test_c6_7_original_digest_and_actual_adapter_prompt[read-only-False-haiku]
+tests/fake/test_prompt_seam.py::test_c6_7_original_digest_and_actual_adapter_prompt[workspace-write-False-astra]
+tests/fake/test_prompt_seam.py::test_c6_7_original_digest_and_actual_adapter_prompt[workspace-write-False-haiku]
+tests/fake/test_prompt_seam.py::test_c6_7_original_digest_and_actual_adapter_prompt[workspace-write-True-astra]
+tests/fake/test_prompt_seam.py::test_c6_7_original_digest_and_actual_adapter_prompt[workspace-write-True-haiku]
+tests/fake/test_prompt_seam.py::test_c6_7_retry_keeps_prepared_write_prompt[False]
+tests/fake/test_prompt_seam.py::test_c6_7_retry_keeps_prepared_write_prompt[True]
+tests/unit/test_lane_startup.py::test_i3_a_git_spelling_through_a_symlink_spares_both
+tests/unit/test_lane_startup.py::test_the_payload_is_valid_json_at_every_fixture[linked-worktree]
+tests/unit/test_lane_startup.py::test_the_payload_is_valid_json_at_every_fixture[symlinked]
+
+== Run B files
+tests/e2e/test_review_publish_e2e.py
+tests/fake/test_finalization_replay.py
+tests/fake/test_frozen_stream_nonregular.py
+tests/fake/test_lanes_reenroll_keychain.py
+tests/fake/test_policy_sandbox.py
+tests/fake/test_review_r269r3_probe_records.py
+tests/process/test_claude_isolation.py
+tests/unit/test_agent_secret_credentials.py
+tests/unit/test_capacity_desktop.py
+tests/unit/test_claude_adapter.py
+tests/unit/test_claude_attest.py
+tests/unit/test_claude_cards.py
+tests/unit/test_claude_conversation_mcp_scope.py
+tests/unit/test_claude_identity.py
+tests/unit/test_claude_mcp_launch.py
+tests/unit/test_claude_usage.py
+tests/unit/test_conversation_catalog.py
+tests/unit/test_conversation_service.py
+tests/unit/test_daemon_fifo_reads.py
+tests/unit/test_daemon_integration.py
+tests/unit/test_daemon_log_handler.py
+tests/unit/test_daemon_log_scrubbing.py
+tests/unit/test_doctor_identity.py
+tests/unit/test_empty_provider_results.py
+tests/unit/test_enrollment_runner.py
+tests/unit/test_frozen_provider_streams.py
+tests/unit/test_gate_admission.py
+tests/unit/test_handler_refusals.py
+tests/unit/test_importer.py
+tests/unit/test_lane_answers.py
+tests/unit/test_lane_settings.py
+tests/unit/test_launch_env_allowlist.py
+tests/unit/test_launch_env_mutations.py
+tests/unit/test_launch_env_round4.py
+tests/unit/test_launch_env_round6.py
+tests/unit/test_launch_env_round7.py
+tests/unit/test_limit_from_model_text.py
+tests/unit/test_live_store_guard.py
+tests/unit/test_live_store_guard_round5.py
+tests/unit/test_live_store_guard_round6.py
+tests/unit/test_protocol_secrecy.py
+tests/unit/test_publish_trust_refusal_round8.py
+tests/unit/test_retention_delete_request.py
+tests/unit/test_review_pr127_fixes.py
+tests/unit/test_review_publish_env_round8.py
+tests/unit/test_review_publish_guard.py
+tests/unit/test_review_r2_repro.py
+tests/unit/test_round10_refusal_context.py
+tests/unit/test_scoped_stream_capacity.py
+tests/unit/test_scrub_inline_headers.py
+tests/unit/test_scrub_key_order.py
+tests/unit/test_scrub_no_new_leak.py
+tests/unit/test_scrub_release_first.py
+tests/unit/test_scrub_review_r2.py
+tests/unit/test_scrub_review_r9b.py
+tests/unit/test_sessions_revive.py
+tests/unit/test_status_hold_source.py
+tests/unit/test_task_hold_cas_wire.py
+tests/unit/test_task_holds.py
+tests/unit/test_timers_busy_read.py
