@@ -46,6 +46,8 @@ The build ran 2,228 unit tests (3 xfailed) and 542 fake, e2e and process tests, 
 
 Fix round 1 added 9 tests to `test_lane_startup.py` and an NFD recording to `test_lane_startup_glob.py`; 19 of the new cases fail on 2234e7196. With the fix: the new and changed tests 135 passed; the lane-startup and Claude adapter files 566 passed; the state-contract, module-name, invariant-index and handler-refusal files 435 passed.
 
+Fix round 2 added 18 test cases to `test_lane_startup.py` and one to `test_lane_startup_glob.py`, re-recorded both bundle fixtures over the nested patterns (the same verdicts), and fixed `test_prompt_seam.py`'s guardian pick. On d929336a8 the new cases fail, and the old seam test fails its two writable-haiku cases on the new adapter. With the fix: the three changed files 423 passed; the 60 other files that import a changed module 5,269 passed; the state-contract, module-name, invariant-index and handler-refusal files 439 passed.
+
 Report: `docs/reports/2026-11-15-lane-startup-build.md`.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)

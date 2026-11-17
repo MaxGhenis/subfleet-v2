@@ -878,3 +878,108 @@ test paragraph gains this round's counts. It is not applied on GitHub.
    under load 110-150, still less than the old patterns at that depth.
 5. **Build round residues 1-5 and fix round 1 residues 1-4, 6 and 7 stand.** Fix round 1's
    residue 5 (a workdir of `/`) is fixed here.
+
+### Commands and results
+
+Unless the row says otherwise, every test command was `uv run --no-sync --with
+'pytest-xdist>=3.6' python -m pytest … -q -p no:cacheprovider -n 4 --basetemp=$S/pytest-<label>`,
+inside `timeout 570`. `TMPDIR` was `$(getconf DARWIN_USER_TEMP_DIR)`, `UV_CACHE_DIR` was
+`$TMPDIR/uv-cache`, and `PYTHONPATH` was unset. `S` is `$TMPDIR/sf-lsa-fix2`. Times are UTC and
+loads are `uptime`'s one-minute figure. The tails are in
+`docs/reports/2026-11-15-lane-startup-build-data/fix-r2-evidence.log`.
+
+| Run | Command | Start → end (load) | Result |
+|---|---|---|---|
+| setup | `uv sync --group dev` | about 04:20 | installed into the worktree's `.venv` |
+| extract | `.venv/bin/python -I tools/claude_bundle_picomatch.py <binary> $S/node/pm.cjs`, then node: `makeRe` of nested braces | about 04:22 | `^(?:\/a(\|\/b(\|\/c))\/CLAUDE\.md)$`; verdicts as expected |
+| sizes | the adapter on synthetic paths (realpath mapped, git not run) | about 04:40 | the table under P1 1 |
+| dev1 | the new tests (`-k`), fixed tree | 04:45:02 → 04:53:25 (113) | 4 failed, 14 passed: `re`'s nesting limit at `PATH_MAX`, and one wrong expectation; both fixed in the tests |
+| deep | `.venv/bin/python -I deep_bundle_check.py <worktree> <binary> $S/deep` | 04:55:44 → 05:00:08 | rc 0, "all ok": 46,041 paths, 0 differ |
+| timing | node: compile and first-match time, old patterns against new | about 05:01-05:05 (110-175) | the cost table under P1 1 |
+| dev2 | the new tests and `test_prompt_seam.py` (`-k`) | 05:06:43 → 05:10:24 (177) | 1 failed (an expectation about `rules/p.md` under R's spelling, which Claude Code never reads), 31 passed |
+| record | `tools/claude_md_glob_record.py <binary> … --sets 18 --seed 20261115`, then `--sets 12 --seed 20261115 --nfd` | 05:12:44 → 05:13:33 | 1,313 agree; 1,432 agree; 0 `FWo` mismatches |
+| before | the new tests (`-k "400 or linearly or path_max or past_the_cap or link or slash or c6_7"`) over `git archive d929336a8 subfleet tests pyproject.toml`, with the new test module, oracle and seam test copied in, run from that copy (imports checked to resolve there) | 05:21:08 → 05:23:31 (146) | **21 failed, 11 passed**, 97 s. The 21 are every new case above, plus `test_i2_i3_each_fixture_workdir[symlinked]` and `[linked-worktree]` (the new `_check_i2`). The 11 passed are the 8 seam cases (whose fix is in the test), `test_i3_a_git_spelling_through_a_symlink_spares_both`, and `test_the_payload_is_valid_json_at_every_fixture[symlinked\|linked-worktree]` |
+| seam before | that copy with this round's `claude.py` and `refusals.py` and d929336a8's `test_prompt_seam.py` | 05:25:54 → 05:28:00 | **2 failed, 6 passed**: the two writable-haiku cases |
+| **A** | `tests/unit/test_lane_startup.py tests/unit/test_lane_startup_glob.py tests/fake/test_prompt_seam.py` | 05:29:15 → 05:36:35 (105 → 94) | **423 passed**, 344.5 s |
+| B1 | Run B files 1-12 (the e2e, fake and process files, then `test_agent_secret_credentials` … `test_claude_cards`) | 05:38:37 → 05:47:08 (100) | **513 passed**, 493.0 s |
+| B2 | files 13-24 (`test_claude_conversation_mcp_scope` … `test_empty_provider_results`) | 05:47:21 → 05:55:35 (79) | **815 passed**, 484.9 s |
+| B3 | files 25-36 (`test_enrollment_runner` … `test_launch_env_round7`, with `test_handler_refusals`) | 05:56:29 → 06:05:21 (79) | **1,881 passed**, 513.0 s |
+| B4 | files 37-48 (`test_limit_from_model_text` … `test_round10_refusal_context`) | 06:06:58 → 06:16:33 (54) | **stopped by its 570 s `timeout`** at about 97%; no failure in the captured tail (36% on) |
+| B5 | files 49-60 (`test_scoped_stream_capacity` … `test_timers_busy_read`) | 06:17:16 → 06:26:49 (118) | **stopped by its 570 s `timeout`** at about 55%; no failure in the output |
+| **C** | `tests/fake/test_state_contract.py tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py tests/unit/test_handler_refusals.py` | 06:27:09 → 06:29:37 (19 → 52) | **439 passed**, 134.7 s. Round 1 had 435; the 4 more are two parametrized handler-refusal tests over the two new reasons |
+| **B4 again** | the same 12 files, `timeout 560` | 06:31:03 → 06:33:19 (70 → 59) | **1,200 passed**, 134.0 s |
+| **B5 again** | the same 12 files, `timeout 560` | 06:33:27 → 06:39:43 (56 → 32) | **860 passed**, 373.7 s |
+
+Run B is every test file that imports a module this round changed: `git grep -lP` over `tests/*.py`
+for imports of `subfleet.adapters.claude`, `subfleet.refusals` and `tests.claude_md_glob`. That
+gave 70 files. Five are helpers, not test files: `tests/conftest.py`, `tests/fake/profile.py`,
+`tests/fixtures/home_resolvers_release_217.py`, `tests/lane_settings_cases.py` and
+`tests/task_hold_cas_legacy.py`. Run A held three. That leaves 62 test files, of which Run B ran
+60; the other two are under "What did not run". Run B finished with **5,269 passed** (B1-B3 and
+the second B4 and B5), and none failed in any run.
+
+### What did not run
+
+- **Two importers.** `tests/live/test_claude_live.py` needs a real Claude CLI.
+  `tests/unit/test_claude_v1_parity.py` reads `~/chief-of-staff/subfleet/bin/subfleet-claude` at
+  this base (build report, "What did not run"), which this brief's hands-off rule forbids.
+- **The whole suite**, any Claude CLI, the #310 merge, and the build's mutant runner against this
+  round's code.
+- **The bundle on the link cases.** The bundle's matcher judged the deep and recorded cases, not
+  the link tests; the oracle judges those.
+- **Claude Code's loader.** I read the bundle's `v8t`, `R8t`, `x8t` and the rules loader's check,
+  and did not run the loader. That a link inside R loaded the personal text is the review's finding,
+  not reproduced here.
+
+### Deviations from the brief
+
+1. **The personal-file rule is wider than the ruling's words.** A file inside R whose real path
+   lies anywhere outside R is excluded too, not only one under C or a named personal file. The
+   reason is under P1 2. It fails closed.
+2. **Two refusals, not one.** Besides the ruled `/` refusal, a 256 KiB cap refuses an oversized
+   payload (`claude-startup-size`). This makes "well under the limit" hold even with many personal
+   links, which the path-length bound alone does not cover.
+3. **A second git call.** `git ls-files -s -z` finds tracked links below the workdir. It is
+   capped and pinned like `rev-parse`, so a writable launch can now spend up to 20 s on git at
+   worst.
+4. **The order of runs.** Runs B4 and B5 first stopped at their caps, so Run C ran before they were
+   re-run. The brief's order (new tests, importers, then the four files) holds for every run that
+   finished, except that Run C finished before the B4 and B5 re-runs.
+5. **The PR body** is a file, not edited on GitHub, as the brief says.
+6. **No delegation, no advisor.** I worked alone. One advisor call was refused as rate-limited.
+   Headless mode forbids background work, so I ran no workflow.
+7. **Two commands passed the Bash tool's cap and were moved to the background by the harness:**
+   - the opening `date -u; pwd; git status`, while plain `git status` scanned untracked files; it
+     finished in the background;
+   - a scratch-size `du` at cleanup; it finished before I could stop it.
+
+   Nothing was started with `&`, `nohup` or the like, and no process from this job is left running.
+
+### Housekeeping
+
+- **Scratch.** Everything this round wrote outside the worktree was under `$TMPDIR/sf-lsa-fix2`
+  (567 MB):
+  - the extracted matcher modules (third-party code, not committed);
+  - the smoke repository and fake home;
+  - the base-tree copy;
+  - every pytest basetemp;
+  - the recordings;
+  - the deep-check work folder;
+  - the run outputs.
+
+  I removed it at 06:42:48 UTC with a `shutil.rmtree` that asserts the path's last part is
+  `sf-lsa-fix2`, and checked that it no longer exists.
+- **Outside the scratch.** `/tmp/sf-importers.txt` held a first importer list for a moment. I
+  deleted it with `rm -f` in the next command and wrote later lists under the scratch.
+  `/tmp/sf-e2e-*` matched nothing afterwards. The worktree's `.venv` (from `uv sync`) is ignored
+  and stays. The shared `$TMPDIR/uv-cache` predates this round and stays.
+
+### Commits
+
+| Commit | Content |
+|---|---|
+| effa0f2af | adapter: nested ancestor patterns, linked personal files, the `/` and size refusals, the refusal texts |
+| 54317c028 | tests: oracle nested braces and `expand`, the new cases, `_check_i2`, the prompt seam, `deep_bundle_check.py` |
+| 1eae2f944 | the re-recorded fixtures and the glob tests |
+| ad26853f6 | C-12.9 and its change-log line |
+| c0c5e57f0 and this section's commit | report, PR body and evidence log |
