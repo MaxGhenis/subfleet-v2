@@ -1,0 +1,14 @@
+{
+  "command": "uv --cache-dir /private/tmp/sf-sbh-c1/uv-cache run --no-sync --with 'pytest-xdist>=3.6' pytest -q -p no:cacheprovider -p pytest_scratch --basetemp /private/tmp/sf-sbh-c1/pytest-contract-bundle -n 3 tests/fake/test_state_contract.py tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py tests/unit/test_handler_refusals.py",
+  "environment": {
+    "TMPDIR": "/private/tmp/sf-sbh-c1",
+    "UV_CACHE_DIR": "/private/tmp/sf-sbh-c1/uv-cache",
+    "UV_PROJECT_ENVIRONMENT": "/private/tmp/sf-sbh-c1/venv",
+    "UV_PYTHON_INSTALL_DIR": "/private/tmp/sf-sbh-c1/python",
+    "PYTHONPYCACHEPREFIX": "/private/tmp/sf-sbh-c1/pycache",
+    "HYPOTHESIS_STORAGE_DIRECTORY": "/private/tmp/sf-sbh-c1/hypothesis",
+    "PYTHONPATH": "/private/tmp/sf-sbh-c1:/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1"
+  },
+  "returncode": 0,
+  "seconds": 1176.61
+}

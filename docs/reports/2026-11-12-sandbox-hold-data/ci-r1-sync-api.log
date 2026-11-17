@@ -1,0 +1,4 @@
+Using CPython 3.14.7+freethreaded interpreter at: /Users/maxghenis/.local/bin/python3.14t
+Creating virtual environment at: /private/tmp/sf-sbh-c1/venv
+Resolved 10 packages in 546ms
+error: Extra `api` is not defined in the project's `optional-dependencies` table
