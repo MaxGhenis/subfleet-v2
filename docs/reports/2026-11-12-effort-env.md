@@ -299,7 +299,7 @@ Head built (working-tree changes; commits denied): `4fd796b49ae63417e845c93ad8f4
 
 ## Fix round 3
 
-Review r3 of #310 (`~/reviews/subfleet-hub/effort-env-2026-11-10/review-r3.md`) found two P1s, two P2s and two P3s. This round fixes both P1s, both P2s and the first P3. The second P3 (the stale PR body) is the hub's, and the body is untouched. Started **2026-11-17 13:37:51 UTC** (`date -u`, first command) in a detached checkout of c07e5f193. Report written by 15:05 UTC, inside the three-hour limit. Evidence is in `docs/reports/2026-11-12-effort-env-data/fix-r3/`: one log per run from `run.sh`, which records the exact command, UTC start and end, and exit code.
+Review r3 of #310 (`~/reviews/subfleet-hub/effort-env-2026-11-10/review-r3.md`) found two P1s, two P2s and two P3s. This round fixes both P1s, both P2s and the first P3. The second P3 (the stale PR body) is the hub's, and the body is untouched. Started **2026-11-17 13:37:51 UTC** (`date -u`, first command) in a detached checkout of c07e5f193. Report finished at 14:54 UTC, inside the three-hour limit (deadline 16:37 UTC). Evidence is in `docs/reports/2026-11-12-effort-env-data/fix-r3/`: one log per run from `run.sh`, which records the exact command, UTC start and end, and exit code.
 
 Commits, all on the workspace's detached HEAD (the assigned branch is checked out in the caller's worktree):
 
@@ -308,7 +308,8 @@ Commits, all on the workspace's detached HEAD (the assigned branch is checked ou
 - `d5713c58e`: daemon and refusal fix, with the contract.
 - `9df56ca24`: `test_legacy_hold` stand-in.
 - `2df2c11d6`: run evidence and mutants.
-- Then this report.
+- `7fc3286f4`: this report.
+- A last commit: `cleanup.py`, `cleanup.json`, and this section's cleanup and head lines.
 
 ### Findings, causes and changes
 
@@ -432,6 +433,8 @@ Other commands, all exit 0: `date -u`; `git status`/`log`/`diff`/`rev-parse`/`me
 - **First `new-before` run.** It had a setup error in my new imported test: the store refuses to update `model_requested`, which already held `gpt-6-astra`. It gave 10 failed, 14 passed, five of them that setup error. I removed the update, and the corrected run reused the label, so its log replaced the first one. The counts here come from the console.
 - **Inaccurate commit message.** Commit `561c2c8ef` says its before-state is "daemon.py and refusals.py as at 276afddd8". Precisely, it is c07e5f193's files, whose PR lines equal 276afddd8's; release/217's own lines differ. History is not rewritten.
 - **Mutants.** Four mutants were added; the brief didn't ask for them.
+- **A directory add.** Commit `2df2c11d6` was staged with `git add docs/reports/2026-11-12-effort-env-data/fix-r3/`, a directory rather than named files. It held only this round's own logs, `run.sh`, `mutant.py` and `mutants.jsonl`.
+- **Not run here.** `tests/fake/test_review_needs_shell.py:142` quotes the non-resume fix text, which is unchanged; the file isn't in the brief's list, so CI covers it.
 
 **Seen, not changed.** If an attempt's `model_requested` were itself a policy key or retired alias for another ID, the fallback pin would resolve by key and its launch would refuse. That is unchanged from the base. Daemon attempts record `model["id"]`, and the importer records a resolved ID, v1's `meta.model`, or `unknown`, so whether any live attempt has such a value is UNPROVEN (I may not read the live store).
 
@@ -439,8 +442,8 @@ Other commands, all exit 0: `date -u`; `git status`/`log`/`diff`/`rev-parse`/`me
 
 - **Scratch:** `/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-eff-fix3`, holding the pytest basetemps and this section's draft.
 - **Outside it, both generated in this worktree:** `/Users/maxghenis/.subfleet/worktrees/20261117-083629-eff-fix-r3/.venv` (from `uv sync`) and `/Users/maxghenis/.subfleet/worktrees/20261117-083629-eff-fix-r3/.hypothesis`. No `__pycache__` was written.
-- **Removal:** after the final run, each is moved under the scratch and removed with `shutil.rmtree`, guarded by an assertion that `sf-eff-fix3` is in the path; the scratch goes the same way. CLEANUP_RESULT
+- **Removal:** after the final run, each is moved under the scratch and removed with `shutil.rmtree`, guarded by an assertion that `sf-eff-fix3` is in the path; the scratch goes the same way. `fix-r3/cleanup.py` did this at 14:53:59–14:54:26 UTC and exited 0. `cleanup.json` records the paths and shows none of the three remaining. `git status --short --ignored` then listed only the two new cleanup files, and `uv-cache` was still present. The section's scratch draft went with the scratch; its text is this section.
 - **Left:** `$TMPDIR/uv-cache`, which the brief names as the cache and which existed before this job.
 - **Never touched:** live state, live processes, credentials, `git push`, GitHub writes and history rewrites.
 
-Head built: HEAD_BUILT
+Head built: this section's last commit, the one that adds `cleanup.json`; its hash ends the final answer. Code and tests end at `2df2c11d6`, and the report's first commit is `7fc3286f4`.
