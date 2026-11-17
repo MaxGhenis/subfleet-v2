@@ -578,8 +578,9 @@ def popen_spy(monkeypatch, seen):
 @pytest.mark.parametrize("name", ["minus-one", "trailing-space", "four", "past-int-max", "letters"])
 def test_an_add_whose_config_git_would_refuse_never_starts(state_daemon, monkeypatch, tmp_path, name):  # noqa: F811
     """Review r2 of #329 (P2): entries git refuses refuse the job (`worktree-git-config`, exit 7)
-    before any census or add, with git's reason in daemon.log only; no exception escapes and no
-    git runs unpinned. Before the fix the add ran with the environment as it was."""
+    before the add's census and before it starts, with git's reason in daemon.log only; no
+    exception escapes and no git runs unpinned. Before the fix the add ran with the
+    environment as it was."""
     daemon, _ = state_daemon
     job = {"job_id": "refused-pin", "workdir_head": "commit"}
     (daemon.root / "jobs" / job["job_id"]).mkdir(parents=True)
