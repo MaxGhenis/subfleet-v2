@@ -118,14 +118,17 @@ def _text(parts) -> tuple[str, list[str]]:
 def test_a_one_line_record_is_exactly_its_line_form(message):
     """Differential: what the handler writes for a one-line record is
     `refusals.scrubbed_line` of its message, whatever the message; one holding a control
-    character also hides what the line form of its terminal reading hides, and writes each
-    control character as its escape (#308 fix r1)."""
+    character also hides what the line form of each of its terminal readings hides, and
+    writes each control character as its escape (#308 fixes r1 and r3)."""
     log = Written("subfleet.daemon.test-differential")
     try:
         log.log.warning("%s", message)
         expected = refusals.scrubbed_line(message)
-        if daemon_log._UNSHOWN.search(message):
-            expected = daemon_log._controls_shown(expected, refusals.scrubbed_line(daemon_log._rendered(message)))
+        readings = daemon_log._readings(message)
+        if readings:
+            expected = daemon_log._controls_shown(expected, [
+                (reading, runs, [set(daemon_log._RUN.findall(refusals.scrubbed_line(reading(message))))])
+                for reading, runs in readings])
         assert log.text() == expected + "\n"
     finally:
         log.close()

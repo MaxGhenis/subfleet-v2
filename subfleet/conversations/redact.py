@@ -11,7 +11,9 @@ too.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 from typing import Any
 
 from ..sessions.handoff import (
@@ -119,6 +121,19 @@ class DeltaBuffer:
 # --- approvals (C-27.1, review IR-20) -------------------------------------------
 
 _SHELL_META = ("$(", "`", "|", ";", "&", ">", "<", "\n")
+#: A mask an earlier pass wrote in place (`[masked url-password, 1 chars]`).
+_MASK = r"\[masked [a-z-]+, \d+ chars\]"
+#: A URL's password in an approval: `handoff._URL_PASSWORD_RE`, reading a mask an earlier
+#: pass wrote as one character of the password. Release's masking ends a password at its
+#: first `@` (`https://alice:p@ss/…@host` masks `p`), and its mask holds spaces, which
+#: `\S` cannot cross; read so, the head's pass still reaches the password's last `@`
+#: (review r3 of #308, P1).
+_APPROVAL_URL_PASSWORD_RE = re.compile(
+    r"(?i)([a-z0-9+._-]+://[^\s/:]*:)"
+    r"((?:" + _MASK + r"|(?!://)\S)*(?=@))(@)")
+#: What a URL password's masking leaves in place: a mask an earlier pass wrote, and a
+#: shell metacharacter, which an approval never hides (IR-20).
+_PASSWORD_KEPT_RE = re.compile(_MASK + "|" + "|".join(re.escape(meta) for meta in _SHELL_META))
 
 
 def mask_approval(request: Any) -> tuple[Any, list[dict]]:
@@ -142,17 +157,54 @@ def _head_mask_approval(request: Any) -> tuple[Any, list[dict]]:
     command substitution, a pipe, a separator, a redirection or a newline.
     Each masked span is reported so the app can show it and offer a reveal.
     """
-    import hashlib
     from ..sessions.handoff import (
-        _BEARER_RE, _JWT_RE, _PEM_RE, _PREFIXED_TOKEN_RE, _URL_PASSWORD_RE, _bearer_refusal, _linear_sub,
+        _BEARER_RE, _JWT_RE, _PEM_RE, _PREFIXED_TOKEN_RE, _URL_SCHEME_RE, _bearer_refusal, _linear_sub,
     )
     spans: list[dict] = []
 
+    def masked(value: str, rule: str, path: str) -> str:
+        spans.append({"path": path, "rule": rule, "length": len(value),
+                      "sha256": hashlib.sha256(value.encode()).hexdigest()})
+        return f"[masked {rule}, {len(value)} chars]"
+
+    def _masked_password(value: str, path: str) -> str:
+        """A URL's password, to its last `@` (C-23.14): every piece between the masks an
+        earlier pass wrote and the shell metacharacters masked, those kept. So every
+        character of the password is masked but a shell metacharacter, which stays in
+        view (IR-20), and text after the password up to that `@` (a host, a path, a
+        query) is masked with it (review r3 of #308, P1)."""
+        pieces, cursor = [], 0
+        for kept in _PASSWORD_KEPT_RE.finditer(value):
+            if kept.start() > cursor:
+                pieces.append(masked(value[cursor:kept.start()], "url-password", path))
+            pieces.append(kept.group())
+            cursor = kept.end()
+        if cursor < len(value):
+            pieces.append(masked(value[cursor:], "url-password", path))
+        return "".join(pieces)
+
+    def url_passwords(text: str, path: str) -> str:
+        """`text` with each URL's password masked (`_masked_password`): tried once from the
+        start of each run of scheme characters that `://` follows, as `handoff._linear_sub`
+        tries the head's URL rule, an empty password skipped."""
+        parts, cursor = [], 0
+        for token in _URL_SCHEME_RE.finditer(text):
+            if token.start() < cursor or not text.startswith("://", token.end()):
+                continue
+            match = _APPROVAL_URL_PASSWORD_RE.match(text, token.start())
+            if match is None or not match.group(2):
+                continue
+            parts.extend((text[cursor:match.start()],
+                          match.group(1) + _masked_password(match.group(2), path) + match.group(3)))
+            cursor = match.end()
+        parts.append(text[cursor:])
+        return "".join(parts)
+
     def mask_text(text: str, path: str) -> str:
         for rule, pattern in (("pem", _PEM_RE), ("jwt", _JWT_RE), ("token", _PREFIXED_TOKEN_RE),
-                              ("bearer", _BEARER_RE), ("url-password", _URL_PASSWORD_RE)):
+                              ("bearer", _BEARER_RE)):
             def repl(match):
-                value, rest = (match.group(0) if rule != "url-password" else match.group(2)), ""
+                value, rest = match.group(0), ""
                 if rule == "bearer" and (cut := _bearer_refusal(match)) is not None:
                     # A credential key, as the scrubber reads one (C-23.14): masked
                     # only for the token before its credential word, if any.
@@ -161,12 +213,9 @@ def _head_mask_approval(request: Any) -> tuple[Any, list[dict]]:
                     value, rest = match.string[match.start():cut], match.string[cut:match.end()]
                 if any(meta in value for meta in _SHELL_META):
                     return match.group(0)
-                spans.append({"path": path, "rule": rule, "length": len(value),
-                              "sha256": hashlib.sha256(value.encode()).hexdigest()})
-                hidden = f"[masked {rule}, {len(value)} chars]"
-                return hidden + rest if rule != "url-password" else match.group(1) + hidden + match.group(3)
+                return masked(value, rule, path) + rest
             text = _linear_sub(pattern, repl, text)
-        return text
+        return url_passwords(text, path)
 
     def walk(value: Any, path: str) -> Any:
         if isinstance(value, str):

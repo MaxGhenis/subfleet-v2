@@ -159,6 +159,13 @@ _FORMAT = ("\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-
 #: return and NEL) are whitespace to the scrubber and space or break a terminal's line,
 #: so they separate runs in either reading.
 _INVISIBLE = re.compile(r"[\x00-\x08\x0e-\x1f\x7f-\x84\x86-\x9f" + _FORMAT + "]")
+#: What bb118f63d's reading (fix r1's) drops (`_rendered_controls`): only the control
+#: characters that are not whitespace to the scrubber. It keeps the format characters,
+#: which end a word as the scrubber reads one, so `x\u200bBearer\x1b[0m <token>` reads
+#: `x\u200bBearer <token>` there, a `Bearer` token, where `_rendered` reads `xBearer`, no
+#: word `Bearer` at all (review r3 of #308, P1). Each reading is kept: what either hides
+#: stays hidden.
+_HIDDEN_CONTROL = re.compile(r"[\x00-\x08\x0e-\x1b\x7f-\x84\x86-\x9f]")
 #: A text holding any of these is also read as a terminal shows it (`_terminal_safe`,
 #: the formatter): a control character or a format character.
 _UNSHOWN = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f" + _FORMAT + "]")
@@ -183,34 +190,72 @@ def _rendered(text: str) -> str:
     return _INVISIBLE.sub("", _TERMINAL_SEQUENCE.sub("", text))
 
 
+def _rendered_controls(text: str) -> str:
+    """`text` as bb118f63d read it for a terminal: its control sequences and what
+    `_HIDDEN_CONTROL` names left out, its format characters and information separators
+    kept (`_HIDDEN_CONTROL`)."""
+    return _HIDDEN_CONTROL.sub("", _TERMINAL_SEQUENCE.sub("", text))
+
+
+def _readings(source: str) -> list[tuple[Callable[[str], str], re.Pattern]]:
+    """The terminal readings `source` is also scrubbed in (C-5.10), each with the run a
+    value is read in there: none for a text holding no control or format character
+    (`_UNSHOWN`); else `_rendered`'s, a run joined across the information separators
+    (`_SHOWN_RUN`); and, for one holding a control character, bb118f63d's
+    (`_rendered_controls`), a whitespace-free run (`_RUN`). A text holding no control
+    character reads in bb118f63d's reading as it is, so that reading would hide nothing
+    the text's own scrub does not."""
+    if not _UNSHOWN.search(source):
+        return []
+    if not _CONTROL.search(source):
+        return [(_rendered, _SHOWN_RUN)]
+    return [(_rendered, _SHOWN_RUN), (_rendered_controls, _RUN)]
+
+
 def _visible(text: str) -> str:
     """`text` with each control character `_CONTROL` names written as its `\\xNN` escape."""
     return _CONTROL.sub(lambda match: f"\\x{ord(match.group()):02x}", text)
 
 
-def _terminal_safe(source: str, scrubbed: str, scrub: Callable[[str], str]) -> str:
+def _terminal_safe(source: str, scrubbed: str, scrub: Callable[[str], str], around: str = "") -> str:
     """`scrubbed`, the scrub of `source`, as written for a terminal: unchanged when
-    `source` holds no control or format character (`_UNSHOWN`), else with `source` read
-    as a terminal shows it and scrubbed by `scrub` too (`_controls_shown`)."""
-    if not _UNSHOWN.search(source):
+    `source` and `around` hold no control or format character (`_UNSHOWN`), else with
+    `source` read in each of its terminal readings (`_readings`) and scrubbed by `scrub`
+    too (`_controls_shown`). `around`, for the follower, is the text `source` follows
+    with `source` itself: each reading of it is scrubbed too, and a run is written only
+    if that scrub holds it as well, so a key the earlier text ends with hides its value
+    (review r3 of #308, P2). A margin's mark (`|`, `+`) alone counts as held there, as
+    the follower's own rule has it."""
+    readings = _readings(around + source)
+    if not readings:
         return scrubbed
-    return _controls_shown(scrubbed, scrub(_rendered(source)))
+    checks = []
+    for reading, runs in readings:
+        shown = [set(_RUN.findall(scrub(reading(source))))]
+        if around:
+            shown.append(set(_RUN.findall(scrub(reading(around)))) | {"|", "+"})
+        checks.append((reading, runs, shown))
+    return _controls_shown(scrubbed, checks)
 
 
-def _controls_shown(text: str, rendered: str) -> str:
+def _controls_shown(text: str, checks: list[tuple[Callable[[str], str], re.Pattern, list[set[str]]]]) -> str:
     """`text`, a scrubbed record or tail holding control or format characters, as written
     (C-5.10, C-25.7): each control character as its `\\xNN` escape, so no escape sequence
     reaches daemon.log or a person's terminal and a reader still sees where one was; and
-    each run as a terminal shows it (`_SHOWN_RUN`) whose terminal reading (`_rendered`)
-    `rendered`, the same text read so and then scrubbed, does not hold as a run,
-    `[REDACTED]`: what either reading hides stays hidden. A run that is only control
+    each run as a terminal shows it (`_SHOWN_RUN`) `[REDACTED]` unless, in every reading
+    of `checks` (a reading, the run a value is read in there, and the runs each scrub of
+    the same text read so holds), each of its runs reads as nothing or as a run every
+    such scrub holds: what any reading hides stays hidden. A run that is only control
     sequences or invisible characters reads as nothing and is kept. Format characters
     are written as they are."""
-    shown = set(_RUN.findall(rendered))
 
     def run(match: re.Match) -> str:
-        plain = _rendered(match.group())
-        return match.group() if not plain or plain in shown else REDACTED
+        for reading, runs, shown in checks:
+            for piece in runs.findall(match.group()):
+                plain = reading(piece)
+                if plain and not all(plain in held for held in shown):
+                    return REDACTED
+        return match.group()
 
     return _visible(_SHOWN_RUN.sub(run, text))
 
@@ -371,11 +416,13 @@ class ScrubbingFormatter(logging.Formatter):
         groups = [_GROUP_MARK in part for part in parts]
         (line, *blocks), message = _within(parts, RECORD_SCRUB_MAX), parts[0]
         text = self._scrubbed_parts(record, line, blocks, message, groups)
-        if any(_UNSHOWN.search(part) for part in (line, *blocks)):
-            # The cut parts read as a terminal shows them, scrubbed alike (C-5.10).
-            rendered = self._scrubbed_parts(record, _rendered(line), [_rendered(block) for block in blocks],
-                                            message, groups)
-            text = _controls_shown(text, rendered)
+        readings = _readings("".join((line, *blocks)))
+        if readings:
+            # The cut parts read as a terminal shows them, in each reading, scrubbed alike
+            # (C-5.10).
+            text = _controls_shown(text, [(reading, runs, [set(_RUN.findall(self._scrubbed_parts(
+                record, reading(line), [reading(block) for block in blocks], message, groups)))])
+                for reading, runs in readings])
         return text
 
     @staticmethod
@@ -804,6 +851,24 @@ def _context_of(text: str) -> str:
     return "" if newline < 0 else text[newline + 1:]
 
 
+def _settled_end(text: str, start: int) -> int:
+    """`handoff.settled_end` of `text` from `start`, in `text` as it is and in each of its
+    terminal readings (`_readings`), whichever is earliest: a break is settled only where
+    no reading's scrub could cross it either, so a key an invisible character splits
+    (`pass\\u200bword:`) holds its line until its value can be read (review r3 of #308,
+    P2). A reading drops no line feed (`_TERMINAL_SEQUENCE` and the characters it drops
+    end before one), so its `n`th line start is the text's."""
+    settled = settled_end(text, start)
+    for reading, _ in _readings(text):
+        read = reading(text)
+        lines = read.count("\n", 0, settled_end(read, len(reading(text[:start]))))
+        at = 0
+        for _ in range(lines):
+            at = text.index("\n", at) + 1
+        settled = min(settled, at)
+    return settled
+
+
 class LogFollower:
     """daemon.log's new text, as `daemon logs --follow` writes it (C-25.7).
 
@@ -833,7 +898,7 @@ class LogFollower:
             newline = before.find("\n", start - 1, complete)
             start = complete if newline < 0 else newline + 1
         try:
-            settled = start + settled_end(before[start:complete], 0)
+            settled = start + _settled_end(before[start:complete], 0)
         except Exception:                   # noqa: BLE001 - unsettled, so read again to the bound
             settled = start
         if complete - settled > FOLLOW_HOLD_MAX:
@@ -850,7 +915,7 @@ class LogFollower:
             return []
         before = self.context + self.shown
         try:
-            settled = settled_end(before + self.pending[:complete], len(self.context)) - len(before)
+            settled = _settled_end(before + self.pending[:complete], len(self.context)) - len(before)
         except Exception:                   # noqa: BLE001 - unsettled, so held to the bound
             settled = 0
         if settled <= 0:
@@ -874,7 +939,8 @@ class LogFollower:
                 # A margin's mark alone is no value; `shown` may be written without margins.
                 own = _only(own, set(_RUN.findall(shown)) | {"|", "+"})
             own = _terminal_safe(written, own, lambda rendered: neutralised(
-                scrubbed_block(rendered, group=_GROUP_MARK in rendered, keep_lines=True)))
+                scrubbed_block(rendered, group=_GROUP_MARK in rendered, keep_lines=True)),
+                before + written if before else "")
             lines = own.splitlines()
         except Exception as exc:            # noqa: BLE001 - the marker alone, never the text
             lines = [failed_line(_record("", logging.INFO), exc)]

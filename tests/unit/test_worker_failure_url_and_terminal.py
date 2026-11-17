@@ -196,6 +196,22 @@ def test_r2_a_key_an_invisible_character_splits_is_still_a_password(name, route,
     assert CONTROL_URL in written
 
 
+#: A format character before `Bearer` and a reset after it (review r3 of #308, P1).
+#: bb118f63d's reading kept the format character, so `Bearer` started a word and its token
+#: was hidden; fix r2's dropped it (`xBearer`), so no reading hid the token.
+FORMAT_THEN_BEARER = "x​Bearer\x1b[0m {}"
+FORMAT_THEN_BEARER_MARKER = "Fx3termMark00123zz"
+
+
+@pytest.mark.parametrize("route", TERMINAL_ROUTES)
+def test_r3_a_format_character_before_bearer_keeps_bb118f63ds_mask(route, monkeypatch):
+    text = FORMAT_THEN_BEARER.format(FORMAT_THEN_BEARER_MARKER)
+    written = _written(route, f"login refused {text} for {CONTROL_URL}", monkeypatch)
+    _no_controls(written)
+    _hidden(written, FORMAT_THEN_BEARER_MARKER)
+    assert CONTROL_URL in written
+
+
 @pytest.mark.parametrize("separator", ["\x1c", "\x1d", "\x1e", "\x1f"])
 def test_r2_words_a_separator_joins_are_one_run_that_hides_nothing(separator):
     """A run is read across an information separator, as a terminal draws it, so words
