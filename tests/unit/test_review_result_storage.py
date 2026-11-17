@@ -66,22 +66,31 @@ def test_accepted_review_equals_fresh_parse_after_restart(state_daemon, text):
         with_restarted.close()
 
 
-@pytest.mark.parametrize(("text", "verdict", "consistent"), [
+@pytest.mark.parametrize(("text", "verdict", "p1", "consistent"), [
     pytest.param(b"VERDICT: APPROVE\nFINDINGS: none\n\nExample:\n- ```text\n"
-                 b"  sample\n  ```\n\nP1: Actual regression\n", "approve", False, id="list-fence"),
+                 b"  sample\n  ```\n\nP1: Actual regression\n", "approve", 1, False, id="list-fence"),
     pytest.param(b"VERDICT: REQUEST_CHANGES\nP1: 1,000 jobs are dropped when the index rolls over\n",
-                 "request_changes", True, id="numeric-comma"),
+                 "request_changes", 1, True, id="numeric-comma"),
     pytest.param(b"VERDICT: REQUEST_CHANGES\nP1: 500 (Internal Server Error) on every runs request\n",
-                 "request_changes", True, id="numeric-status"),
+                 "request_changes", 1, True, id="numeric-status"),
     pytest.param(b"VERDICT: REQUEST_CHANGES\nP1: Zero (0) requests reach the handler after restart\n",
-                 "request_changes", True, id="numeric-zero"),
+                 "request_changes", 1, True, id="numeric-zero"),
+    pytest.param(b"VERDICT: REQUEST_CHANGES\nREADME diff:\n```diff\n-  ```text\n"
+                 b"-  example\n-  ```\n+  corrected example\n```\nP1: README example is wrong\n",
+                 "request_changes", 1, True, id="diff-removed-indented-closer"),
+    pytest.param(b"VERDICT: APPROVE\nFINDINGS: none\n```md\n- ```\n```\nP1: real finding\n",
+                 "approve", 1, False, id="list-marker-inside-md-fence"),
+    pytest.param(b"VERDICT: APPROVE\nFINDINGS: none\n```text\n- ```\nP1: only an example\n```\n",
+                 "approve", 0, True, id="list-marker-inside-text-fence"),
+    pytest.param(b"VERDICT: APPROVE\nFINDINGS: none\nP0: 0 (none found)\n",
+                 "approve", 0, True, id="parenthetical-tally"),
 ])
-def test_review_regressions_keep_explicit_counts_in_every_view(state_daemon, text, verdict, consistent):
+def test_review_regressions_keep_explicit_counts_in_every_view(state_daemon, text, verdict, p1, consistent):
     """Check stored counts against the contract, independently of a fresh parse."""
     service, harness = state_daemon
     job_id, attempt, adir = reserve(service, harness, task="review")
     service._finalize(receipt_fixture(service, attempt, adir, stdout=text))
-    expected = {"verdict": verdict, "levels": {"P0": 0, "P1": 1, "P2": 0, "P3": 0},
+    expected = {"verdict": verdict, "levels": {"P0": 0, "P1": p1, "P2": 0, "P3": 0},
                 "valid": True, "reason": None, "consistent": consistent}
     assert service.store.get_job(job_id)["accepted_attempt_id"] == attempt["attempt_id"]
     assert json.loads(service.store.get_attempt(attempt["attempt_id"])["evidence_json"])["review"] == expected
@@ -92,7 +101,9 @@ def test_review_regressions_keep_explicit_counts_in_every_view(state_daemon, tex
     restarted = Daemon(harness.root)
     try:
         assert_views(restarted, job_id, expected)
-        assert len(review_events(restarted, job_id)) == 1
+        assert json.loads(restarted.store.get_attempt(attempt["attempt_id"])["evidence_json"])["review"] == expected
+        [event] = review_events(restarted, job_id)
+        assert json.loads(event["data_json"]) == expected
     finally:
         restarted.close()
 

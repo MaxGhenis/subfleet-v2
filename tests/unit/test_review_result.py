@@ -162,11 +162,31 @@ def test_list_item_fences_hide_examples_and_close_before_real_findings(prefix, m
                       "valid": True, "reason": None, "consistent": False}
 
 
-@pytest.mark.parametrize("prefix", [">     ", "> >     "])
-def test_indented_code_in_a_quote_is_not_a_finding(prefix):
+@pytest.mark.parametrize(("prefix", "p1"), [
+    (">     ", 0), ("> >     ", 0), (">\t", 1),
+])
+def test_indented_code_in_a_quote_is_not_a_finding(prefix, p1):
     result = parse_review_result(f"VERDICT: APPROVE\nFINDINGS: none\n{prefix}P1: code example")
-    assert result["levels"] == NONE
-    assert result["consistent"] is True
+    assert result["levels"] == {**NONE, "P1": p1}
+    assert result["consistent"] is (p1 == 0)
+
+
+@pytest.mark.parametrize(("line", "level"), [
+    ("P0: 0 (none found)", None),
+    ("- P1: 2 (both fixed in round 2)", None),
+    ("P1: 1,000 jobs are dropped when the index rolls over", "P1"),
+    ("P1: 500 (Internal Server Error) on every runs request", "P1"),
+    ("P1: Zero (0) requests reach the handler after restart", "P1"),
+    ("P1: 1. See below.", "P1"),
+    ("P1: 500 (Internal Server Error)", None),
+    ("P1: 2 (both fixed).", None),
+    ("P1: 2 (both fixed) (more detail)", "P1"),
+])
+def test_only_a_complete_count_with_one_final_parenthetical_is_a_tally(line, level):
+    """A1 review r3 P2: a trailing comment is allowed only after a complete count."""
+    result = parse_review_result("VERDICT: APPROVE\nFINDINGS: none\n" + line)
+    assert result == {"verdict": "approve", "levels": {**NONE, **({level: 1} if level else {})},
+                      "valid": True, "reason": None, "consistent": level is None}
 
 
 @pytest.mark.parametrize("summary", [

@@ -36,12 +36,13 @@ _FINDING = re.compile(
 #: What follows a level in a count or tally, not a finding: `P0: 0`,
 #: `P1: none`, `P0: 0, P1: 2`, `P2: no findings`. A number that starts a
 #: sentence (`P1: 2 tests fail`) is a finding's summary. Match the complete
-#: expression: punctuation alone cannot turn a numeric summary into a tally.
+#: expression, optionally ending in one parenthetical comment: punctuation
+#: alone cannot turn a numeric summary into a tally.
 _COUNT = r"(?:(?:\d++|none|zero)(?:[ \t]++findings?)?|no[ \t]++findings?)\b"
 _TALLY = re.compile(
     rf"{_COUNT}[ \t*_]*+"
     rf"(?:(?:[,;|/\u00b7][ \t*_]*+)?P[0-3][ \t*_]*+:[ \t*_]*+{_COUNT}[ \t*_]*+)*"
-    r"[.,;]?[ \t*_]*+", re.IGNORECASE,
+    r"(?:\([^()\n]*\)[ \t*_]*+)?[.,;]?[ \t*_]*+", re.IGNORECASE,
 )
 #: A dash between two levels is a range (`P0 - P1: none`), not a finding.
 _RANGE = re.compile(r"P[0-3]\b")
@@ -53,12 +54,15 @@ DEFINITION_OPENINGS = {
     "P2": "right today but fragile",
     "P3": "style and nits",
 }
-#: A fenced code block's opening or closing line, inside a blockquote or a list
-#: item too: three or more backticks or tildes.
+#: A fenced code block's opener can follow quote or list markers. A closer
+#: allows only whitespace and quote markers before its backticks or tildes:
+#: a list marker inside a fence is content, as in a diff's removed closer.
 _FENCE = re.compile(r"(?:[ \t>]|[-*+][ \t]++|\d{1,9}[.)][ \t]++)*+(`{3,}|~{3,})(.*)$")
-#: A quote marker removes at most one separator space. Four further spaces,
+#: Preserve the base closer rule independently of the opening containers.
+_FENCE_CLOSE = re.compile(r"[ \t>]*(`{3,}|~{3,})(.*)$")
+#: A quote marker removes at most one separator space or tab. Four further spaces,
 #: or a tab, introduce code, just as they do outside a quote (review r2).
-_INDENTED_CODE = re.compile(r"(?: {0,3}> ?)*+(?: {4}|\t)")
+_INDENTED_CODE = re.compile(r"(?: {0,3}>[ \t]?)*+(?: {4}|\t)")
 _NO_FINDINGS = re.compile(r" {0,3}FINDINGS: none[ \t]*$")
 
 
@@ -108,12 +112,13 @@ def parse_review_result(text: str) -> dict:
                 "VERDICT: APPROVE": "approve",
                 "VERDICT: REQUEST_CHANGES": "request_changes",
             }.get(line.lstrip(_ZERO_WIDTH).rstrip().rstrip(_ZERO_WIDTH).rstrip())
-        marker = _FENCE.match(line)
         if fence is not None:
+            marker = _FENCE_CLOSE.match(line)
             if marker and marker.group(1)[0] == fence[0] and len(marker.group(1)) >= len(fence) \
                     and not marker.group(2).strip():
                 fence = None
             continue
+        marker = _FENCE.match(line)
         if marker and not (marker.group(1)[0] == "`" and "`" in marker.group(2)):
             fence = marker.group(1)
             continue

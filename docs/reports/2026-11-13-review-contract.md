@@ -583,7 +583,7 @@ Round 2 of PR #313 (d2937, advisory phase), from checkpoint `952c7901923fe884c79
 
 All three formal findings are fixed. The initial workspace contained an unstaged change to `tools/review_contract_mutations.py`, including the anchor repairs; those changes were preserved and validated. No other initial changes were reported by Git.
 
-- **P1, list-item fences.** `_FENCE` recognized only whitespace and blockquotes before a fence. It missed `- ```text`, then mistook the closer for an opener and hid the actual finding. It now consumes bullet and ordered-list containers, including nested quotes, for both opening and closing fences, preserving the same-character/length and backtick-info-string rules. `test_list_item_fences_hide_examples_and_close_before_real_findings` covers seven container prefixes and both fence characters. The exact review case is also in `test_review_regressions_keep_explicit_counts_in_every_view[list-fence]`: acceptance, evidence, the event, all four online/offline views and restart must retain P1=1, valid=true, consistent=false. All **15 cases failed before** the fix and **passed after**.
+- **P1, list-item fences.** `_FENCE` recognized only whitespace and blockquotes before a fence. It missed `- ```text`, then mistook the closer for an opener and hid the actual finding. It now consumes bullet and ordered-list containers, including nested quotes, for both opening and closing fences (the closer behavior was incorrect and is corrected by fix round 3: list markers may precede opening fences only), preserving the same-character/length and backtick-info-string rules. `test_list_item_fences_hide_examples_and_close_before_real_findings` covers seven container prefixes and both fence characters. The exact review case is also in `test_review_regressions_keep_explicit_counts_in_every_view[list-fence]`: acceptance, evidence, the event, all four online/offline views and restart must retain P1=1, valid=true, consistent=false. All **15 cases failed before** the fix and **passed after**.
 - **P1, numeric finding summaries.** `_TALLY.match` accepted a numeric/count-word prefix and stopped at punctuation without examining the rest of the line. `_TALLY.fullmatch` now requires a complete count expression; any continuation must be another complete level/count pair, with optional terminal punctuation. `test_numeric_or_count_word_summaries_are_findings` covers the three review summaries (`1,000 jobs…`, `500 (Internal Server Error)…`, `Zero (0) requests…`) and four further partial-tally/prose forms. The three review cases also pass through accepted evidence, event, every view and restart, using explicit expected counts rather than a fresh parse as the oracle. All **10 cases failed before** and **passed after**. Existing tally exclusions remain covered by the full parser file.
 - **Quoted indented code, also observed in r2.** The finding container matcher consumed unlimited whitespace after `>`. `_INDENTED_CODE` now excludes four spaces after a quote's separator space, or a tab. `test_indented_code_in_a_quote_is_not_a_finding` covers single and nested quotes: **2 failed before, 2 passed after**.
 - **P2, stale mutation anchors.** The preserved helper changes replace the old gate-review preamble anchor with `is_review_job(...)`, and the inline parse/storage anchor and mutant fallback with `review_result`. Static comparison finds zero matches for those two HEAD anchors and exactly one for every repaired anchor; all five replacements compile. The helper keeps source-byte restoration and named-test/exit-1 kill checks. Its existing scratch/cache changes were preserved; its private pytest plugin now also redirects `tempfile.tempdir` into each mutation directory so fixtures stay inside job scratch. All five execution results and killers appear below.
@@ -673,3 +673,80 @@ Completed **2026-11-15 21:25:20 UTC**, before the **22:50:50 UTC** deadline. Fin
 Closeout verification: four Python AST checks and both restored-source SHA-256 checks passed; `git diff --check` passed; Git lists exactly the six named modified files and no untracked or ignored files; HEAD remains the checkpoint. All checks exited 0. Scratch and `.venv` are absent.
 
 Head built: 952c7901923fe884c79f4046258bbfbe8c882eb2
+
+
+## Fix round 3
+
+PR #313, D-REVIEW-CONTRACT1 (d2937, advisory phase), from clean detached head `0c2995c04623cdda2c3f7c84a2af7ba06ba4959b`. Started **2026-11-17 13:37:46 UTC**, from `date -u` in the first command; deadline **16:37:46 UTC**. Completed **2026-11-17 13:57:41 UTC**, before the deadline.
+
+All four assigned findings are fixed:
+
+- **P1, list markers closing fences.** The shared opening/closing pattern accepted list markers inside a fence. `_FENCE_CLOSE` now preserves base's `[ \t>]*` prefix; list containers remain allowed only by the opener. Three new `test_review_regressions_keep_explicit_counts_in_every_view` cases all failed before and pass after: `diff-removed-indented-closer` expects request_changes/P1=1/valid/consistent; `list-marker-inside-md-fence` expects approve/P1=1/valid/inconsistent; `list-marker-inside-text-fence` expects approve/P1=0/valid/consistent. Each goes through `_finalize`, accepted attempt evidence, `job.review_result`, online/offline list/show, and a daemon restart. Expected counts are explicit; restart also rechecks evidence and event payloads. Round 2's 14 list-fence parser cases and existing fence cases pass. C-12.11 and both relevant change-log entries are corrected; round 2's report retains its original closer claim with an explicit correction annotation.
+- **P2, parenthetical tally comments.** Complete-line matching rejected every trailing comment. `_TALLY` now allows one final parenthetical after a complete count expression, before optional terminal punctuation. `test_only_a_complete_count_with_one_final_parenthetical_is_a_tally` pins all six requested lines plus the bare `500 (Internal Server Error)` tally limit, punctuation, and a second-parenthetical finding. Four changed cases failed before; five prose/boundary controls passed before; all nine pass after. The added every-view `parenthetical-tally` APPROVE case failed before and passes after with P0=0 and consistent=true. Numeric summaries and `P1: 1. See below.` remain findings. C-12.11 states the rule and its limit.
+- **P3, quoted tab separator.** The indented-code matcher consumed only a quote's separator space, treating its separator tab as code. It now consumes an optional space or tab before checking further indentation. The added `>\tP1:` parameter in `test_indented_code_in_a_quote_is_not_a_finding` failed before with P1=0 and passes after with P1=1. Both existing quoted-code controls remain P1=0. C-12.11 now describes the separator and four further columns.
+- **P3, mutation scratch name.** `--scratch-root` is required and must resolve to a direct child of `$TMPDIR` whose name starts `sf-`. Documentation and the source-idle comment are round neutral. Missing root, a non-`sf-` root and a nested root each produce expected exit 2; the valid round-three path succeeds in the mutation run.
+
+The third P3, the stale PR-body JSON claim, remains with the hub as instructed. The body was read only; round 2's corrected JSON description remains available for the hub's rewrite. No other finding is left open.
+
+Every ordinary test used Python 3.15.2, a new `pytest-*` basetemp, and this command template (`S=/private/tmp/sf-rva1-fix3`):
+
+```sh
+python3 S/run_tests.py LABEL TARGETS
+# expands to:
+uv run --no-sync --with 'pytest-xdist>=3.6' pytest -q -n 4 \
+  -p sf_rva1_fix3_temp -p no:cacheprovider --timeout=180 --timeout-method=thread \
+  --basetemp S/pytest-LABEL TARGETS
+```
+
+The runner sets `TMPDIR` from getconf, `UV_CACHE_DIR=S/uv-cache`, `PYTHONDONTWRITEBYTECODE=1`, `HYPOTHESIS_STORAGE_DIRECTORY=S/hypothesis` and `PYTHONPATH=S`. Its private plugin confines tempfile allocation and failed-test retention/pruning to S before conftest runs.
+
+| Run / targets | Result | Exit | Pytest / command seconds |
+| --- | --- | ---: | ---: |
+| `regressions-before`: `tests/unit/test_review_result.py::test_only_a_complete_count_with_one_final_parenthetical_is_a_tally`, `tests/unit/test_review_result.py::test_indented_code_in_a_quote_is_not_a_finding`, `tests/unit/test_review_result_storage.py::test_review_regressions_keep_explicit_counts_in_every_view` | 9 expected assertion failures, 11 passed | 1 | 61.49 / 73.58 |
+| `regressions-after`: same targets, plus `tests/unit/test_review_result.py::test_list_item_fences_hide_examples_and_close_before_real_findings` and `tests/unit/test_review_result.py::test_a_fence_closes_only_on_its_own_marker` | 35 passed | 0 | 73.28 / 79.10 |
+| `importers`: `tests/unit/test_review_result.py`, `tests/unit/test_review_result_storage.py`, `tests/unit/test_review_result_cli.py` | 699 passed | 0 | 128.82 / 137.66 |
+| `guards`: `tests/fake/test_state_contract.py`, `tests/unit/test_test_module_names.py`, `tests/unit/test_invariants_index.py`, `tests/unit/test_handler_refusals.py` | 435 passed | 0 | 199.13 / 224.37 |
+
+The required order was preserved. Post-fix ordinary checks total **1,169 passes including repeats, 1,134 distinct cases across seven files**. All nine behavior-changing regression parameters failed before their fixes; the added controls intentionally passed before as well.
+
+After ordinary tests, `python3 S/run_mutant.py` ran only:
+
+```sh
+TMPDIR=/private/tmp
+UV_CACHE_DIR="$TMPDIR/sf-rva1-fix3/uv-cache" PYTHONDONTWRITEBYTECODE=1 \
+  python3 tools/review_contract_mutations.py --scratch-root "$TMPDIR/sf-rva1-fix3" \
+  --only list-markers-close-fence --timeout 600
+```
+
+The new mutant replaces the dedicated closer match with the list-capable opener match. Killer: `tests/unit/test_review_result_storage.py::test_review_regressions_keep_explicit_counts_in_every_view[diff-removed-indented-closer]`. Result: **1 assertion failure in 13.99 seconds**, pytest exit 1; helper exit 0; mutation 38.537 seconds, wrapper 41.77 seconds. This was a named-test kill, not collection/setup failure. The helper restored its pristine bytes; the wrapper independently compared parser and daemon bytes with copies saved before the ordinary importer run:
+
+- `subfleet/review_result.py`: SHA-256 `e46058749ee041b1d8c5b8972685b1028901486f9a9269132521df3a7658fb44`.
+- `subfleet/daemon.py`: SHA-256 `95281aa5b65b8a655502766b7f096f9cc166dc67d127a2c24ed577f25545d6b8`.
+
+Command ledger, with read-only commands and repeated output polls grouped by family:
+
+| Command / family | Result |
+| --- | --- |
+| First `date -u`, `pwd`, Git status/branch/HEAD; required review/report `cat` and report `sed`/`wc`; `gh pr view 313 --repo MaxGhenis/subfleet-v2` | exit 0; start/head above; initially clean; required sources read; stale PR-body claim confirmed |
+| Confined `rg --files`, `rg -n`, `cat`, `sed`, `tail`, Git diff/status and `git grep -l` importer searches; output polls | successful reads; parser importers are exactly the three files run above; no mutation-helper test import (expected grep exit 1); no AGENTS.md in inventory |
+| Required `getconf`; shared-cache `uv sync --group dev`; mkdir under required temp root | getconf succeeded; sync exit 2 (`sdists-v9/.git` denied); mkdir raised PermissionError |
+| Fallback scratch creation; `UV_CACHE_DIR=S/uv-cache uv sync --group dev` | exit 0; `.venv` created; nine packages installed |
+| Named `apply_patch`/Python source, docs, scratch runner/plugin/report/cleanup preparations | succeeded; synthetic fixtures only |
+| Python AST checks, mutation-anchor audit, report/contract checks; helper CLI rejection probes | 3-file then 4-file AST checks passed; all six anchors unique and replacement sources compile; four wording assertions passed; three expected CLI exit-2 rejections |
+| Named-file `git diff --check` checks | passed |
+| Parser/tests/contract/report-correction named `git add` and `git commit`; helper named `git add` and `git commit` | all four commands exit 128: `index.lock: Operation not permitted`; no commits created |
+| Report append; named report `git add` and `git commit`; guarded cleanup; final Python AST/hash/absence and Git checks | report written; both Git commands exit 128 (index.lock denied); cleanup exit 0; four ASTs, two hashes, whitespace and six-file status checks pass |
+
+All required test files ran. The whole suite, live-provider checks, CI reruns, optional markdown-it-py comparison and the five existing mutants were not run. The scoped new mutant ran alone as requested.
+
+Deviations are the sandbox-denied prescribed scratch/cache, requiring S and its private cache, and denied Git commits. Ordinary tests retained the prescribed getconf TMPDIR; the mutation command and helper argument probes used `/private/tmp` as TMPDIR so its explicit fallback root satisfies the new containment rule. No merges, history rewrites, pushes, other-branch changes or caller-checkout writes occurred. No live state or live process was inspected, and no forbidden write-shaped command was executed.
+
+Folder outside scratch, recorded **before deletion**:
+
+- `/Users/maxghenis/.subfleet/worktrees/20261117-083630-rva1-fix-r3/.venv`
+
+Cleanup completed: the recorded folder was relocated into S/cleanup, its resolved destination was asserted to contain `sf-rva1-fix3`, and it and S were removed with guarded `shutil.rmtree` (exit 0; no permission-repair callbacks). The denied shared cache was left alone. All test/mutation processes returned before cleanup; no work that outlives the session was started.
+
+Final report staging and commit were also denied (both exit 128, index.lock). No commits were created; all six named changed files remain for hub collection. Final verification passed: four Python ASTs, both restored-source SHA-256 values, `git diff --check`, exactly six modified files, no untracked or ignored files, and scratch/.venv absent. HEAD remains the starting checkpoint.
+
+Head built: 0c2995c04623cdda2c3f7c84a2af7ba06ba4959b

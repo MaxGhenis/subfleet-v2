@@ -1,11 +1,13 @@
-"""Run D-REVIEW-CONTRACT1's five mutants, restoring pristine source bytes.
+"""Run D-REVIEW-CONTRACT1's mutants, restoring pristine source bytes.
 
 Run after the ordinary tests, while nothing else edits or tests these sources:
-    python3 tools/review_contract_mutations.py --scratch-root "$TMPDIR/sf-rv-fix2"
+    python3 tools/review_contract_mutations.py --scratch-root "$TMPDIR/sf-review-contract"
 
 Only the selected unit tests run. Each mutant gets its own pytest process and
 scratch directory; logs, pristine copies, commands, hashes and results remain
-under $TMPDIR/sf-rv-fix2/mutations. A collection error is not a killed mutant.
+under the required scratch root's mutations directory. The scratch root must
+be a direct child of $TMPDIR with a name beginning sf-. A collection error is
+not a killed mutant.
 """
 
 from __future__ import annotations
@@ -68,6 +70,12 @@ MUTANTS = (
         'P0: harm that is live now or would be on merge (a leak, lost data, a guard that stops guarding).',
         'P0: harm that is live now (a leak, lost data, a guard that stops guarding).',
         "tests/unit/test_review_contract_prompt.py::test_preamble_definitions_are_verbatim_and_under_130_words",
+    ),
+    Mutant(
+        "list-markers-close-fence", "subfleet/review_result.py",
+        '            marker = _FENCE_CLOSE.match(line)\n',
+        '            marker = _FENCE.match(line)\n',
+        "tests/unit/test_review_result_storage.py::test_review_regressions_keep_explicit_counts_in_every_view[diff-removed-indented-closer]",
     ),
 )
 
@@ -153,7 +161,7 @@ def run_mutant(mutant: Mutant, pristine: dict[str, bytes], copies: Path,
                       log=str(log), seconds=round(time.monotonic() - started, 3))
     finally:
         # Do not overwrite an unexpected concurrent edit. The runner's caller
-        # must keep these two sources idle for the duration of the five runs.
+        # must keep the selected sources idle for the duration of the runs.
         current = source.read_bytes()
         assert current in (original, changed), (mutant.name, "unexpected concurrent edit; refusing to overwrite")
         source.write_bytes((copies / mutant.source).read_bytes())
@@ -167,12 +175,16 @@ def run_mutant(mutant: Mutant, pristine: dict[str, bytes], copies: Path,
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--scratch-root", type=Path, default=Path(tempfile.gettempdir()) / "sf-rv-fix2")
+    parser.add_argument("--scratch-root", type=Path, required=True)
     parser.add_argument("--only", choices=[mutant.name for mutant in MUTANTS], nargs="+")
     parser.add_argument("--timeout", type=float, default=300)
     args = parser.parse_args()
     scratch = args.scratch_root.resolve()
-    assert "sf-rv-fix2" in str(scratch), "mutation scratch must belong to sf-rv-fix2"
+    if not os.environ.get("TMPDIR"):
+        parser.error("TMPDIR must name the temporary directory containing the scratch root")
+    temporary_root = Path(os.environ["TMPDIR"]).resolve()
+    if scratch.parent != temporary_root or not scratch.name.startswith("sf-"):
+        parser.error("--scratch-root must be a direct child of TMPDIR with a name beginning sf-")
     assert args.timeout > 0
     mutations = scratch / "mutations"
     mutations.mkdir(parents=True, exist_ok=True)
