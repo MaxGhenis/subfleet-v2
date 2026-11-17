@@ -472,9 +472,11 @@ def test_c15_9_offline_hooks_keep_a_constant_number_of_activity_files(core, monk
 
 
 def test_c15_9_a_corrupt_activity_record_still_fences_only_its_own_caller(core, monkeypatch):
-    """Review r4 of #307, P2: folding never drops a corrupt record. Its caller's hooks
-    print nothing and publish nothing, and the pass leaves its notice; another caller's
-    hooks still fold to one record, and that caller is woken."""
+    """Review r4 of #307, P2: a corrupt record still fences only its caller. Its hooks
+    print nothing and publish nothing (their check before publishing refuses it), and
+    the pass leaves its notice; another caller's hooks still fold to one record, and
+    that caller is woken. `test_c15_9_a_fold_never_drops_a_corrupt_record` covers a
+    record that turns corrupt after that check."""
     clock = [1800000000.0]
     engine, sent = wake_engine(core, monkeypatch, clock)
     add_notice(core)
@@ -501,6 +503,43 @@ def test_c15_9_a_corrupt_activity_record_still_fences_only_its_own_caller(core, 
     assert core.store.one("SELECT state,wake_state FROM notices WHERE session_id=?", (SESSION,)) == {
         "state": "pending", "wake_state": None}
     assert activity_records(core.root, SESSION) == [corrupt]
+
+
+def test_c15_9_a_fold_never_drops_a_corrupt_record(core, monkeypatch):
+    """Review r4 of #307, P2: a record that turns up corrupt after the hook's own check
+    (here, between its publication and its fold) stops the fold before it writes or
+    removes anything, and the hook prints nothing, so the record still fences its
+    caller. The daemon's reconcile refuses it too."""
+    clock = [1800000000.0]
+    wake_engine(core, monkeypatch, clock)
+    assert offline_hook(core) == ""
+    aggregate = notice_claims.activity_path(core.root, SESSION)
+    folded = aggregate.read_text() if aggregate.exists() else None
+    add_notice(core)
+    corrupt = aggregate.with_suffix(".d") / f"{1:020d}-{'0' * 32}.json"
+    contents = json.dumps({"at": -1, "source": None, "human_at": None})
+    publish = notice_claims.record_offline_activity
+
+    def publish_then_corrupt(*args, **kwargs):
+        publish(*args, **kwargs)
+        corrupt.write_text(contents)
+
+    monkeypatch.setattr(notice_claims, "record_offline_activity", publish_then_corrupt)
+    clock[0] += 1
+    assert offline_hook(core) == ""
+    records = activity_records(core.root, SESSION)
+    assert records[:2] == [aggregate, corrupt] and len(records) == 3   # and this hook's own record
+    assert aggregate.read_text() == folded
+    assert corrupt.read_text() == contents
+    assert core.store.one("SELECT state FROM notices")["state"] == "pending"
+    with notice_claims.delivery_lock(core.root, SESSION) as held:
+        assert held
+        with pytest.raises(ValueError):
+            notice_claims.fold_activity(core.root, SESSION)
+        with pytest.raises(ValueError):
+            notice_claims.reconcile(core, SESSION)
+    assert activity_records(core.root, SESSION) == records
+    assert aggregate.read_text() == folded
 
 
 @pytest.mark.parametrize("when", ["before-replace", "after-replace"])
@@ -600,7 +639,7 @@ def test_c15_9_the_activity_lock_waits_a_bounded_time(core):
         with notice_claims.activity_lock(core.root, SESSION, wait_s=0.2) as held:
             elapsed = time.monotonic() - start
             assert held is False
-        assert 0.2 <= elapsed < 0.2 + STALL_S
+        assert 0.2 <= elapsed < 0.2 + 2.0
     finally:
         os.close(fd)
     with notice_claims.activity_lock(core.root, SESSION, wait_s=0.2) as held:
