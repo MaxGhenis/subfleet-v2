@@ -7,6 +7,9 @@
 # can be in there (the payload cwd and every cd/pushd target before it). Every -C and -p counts, attached
 # (-Cdir, -pfile, -p=file) or not, and a relative one resolves against that folder, as subfleet resolves
 # it; more than 16 briefs to read is refused.
+# Guard sync fix r2 (2026-11-17): a path's `.` and repeated `/` collapse, and each brief's folder is
+# resolved (cd -P, pwd -P) before the brief is read, so every spelling of one brief is read once. More than
+# 64 paths to resolve, or more than 16 distinct briefs, is refused.
 if printf '%s' "$command" | grep -qE 'subfleet[[:space:]]+run'; then
   ab_list=$(printf '%s' "$command" | LC_ALL=C awk -v cwd="$cwd" -v home="$HOME" '
     function expand(p) {
@@ -15,10 +18,21 @@ if printf '%s' "$command" | grep -qE 'subfleet[[:space:]]+run'; then
       if (substr(p, 1, 6) == "$HOME/") return home substr(p, 6)
       return p
     }
-    function join(base, p) { p = expand(p); return substr(p, 1, 1) == "/" ? p : base "/" p }
+    # the same path with each `.` and empty component dropped; `..` stays for the shell to resolve, and a
+    # file path keeps a trailing `/`, which only a folder passes
+    function norm(p, file,   a, n, i, o) {
+      n = split(p, a, "/"); o = ""
+      for (i = 1; i <= n; i++) if (a[i] != "" && a[i] != ".") o = o "/" a[i]
+      if (substr(p, 1, 1) != "/") o = "." o
+      else if (o == "") o = "/"
+      if (file && o != "/" && p ~ /\/\.?$/) o = o "/"
+      return o
+    }
+    function join(base, p, file) { p = expand(p); return norm(substr(p, 1, 1) == "/" ? p : base "/" p, file) }
     { text = text $0 "\n" }
     END {
       if (cwd == "") cwd = "."
+      cwd = norm(cwd); if (home != "") home = norm(home)
       gsub(/\\\n/, "", text); gsub(/\$\{HOME\}/, "$HOME", text); gsub(/["'\''\\]/, "", text)
       gsub(/[;&|()`{}<>\n]/, " ; ", text)
       n = split(text, w, /[ \t]+/)
@@ -48,23 +62,40 @@ if printf '%s' "$command" | grep -qE 'subfleet[[:space:]]+run'; then
           for (c = 1; c <= nc; c++) if (index(join(dirs[k], cs[c]), "TheAxiomFoundation")) ax = 1
           if (!ax) continue
           for (q = 1; q <= np; q++) {
-            f = join(dirs[k], ps[q])
+            f = join(dirs[k], ps[q], 1)
             if (f in seen) continue
             seen[f] = 1
-            if (++no > 16) { print "TOOMANY"; exit }
+            if (++no > 64) { print "TOOMANY"; exit }
             out[no] = f
           }
         }
       }
       for (k = 1; k <= no; k++) print out[k]
     }')
-  if [ "$ab_list" = "TOOMANY" ]; then
-    block "[axiom-brief-regime] This command names more than 16 briefs to read (each -p from each folder the shell can be in); the guard cannot read them all in time. Dispatch one subfleet run per command."
-  fi
-  while IFS= read -r pf_abs; do
-    if [ -n "$pf_abs" ] && [ -f "$pf_abs" ] && grep -qiE 'rulespec|RuleSpec|encod' "$pf_abs" && ! grep -q 'ENCODING REGIME' "$pf_abs"; then
+  ab_many="[axiom-brief-regime] This command names more than 16 briefs to read, or more than 64 paths to them (each -p from each folder the shell can be in); the guard cannot read them all in time. Dispatch one subfleet run per command."
+  [ "$ab_list" != "TOOMANY" ] || block "$ab_many"
+  # Each brief is keyed by its folder's physical path (the trailing x keeps a newline that ends it) and
+  # its name; a brief that is not a file is not read, as before.
+  ab_n=0
+  while IFS= read -r ab_p; do
+    [ -n "$ab_p" ] || continue
+    ab_dir=${ab_p%/*}
+    pf_abs=$(CDPATH= cd -P -- "${ab_dir:-/}" 2>/dev/null || exit 1; { pwd -P || printf '%s\n' "${ab_dir:-/}"; } 2>/dev/null; echo x) || continue
+    pf_abs=${pf_abs%$'\n'x}
+    pf_abs=${pf_abs%/}/${ab_p##*/}
+    [ -f "$pf_abs" ] || continue
+    ab_i=0
+    while [ "$ab_i" -lt "$ab_n" ] && [ "${ab_files[ab_i]}" != "$pf_abs" ]; do ab_i=$((ab_i + 1)); done
+    [ "$ab_i" -eq "$ab_n" ] || continue
+    [ "$ab_n" -lt 16 ] || block "$ab_many"
+    ab_files[ab_n]=$pf_abs; ab_n=$((ab_n + 1))
+  done <<< "$ab_list"
+  ab_i=0
+  while [ "$ab_i" -lt "$ab_n" ]; do
+    pf_abs=${ab_files[ab_i]}; ab_i=$((ab_i + 1))
+    if grep -qiE 'rulespec|RuleSpec|encod' "$pf_abs" && ! grep -q 'ENCODING REGIME' "$pf_abs"; then
       block "[axiom-brief-regime] This brief touches RuleSpec/encoding but has no ENCODING REGIME block. Modules come only from 'axiom-encode encode --apply' with apply manifests; hand-authored YAML is never a module (Max 9/6). Prepend the block from ~/TheAxiomFoundation/ops/il-lane/COMMON-RULES.md (or TheAxiomFoundation/CLAUDE.md 'Encoding regime') verbatim, then dispatch."
     fi
-  done <<< "$ab_list"
+  done
 fi
 

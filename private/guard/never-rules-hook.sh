@@ -386,6 +386,9 @@ fi
 # can be in there (the payload cwd and every cd/pushd target before it). Every -C and -p counts, attached
 # (-Cdir, -pfile, -p=file) or not, and a relative one resolves against that folder, as subfleet resolves
 # it; more than 16 briefs to read is refused.
+# Guard sync fix r2 (2026-11-17): a path's `.` and repeated `/` collapse, and each brief's folder is
+# resolved (cd -P, pwd -P) before the brief is read, so every spelling of one brief is read once. More than
+# 64 paths to resolve, or more than 16 distinct briefs, is refused.
 if printf '%s' "$command" | grep -qE 'subfleet[[:space:]]+run'; then
   ab_list=$(printf '%s' "$command" | LC_ALL=C awk -v cwd="$cwd" -v home="$HOME" '
     function expand(p) {
@@ -394,10 +397,21 @@ if printf '%s' "$command" | grep -qE 'subfleet[[:space:]]+run'; then
       if (substr(p, 1, 6) == "$HOME/") return home substr(p, 6)
       return p
     }
-    function join(base, p) { p = expand(p); return substr(p, 1, 1) == "/" ? p : base "/" p }
+    # the same path with each `.` and empty component dropped; `..` stays for the shell to resolve, and a
+    # file path keeps a trailing `/`, which only a folder passes
+    function norm(p, file,   a, n, i, o) {
+      n = split(p, a, "/"); o = ""
+      for (i = 1; i <= n; i++) if (a[i] != "" && a[i] != ".") o = o "/" a[i]
+      if (substr(p, 1, 1) != "/") o = "." o
+      else if (o == "") o = "/"
+      if (file && o != "/" && p ~ /\/\.?$/) o = o "/"
+      return o
+    }
+    function join(base, p, file) { p = expand(p); return norm(substr(p, 1, 1) == "/" ? p : base "/" p, file) }
     { text = text $0 "\n" }
     END {
       if (cwd == "") cwd = "."
+      cwd = norm(cwd); if (home != "") home = norm(home)
       gsub(/\\\n/, "", text); gsub(/\$\{HOME\}/, "$HOME", text); gsub(/["'\''\\]/, "", text)
       gsub(/[;&|()`{}<>\n]/, " ; ", text)
       n = split(text, w, /[ \t]+/)
@@ -427,24 +441,41 @@ if printf '%s' "$command" | grep -qE 'subfleet[[:space:]]+run'; then
           for (c = 1; c <= nc; c++) if (index(join(dirs[k], cs[c]), "TheAxiomFoundation")) ax = 1
           if (!ax) continue
           for (q = 1; q <= np; q++) {
-            f = join(dirs[k], ps[q])
+            f = join(dirs[k], ps[q], 1)
             if (f in seen) continue
             seen[f] = 1
-            if (++no > 16) { print "TOOMANY"; exit }
+            if (++no > 64) { print "TOOMANY"; exit }
             out[no] = f
           }
         }
       }
       for (k = 1; k <= no; k++) print out[k]
     }')
-  if [ "$ab_list" = "TOOMANY" ]; then
-    block "[axiom-brief-regime] This command names more than 16 briefs to read (each -p from each folder the shell can be in); the guard cannot read them all in time. Dispatch one subfleet run per command."
-  fi
-  while IFS= read -r pf_abs; do
-    if [ -n "$pf_abs" ] && [ -f "$pf_abs" ] && grep -qiE 'rulespec|RuleSpec|encod' "$pf_abs" && ! grep -q 'ENCODING REGIME' "$pf_abs"; then
+  ab_many="[axiom-brief-regime] This command names more than 16 briefs to read, or more than 64 paths to them (each -p from each folder the shell can be in); the guard cannot read them all in time. Dispatch one subfleet run per command."
+  [ "$ab_list" != "TOOMANY" ] || block "$ab_many"
+  # Each brief is keyed by its folder's physical path (the trailing x keeps a newline that ends it) and
+  # its name; a brief that is not a file is not read, as before.
+  ab_n=0
+  while IFS= read -r ab_p; do
+    [ -n "$ab_p" ] || continue
+    ab_dir=${ab_p%/*}
+    pf_abs=$(CDPATH= cd -P -- "${ab_dir:-/}" 2>/dev/null || exit 1; { pwd -P || printf '%s\n' "${ab_dir:-/}"; } 2>/dev/null; echo x) || continue
+    pf_abs=${pf_abs%$'\n'x}
+    pf_abs=${pf_abs%/}/${ab_p##*/}
+    [ -f "$pf_abs" ] || continue
+    ab_i=0
+    while [ "$ab_i" -lt "$ab_n" ] && [ "${ab_files[ab_i]}" != "$pf_abs" ]; do ab_i=$((ab_i + 1)); done
+    [ "$ab_i" -eq "$ab_n" ] || continue
+    [ "$ab_n" -lt 16 ] || block "$ab_many"
+    ab_files[ab_n]=$pf_abs; ab_n=$((ab_n + 1))
+  done <<< "$ab_list"
+  ab_i=0
+  while [ "$ab_i" -lt "$ab_n" ]; do
+    pf_abs=${ab_files[ab_i]}; ab_i=$((ab_i + 1))
+    if grep -qiE 'rulespec|RuleSpec|encod' "$pf_abs" && ! grep -q 'ENCODING REGIME' "$pf_abs"; then
       block "[axiom-brief-regime] This brief touches RuleSpec/encoding but has no ENCODING REGIME block. Modules come only from 'axiom-encode encode --apply' with apply manifests; hand-authored YAML is never a module (Max 9/6). Prepend the block from ~/TheAxiomFoundation/ops/il-lane/COMMON-RULES.md (or TheAxiomFoundation/CLAUDE.md 'Encoding regime') verbatim, then dispatch."
     fi
-  done <<< "$ab_list"
+  done
 fi
 
 # --- hand-authored-rulespec: rule YAML staged in a rulespec-* checkout needs its encoder apply manifest ---
@@ -455,9 +486,14 @@ fi
 # --no-pager, --git-dir, …) may come before `commit`, and GIT_DIR=… before git. Its folder is each one the
 # shell can be in there: the payload cwd and every cd/pushd target before it (a relative one resolved
 # against the folder before it), with each -C applied. One cat-file --batch-check reads every manifest, so a
-# large index costs a few processes, not four per file; a folder that is not there costs none; more than
-# 16 folders to check is refused.
+# large index costs a few processes, not four per file; a folder that is not there costs none.
+# Guard sync fix r2 (2026-11-17): a path's `.` and repeated `/` collapse, and each folder is resolved (cd -P,
+# pwd -P) before git runs, so every spelling of one checkout is checked once; more than 64 paths to resolve
+# is refused. The git work stops at a 20 s budget, checked before each git call, and the command is then
+# denied, never allowed (the hook's 60 s timeout allows). Staged names are read raw (-z, --no-relative), so
+# each name under the anchor is looked up with its own bytes, and one holding a newline is denied.
 if printf '%s' "$command" | grep -qE 'git[[:space:]].*(commit|\\$)'; then
+  hr_t0=$SECONDS
   hr_list=$(printf '%s' "$command" | LC_ALL=C awk -v cwd="$cwd" -v home="$HOME" '
     function expand(p) {
       if (p == "~" || p == "$HOME") return home
@@ -465,10 +501,21 @@ if printf '%s' "$command" | grep -qE 'git[[:space:]].*(commit|\\$)'; then
       if (substr(p, 1, 6) == "$HOME/") return home substr(p, 6)
       return p
     }
-    function join(base, p) { p = expand(p); return substr(p, 1, 1) == "/" ? p : base "/" p }
+    # the same path with each `.` and empty component dropped; `..` stays for the shell to resolve, and a
+    # file path keeps a trailing `/`, which only a folder passes
+    function norm(p, file,   a, n, i, o) {
+      n = split(p, a, "/"); o = ""
+      for (i = 1; i <= n; i++) if (a[i] != "" && a[i] != ".") o = o "/" a[i]
+      if (substr(p, 1, 1) != "/") o = "." o
+      else if (o == "") o = "/"
+      if (file && o != "/" && p ~ /\/\.?$/) o = o "/"
+      return o
+    }
+    function join(base, p) { p = expand(p); return norm(substr(p, 1, 1) == "/" ? p : base "/" p) }
     { text = text $0 "\n" }
     END {
       if (cwd == "") cwd = "."
+      cwd = norm(cwd); if (home != "") home = norm(home)
       gsub(/\\\n/, "", text); gsub(/\$\{HOME\}/, "$HOME", text); gsub(/["'\''\\]/, "", text)
       gsub(/[;&|()`{}<>\n]/, " ; ", text)
       n = split(text, w, /[ \t]+/)
@@ -496,36 +543,50 @@ if printf '%s' "$command" | grep -qE 'git[[:space:]].*(commit|\\$)'; then
           if (o !~ /^-/) break
         }
         if (w[j] != "commit") continue
+        if (gd != "") gd = norm(expand(gd), 1)
         for (k = 1; k <= nd; k++) {
           d = dirs[k]
           for (c = 1; c <= nc; c++) if (cs[c] != "" && cs[c] != ";") d = join(d, cs[c])
-          key = d "\037" expand(gd)
+          key = d "\037" gd
           if (key in seen) continue
           seen[key] = 1
-          if (++no > 16) { print "TOOMANY"; exit }
+          if (++no > 64) { print "TOOMANY"; exit }
           out[no] = key
         }
       }
       for (k = 1; k <= no; k++) print out[k]
     }')
   if [ "$hr_list" = "TOOMANY" ]; then
-    block "[hand-authored-rulespec] This command commits from more than 16 folders (each cd/pushd target, with each git -C applied); the guard cannot check every staged index in time. Commit from one checkout per command."
+    block "[hand-authored-rulespec] This command names more than 64 folders to commit from (each cd/pushd target, with each git -C applied); the guard cannot check them all in time. Commit from one checkout per command."
   fi
+  hr_late="[hand-authored-rulespec] The guard's 20 s budget for checking staged indexes ran out before it checked every folder this command commits from; it does not let an unchecked commit through. Commit from one checkout per command."
+  # Each folder is keyed by its physical path (the trailing x keeps a newline that ends it) and its git dir,
+  # compared whole; a folder that is not there costs no git process.
+  hr_n=0
   while IFS=$'\037' read -r hr_d hr_gd; do
-    [ -n "$hr_d" ] && [ -d "$hr_d" ] || continue
-    gdir=$hr_d
+    [ -n "$hr_d" ] || continue
+    gdir=$(CDPATH= cd -P -- "$hr_d" 2>/dev/null || exit 1; { pwd -P || printf '%s\n' "$hr_d"; } 2>/dev/null; echo x) || continue
+    gdir=${gdir%$'\n'x}
+    hr_i=0
+    while [ "$hr_i" -lt "$hr_n" ] && { [ "${hr_dirs[hr_i]}" != "$gdir" ] || [ "${hr_gds[hr_i]}" != "$hr_gd" ]; }; do hr_i=$((hr_i + 1)); done
+    [ "$hr_i" -eq "$hr_n" ] || continue
+    hr_dirs[hr_n]=$gdir; hr_gds[hr_n]=$hr_gd; hr_n=$((hr_n + 1))
+    [ $((SECONDS - hr_t0)) -lt 20 ] || block "$hr_late"
     origin_url=$(git -C "$gdir" ${hr_gd:+"--git-dir=$hr_gd"} remote get-url origin 2>/dev/null)
     printf '%s' "$origin_url" | grep -qiE 'TheAxiomFoundation/rulespec-' || continue
-    hr_files=$(git -C "$gdir" ${hr_gd:+"--git-dir=$hr_gd"} diff --cached --name-only --diff-filter=ACMR 2>/dev/null \
+    [ $((SECONDS - hr_t0)) -lt 20 ] || block "$hr_late"
+    hr_files=$(git -C "$gdir" ${hr_gd:+"--git-dir=$hr_gd"} diff --cached --name-only -z --no-relative --diff-filter=ACMR 2>/dev/null \
+      | LC_ALL=C tr '\n\0' '\001\n' \
       | LC_ALL=C awk '/\.test\.yaml$/ || /\/composed\// || /^\.axiom\// { next }
           /^[a-z][a-z](-[a-z0-9-]+)?\/(statutes|regulations|policies|legislation|programs)\/.+\.ya?ml$/')
     [ -n "$hr_files" ] || continue
+    [ $((SECONDS - hr_t0)) -lt 20 ] || block "$hr_late"
     missing=$( { printf '%s\n--\n' "$hr_files"
                  printf '%s\n' "$hr_files" \
                    | LC_ALL=C awk '{ sub(/\.[^.]*$/, ""); print ":.axiom/encoding-manifests/" $0 ".json"; print "HEAD:.axiom/encoding-manifests/" $0 ".json" }' \
                    | git -C "$gdir" ${hr_gd:+"--git-dir=$hr_gd"} cat-file --batch-check 2>/dev/null; } \
       | LC_ALL=C awk '!s { if ($0 == "--") s = 1; else f[++n] = $0; next } { r[++k] = $0 }
-          END { for (i = 1; i <= n; i++) if (r[2 * i - 1] !~ /^[0-9a-f]+ / && r[2 * i] !~ /^[0-9a-f]+ /) printf " %s", f[i] }')
+          END { for (i = 1; i <= n; i++) if (f[i] ~ /\001/ || (r[2 * i - 1] !~ /^[0-9a-f]+ / && r[2 * i] !~ /^[0-9a-f]+ /)) { g = f[i]; gsub(/[\001-\037\177]/, "?", g); printf " %s", g } }')
     if [ -n "$missing" ]; then
       block "[hand-authored-rulespec] Staged RuleSpec content with no encoder apply manifest:$missing. RuleSpec modules come only from 'axiom-encode encode <corpus citation> --backend codex --apply', which writes .axiom/encoding-manifests/<mirror path>.json; hand-authored YAML is never a module (Max 9/6). Repairs go through --review-findings / --repair-candidate-* replay. Unstage the files and run the encoder."
     fi

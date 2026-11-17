@@ -129,10 +129,14 @@ RULE_BLOCKS = ["tg-getupdates", "keychain-dump", "trust-root", "axiom-brief-regi
 AXIOM_BEFORE_SHA256 = {"axiom-brief-regime": "77002282d3c865f10e1f640595ebcbd9a244a024d97e8df97dba9496941bd571",
                        "hand-authored-rulespec": "f870acdf650677c3fea2856e1b1044668bad043152b9f7273099353c3595558c"}
 PREFILTER_BEFORE_SHA256 = "c46d8eec748c649daaae06b0982bb5fc0cf6011918a35144d0ea1de06596781f"
-#: The fix r1's blocks and prefilter line (2026-11-15), which the hub installs in the Claude hook, and the git
-#: config pin both hooks carry after their input read.
-AXIOM_SHA256 = {"axiom-brief-regime": "45775b4dd77fcac19c71c3e341559dcd129ad634e2848b8b74d2380dfe2781d4",
-                "hand-authored-rulespec": "0b6b418cf137ef56bbfc0a92b558f412b1fe4c602f6d11b517792f1aceca969b"}
+#: The fix r2's blocks (2026-11-17) and the fix r1's prefilter line (2026-11-15), which the hub installs in the
+#: Claude hook, and the git config pin both hooks carry after their input read.
+AXIOM_SHA256 = {"axiom-brief-regime": "34c9279dbf1226cde2108ce983b1073142c663038a4fa45cda90665a43df42d5",
+                "hand-authored-rulespec": "be94163c85470cc1d407f0d3d6a2ed88fe5d9d80c9546171632961cebc4353de"}
+#: The fix r1's blocks (2026-11-15), kept byte for byte under ``claude-blocks/fix-r1/`` for the undo chain
+#: (tests/unit/test_guard_subfleet_root.py: undoing GS4_TEXT gives the fix r1 hook from this one).
+AXIOM_R1_SHA256 = {"axiom-brief-regime": "45775b4dd77fcac19c71c3e341559dcd129ad634e2848b8b74d2380dfe2781d4",
+                   "hand-authored-rulespec": "0b6b418cf137ef56bbfc0a92b558f412b1fe4c602f6d11b517792f1aceca969b"}
 PREFILTER_SHA256 = "2acb063ed0efa2a3c87b671bbd43fda4bf72436e72372ab8156f349540aff678"
 PIN_SHA256 = "f653d463e57190edd5f5405978e0a20d749e5bebced6b8536f241a4fb88b6389"
 #: The prefilter's git term, before the fix r1 and after it.
@@ -179,6 +183,17 @@ class DriftTests(unittest.TestCase):
             self.assertEqual(data.count(block), 1, rule)
         for rule, digest in AXIOM_SHA256.items():
             self.assertEqual(hashlib.sha256((BLOCKS / f"{rule}.sh").read_bytes()).hexdigest(), digest, rule)
+
+    def test_the_fix_r1_blocks_are_kept_byte_for_byte_and_are_not_in_the_overlay(self):
+        """Fix r2: ``claude-blocks/fix-r1/<rule>.sh`` is the fix r1's text (the undo chain reads it); ``pinned()``
+        reads only ``claude-blocks/*.sh``, so the overlay carries the fix r2's text, not these."""
+        data = HOOK.read_bytes()
+        for rule, digest in AXIOM_R1_SHA256.items():
+            block = (BLOCKS / "fix-r1" / f"{rule}.sh").read_bytes()
+            self.assertEqual(hashlib.sha256(block).hexdigest(), digest, rule)
+            self.assertEqual(data.count(block), 0, rule)
+        self.assertEqual(sorted(p.name for p in (BLOCKS / "fix-r1").iterdir()),
+                         ["axiom-brief-regime.sh", "hand-authored-rulespec.sh"])
 
     def test_the_overlay_keeps_its_nine_rule_blocks_in_order(self):
         text = HOOK.read_text(encoding="utf-8")
