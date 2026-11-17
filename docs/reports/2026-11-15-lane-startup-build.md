@@ -679,3 +679,202 @@ evidence.
 - **Shared folders.** The shared `$TMPDIR/uv-cache` predates this round and stays. The temp root
   had 1,425 entries changed since my start, from other sessions (`.com.openai.codex.*`, `.tmp*`
   and more). I can't attribute any to this round, and I removed none.
+
+## Fix round 2
+
+This round fixes review r2's findings
+(`~/reviews/subfleet-hub/lane-startup-2026-11-14/review-a-r2.md`, head d929336a8) under the hub's
+rulings: two P1s, two P2s and the P3. It was built from d929336a8 in a detached worktree, starting
+at 04:10:12 UTC. No Claude CLI ran. The Claude Code 2.1.318 binary (sha256 `677a2ea7…5e7d`) was
+read only to extract its matcher and to read how its memory walk calls it. Line numbers are this
+round's head.
+
+### P1 1: ancestor exclusions could stop a launch with `E2BIG`
+
+**Cause.** `job_startup_settings` listed the six names under every ancestor of each spelling of
+R, each ancestor written in full. Ancestor k is about k folders long, so the patterns grew with the
+square of R's depth. The review's repository, 400 one-character folders deep (an 839-byte path),
+gave a 1,096,385-byte `--settings`, past macOS's 1,048,576-byte `ARG_MAX`.
+
+**Change.**
+- `_ancestor_glob` (`subfleet/adapters/claude.py:468`) writes each spelling's ancestors as one
+  nested pattern that names each folder once: `/a/b/c/R` gives `/a{,/b{,/c}}`. The six names are
+  appended to it, as before to each ancestor. picomatch compiles `{,x}` to `(|x)` and nests braces;
+  `glob_literal` still brackets every brace and comma inside a name. The size is now linear in R's
+  length.
+- `$HOME` and C keep their explicit entries. The negation is unchanged and still last.
+- `JOB_STARTUP_SETTINGS_MAX_BYTES` (`:164`) is 256 KiB. A payload past it refuses the launch with
+  `AdapterError` reason `claude-startup-size` (`:637-643`, `subfleet/refusals.py:179`). No legal
+  path alone reaches it (see the sizes below); a repository with many personal links could.
+
+**Sizes**, each measured on the payload that goes to `--settings`
+(`deep_bundle_check.py`, synthetic paths; the 400-deep case also on a real repository in
+`test_the_payload_for_a_repository_400_folders_deep_runs`):
+
+| Case | Path | Spellings of R | Before | After |
+|---|---|---|---|---|
+| review: 400 folders `x` | 839 bytes | 1 | 1,096,385 bytes (review) | 13,580 bytes, 15 patterns |
+| 511 folders `x` at `PATH_MAX` | 1,022 bytes | 2 | not measured | 33,255 bytes |
+| folders `"` (7 JSON bytes per escaped `"`) | 1,022 | 2 | not measured | 76,065 |
+| folders `,` | 1,022 | 2 | not measured | 61,795 |
+| folders `\x01` (JSON `\u0001`) | 1,022 | 2 | not measured | 68,930 |
+| folders `e`+U+0301+`\x01` | 1,020 | 4 | not measured | 92,259 |
+| folders `e`+U+0301+`"` | 1,020 | 4 | not measured | 97,947 |
+| folders `{` | 1,022 | 2 | not measured | 47,525 |
+| folders `名` | 1,020 | 2 | not measured | 34,693 |
+
+The largest is 97,947 bytes, under a tenth of `ARG_MAX` and under the 128 KiB that
+`test_the_payload_at_path_max_stays_far_under_arg_max` asserts.
+
+**The bundle's verdicts at depth.** `docs/reports/2026-11-15-lane-startup-build-data/
+deep_bundle_check.py` gives the nine cases above to the extracted picomatch and `FWo` under node.
+For every spelling it judges every ancestor's six names (expected excluded), R's own files
+(expected kept) and decoys beside R (expected excluded): 46,041 paths, 0 differ ("all ok"). V8
+compiles the 511-deep nesting.
+
+**Cost in the bundle.** Claude Code's memory walk builds the matcher once per walk
+(`Ee=R8t()`, where `R8t` memoizes `v8t()`). Under load 110-150, building the matcher and judging
+five paths cold took:
+
+| Depth | New: build + first five | Old: build + first five |
+|---|---|---|
+| 12 (the first case run, so it also warms picomatch) | 297 + 14 ms | 82 + 1 ms |
+| 100 | 1 + 271 ms | 685 + 1,600 ms |
+| 200 | 2 + 747 ms | 1,337 + 1,396 ms |
+| 400 | 82 + 1,582 ms | 4,533 + 6,305 ms |
+
+Warm, five paths took under 40 ms in every new case. At depth 12 the first-case warm-up dominates.
+
+**Tests** (`tests/unit/test_lane_startup.py`):
+
+| Test | Before (d929336a8) | After |
+|---|---|---|
+| `test_the_payload_for_a_repository_400_folders_deep_runs` (`:708`): a real repository 400 folders below the test's temp folder; I2, I3, and the launch's own argv run with `/usr/bin/true` | failed: payload past 64 KiB | passed |
+| `test_the_payload_grows_linearly_with_depth` (`:728`): 400 deep against 100 deep | failed: ratio about 16 | passed: under 4.5 |
+| `test_the_payload_at_path_max_stays_far_under_arg_max[plain\|quote\|comma\|control\|nfd-control\|nfd-quote\|cjk]` (`:748`) | 7 failed: payload past 128 KiB | 7 passed |
+| `test_a_payload_past_the_cap_is_refused` (`:780`) | failed: no cap | passed: `claude-startup-size` |
+
+**Test tools.**
+- `tests/claude_md_glob.py:108` reads nested braces with empty alternatives, as picomatch does;
+  `expand` (`:184`) lists the brace-free patterns one names. Python's `re` cannot nest about 500
+  groups, so the `PATH_MAX` test compares the paths the patterns name, and the bundle check
+  above gives the matcher's verdicts there.
+- `_chain` (`test_lane_startup.py:174`) builds the nested pattern independently of the adapter.
+  `_check_i2` (`:188`) checks it, and checks through the oracle that the listed entries alone
+  exclude every ancestor's six names.
+- `tests/unit/test_lane_startup_glob.py:139` pins the oracle's reading of nested braces. The
+  refusal cases trade the nested brace, now stated, for a nested brace with one alternative and an
+  unclosed one.
+- Both fixtures were re-recorded with this tree (commands below). They hold the same paths,
+  expectations and bundle verdicts as before (1,313 and 1,432, all agreeing with the oracle, 0
+  `FWo` mismatches). Only `patterns` and `fwo` changed: 718 → 316 patterns (32,293 → 17,780 bytes)
+  and 678 → 282 (38,920 → 20,290). The verdict tallies by label are the build's.
+
+### P1 2: personal instructions loaded through a link inside R
+
+**Cause.** Claude Code matches an instruction file by the path it built, and its walk builds paths
+from the workdir. `repo/CLAUDE.md -> ~/.claude/CLAUDE.md` is spelled under R, so the negation
+spared it, and `<C>/CLAUDE.md` excluded only the personal spelling. The same held for a linked
+folder and for any chain of links.
+
+**Change.** `_linked_startup_files` (`:510`) finds the instruction files inside R whose real file
+is personal. `job_startup_settings` excludes each one in every spelling of R, and in the NFC form
+of its relative path (`:630-632`), before the negation. A linked folder is excluded as
+`<path>/**`.
+- A file is personal when its real path lies under a config home C, when it is `<C>/CLAUDE.md` or
+  one of `$HOME`'s `CLAUDE.md`, `CLAUDE.local.md` and `AGENTS.md` by file identity (`samestat`, so
+  a hard link counts), or when its real path lies outside R. Folders are compared by identity
+  (`_below`, `_inside`, `:488`, `:505`).
+- Where it looks:
+  - the five single-file names in every folder from R to the workdir, in the workdir's real
+    and logical spellings;
+  - everything under each of those folders' `.claude/rules`, or the whole rules folder when the
+    folder itself is personal;
+  - when git named R, every symbolic link git tracks (`git ls-files -s -z`, mode `120000`), run
+    through `_job_git` (`:421`) with the same pin and 10 s cap. These are the files Claude Code
+    reads when a session touches a subfolder.
+- `_job_root` (`:429`) now also returns whether git named R. A failed `ls-files` skips the
+  tracked-link pass; the start-up files are still checked.
+
+**Judgment.** The ruling says "a personal instruction file (or lies under the personal Claude
+folder)". I read "personal" as "a file the excludes refuse by its real spelling": under C, one of
+the named personal files, or anywhere outside R. So a link from R to another folder outside R is
+excluded too, which fails closed. A file of R that is not a link is personal only when R overlaps
+C or `$HOME`. A workdir that is itself a link to `~/.claude` makes R's own files personal.
+
+**Tests** (`tests/unit/test_lane_startup.py`; each judges every spelling of R with the oracle):
+
+| Test | Before | After |
+|---|---|---|
+| `test_a_direct_link_to_the_personal_file_is_excluded` (`:811`): the review's `repo/CLAUDE.md -> ~/.claude/CLAUDE.md`; exactly that path is added, once per spelling | failed: `CLAUDE.md` kept | passed |
+| `test_a_linked_folder_into_the_personal_folder_is_excluded` (`:829`): `repo/.claude -> ~/.claude`, a tracked `repo/docs -> ~/.claude`, and `sub/.claude -> ~/.claude` on a subfolder workdir's chain | failed: 7 personal paths kept | passed |
+| `test_a_chain_of_two_links_to_a_personal_file_is_excluded` (`:851`): `AGENTS.md -> ../hop-1 -> hop-2 -> ~/AGENTS.md`, and `CLAUDE.local.md -> notes/local.md -> ~/.claude/CLAUDE.md` | failed | passed |
+| `test_a_link_out_of_r_and_a_hard_link_to_a_personal_file_are_excluded` (`:887`) | failed | passed |
+| `test_a_workdir_that_is_a_link_to_the_personal_folder_excludes_its_files` (`:907`) | failed | passed |
+| `test_links_that_stay_inside_r_keep_loading` (`:869`): `CLAUDE.md -> AGENTS.md`, rules linked within R | failed, but only on the new `_check_i2`'s nested-pattern check; its verdicts held | passed |
+
+The bundle's matcher was not run on the link cases. These patterns are plain `glob_literal`
+paths, a form the recordings already hold.
+
+### P2: `tests/fake/test_prompt_seam.py` picks the guardian
+
+**Cause.** The fixture's fake `Popen` records every subprocess. A writable Claude launch now runs
+`git rev-parse` (and `git ls-files`) through `subprocess.run` beside the guardian, so
+`command, = [...]` met two commands.
+
+**Change** (`:80`). The test takes the one command whose `argv[1:3]` is `-m subfleet.guardian`,
+and asserts that every other recorded command is git.
+
+**Test.** The old test file against this round's adapter: 2 failed
+(`[workspace-write-True-haiku]`, `[workspace-write-False-haiku]`: "too many values to unpack
+(expected 1, got 2)"), 6 passed. The new file: 8 passed (run A).
+
+### P2: an R whose real folder is `/` is refused
+
+**Cause.** `_job_root` refused git's `/`, but its fallback, `abspath(workdir)`, was not checked.
+A workdir of `/`, `//` or a link to `/` gave a negation that spared every path.
+
+**Change.** `job_startup_settings` refuses any R whose real folder is `/` (`_is_root`, `:459`, by
+`samestat`), whichever way R was chosen. The launch fails with `AdapterError` reason
+`claude-startup-root` (`:616-619`): "a writable Claude launch keeps personal startup files out only
+below /, and this job's repository root is / (C-12.9)", fix "run the job in a folder below /". The
+reason and its text are in `subfleet/refusals.py:177`.
+
+**Test.** `test_a_root_of_slash_is_refused[/|//|link]` (`:925`) checks `job_startup_settings` and
+`build_launch`, and that `refusals.render` gives the same text. Before: 3 failed ("DID NOT RAISE").
+After: 3 passed.
+
+### P3: the PR body
+
+`docs/reports/2026-11-15-lane-startup-build-data/pr-326-body-fix-r1.md` now describes the nested
+ancestor pattern, the link rule, both refusals, the sizes, the bundle check and the limits. Its
+test paragraph gains this round's counts. It is not applied on GitHub.
+
+### C-12.9 and its change-log line (ad26853f6)
+
+- **The passage** (`docs/acceptance-contract.md:607`) now says:
+  - each spelling's ancestors are written as one pattern that names each folder once;
+  - which files inside R are excluded as personal, and where they are looked for;
+  - why listing ancestors in full grew past `ARG_MAX`, and that a `PATH_MAX` path gives under
+    100 KB;
+  - the `claude-startup-size` refusal past 256 KiB;
+  - the `claude-startup-root` refusal for an R whose real folder is `/`.
+- **The change-log line** (`:9`) cites "#326 reviews r1 and r2" and adds the personal files
+  inside R, the linear payload and the `/` refusal.
+
+### Open residues
+
+1. **Untracked links below the workdir.** Claude Code reads a subfolder's instruction files only
+   when a session touches that folder. Links there are found only when git tracks them; an
+   untracked one (in an `--in-place` checkout, say) is not looked for. Links on the start-up
+   chain are found whether tracked or not. A job worktree is a fresh checkout, so every link in it
+   is tracked at launch.
+2. **`@` imports.** A repository `CLAUDE.md` that imports `@~/.claude/CLAUDE.md` was not examined;
+   whether Claude Code applies `claudeMdExcludes` to imports was not read.
+3. **Claude Code's rules loader.** It checks a rules entry's logical path when that differs from
+   its real one (`if(_n!==Nt&&x8t(_n,n,Y))continue`). The excludes name both spellings, so this
+   round relies on neither.
+4. **Cost at extreme depth.** With 400 folders, building and first matching took about 1.7 s
+   under load 110-150, still less than the old patterns at that depth.
+5. **Build round residues 1-5 and fix round 1 residues 1-4, 6 and 7 stand.** Fix round 1's
+   residue 5 (a workdir of `/`) is fixed here.
