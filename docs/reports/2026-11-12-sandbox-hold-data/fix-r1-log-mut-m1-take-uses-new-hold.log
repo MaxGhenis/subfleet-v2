@@ -1,0 +1,209 @@
+bringing up nodes...
+bringing up nodes...
+
+.F...F.....FF...............FF.....................................      [100%]
+=================================== FAILURES ===================================
+___ test_shorter_replacement_keeps_the_other_targets_later_end[task-pinned] ____
+[gw1] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+kind = 'pinned', shortened = 'task'
+
+    @pytest.mark.parametrize("kind", ["pinned", "retry"])
+    @pytest.mark.parametrize("shortened", ["task", "sandbox"])
+    def test_shorter_replacement_keeps_the_other_targets_later_end(kind, shortened):
+        """Replacing 300 with 50 still pauses through the other target's end at 200."""
+        with fleet() as (service, harness, clock, signals):
+            ident = stuck(service, harness, clock, kind)
+            writable(service, ident)
+            other = "sandbox" if shortened == "task" else "task"
+            clock[0] = 10
+            hold_target(service, shortened, 300)
+            hold_target(service, other, 200)
+            clock[0] = 20
+            replacement = hold_target(service, shortened, 50)
+            assert replacement["task_hold"]["since"] == stamp(10)
+>           assert job(service, ident)["next_check_at"] == stamp(200)
+E           AssertionError: assert '2026-10-09T16:33:50Z' == '2026-10-09T16:36:20Z'
+E             
+E             - 2026-10-09T16:36:20Z
+E             ?                ^ ^
+E             + 2026-10-09T16:33:50Z
+E             ?                ^ ^
+
+tests/fake/test_sandbox_hold_interleavings.py:76: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4489095184:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4489095184:daemon.py:1088 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4489095184:daemon.py:9495 job 20261114-221901-build-1: pinned lane codex-1 can never admit it (disabled); it fails with rc 3 at 2026-10-09T16:34:00Z unless the lane can take it by then
+____ test_shorter_replacement_keeps_the_other_targets_later_end[task-retry] ____
+[gw1] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+kind = 'retry', shortened = 'task'
+
+    @pytest.mark.parametrize("kind", ["pinned", "retry"])
+    @pytest.mark.parametrize("shortened", ["task", "sandbox"])
+    def test_shorter_replacement_keeps_the_other_targets_later_end(kind, shortened):
+        """Replacing 300 with 50 still pauses through the other target's end at 200."""
+        with fleet() as (service, harness, clock, signals):
+            ident = stuck(service, harness, clock, kind)
+            writable(service, ident)
+            other = "sandbox" if shortened == "task" else "task"
+            clock[0] = 10
+            hold_target(service, shortened, 300)
+            hold_target(service, other, 200)
+            clock[0] = 20
+            replacement = hold_target(service, shortened, 50)
+            assert replacement["task_hold"]["since"] == stamp(10)
+>           assert job(service, ident)["next_check_at"] == stamp(200)
+E           AssertionError: assert '2026-10-09T16:33:50Z' == '2026-10-09T16:36:20Z'
+E             
+E             - 2026-10-09T16:36:20Z
+E             ?                ^ ^
+E             + 2026-10-09T16:33:50Z
+E             ?                ^ ^
+
+tests/fake/test_sandbox_hold_interleavings.py:76: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4489108256:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4489108256:daemon.py:1088 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4489108256:daemon.py:9495 job 20261114-221901-build-1: every candidate lane can never admit it (disabled); it fails with rc 3 at 2026-10-09T16:34:00Z unless the lane can take it by then
+__ test_shorter_replacement_keeps_the_other_targets_later_end[sandbox-pinned] __
+[gw1] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+kind = 'pinned', shortened = 'sandbox'
+
+    @pytest.mark.parametrize("kind", ["pinned", "retry"])
+    @pytest.mark.parametrize("shortened", ["task", "sandbox"])
+    def test_shorter_replacement_keeps_the_other_targets_later_end(kind, shortened):
+        """Replacing 300 with 50 still pauses through the other target's end at 200."""
+        with fleet() as (service, harness, clock, signals):
+            ident = stuck(service, harness, clock, kind)
+            writable(service, ident)
+            other = "sandbox" if shortened == "task" else "task"
+            clock[0] = 10
+            hold_target(service, shortened, 300)
+            hold_target(service, other, 200)
+            clock[0] = 20
+            replacement = hold_target(service, shortened, 50)
+            assert replacement["task_hold"]["since"] == stamp(10)
+>           assert job(service, ident)["next_check_at"] == stamp(200)
+E           AssertionError: assert '2026-10-09T16:33:50Z' == '2026-10-09T16:36:20Z'
+E             
+E             - 2026-10-09T16:36:20Z
+E             ?                ^ ^
+E             + 2026-10-09T16:33:50Z
+E             ?                ^ ^
+
+tests/fake/test_sandbox_hold_interleavings.py:76: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4489094800:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4489094800:daemon.py:1088 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4489094800:daemon.py:9495 job 20261114-221902-build-1: pinned lane codex-1 can never admit it (disabled); it fails with rc 3 at 2026-10-09T16:34:00Z unless the lane can take it by then
+__ test_shorter_replacement_keeps_the_other_targets_later_end[sandbox-retry] ___
+[gw1] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+kind = 'retry', shortened = 'sandbox'
+
+    @pytest.mark.parametrize("kind", ["pinned", "retry"])
+    @pytest.mark.parametrize("shortened", ["task", "sandbox"])
+    def test_shorter_replacement_keeps_the_other_targets_later_end(kind, shortened):
+        """Replacing 300 with 50 still pauses through the other target's end at 200."""
+        with fleet() as (service, harness, clock, signals):
+            ident = stuck(service, harness, clock, kind)
+            writable(service, ident)
+            other = "sandbox" if shortened == "task" else "task"
+            clock[0] = 10
+            hold_target(service, shortened, 300)
+            hold_target(service, other, 200)
+            clock[0] = 20
+            replacement = hold_target(service, shortened, 50)
+            assert replacement["task_hold"]["since"] == stamp(10)
+>           assert job(service, ident)["next_check_at"] == stamp(200)
+E           AssertionError: assert '2026-10-09T16:33:50Z' == '2026-10-09T16:36:20Z'
+E             
+E             - 2026-10-09T16:36:20Z
+E             ?                ^ ^
+E             + 2026-10-09T16:33:50Z
+E             ?                ^ ^
+
+tests/fake/test_sandbox_hold_interleavings.py:76: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4489056896:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4489056896:daemon.py:1088 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4489056896:daemon.py:9495 job 20261114-221902-build-1: every candidate lane can never admit it (disabled); it fails with rc 3 at 2026-10-09T16:34:00Z unless the lane can take it by then
+_ test_control_a_release_whose_target_has_a_row_still_wakes_the_stale_job[p5-sandbox-release] _
+[gw2] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+stale = 'task', released = 'sandbox'
+
+    @pytest.mark.parametrize("stale,released", [("task", "sandbox"), ("sandbox", "task")],
+                             ids=["p5-sandbox-release", "task-release"])
+    def test_control_a_release_whose_target_has_a_row_still_wakes_the_stale_job(stale, released):
+        """The control: as above, but the released target's row exists too, ended at 40,
+        so both holds covered the job until the later end, 50. The release deletes its row,
+        records `task.released`, and gives the job its clocks back from 50, as C-11.10's
+        release of a hold already past its end does."""
+        with fleet() as (service, harness, clock, signals):
+            clock[0] = 0
+            task = "build" if stale == "task" else "review"
+            ident = jobs_from(service, harness, [(task, "workspace-write", "dispatch")])["generated-0"]
+            if stale == "task":
+                hold(service, "build", stamp(50), note="task brake")
+                sandbox_hold(service, 40, note="disk brake")
+            else:
+                sandbox_hold(service, 50, note="disk brake")
+                hold(service, "review", stamp(40), note="task brake")
+>           assert job(service, ident)["next_check_at"] == stamp(50)
+E           AssertionError: assert '2026-10-09T16:33:40Z' == '2026-10-09T16:33:50Z'
+E             
+E             - 2026-10-09T16:33:50Z
+E             ?                  ^
+E             + 2026-10-09T16:33:40Z
+E             ?                  ^
+
+tests/fake/test_sandbox_hold_release_rows.py:90: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4486028928:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4486028928:daemon.py:1088 reset credits: automatic redemption off; no-reset marker absent
+_ test_control_a_release_whose_target_has_a_row_still_wakes_the_stale_job[task-release] _
+[gw2] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+stale = 'sandbox', released = 'task'
+
+    @pytest.mark.parametrize("stale,released", [("task", "sandbox"), ("sandbox", "task")],
+                             ids=["p5-sandbox-release", "task-release"])
+    def test_control_a_release_whose_target_has_a_row_still_wakes_the_stale_job(stale, released):
+        """The control: as above, but the released target's row exists too, ended at 40,
+        so both holds covered the job until the later end, 50. The release deletes its row,
+        records `task.released`, and gives the job its clocks back from 50, as C-11.10's
+        release of a hold already past its end does."""
+        with fleet() as (service, harness, clock, signals):
+            clock[0] = 0
+            task = "build" if stale == "task" else "review"
+            ident = jobs_from(service, harness, [(task, "workspace-write", "dispatch")])["generated-0"]
+            if stale == "task":
+                hold(service, "build", stamp(50), note="task brake")
+                sandbox_hold(service, 40, note="disk brake")
+            else:
+                sandbox_hold(service, 50, note="disk brake")
+                hold(service, "review", stamp(40), note="task brake")
+>           assert job(service, ident)["next_check_at"] == stamp(50)
+E           AssertionError: assert '2026-10-09T16:33:40Z' == '2026-10-09T16:33:50Z'
+E             
+E             - 2026-10-09T16:33:50Z
+E             ?                  ^
+E             + 2026-10-09T16:33:40Z
+E             ?                  ^
+
+tests/fake/test_sandbox_hold_release_rows.py:90: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4485768896:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4485768896:daemon.py:1088 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_sandbox_hold_interleavings.py::test_shorter_replacement_keeps_the_other_targets_later_end[task-pinned]
+FAILED tests/fake/test_sandbox_hold_interleavings.py::test_shorter_replacement_keeps_the_other_targets_later_end[task-retry]
+FAILED tests/fake/test_sandbox_hold_interleavings.py::test_shorter_replacement_keeps_the_other_targets_later_end[sandbox-pinned]
+FAILED tests/fake/test_sandbox_hold_interleavings.py::test_shorter_replacement_keeps_the_other_targets_later_end[sandbox-retry]
+FAILED tests/fake/test_sandbox_hold_release_rows.py::test_control_a_release_whose_target_has_a_row_still_wakes_the_stale_job[p5-sandbox-release]
+FAILED tests/fake/test_sandbox_hold_release_rows.py::test_control_a_release_whose_target_has_a_row_still_wakes_the_stale_job[task-release]
+6 failed, 61 passed in 75.12s (0:01:15)

@@ -1,0 +1,2233 @@
+{
+ "pairs": 1370,
+ "relabelled_hf_dest": [],
+ "parser_blocks_regex_passes": [
+  {
+   "cwd": "/tmp/work",
+   "command": "env -C / find . -name x",
+   "parser": [
+    "find",
+    ".",
+    "/"
+   ]
+  },
+  {
+   "cwd": "/Users/tester/PolicyEngine/policyengine-us/policyengine_us",
+   "command": "find ../../.. -name x",
+   "parser": [
+    "find",
+    "../../..",
+    "/Users/tester"
+   ]
+  },
+  {
+   "cwd": "/tmp/work",
+   "command": "grep -d recurse foo /Users",
+   "parser": [
+    "grep",
+    "/Users",
+    "/Users"
+   ]
+  },
+  {
+   "cwd": "/tmp/work",
+   "command": "D=~/PolicyEngine; grep -rn foo $D",
+   "parser": [
+    "grep",
+    "$D",
+    "/Users/tester/PolicyEngine"
+   ]
+  },
+  {
+   "cwd": "/tmp/work",
+   "command": "W=\"$HOME/TheAxiomFoundation\"; cd $W && rg foo",
+   "parser": [
+    "rg",
+    ". (implicit)",
+    "/Users/tester/TheAxiomFoundation"
+   ]
+  },
+  {
+   "cwd": "/tmp/work",
+   "command": "export R=/; find $R -name x",
+   "parser": [
+    "find",
+    "$R",
+    "/"
+   ]
+  },
+  {
+   "cwd": "/Users/tester/.subfleet",
+   "command": "rg --files .",
+   "parser": [
+    "rg",
+    ".",
+    "/Users/tester/.subfleet"
+   ]
+  },
+  {
+   "cwd": "/Users/tester/.subfleet",
+   "command": "find . -name AGENTS.md",
+   "parser": [
+    "find",
+    ".",
+    "/Users/tester/.subfleet"
+   ]
+  },
+  {
+   "cwd": "/Users/tester/.subfleet",
+   "command": "grep -r x .",
+   "parser": [
+    "grep",
+    ".",
+    "/Users/tester/.subfleet"
+   ]
+  },
+  {
+   "cwd": "/Users/tester/.subfleet/jobs",
+   "command": "rg --files .",
+   "parser": [
+    "rg",
+    ".",
+    "/Users/tester/.subfleet/jobs"
+   ]
+  },
+  {
+   "cwd": "/Users/tester/.subfleet/jobs",
+   "command": "find . -name AGENTS.md",
+   "parser": [
+    "find",
+    ".",
+    "/Users/tester/.subfleet/jobs"
+   ]
+  },
+  {
+   "cwd": "/Users/tester/.subfleet/jobs",
+   "command": "grep -r x .",
+   "parser": [
+    "grep",
+    ".",
+    "/Users/tester/.subfleet/jobs"
+   ]
+  },
+  {
+   "cwd": "/Users/tester/.subfleet/worktrees/20261025-033945-pr257-fix-r2",
+   "command": "rg --files -g AGENTS.md ..",
+   "parser": [
+    "rg",
+    "..",
+    "/Users/tester/.subfleet/worktrees"
+   ]
+  },
+  {
+   "cwd": "/Users/tester/PolicyEngine/policyengine-us",
+   "command": "rg --files -g AGENTS.md ..",
+   "parser": [
+    "rg",
+    "..",
+    "/Users/tester/PolicyEngine"
+   ]
+  },
+  {
+   "cwd": "/Users/tester/.subfleet/worktrees/20261025-033945-pr257-fix-r2",
+   "command": "find ../.. -name AGENTS.md",
+   "parser": [
+    "find",
+    "../..",
+    "/Users/tester/.subfleet"
+   ]
+  },
+  {
+   "cwd": "/Users/tester/PolicyEngine/policyengine-us/policyengine_us",
+   "command": "find ../.. -name AGENTS.md",
+   "parser": [
+    "find",
+    "../..",
+    "/Users/tester/PolicyEngine"
+   ]
+  },
+  {
+   "cwd": "/Users/tester/.subfleet/worktrees/20261025-033945-pr257-fix-r2",
+   "command": "rg --files ../../jobs",
+   "parser": [
+    "rg",
+    "../../jobs",
+    "/Users/tester/.subfleet/jobs"
+   ]
+  },
+  {
+   "cwd": "/Users/tester/PolicyEngine/policyengine-us",
+   "command": "rg --files ../../PolicyEngine",
+   "parser": [
+    "rg",
+    "../../PolicyEngine",
+    "/Users/tester/PolicyEngine"
+   ]
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files $'/Users/tester/.subfleet'",
+   "parser": [
+    "rg",
+    "/Users/tester/.subfleet",
+    "/Users/tester/.subfleet"
+   ]
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files $'/Users/tester'",
+   "parser": [
+    "rg",
+    "/Users/tester",
+    "/Users/tester"
+   ]
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "env -C ~/.subfleet rg --files",
+   "parser": [
+    "rg",
+    ". (implicit)",
+    "/Users/tester/.subfleet"
+   ]
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "env -C ~ rg --files",
+   "parser": [
+    "rg",
+    ". (implicit)",
+    "/Users/tester"
+   ]
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ${SUBFLEET_ROOT:-~/.subfleet}",
+   "parser": [
+    "rg",
+    "${SUBFLEET_ROOT:-~/.subfleet}",
+    "/Users/tester/.subfleet"
+   ]
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ${HOME:-/Users/tester}",
+   "parser": [
+    "rg",
+    "${HOME:-/Users/tester}",
+    "/Users/tester"
+   ]
+  }
+ ],
+ "regex_blocks_parser_passes": [
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg -t py foo '$HOME'",
+   "regex": "$HOME"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cd /Users/maxghenis && rg foo",
+   "regex": "/Users/maxghenis (after cd)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "eval 'rg -l foo '\"'\"'$HOME/PolicyEngine'\"'\"''",
+   "regex": "$HOME/PolicyEngine"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cd '${HOME}/PolicyEngine' && find . -name AGENTS.md",
+   "regex": "$HOME/PolicyEngine (after cd)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cd \"/Users/maxghenis/PolicyEngine/\" && rg foo",
+   "regex": "/Users/maxghenis/PolicyEngine/ (after cd)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo '/Users/tester/PolicyEngine/' | xargs rg foo",
+   "regex": "/Users/tester/PolicyEngine/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg -l foo '$HOME/Library/Caches' | head -n 5",
+   "regex": "$HOME/Library/Caches"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo /Users/tester/Library/Caches | xargs rg foo",
+   "regex": "/Users/tester/Library/Caches"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "bash -c 'find -L \"~/.cache/\" -name x'",
+   "regex": "~/.cache/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "sh -c \"find \\\"~/.cache\\\" -name AGENTS.md\"",
+   "regex": "~/.cache"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cd '/Users/maxghenis/.cache' && rg foo",
+   "regex": "/Users/maxghenis/.cache (after cd)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo \"/Users/tester/.cache\" | xargs rg foo",
+   "regex": "/Users/tester/.cache"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "grep -rn x \"~/.subfleet\"",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "grep -rn x \"~/.cache\"",
+   "regex": "~/.cache"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "grep -rn x \"$SUBFLEET_ROOT\"",
+   "regex": "$SUBFLEET_ROOT"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "grep -rn x \"${SUBFLEET_ROOT}\"",
+   "regex": "$SUBFLEET_ROOT"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "grep -rn x \"$SUBFLEET_HOME\"",
+   "regex": "$SUBFLEET_HOME"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "grep -rn x \"${SUBFLEET_HOME}\"",
+   "regex": "$SUBFLEET_HOME"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "bash -c 'rg --files -g AGENTS.md $SUBFLEET_ROOT/'",
+   "regex": "$SUBFLEET_ROOT/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "bash -c 'rg --files -g AGENTS.md ${SUBFLEET_ROOT}/'",
+   "regex": "$SUBFLEET_ROOT/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "bash -c 'rg --files -g AGENTS.md $SUBFLEET_HOME/'",
+   "regex": "$SUBFLEET_HOME/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "bash -c 'rg --files -g AGENTS.md ${SUBFLEET_HOME}/'",
+   "regex": "$SUBFLEET_HOME/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "sh -c \"grep -rn x '~/.subfleet/'\"",
+   "regex": "~/.subfleet/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "sh -c \"grep -rn x '~/.cache/'\"",
+   "regex": "~/.cache/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "sh -c \"grep -rn x '$SUBFLEET_ROOT/'\"",
+   "regex": "$SUBFLEET_ROOT/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "sh -c \"grep -rn x '${SUBFLEET_ROOT}/'\"",
+   "regex": "$SUBFLEET_ROOT/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "sh -c \"grep -rn x '$SUBFLEET_HOME/'\"",
+   "regex": "$SUBFLEET_HOME/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "sh -c \"grep -rn x '${SUBFLEET_HOME}/'\"",
+   "regex": "$SUBFLEET_HOME/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "grep --recursive -l x $SUBFLEET_ROOT/",
+   "regex": "$SUBFLEET_ROOT/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "grep --recursive -l x ${SUBFLEET_ROOT}/",
+   "regex": "$SUBFLEET_ROOT/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "grep --recursive -l x $SUBFLEET_HOME/",
+   "regex": "$SUBFLEET_HOME/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "grep --recursive -l x ${SUBFLEET_HOME}/",
+   "regex": "$SUBFLEET_HOME/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "eval 'grep -r x \"$SUBFLEET_ROOT\"'",
+   "regex": "$SUBFLEET_ROOT"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "eval 'grep -r x \"${SUBFLEET_ROOT}\"'",
+   "regex": "$SUBFLEET_ROOT"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "eval 'grep -r x \"$SUBFLEET_HOME\"'",
+   "regex": "$SUBFLEET_HOME"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "eval 'grep -r x \"${SUBFLEET_HOME}\"'",
+   "regex": "$SUBFLEET_HOME"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg -n -e foo $SUBFLEET_ROOT | head -n 5",
+   "regex": "$SUBFLEET_ROOT"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg -n -e foo ${SUBFLEET_ROOT} | head -n 5",
+   "regex": "$SUBFLEET_ROOT"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg -n -e foo $SUBFLEET_HOME | head -n 5",
+   "regex": "$SUBFLEET_HOME"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg -n -e foo ${SUBFLEET_HOME} | head -n 5",
+   "regex": "$SUBFLEET_HOME"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cd $SUBFLEET_ROOT && find . -name AGENTS.md",
+   "regex": "$SUBFLEET_ROOT (after cd)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cd ${SUBFLEET_ROOT} && find . -name AGENTS.md",
+   "regex": "$SUBFLEET_ROOT (after cd)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cd $SUBFLEET_HOME && find . -name AGENTS.md",
+   "regex": "$SUBFLEET_HOME (after cd)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cd ${SUBFLEET_HOME} && find . -name AGENTS.md",
+   "regex": "$SUBFLEET_HOME (after cd)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "grep -r x '$SUBFLEET_ROOT/'",
+   "regex": "$SUBFLEET_ROOT/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "grep -r x '${SUBFLEET_ROOT}/'",
+   "regex": "$SUBFLEET_ROOT/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "grep -r x '$SUBFLEET_HOME/'",
+   "regex": "$SUBFLEET_HOME/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "grep -r x '${SUBFLEET_HOME}/'",
+   "regex": "$SUBFLEET_HOME/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cd /Users/maxghenis/.subfleet/ && rg foo",
+   "regex": "/Users/maxghenis/.subfleet/ (after cd)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cd /Users/maxghenis/.cache/ && rg foo",
+   "regex": "/Users/maxghenis/.cache/ (after cd)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cd $SUBFLEET_ROOT/ && rg foo",
+   "regex": "$SUBFLEET_ROOT/ (after cd)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cd ${SUBFLEET_ROOT}/ && rg foo",
+   "regex": "$SUBFLEET_ROOT/ (after cd)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cd $SUBFLEET_HOME/ && rg foo",
+   "regex": "$SUBFLEET_HOME/ (after cd)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cd ${SUBFLEET_HOME}/ && rg foo",
+   "regex": "$SUBFLEET_HOME/ (after cd)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in \"$SUBFLEET_ROOT\"; do find $d -name x; done",
+   "regex": "$SUBFLEET_ROOT"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in \"${SUBFLEET_ROOT}\"; do find $d -name x; done",
+   "regex": "$SUBFLEET_ROOT"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in \"$SUBFLEET_HOME\"; do find $d -name x; done",
+   "regex": "$SUBFLEET_HOME"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in \"${SUBFLEET_HOME}\"; do find $d -name x; done",
+   "regex": "$SUBFLEET_HOME"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg -l foo $SUBFLEET_ROOT",
+   "regex": "$SUBFLEET_ROOT"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg -l foo ${SUBFLEET_ROOT}",
+   "regex": "$SUBFLEET_ROOT"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg -l foo $SUBFLEET_HOME",
+   "regex": "$SUBFLEET_HOME"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg -l foo ${SUBFLEET_HOME}",
+   "regex": "$SUBFLEET_HOME"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo /Users/tester/.subfleet | xargs rg foo",
+   "regex": "/Users/tester/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo /Users/tester/.cache | xargs rg foo",
+   "regex": "/Users/tester/.cache"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo $SUBFLEET_ROOT | xargs rg foo",
+   "regex": "$SUBFLEET_ROOT"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo ${SUBFLEET_ROOT} | xargs rg foo",
+   "regex": "$SUBFLEET_ROOT"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo $SUBFLEET_HOME | xargs rg foo",
+   "regex": "$SUBFLEET_HOME"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo ${SUBFLEET_HOME} | xargs rg foo",
+   "regex": "$SUBFLEET_HOME"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "bash -c 'rg --files -g AGENTS.md $SUBFLEET_ROOT/jobs/'",
+   "regex": "$SUBFLEET_ROOT/jobs/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "bash -c 'rg --files -g AGENTS.md ${SUBFLEET_ROOT}/jobs/'",
+   "regex": "$SUBFLEET_ROOT/jobs/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "bash -c 'rg --files -g AGENTS.md $SUBFLEET_HOME/jobs/'",
+   "regex": "$SUBFLEET_HOME/jobs/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "bash -c 'rg --files -g AGENTS.md ${SUBFLEET_HOME}/jobs/'",
+   "regex": "$SUBFLEET_HOME/jobs/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "sh -c \"rg -t py foo \\\"~/.subfleet/jobs\\\"\"",
+   "regex": "~/.subfleet/jobs"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "sh -c \"rg -t py foo \\\"~/Library/Caches\\\"\"",
+   "regex": "~/Library/Caches"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "sh -c \"rg -t py foo \\\"$SUBFLEET_ROOT/jobs\\\"\"",
+   "regex": "$SUBFLEET_ROOT/jobs"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "sh -c \"rg -t py foo \\\"${SUBFLEET_ROOT}/jobs\\\"\"",
+   "regex": "$SUBFLEET_ROOT/jobs"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "sh -c \"rg -t py foo \\\"$SUBFLEET_HOME/jobs\\\"\"",
+   "regex": "$SUBFLEET_HOME/jobs"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "sh -c \"rg -t py foo \\\"${SUBFLEET_HOME}/jobs\\\"\"",
+   "regex": "$SUBFLEET_HOME/jobs"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "eval 'rg --files -g AGENTS.md $SUBFLEET_ROOT/jobs/'",
+   "regex": "$SUBFLEET_ROOT/jobs/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "eval 'rg --files -g AGENTS.md ${SUBFLEET_ROOT}/jobs/'",
+   "regex": "$SUBFLEET_ROOT/jobs/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "eval 'rg --files -g AGENTS.md $SUBFLEET_HOME/jobs/'",
+   "regex": "$SUBFLEET_HOME/jobs/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "eval 'rg --files -g AGENTS.md ${SUBFLEET_HOME}/jobs/'",
+   "regex": "$SUBFLEET_HOME/jobs/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "git ls-files | xargs grep -rn x $SUBFLEET_ROOT/jobs/",
+   "regex": "$SUBFLEET_ROOT/jobs/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "git ls-files | xargs grep -rn x ${SUBFLEET_ROOT}/jobs/",
+   "regex": "$SUBFLEET_ROOT/jobs/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "git ls-files | xargs grep -rn x $SUBFLEET_HOME/jobs/",
+   "regex": "$SUBFLEET_HOME/jobs/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "git ls-files | xargs grep -rn x ${SUBFLEET_HOME}/jobs/",
+   "regex": "$SUBFLEET_HOME/jobs/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cd $SUBFLEET_ROOT/jobs && find . -name AGENTS.md",
+   "regex": "$SUBFLEET_ROOT/jobs (after cd)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cd ${SUBFLEET_ROOT}/jobs && find . -name AGENTS.md",
+   "regex": "$SUBFLEET_ROOT/jobs (after cd)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cd $SUBFLEET_HOME/jobs && find . -name AGENTS.md",
+   "regex": "$SUBFLEET_HOME/jobs (after cd)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cd ${SUBFLEET_HOME}/jobs && find . -name AGENTS.md",
+   "regex": "$SUBFLEET_HOME/jobs (after cd)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in $SUBFLEET_ROOT/jobs; do find $d -name x; done",
+   "regex": "$SUBFLEET_ROOT/jobs"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ${SUBFLEET_ROOT}/jobs; do find $d -name x; done",
+   "regex": "$SUBFLEET_ROOT/jobs"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in $SUBFLEET_HOME/jobs; do find $d -name x; done",
+   "regex": "$SUBFLEET_HOME/jobs"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ${SUBFLEET_HOME}/jobs; do find $d -name x; done",
+   "regex": "$SUBFLEET_HOME/jobs"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find -L $SUBFLEET_ROOT/jobs -name x",
+   "regex": "$SUBFLEET_ROOT/jobs"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find -L ${SUBFLEET_ROOT}/jobs -name x",
+   "regex": "$SUBFLEET_ROOT/jobs"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find -L $SUBFLEET_HOME/jobs -name x",
+   "regex": "$SUBFLEET_HOME/jobs"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find -L ${SUBFLEET_HOME}/jobs -name x",
+   "regex": "$SUBFLEET_HOME/jobs"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo /Users/tester/.subfleet/jobs | xargs rg foo",
+   "regex": "/Users/tester/.subfleet/jobs"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo $SUBFLEET_ROOT/jobs | xargs rg foo",
+   "regex": "$SUBFLEET_ROOT/jobs"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo ${SUBFLEET_ROOT}/jobs | xargs rg foo",
+   "regex": "$SUBFLEET_ROOT/jobs"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo $SUBFLEET_HOME/jobs | xargs rg foo",
+   "regex": "$SUBFLEET_HOME/jobs"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo ${SUBFLEET_HOME}/jobs | xargs rg foo",
+   "regex": "$SUBFLEET_HOME/jobs"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cd \"/Users/maxghenis/.subfleet/subfleetd.log/\" && rg foo",
+   "regex": "/Users/maxghenis/.subfleet/subfleetd.log/ (after cd)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cd \"/Users/maxghenis/Library/Caches/\" && rg foo",
+   "regex": "/Users/maxghenis/Library/Caches/ (after cd)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo '/Users/tester/Library/Caches' | xargs rg foo",
+   "regex": "/Users/tester/Library/Caches"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo \"/\" | xargs rg foo",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo /tmp | xargs rg foo",
+   "regex": "/tmp"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg foo ~/.subfleet/jobs/?*",
+   "regex": "~/.subfleet/jobs/?* (glob)"
+  },
+  {
+   "cwd": "/Users/tester",
+   "command": "cd ~/PolicyEngine/policyengine-us && rg foo",
+   "regex": ". (cwd /Users/tester)"
+  },
+  {
+   "cwd": "/Users/tester",
+   "command": "(cd / && ls); cd src && find . -name x",
+   "regex": "/ (after cd)"
+  },
+  {
+   "cwd": "/tmp/work",
+   "command": "find '~' -name x",
+   "regex": "~"
+  },
+  {
+   "cwd": "/tmp/work",
+   "command": "bash -c 'cd /'; find . -name x",
+   "regex": "/ (after cd)"
+  },
+  {
+   "cwd": "/Users/tester",
+   "command": "rg -n --no-heading -iE '12\\.5|outperform' ~/obsidian-vault/exports/public/ | head",
+   "regex": ". (cwd /Users/tester)"
+  },
+  {
+   "cwd": "<scratch>/bt-sr2/rule-repos0/plain",
+   "command": "security dump-keychain -d; rg --files $SUBFLEET_ROOT",
+   "regex": "$SUBFLEET_ROOT"
+  },
+  {
+   "cwd": "<scratch>/bt-sr2/rule-repos0/plain",
+   "command": "cd policyengine-uk-data && apply_patch <<'EOF'\n*** Begin Patch\n*** Update File: upload.py\n@@\n+repo_id = 'other/x'\n*** End Patch\nEOF; rg --files ~/.subfleet",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "<scratch>/bt-sr2/rule-repos0/plain",
+   "command": "cd policyengine-uk-data && apply_patch <<'EOF'\n*** Begin Patch\n*** Update File: upload.py\n@@\n+repo_id = 'other/x'\n*** End Patch\nEOF; rg --files $SUBFLEET_ROOT",
+   "regex": "$SUBFLEET_ROOT"
+  },
+  {
+   "cwd": "<scratch>/bt-sr2/rule-repos0/worktrees",
+   "command": "git stash list; rg --files $SUBFLEET_ROOT",
+   "regex": "$SUBFLEET_ROOT"
+  },
+  {
+   "cwd": "<scratch>/bt-sr2/rule-repos0/main",
+   "command": "git checkout -b feature origin/main; rg --files $SUBFLEET_ROOT",
+   "regex": "$SUBFLEET_ROOT"
+  },
+  {
+   "cwd": "<scratch>/bt-sr2/rule-repos0/plain",
+   "command": "gh variable list; rg --files $SUBFLEET_ROOT",
+   "regex": "$SUBFLEET_ROOT"
+  },
+  {
+   "cwd": "<scratch>/bt-sr2/rule-repos0/plain",
+   "command": "security find-generic-password -s x; rg --files $SUBFLEET_ROOT",
+   "regex": "$SUBFLEET_ROOT"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files -g AGENTS.md \"$SUBFLEET_ROOT\"",
+   "regex": "$SUBFLEET_ROOT"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files -g AGENTS.md $SUBFLEET_ROOT/worktrees",
+   "regex": "$SUBFLEET_ROOT/worktrees"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find \"$SUBFLEET_HOME\" -name AGENTS.md",
+   "regex": "$SUBFLEET_HOME"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "grep -r x ${SUBFLEET_ROOT}/jobs",
+   "regex": "$SUBFLEET_ROOT/jobs"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cd ~/.subfleet/jobs && rg -n foo 20261024-115712-x/a1/out.md",
+   "regex": "~/.subfleet/jobs (after cd)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "ls -t ~/.subfleet/jobs | head -5 | xargs -I{} rg -l foo ~/.subfleet/jobs/{}/a1",
+   "regex": "~/.subfleet/jobs"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg -l foo ~/.subfleet/jobs/*/a1",
+   "regex": "~/.subfleet/jobs/*/a1 (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "bash -c 'rg --files $SUBFLEET_ROOT'",
+   "regex": "$SUBFLEET_ROOT"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg x ~/.subfleet/$OTHER",
+   "regex": "~/.subfleet/$OTHER"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg foo \"$SUBFLEET_HOME\"/worktrees/*",
+   "regex": "$SUBFLEET_HOME/worktrees/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg foo $SUBFLEET_ROOT/worktrees/*",
+   "regex": "$SUBFLEET_ROOT/worktrees/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cd ~/.subfleet/jobs/* && rg foo",
+   "regex": "~/.subfleet/jobs/* (glob) (after cd)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg x ~/.subfleet/jobs/2026*",
+   "regex": "~/.subfleet/jobs/2026* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "f() { d=/; }; for d in src; do :; done; f; rg foo \"$d\"",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "function f { d=/; }; for d in src; do :; done; f; rg foo \"$d\"",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "f() { d=~/.subfleet; }; for d in src; do :; done; f; rg foo \"$d\"",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "f() { if true; then d=/; fi; }; for d in src; do :; done; f; rg foo \"$d\"",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo \"$(for d in ~/.subfleet/*; do :; done; false && d=--max-depth=1; rg foo \"$d\")\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ~/.subfleet/*; do :; done; f() { for d in src; do :; done; }; rg foo \"$d\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ~/.subfleet/*; do :; done; echo src | while read d; do :; done; rg foo \"$d\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ~/.subfleet/*; do :; done\n{\nfor d in src; do :; done\n} | cat\nrg foo \"$d\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ~/.subfleet/*; do :; done; coproc for d in src; do :; done; rg foo \"$d\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "f() { d=/; }; echo src | while read d; do :; done; f; rg foo \"$d\"",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "function f { d=/; }; echo src | while read d; do :; done; f; rg foo \"$d\"",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "f() { d=~/.subfleet; }; ls src | while read d; do :; done; f; rg foo \"$d\"",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "f() { if true; then d=/; fi; }; echo src | while read d; do :; done; f; rg foo \"$d\"",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "f() { d=/; }; echo src | while read -r d; do :; done; f; rg foo \"$d\"",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find ~/.subfleet -maxdepth 0 -exec rg foo {} \\;",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg foo \"/V*/Macintosh HD\"",
+   "regex": "/V*/Macintosh HD (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~/{PolicyEngine,{a,b}}",
+   "regex": "~/{PolicyEngine,{a,b}} (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~/{a..z}*",
+   "regex": "~/{a..z}* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~/{a,b,c,d,e,f,g,h,i}{1,2,3,4,5,6,7,8}",
+   "regex": "~/{a,b,c,d,e,f,g,h,i}{1,2,3,4,5,6,7,8} (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~/work/jl/..",
+   "regex": "~/work/jl/.."
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~/work/repo/wt/..",
+   "regex": "~/work/repo/wt/.."
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find /Users/tester/work/jl/.. -name x",
+   "regex": "/Users/tester/work/jl/.."
+  },
+  {
+   "cwd": "/Users/tester/work/jl/..",
+   "command": "find /Users/tester/work/jl/.. -name x",
+   "regex": "/Users/tester/work/jl/.."
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "$(which rg) --files ~/.subfleet",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "$(command -v rg) --files ~/.subfleet",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "`which rg` --files ~/.subfleet",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files -g AGENTS.md \"/Volumes/Macintosh HD/Users/tester/.subfleet\"",
+   "regex": "/Volumes/Macintosh HD/Users/tester/.subfleet"
+  },
+  {
+   "cwd": "/Volumes/Macintosh HD/Users/tester/.subfleet",
+   "command": "rg --files -g AGENTS.md \"/Volumes/Macintosh HD/Users/tester/.subfleet\"",
+   "regex": "/Volumes/Macintosh HD/Users/tester/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find \"/Volumes/Macintosh HD/Users\" -name AGENTS.md",
+   "regex": "/Volumes/Macintosh HD/Users"
+  },
+  {
+   "cwd": "/Volumes/Macintosh HD/Users",
+   "command": "find \"/Volumes/Macintosh HD/Users\" -name AGENTS.md",
+   "regex": "/Volumes/Macintosh HD/Users"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files \"/Volumes/Macintosh HD/Users/tester\"",
+   "regex": "/Volumes/Macintosh HD/Users/tester"
+  },
+  {
+   "cwd": "/Volumes/Macintosh HD/Users/tester",
+   "command": "rg --files \"/Volumes/Macintosh HD/Users/tester\"",
+   "regex": "/Volumes/Macintosh HD/Users/tester"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files \"/Volumes/Macintosh HD/tmp\"",
+   "regex": "/Volumes/Macintosh HD/tmp"
+  },
+  {
+   "cwd": "/Volumes/Macintosh HD/tmp",
+   "command": "rg --files \"/Volumes/Macintosh HD/tmp\"",
+   "regex": "/Volumes/Macintosh HD/tmp"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files \"/Volumes/Macintosh HD/private/tmp\"",
+   "regex": "/Volumes/Macintosh HD/private/tmp"
+  },
+  {
+   "cwd": "/Volumes/Macintosh HD/private/tmp",
+   "command": "rg --files \"/Volumes/Macintosh HD/private/tmp\"",
+   "regex": "/Volumes/Macintosh HD/private/tmp"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files \"/Volumes/Macintosh HD/Users/\"*/.subfleet",
+   "regex": "/Volumes/Macintosh HD/Users/*/.subfleet (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files \"/Volumes/Macintosh HD/Users/tester/.subfleet/jobs/\"2026*",
+   "regex": "/Volumes/Macintosh HD/Users/tester/.subfleet/jobs/2026* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files /Volumes/Ext/Users",
+   "regex": "/Volumes/Ext/Users"
+  },
+  {
+   "cwd": "/Volumes/Ext/Users",
+   "command": "rg --files /Volumes/Ext/Users",
+   "regex": "/Volumes/Ext/Users"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find /Volumes/Ext/Users/someone/PolicyEngine -name x",
+   "regex": "/Volumes/Ext/Users/someone/PolicyEngine"
+  },
+  {
+   "cwd": "/Volumes/Ext/Users/someone/PolicyEngine",
+   "command": "find /Volumes/Ext/Users/someone/PolicyEngine -name x",
+   "regex": "/Volumes/Ext/Users/someone/PolicyEngine"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files \"/Volumes/Macintosh HD/\"U*",
+   "regex": "/Volumes/Macintosh HD/U* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files \"/Volumes/Macintosh HD/Users/\"t*",
+   "regex": "/Volumes/Macintosh HD/Users/t* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~/.subfleet/jobs/?*",
+   "regex": "~/.subfleet/jobs/?* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~/.subfleet/jobs/*?",
+   "regex": "~/.subfleet/jobs/*? (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~/.subfleet/jobs/[!.]*",
+   "regex": "~/.subfleet/jobs/[!.]* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~/.subfleet/jobs/[0-9]*",
+   "regex": "~/.subfleet/jobs/[0-9]* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find ~/.subfleet/jobs/?* -name AGENTS.md",
+   "regex": "~/.subfleet/jobs/?* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~/.subfleet/worktrees/?*",
+   "regex": "~/.subfleet/worktrees/?* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files $SUBFLEET_ROOT/jobs/?*",
+   "regex": "$SUBFLEET_ROOT/jobs/?* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~/PolicyEngine/?*",
+   "regex": "~/PolicyEngine/?* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files /tmp/?*",
+   "regex": "/tmp/?* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files /usr/?*",
+   "regex": "/usr/?* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~/.subfleet/jobs/*/./",
+   "regex": "~/.subfleet/jobs/*/./ (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~/.subfleet/jobs/*/.",
+   "regex": "~/.subfleet/jobs/*/. (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~/.subfleet/jobs/*/..",
+   "regex": "~/.subfleet/jobs/*/.. (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "grep -r x ~/.subfleet/jobs/*/..",
+   "regex": "~/.subfleet/jobs/*/.. (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~/PolicyEngine/*/.",
+   "regex": "~/PolicyEngine/*/. (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg foo ~/.subfleet/jobs/link-u*",
+   "regex": "~/.subfleet/jobs/link-u* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files /[^/]*",
+   "regex": "/[^/]* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find /[!/]* -name x",
+   "regex": "/[!/]* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~/[!/]*",
+   "regex": "~/[!/]* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~/.subfleet/[^/]*",
+   "regex": "~/.subfleet/[^/]* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files /{Users/{tester,x},y}/.subfleet",
+   "regex": "/{Users/{tester,x},y}/.subfleet (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files /{Users/tester,x}/.{s..s}ubfleet",
+   "regex": "/{Users/tester,x}/.{s..s}ubfleet (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files /{Users/tester,x}/.subfleet{,}{,}{,}{,}{,}{,}",
+   "regex": "/{Users/tester,x}/.subfleet{,}{,}{,}{,}{,}{,} (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~/work/{..,x}{,}{,}{,}{,}{,}{,}/.subfleet",
+   "regex": "~/work/{..,x}{,}{,}{,}{,}{,}{,}/.subfleet (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files {/Users/${USER},x}/.subfleet",
+   "regex": "{/Users/${USER},x}/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find ~/.sub*/jobs/20261024-115712-x/.. -name AGENTS.md",
+   "regex": "~/.sub*/jobs/20261024-115712-x/.. (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~/.subfleet/jobs/20261024-115712-x/a*/../..",
+   "regex": "~/.subfleet/jobs/20261024-115712-x/a*/../.. (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~/work/r*/../../.subfleet",
+   "regex": "~/work/r*/../../.subfleet (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~/*/policyengine-us/..",
+   "regex": "~/*/policyengine-us/.. (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~/w*/jl/..",
+   "regex": "~/w*/jl/.. (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~/.subfleet/jobs/*/../..",
+   "regex": "~/.subfleet/jobs/*/../.. (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~$USER/.subfleet",
+   "regex": "~$USER/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~${USER}/.subfleet",
+   "regex": "~${USER}/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~$(whoami)/.subfleet",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files $\"/Users/tester/.subfleet\"",
+   "regex": "$/Users/tester/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "bash -c $\"rg --files /Users/tester/.subfleet\"",
+   "regex": "/Users/tester/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files \"/Volumes/Macintosh HD/../Users/tester/.subfleet\"",
+   "regex": "/Volumes/Macintosh HD/../Users/tester/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo / | xargs -I {} /usr/bin/find {} -name x",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "eval -- 'rg --files ~/.subfleet'",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg foo ~/PolicyEngine/?*/**/*.py",
+   "regex": "~/PolicyEngine/?*/**/*.py (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg foo ~/PolicyEngine/[!.]*/**/*.py",
+   "regex": "~/PolicyEngine/[!.]*/**/*.py (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find ~/.subfleet -maxdepth 1 -type d | xargs rg foo",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find ~/.subfleet -maxdepth 0 | xargs rg --files",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find ~ -maxdepth 1 -name .subfleet | xargs rg --files",
+   "regex": "~"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find ~/.subfleet -maxdepth 1 | xargs -I{} rg --files {}",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find ~/.subfleet -maxdepth 1 -exec rg foo {} \\;",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find ~/PolicyEngine -maxdepth 1 -type d | xargs rg foo",
+   "regex": "~/PolicyEngine"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg foo ~/work/.*",
+   "regex": "~/work/.* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~/.subfleet/jobs/20261024-115712-x/.*",
+   "regex": "~/.subfleet/jobs/20261024-115712-x/.* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~/.subfleet/jobs/20261024-115712-x/.?",
+   "regex": "~/.subfleet/jobs/20261024-115712-x/.? (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~/work/.?/.subfleet",
+   "regex": "~/work/.?/.subfleet (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find ~/work/.* -name x",
+   "regex": "~/work/.* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "bash -c 'rg --files ~/work/.*'",
+   "regex": "~/work/.* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~/work/.[.]/.subfleet",
+   "regex": "~/work/.[.]/.subfleet (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~/work/.[!a]/.subfleet",
+   "regex": "~/work/.[!a]/.subfleet (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~$USERNAME/.subfleet",
+   "regex": "~$USERNAME/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~$LOGNAME/.subfleet",
+   "regex": "~$LOGNAME/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~${LOGNAME}/.subfleet",
+   "regex": "~${LOGNAME}/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~$(id -un)/.subfleet",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files ~`whoami`/.subfleet",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg --files /Volumes/M*/../Users/tester/.subfleet",
+   "regex": "/Volumes/M*/../Users/tester/.subfleet (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "=rg --files ~/.subfleet",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "=find / -name x",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo 'rg --files ~/.subfleet' | cat | bash",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo 'rg --files ~/.subfleet' | tee /dev/null | bash",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "printf 'rg --files %s\\n' ~/.subfleet | bash",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "printf 'rg --files ~/.subfleet' | xargs -0 bash -c",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "sh -c '\"$@\"' sh \\rg --files ~/.subfleet",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "bash -c '$@' sh rg --files ~/.subfleet",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg foo src $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$",
+   "regex": "[unscoped-search] Command too complex to judge: it holds more than 4,096 of one "
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg foo src x#################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################",
+   "regex": "[unscoped-search] Command too complex to judge: it holds more than 4,096 of one "
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg foo src \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\",
+   "regex": "[unscoped-search] Command too complex to judge: it holds more than 4,096 of one "
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo `=rg --files ~/.subfleet`",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "x=`=find / -name x`",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "tee <<'EOF' | bash\n/usr/bin/find / -name x\nEOF",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "sed -n p <<'EOF' | bash\n\\rg --files ~/.subfleet\nEOF",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "tee <<< '/usr/bin/find / -name x' | bash",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cat > notes.md <<'EOF'\nRun `cd repo && rg --files ~/.subfleet` to see\nEOF",
+   "regex": "~/.subfleet`"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find ~/.subfleet -maxdepth 1 | while read d; do rg foo \"$d\"; done",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo ~/.subfleet | while read -r d; do grep -r x $d; done",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "bash <(echo 'rg --files ~/.subfleet')",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "source <(echo '/usr/bin/find / -name x')",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "sh <(echo 'rg --files ~/.subfleet')",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": ". <(printf '%s\\n' '/usr/bin/find / -name x')",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "bash < <(echo 'rg --files ~/.subfleet')",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cat > notes.md <<'EOF'\nRun cd repo && rg --files ~/.subfleet to see\nEOF",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cat > notes.md <<'EOF'\nRun `cd repo && rg --files '~/.subfleet'` to see\nEOF",
+   "regex": "~/.subfleet`"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cat <<NOPE; cat > /dev/null <<'EOF'\nit's\nEOF\n/usr/bin/find / -name x",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cat <<NOPE\ncat > /dev/null <<'EOF'\nit's\nEOF\n/usr/bin/find / -name x",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find ~/.subfleet/jobs -maxdepth 1 -type d | xargs -I{} sh -c 'rg -l foo {}'",
+   "regex": "~/.subfleet/jobs"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find ~/.subfleet/jobs -maxdepth 1 -type d | xargs -I{} bash -c 'cd {} && rg foo'",
+   "regex": "~/.subfleet/jobs"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo ~/.subfleet | xargs -I{} sh -c 'rg --files \"$1\"' _ {}",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find ~/.subfleet -maxdepth 1 -type d -print0 | xargs -0 -n1 sh -c 'rg foo \"$0\"'",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo \"$HOME/.subfleet\" | xargs -I{} zsh -c 'rg --files {}'",
+   "regex": "$HOME/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "printf '%s\\n' ~/.subfleet | xargs -n1 dash -c 'find \"$0\" -name x'",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo \"$((1<<X\n))\"\n/usr/bin/find / -name x\nX\ncase x in x) : ;; y) : ;; esac; echo \"a\"",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo $((1<<X\n))\n/usr/bin/find / -name x\nX",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "((y = 1<<X\n))\n/usr/bin/find / -name x\nX",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "x=$(echo $((1<<X\n))\n/usr/bin/find / -name x\nX\n)",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo \"$(echo $((1<<X\n)))\"\n/usr/bin/find / -name x\nX",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo $[1<<X\n]\n/usr/bin/find / -name x\nX",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ~/.subfleet/*; do :; done; false && d=src; rg foo \"$d\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cat <(echo 'rg --files ~/.subfleet') | bash",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cat <(printf '%s\\n' '/usr/bin/find / -name x') | sh",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "tee < <(echo 'rg --files ~/.subfleet') | bash",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "sort <(echo 'rg --files ~/.subfleet') | bash",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cat <(echo hi) <(echo 'rg --files ~/.subfleet') | bash",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo x | cat <(echo '/usr/bin/find / -name x') | sh",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cat <(echo 'rg --files ~/.subfleet') | sort | bash",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cat <(cat <(echo 'rg --files ~/.subfleet')) | bash",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo $((1) + (1<<X\n))\n/usr/bin/find / -name x\nX",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "x=\"$((1) + (1<<X\n))\"\n/usr/bin/find / -name x\nX",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg foo src ''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''",
+   "regex": "[unscoped-search] Command too complex to judge: it holds more than 4,096 of one "
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg foo src; echo `:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:``:`",
+   "regex": "[unscoped-search] Command too complex to judge: it holds more than 4,096 of one "
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cat > notes.md <<'EOF'\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nit's\nEOF\nrg foo src",
+   "regex": "[unscoped-search] Command too complex to judge: it holds more than 4,096 of one "
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ~/.subfleet/*; do :; done; false &&\nd=src\nrg foo \"$d\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ~/.subfleet/*; do :; done; true ||\nd=src\nrg foo \"$d\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ~/.subfleet/*; do :; done; echo x |\nd=src\nrg foo \"$d\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ~/.subfleet/*; do :; done\ntime if false; then\nd=src\nfi\nrg foo \"$d\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ~/.subfleet/*; do :; done\ntime while false; do\nd=src\ndone\nrg foo \"$d\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ~/.subfleet/*; do :; done\ntime for x in; do\nd=src\ndone\nrg foo \"$d\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ~/.subfleet/*; do :; done\ntime case x in\n(y)\nd=src\n;;\nesac\nrg foo \"$d\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ~/.subfleet/*; do :; done\nif false; then time while false; do :; done; d=src; fi; rg foo \"$d\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "f() { for d in ~/.subfleet/*; do :; done; }; d=src; f; rg foo \"$d\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "f() {\nfor d in ~/.subfleet/*; do :; done\n}\nd=src\nf\nrg foo \"$d\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ~/.subfleet/*; do :; done; f(); d=src; rg foo \"$d\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ~/.subfleet/*; do :; done\nf()\nd=src\nrg foo \"$d\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ~/.subfleet/*; do :; done\nrepeat 0 do\nd=src\ndone\nrg foo \"$d\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ~/.subfleet/*; do :; done; d='src /'; rg foo $d",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ~/.subfleet/*; do :; done\ntime -p while false; do\nd=src\ndone\nrg foo \"$d\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo 'rg --files ~/.subfleet' |\nbash",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find ~/.subfleet -maxdepth 1 |\nwhile read d; do rg foo \"$d\"; done",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cat <(echo 'rg --files ~/.subfleet') |\n\nbash",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cat <(find ~/.subfleet -maxdepth 1) | while read d; do rg foo \"$d\"; done",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cat <(echo ~/.subfleet) | while read d; do rg foo \"$d\"; done",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cat <(echo src) <(echo ~/.subfleet) | while read -r d; do grep -r x $d; done",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ~/.subfleet/*; do :; done; if false; then d=--max-depth=1; fi; rg foo \"$d\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ~/.subfleet/*; do :; done; false && d=--max-depth=1; rg foo \"$d\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg foo src; echo '\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"'",
+   "regex": "[unscoped-search] Command too complex to judge: it holds more than 4,096 of one "
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cat > notes.md <<'EOF'\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nsay \"hi\"\nEOF\nrg foo src",
+   "regex": "[unscoped-search] Command too complex to judge: it holds more than 4,096 of one "
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in src; do :; done\ntime { d=~/.subfleet; }\nrg foo \"$d\"",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "f() { d=/; }; for d in src; do :; done; f; f; rg foo \"$d\"",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "f() { d=src; d=/; }; for d in src; do :; done; f; rg foo \"$d\"",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "f() { g() { d=/; }; }; for d in src; do :; done; f; g; rg foo \"$d\"",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "function f() { d=/; }; for d in src; do :; done; f; rg foo \"$d\"",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "f() { d=/; }; g() { f; }; for d in src; do :; done; g; rg foo \"$d\"",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "f() { d=/; }\nfor d in src; do :; done\nf\nrg foo \"$d\"",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "f() {\n  d=/\n}\nfor d in src; do :; done\nf\nrg foo \"$d\"",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "f() { d=/; }; for d in src; do f; done; rg foo \"$d\"",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "f() { d=/; }; for d in src; do f; rg foo \"$d\"; done",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "bash -c 'f() { d=/; }; for d in src; do :; done; f; rg foo \"$d\"'",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo \"$(f() { d=/; }; for d in src; do :; done; f; rg foo \"$d\")\"",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ~/.subfleet/*; do :; done; f() { d=src; }; rg foo \"$d\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in src; do :; done; eval -- d=/; rg foo \"$d\"",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ~/.subfleet/*; do :; done; for d in $(true); do :; done; rg foo \"$d\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "bash -c 'rg --files /[^/]*'; rg --files /[^/]*",
+   "regex": "/[^/]* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "bash -c 'find /[!/]* -name x'; find /[!/]* -name x",
+   "regex": "/[!/]* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cd ~/work/jl/.. 2>/dev/null; rg --files ~/work/jl/..",
+   "regex": "~/work/jl/.."
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cd ~/w*/jl/.. 2>/dev/null; rg --files ~/w*/jl/..",
+   "regex": "~/w*/jl/.. (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "function f { /usr/bin/find / -name x; }; f",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find ~/.subfleet -maxdepth 1 -exec rg foo {}/ \\;",
+   "regex": "~/.subfleet/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find src ~/.subfleet -maxdepth 1 -exec rg foo {} \\;",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find -L ~/.subfleet -maxdepth 1 -exec rg foo {} \\;",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "nice =rg --files ~/.subfleet",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "sudo =find / -name x",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find ~/.subfleet/jobs -maxdepth 1 -type d | xargs -J % sh -c 'rg -l foo \"$0\"' %",
+   "regex": "~/.subfleet/jobs"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find ~/.subfleet/jobs -maxdepth 1 -type d | xargs -I% sh -c 'rg -l foo %'",
+   "regex": "~/.subfleet/jobs"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find ~/.subfleet -maxdepth 1 -type d | xargs -P4 -n1 bash -c 'rg foo \"$1\"' _",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "ls -d ~/.subfleet/* | xargs -n1 sh -c 'rg foo \"$0\"'",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find ~/.subfleet -maxdepth 1 | xargs -n1 env sh -c 'rg foo \"$0\"'",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "printf '%s\\n' \"$HOME/.subfleet\" | xargs -I{} sh -c 'rg --files {}'",
+   "regex": "$HOME/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo $[1<<2]; cat > /dev/null <<'EOF'\nit's\nEOF\n/usr/bin/find / -name x",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "bash <(printf '%s\\n' 'rg --files ~/.subfleet')",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "bash -s < <(echo 'rg --files ~/.subfleet')",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find ~/.subfleet -maxdepth 1 -print0 | while IFS= read -r -d '' d; do rg foo \"$d\"; done",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "find ~/.subfleet -maxdepth 1 | sort | while read -r d; do rg -l foo \"$d\"; done",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo $(( $[1<<X\n] + 1 ))\n/usr/bin/find / -name x\nX",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo $[ $((1<<X\n)) + 1 ]\n/usr/bin/find / -name x\nX",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cat <<Y; echo $((1<<X\n))\nY\n/usr/bin/find / -name x\nX",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo $((1<<X\n)) <<Y\nY\n/usr/bin/find / -name x\nX",
+   "regex": "/"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "tee /dev/null < <(echo 'rg --files ~/.subfleet') | bash",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cat <(echo 'rg --files ~/.subfleet') | tee /dev/null | bash",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cat <(echo 'rg --files ~/.subfleet') | head -1 | sh",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cat <(echo 'rg --files ~/.subfleet') | xargs -0 sh -c",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cat - <(echo 'rg --files ~/.subfleet') <<< 'echo a' | bash",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cat <(echo 'rg --files ~/.subfleet') >/dev/null | bash",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cat <(echo ~/.subfleet) | xargs -I{} sh -c 'rg --files {}'",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ~/.subfleet/*; do :; done; true || d=src; rg foo \"$d\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ~/.subfleet/*; do :; done; while false; do\nd=src\ndone; rg foo \"$d\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ~/.subfleet/*; do :; done\ncase x in\n(y)\nd=src\n;;\nesac\nrg foo \"$d\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ~/.subfleet/*; do :; done; d=/*; rg foo $d",
+   "regex": "/*"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg foo src; echo \"'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''\"",
+   "regex": "[unscoped-search] Command too complex to judge: it holds more than 4,096 of one "
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "rg foo src; echo '`````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````````'",
+   "regex": "[unscoped-search] Command too complex to judge: it holds more than 4,096 of one "
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "x=\"$(echo 'rg --files ~/.subfleet' |\nbash)\"",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "x=`echo 'rg --files ~/.subfleet' |\nbash`",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cat <(echo 'rg --files ~/.subfleet' |\nbash)",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "x=\"$(find ~/.subfleet -maxdepth 1 |\nwhile read d; do rg foo \"$d\"; done)\"",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "x=`find ~/.subfleet -maxdepth 1 |\nwhile read d; do rg foo \"$d\"; done`",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cat <(find ~/.subfleet -maxdepth 1 |\nwhile read d; do rg foo \"$d\"; done)",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ~/.subfleet/*; do :; done; false && # note\nd=src\nrg foo \"$d\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo 'rg --files ~/.subfleet' | # note\nbash",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo 'rg --files ~/.subfleet' |\n# note\n\nbash",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "echo 'rg --files ~/.subfleet' |&\nbash",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ~/.subfleet/*; do :; done; cat <<X ||\nbody\nX\nd=src\nrg foo \"$d\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ~/.subfleet/*; do :; done\n! time while false; do\nd=src\ndone\nrg foo \"$d\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ~/.subfleet/*; do :; done\nif false; then time { :; }; d=src; fi; rg foo \"$d\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "for d in ~/.subfleet/*; do :; done\ntime { false && d=src; }\nrg foo \"$d\"",
+   "regex": "~/.subfleet/* (glob)"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cat <(find ~/.subfleet -maxdepth 1) | sort | while read d; do rg foo \"$d\"; done",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "sort <(echo ~/.subfleet) | uniq | while read d; do rg foo \"$d\"; done",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cat <(echo ~/.subfleet) | head -1 | tail -1 | while read d; do rg foo \"$d\"; done",
+   "regex": "~/.subfleet"
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "cat <(echo src) | cat - <(echo ~/.subfleet) | while read d; do rg foo \"$d\"; done",
+   "regex": "~/.subfleet"
+  }
+ ],
+ "parser_blocks_not_asked": [
+  {
+   "cwd": "/tmp/work",
+   "command": "bfs / -name x",
+   "parser": [
+    "bfs",
+    "/",
+    "/"
+   ]
+  },
+  {
+   "cwd": "/tmp/work",
+   "command": "fd x /",
+   "parser": [
+    "fd",
+    "/",
+    "/"
+   ]
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "fd -H AGENTS.md ~/.subfleet",
+   "parser": [
+    "fd",
+    "~/.subfleet",
+    "/Users/tester/.subfleet"
+   ]
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "fd -H AGENTS.md ~",
+   "parser": [
+    "fd",
+    "~",
+    "/Users/tester"
+   ]
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "bfs ~/.subfleet -name AGENTS.md",
+   "parser": [
+    "bfs",
+    "~/.subfleet",
+    "/Users/tester/.subfleet"
+   ]
+  },
+  {
+   "cwd": "/Users/tester/work/repo",
+   "command": "bfs ~ -name AGENTS.md",
+   "parser": [
+    "bfs",
+    "~",
+    "/Users/tester"
+   ]
+  }
+ ],
+ "counts": {
+  "relabelled_hf_dest": 0,
+  "parser_blocks_regex_passes": 24,
+  "regex_blocks_parser_passes": 389,
+  "parser_blocks_not_asked": 6,
+  "regex_blocks": 847,
+  "parser_blocks": 498
+ }
+}

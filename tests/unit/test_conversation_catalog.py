@@ -7,13 +7,17 @@ disagree about a session's workspace, model value, permission or continuability.
 
 from __future__ import annotations
 
+import errno
 import json
 import os
+import stat
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 from unittest import mock
 
 import hypothesis
+import pytest
 
 from subfleet.conversations import catalog
 from subfleet.sessions import transcripts
@@ -284,6 +288,31 @@ def test_discovery_and_opening_agree_on_every_transcript(moves, copy):
 
 # --- catalog.lock: a reader's probe is not a run (C-30.1) -------------------------------------
 
+@pytest.mark.parametrize("root_state", ["existing", "missing", "recreated"])
+def test_parent_probes_create_nothing(tmp_path, root_state):
+    root = tmp_path / "state"
+    if root_state != "missing":
+        root.mkdir()
+    if root_state == "recreated":
+        root.rmdir()
+        root.mkdir()
+    for _ in range(3):
+        assert catalog.refresh_running(root) is (None if root_state == "missing" else False)
+        assert list(tmp_path.iterdir()) == ([] if root_state == "missing" else [root])
+        if root_state != "missing":
+            assert list(root.iterdir()) == []
+
+
+def test_a_parent_probe_of_a_missing_root_never_spawns(tmp_path, monkeypatch):
+    def unexpected_spawn(*args, **kwargs):
+        raise AssertionError("a missing root has no owner")
+
+    monkeypatch.setattr(catalog.subprocess, "Popen", unexpected_spawn)
+    root = tmp_path / "missing"
+    assert catalog.spawn_refresh(root) is None
+    assert not root.exists() and list(tmp_path.iterdir()) == []
+
+
 def _held(root: Path, how: int) -> int:
     import fcntl
     fd = os.open(root / "catalog.lock", os.O_WRONLY | os.O_CREAT, 0o600)
@@ -353,3 +382,291 @@ def test_one_threads_name_scrubs_only_its_own_row_and_the_index_is_read_to_its_c
     assert scrubbed == ["thread 1500"]
     monkeypatch.setattr(catalog, "INDEX_MAX", 1_000, raising=False)
     assert wanted not in catalog._codex_names(home)                     # past the cap: not read
+
+
+# --- only dead runs' regular temp files in this root are swept (C-30.1) ----------------------
+
+
+def _catalog_temp_name(name: str) -> bool:
+    """The contract's name rule, expressed without the implementation's regex."""
+    for prefix in (".catalog.json-", ".catalog-cache.json-"):
+        if name.startswith(prefix):
+            suffix = name[len(prefix):]
+            return len(suffix) == 8 and all(c in "abcdefghijklmnopqrstuvwxyz0123456789_" for c in suffix)
+    return False
+
+
+def _folder_contents(root: Path) -> dict:
+    """A tree's names, kinds and contents, without following links or reading FIFOs."""
+    contents = {}
+
+    def visit(directory: Path) -> None:
+        for path in directory.iterdir():
+            kind = stat.S_IFMT(path.lstat().st_mode)
+            value = (path.read_bytes() if kind == stat.S_IFREG else
+                     os.readlink(path) if kind == stat.S_IFLNK else None)
+            contents[str(path.relative_to(root))] = (kind, value)
+            if kind == stat.S_IFDIR:
+                visit(path)
+
+    visit(root)
+    return contents
+
+
+_TEMP_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789_"
+_SWEEP_FIXED = {
+    ".catalog.json-deadbeef": "file",
+    ".catalog-cache.json-00000000": "file",
+    ".catalog.json-________": "file",
+    ".catalog.json-1234567": "file",
+    ".catalog.json-123456789": "file",
+    ".catalog-cache.json-1234567": "file",
+    ".catalog-cache.json-123456789": "file",
+    ".catalog.json.tmp": "file",
+    ".Catalog.json-cases000": "file",
+    ".catalog.json-UPPER123": "file",
+    ".catalog.json-hyphen-0": "file",
+    "catalog.json": "file",
+    "catalog-cache.json": "file",
+    "catalog.lock": "file",
+    "ordinary": "file",
+    ".catalog.json-symlink1": "file-link",
+    ".catalog-cache.json-symdir00": "dir-link",
+    ".catalog.json-broken00": "broken-link",
+    ".catalog.json-folders1": "directory",
+    ".catalog-cache.json-pipe0000": "fifo",
+    "nested": "directory",
+}
+_SWEEP_NAME = hypothesis.strategies.one_of(
+    hypothesis.strategies.builds(
+        lambda prefix, suffix: prefix + suffix,
+        hypothesis.strategies.sampled_from((".catalog.json-", ".catalog-cache.json-",
+                                            ".Catalog.json-", ".catalog.JSON-", "ordinary-")),
+        hypothesis.strategies.text(_TEMP_ALPHABET + "AB-Z", min_size=0, max_size=10),
+    ),
+    hypothesis.strategies.builds(
+        lambda prefix, suffix: prefix + suffix,
+        hypothesis.strategies.sampled_from((".catalog.json-", ".catalog-cache.json-")),
+        hypothesis.strategies.text(_TEMP_ALPHABET, min_size=8, max_size=8),
+    ),
+).filter(lambda name: name.casefold() not in {fixed.casefold() for fixed in _SWEEP_FIXED})
+_SWEEP_ENTRIES = hypothesis.strategies.lists(
+    hypothesis.strategies.tuples(
+        _SWEEP_NAME,
+        hypothesis.strategies.sampled_from(("file", "directory", "file-link", "dir-link", "broken-link", "fifo")),
+        hypothesis.strategies.binary(max_size=128),
+    ),
+    max_size=20,
+    unique_by=lambda entry: entry[0].casefold(),
+)
+
+
+@hypothesis.settings(max_examples=60, deadline=None)
+@hypothesis.given(entries=_SWEEP_ENTRIES)
+def test_the_sweep_removes_exactly_regular_temps_in_the_root(entries):
+    """C-30.1: generated names and kinds, with every dangerous near miss present.
+
+    Links to files, folders and missing targets survive along with their targets;
+    matching files nested in real folders or linked folders also survive.
+    """
+    with tempfile.TemporaryDirectory(prefix="sf-catalog-sweep-") as directory:
+        base = Path(directory)
+        root, targets = base / "state", base / "targets"
+        root.mkdir()
+        targets.mkdir()
+        target_file = targets / "file"
+        target_file.write_bytes(b"keep the link target")
+        target_dir = targets / "directory"
+        target_dir.mkdir()
+        (target_dir / ".catalog.json-nested00").write_bytes(b"keep a linked folder's contents")
+        all_entries = [(name, kind, b"" if name == ".catalog.json-________" else name.encode())
+                       for name, kind in _SWEEP_FIXED.items()] + entries
+        for name, kind, data in all_entries:
+            path = root / name
+            if kind == "file":
+                path.write_bytes(data)
+            elif kind == "directory":
+                path.mkdir()
+                (path / ".catalog-cache.json-nested00").write_bytes(data)
+            elif kind == "fifo":
+                os.mkfifo(path)
+            else:
+                path.symlink_to({"file-link": target_file, "dir-link": target_dir,
+                                 "broken-link": targets / "absent"}[kind])
+        before = _folder_contents(base)
+        removed = {f"state/{name}": len(data) for name, kind, data in all_entries
+                   if kind == "file" and _catalog_temp_name(name)}
+
+        assert catalog.sweep_temps(root) == (len(removed), sum(removed.values()))
+
+        assert _folder_contents(base) == {name: value for name, value in before.items() if name not in removed}
+        assert catalog.sweep_temps(root) == (0, 0)
+
+
+def test_a_run_sweeps_before_its_first_publish(tmp_path, monkeypatch):
+    """C-30.1: build actually wires the sweep in, once, while its Owner permits it."""
+    import fcntl
+    root = tmp_path / "state"
+    root.mkdir()
+    temps = [root / ".catalog.json-leftover", root / ".catalog-cache.json-leftover"]
+    for temp in temps:
+        temp.write_bytes(b"a killed run's partial write")
+    lock_fd = _held(root, fcntl.LOCK_EX)
+    owner = catalog.Owner(root, lock_fd)
+    events = []
+    sweep, publish = catalog.sweep_temps, catalog._atomic
+
+    def sweeping(path):
+        assert path == root and owner()
+        events.append("sweep")
+        return sweep(path)
+
+    def publishing(path, value):
+        assert all(not temp.exists() for temp in temps), "build published without sweeping dead runs' temps"
+        events.append(path.name)
+        return publish(path, value)
+
+    monkeypatch.setattr(catalog, "sweep_temps", sweeping)
+    monkeypatch.setattr(catalog, "_atomic", publishing)
+    monkeypatch.setattr(catalog, "_live_claude_sessions", lambda: set())
+    try:
+        catalog.build(root, lanes=[], claude_projects=tmp_path / "no-claude",
+                      codex_app_home=tmp_path / "no-codex", may_write=owner)
+    finally:
+        os.close(lock_fd)
+    assert events == ["sweep", "catalog.json", "catalog-cache.json"]
+    assert sorted(path.name for path in root.iterdir()) == ["catalog-cache.json", "catalog.json", "catalog.lock"]
+
+
+@pytest.mark.parametrize("error", [errno.ENOENT, errno.EACCES])
+def test_the_sweep_skips_an_unremovable_temp_and_goes_on(tmp_path, monkeypatch, error):
+    """A vanished or inaccessible file does not stop other dead temps being removed."""
+    blocked = tmp_path / ".catalog.json-blocked0"
+    removable = tmp_path / ".catalog-cache.json-remove00"
+    blocked.write_bytes(b"blocked")
+    removable.write_bytes(b"remove")
+    unlink, scandir = os.unlink, os.scandir
+    calls = []
+
+    @contextmanager
+    def blocked_first(directory):
+        with scandir(directory) as entries:
+            yield sorted(entries, key=lambda entry: entry.name != blocked.name)
+
+    def cannot_remove_one(path, *args, **kwargs):
+        calls.append(Path(path).name)
+        if Path(path).name == blocked.name:
+            if error == errno.ENOENT:
+                unlink(path, *args, **kwargs)              # another actor won the unlink race
+            raise OSError(error, os.strerror(error), str(path))
+        return unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "scandir", blocked_first)
+    monkeypatch.setattr(os, "unlink", cannot_remove_one)
+    assert catalog.sweep_temps(tmp_path) == (1, len(b"remove"))
+    assert not blocked.exists() if error == errno.ENOENT else blocked.read_bytes() == b"blocked"
+    assert not removable.exists()
+    assert calls == [blocked.name, removable.name]
+
+
+@pytest.mark.parametrize("error", [errno.ENOENT, errno.EACCES], ids=["ENOENT", "EACCES"])
+def test_the_sweep_skips_a_temp_that_cannot_be_statted_and_goes_on(tmp_path, monkeypatch, error):
+    """A failed no-follow stat must not prevent a later matching temp being removed."""
+    blocked = tmp_path / ".catalog.json-blocked0"
+    removable = tmp_path / ".catalog-cache.json-remove00"
+    blocked.write_bytes(b"blocked")
+    removable.write_bytes(b"remove")
+    scandir = os.scandir
+    calls = []
+
+    class Entry:
+        def __init__(self, entry):
+            self.entry = entry
+            self.name, self.path = entry.name, entry.path
+
+        def stat(self, *, follow_symlinks):
+            assert follow_symlinks is False
+            calls.append(self.name)
+            if self.name == blocked.name:
+                if error == errno.ENOENT:
+                    blocked.unlink()                        # it vanished after scandir
+                raise OSError(error, os.strerror(error), self.path)
+            return self.entry.stat(follow_symlinks=follow_symlinks)
+
+    @contextmanager
+    def blocked_first(directory):
+        with scandir(directory) as entries:
+            yield [Entry(entry) for entry in sorted(entries, key=lambda entry: entry.name != blocked.name)]
+
+    monkeypatch.setattr(os, "scandir", blocked_first)
+    assert catalog.sweep_temps(tmp_path) == (1, len(b"remove"))
+    assert calls == [blocked.name, removable.name]
+    assert not blocked.exists() if error == errno.ENOENT else blocked.read_bytes() == b"blocked"
+    assert not removable.exists()
+
+
+@pytest.mark.parametrize("lost_owner", ["fence closed", "lock replaced"])
+def test_a_run_whose_owner_is_gone_neither_sweeps_nor_publishes(tmp_path, monkeypatch, lost_owner):
+    """C-30.1 Owner: a lost fence or lock prevents all writes, including the sweep."""
+    root = tmp_path / "state"
+    root.mkdir()
+    lock_fd = os.open(root / "catalog.lock", os.O_WRONLY | os.O_CREAT, 0o600)
+    read_fd, write_fd = os.pipe()
+    try:
+        owner = catalog.Owner(root, lock_fd, read_fd)
+        assert owner()
+        if lost_owner == "fence closed":
+            os.close(write_fd)
+            write_fd = None
+        else:
+            (root / "catalog.lock").unlink()
+            (root / "catalog.lock").write_bytes(b"a replacement lock")
+        (root / ".catalog.json-leftover").write_bytes(b"keep a dead run's temp")
+        (root / "catalog.json").write_bytes(b"old catalog")
+        (root / "catalog-cache.json").write_bytes(b"old cache")
+        before = _folder_contents(root)
+        sweep = mock.Mock(wraps=catalog.sweep_temps)
+        publish = mock.Mock(wraps=catalog._atomic)
+        monkeypatch.setattr(catalog, "sweep_temps", sweep)
+        monkeypatch.setattr(catalog, "_atomic", publish)
+        monkeypatch.setattr(catalog, "_live_claude_sessions", lambda: set())
+
+        catalog.build(root, lanes=[], claude_projects=tmp_path / "no-claude",
+                      codex_app_home=tmp_path / "no-codex", may_write=owner)
+
+        assert owner.gone
+        sweep.assert_not_called()
+        publish.assert_not_called()
+        assert _folder_contents(root) == before
+    finally:
+        os.close(lock_fd)
+        os.close(read_fd)
+        if write_fd is not None:
+            os.close(write_fd)
+
+
+def test_a_run_that_cannot_take_the_lock_never_reaches_the_sweep(tmp_path, monkeypatch):
+    """C-30.1: another run's exclusive lock leaves its temps and outputs untouched."""
+    import fcntl
+    (tmp_path / ".catalog-cache.json-leftover").write_bytes(b"an active run's temp")
+    held = _held(tmp_path, fcntl.LOCK_EX)
+    sweep = mock.Mock(wraps=catalog.sweep_temps)
+    monkeypatch.setattr(catalog, "sweep_temps", sweep)
+    monkeypatch.setattr(catalog, "_lock_wait", lambda: None)
+    real_lock_fd = catalog.transcripts.lock_fd
+    opened = []
+
+    def tracked_lock_fd(path):
+        fd = real_lock_fd(path)
+        opened.append(fd)
+        return fd
+
+    monkeypatch.setattr(catalog.transcripts, "lock_fd", tracked_lock_fd)
+    before = _folder_contents(tmp_path)
+    try:
+        assert catalog.main(["--state-root", str(tmp_path)]) == 0
+        sweep.assert_not_called()
+        assert _folder_contents(tmp_path) == before
+    finally:
+        for fd in [held, *opened]:
+            os.close(fd)

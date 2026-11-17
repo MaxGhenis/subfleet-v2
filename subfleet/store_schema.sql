@@ -304,6 +304,13 @@ CREATE INDEX IF NOT EXISTS events_not_json ON events(kind, event_id DESC) WHERE 
 CREATE INDEX IF NOT EXISTS events_pin_notice ON events(kind,
   (CASE WHEN json_valid(data_json) THEN json_extract(data_json,'$.service_notice_id') END), event_id DESC)
   WHERE kind='job.pin_noticed';
+-- C-8.4 (D-NOTICE-KEEP1): the same step for the outcome notice a
+-- `retention.notice_retired` event names: the service notice retention writes a
+-- session when it retires a job whose notice that session never read
+-- (`retention_notices`), so `notice.pending` names its job.
+CREATE INDEX IF NOT EXISTS events_notice_retired ON events(kind,
+  (CASE WHEN json_valid(data_json) THEN json_extract(data_json,'$.service_notice_id') END), event_id DESC)
+  WHERE kind='retention.notice_retired';
 
 -- Jobless operator messages use ping and the same notice polling/ack path.
 -- A separate table is additive: v1's notices.job_id remains a required FK.

@@ -61,6 +61,14 @@ CHECKOUT_REFUSALS = {
     "object-changed": ("baseline object changed while copying", "wait for checkout writes to finish and resubmit"),
 }
 
+#: The fix of `claude-subscription-refused`: `claude.ORG_BLOCK_CAUSES` word for word
+#: (a test compares them). Both known causes, neither asserted, and no promised outcome.
+CLAUDE_REFUSAL_CAUSES = (
+    "Either the account's subscription lapsed or was cancelled, or an org admin "
+    "disabled Claude Code; once the account is subscribed with Claude Code allowed, "
+    "run `subfleet lanes enroll` again."
+)
+
 # reason -> (message, fix), the most specific form. `{name}` is a checked value.
 HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     # Jobs, requests and lists.
@@ -287,8 +295,10 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     "claude-authenticate": ("claude: the credential did not authenticate",
                             "run claude setup-token while signed into the lane account, then store it "
                             "in the enrolled keychain item"),
-    "claude-org-disabled": ("claude: the organisation has disabled Claude Code subscription access for this account",
-                            "ask the account's admin to enable Claude Code access"),
+    # C-9.3: Claude Code's refusal, its causes unasserted. The line is quoted only when it
+    # is one Claude Code was recorded printing, and the fix is `claude.ORG_BLOCK_CAUSES`.
+    "claude-subscription-refused": ('claude: Claude Code refused subscription access for this account: '
+                                    '"{claude_refusal}" (error kind {error_kind})', CLAUDE_REFUSAL_CAUSES),
     "claude-account-mismatch": ("claude: the credential reference and the signed-in account do not match",
                                 "rebind the lane to the account its credential really holds (C-1.3)"),
     "claude-account-missing": ("claude: cannot determine the account for the credential",
@@ -313,6 +323,8 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     "task-hold-note": ("tasks hold: --note is required: one line of printable characters, at most 160, "
                        "and no credential", None),
     "task-hold-until": ("tasks hold: --until must be a later ISO 8601 instant", None),
+    "task-hold-condition": ("tasks: hold note does not match --if-note-prefix", None),
+    "tasks-target": ("tasks: choose a task or --sandbox workspace-write, never both", None),
     "tasks-action": ("tasks: the action is list, hold or release", None),
     "transfer-lane": ("lanes transfer: name a lane", None),
     "transfer-owner": ("lanes transfer: --to must be v1 or v2", None),
@@ -347,6 +359,15 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     "login-busy": ("lane still has live work or an execution lease", None),
     "cards-target": ("cards: the only target is 'refresh'", None),
     "operations-command": ("unknown operator command", None),
+    # Retention's delete path (C-8.7, d2660).
+    "retention-delete-action": ("retention delete: action must be dry-run, apply, status or stop", None),
+    "retention-delete-dormant": ("retention delete: retention is dormant (SUBFLEET_RETENTION_DORMANT=1)", None),
+    "retention-delete-limit": ("retention delete: --limit must be a positive integer", None),
+    "retention-delete-request": ("retention delete: the request is invalid",
+                                 "check it with subfleet retention delete --request FILE --dry-run, "
+                                 "which names the field"),
+    "retention-delete-busy": ("retention delete: a request is already running",
+                              "wait for it, or stop it with subfleet retention delete --stop"),
     # Notices, pings and sessions (C-15.8, C-23.39).
     "notice-ack-fingerprints": ("notice.ack: give one fingerprint per id, or none", None),
     "notice-ack-fingerprint-type": ("notice.ack: every fingerprint is a string, as the listing gives it", None),
@@ -419,6 +440,12 @@ LESS_SPECIFIC: dict[str, tuple[tuple[str, str | None], ...]] = {
                               ("unknown lane", "subfleet lanes list")),
     "sessions-id": (("sessions: session_id is required", None),),
     "unknown-task": (("tasks: unknown task", HANDLER_MESSAGES["unknown-task"][1]),),
+    "claude-subscription-refused": (
+        ('claude: Claude Code refused subscription access for this account: "{claude_refusal}"',
+         CLAUDE_REFUSAL_CAUSES),
+        ("claude: Claude Code refused subscription access for this account (error kind {error_kind})",
+         CLAUDE_REFUSAL_CAUSES),
+        ("claude: Claude Code refused subscription access for this account", CLAUDE_REFUSAL_CAUSES)),
 }
 
 FALLBACK: tuple[str, None] = ("operation: request was refused", None)
@@ -447,6 +474,8 @@ GUARD_REPAIRS = {
 
 
 def _choices() -> dict[str, tuple[str, ...]]:
+    from .adapters.claude import SUBSCRIPTION_REFUSAL_LINES
+    from .adapters.claude_stream import AUTH_ERROR_KINDS
     from .adapters.isolation import CODEX_LAYERS, MANAGED_ENV
     from .launch_env import ALLOWED_NAMES, SESSION_PROBE_NAMES, TEST_SESSION_NAMES, refused_reference
     return {
@@ -465,6 +494,10 @@ def _choices() -> dict[str, tuple[str, ...]]:
         "checkout_problem": tuple(message for message, _ in CHECKOUT_REFUSALS.values()),
         "checkout_fix": tuple(fix for _, fix in CHECKOUT_REFUSALS.values()),
         "errno_name": tuple(errno.errorcode.values()),
+        # C-9.3: a Claude credential or organisation error kind, and a refusal line a
+        # recorded stream shows Claude Code printing, each matched whole, never free text.
+        "error_kind": AUTH_ERROR_KINDS,
+        "claude_refusal": SUBSCRIPTION_REFUSAL_LINES,
         # D-ENV2: a held lane's variable, a name and never a value: each listed,
         # session or probe name that is refused. A harness hook is not listed, so
         # its refusal takes the next form, which names none.
@@ -504,6 +537,44 @@ def checked(name: str, value: Any) -> bool:
     return not ids.holds_credential(value)
 
 
+def task_hold_condition_details(details: Any) -> dict[str, Any] | None:
+    """The sole structured handler detail admitted on the wire (C-11.10).
+
+    A blocking hold has the same four keys and types as a hold reply. This is
+    deliberately apart from the generic template values: no free-text value is
+    added to that vocabulary. Notes pass the hold's shape checks and its whole
+    credential scrubber; supported notes therefore stay as status shows them.
+    """
+    from . import task_holds
+    from .sessions.handoff import scrub_secrets
+
+    if type(details) is not dict or set(details) != {"task_hold"}:
+        return None
+    hold = details["task_hold"]
+    if type(hold) is not dict:
+        return None
+    field = "sandbox" if "sandbox" in hold else "task"
+    if set(hold) != {field, "until", "note", "since"}:
+        return None
+    task, until, note, since = (hold[name] for name in (field, "until", "note", "since"))
+    if field == "sandbox" and task != task_holds.SANDBOX:
+        return None
+    if (type(task) is not str or not task or not task.isprintable() or ids.holds_credential(task)
+            or type(until) is not str or (since is not None and type(since) is not str)
+            or type(note) is not str or len(note) > task_holds.NOTE_MAX or not note.isprintable()):
+        return None
+    try:
+        task_holds.instant(until)
+        if since is not None:
+            task_holds.instant(since)
+    except (ValueError, TypeError, OverflowError):
+        return None
+    clean, _ = scrub_secrets(note, strip_reminders=True, whole=True)
+    if ids.holds_credential(clean):
+        return None
+    return {"task_hold": {field: task, "until": until, "note": clean, "since": since}}
+
+
 def render(reason: Any, details: Any = None) -> tuple[str, str | None]:
     """The public message and fix for a handler refusal's reason and details."""
     if type(reason) is not str or reason not in HANDLER_MESSAGES:
@@ -517,6 +588,14 @@ def render(reason: Any, details: Any = None) -> tuple[str, str | None]:
             break
     else:                                   # unreachable while the last forms name no value
         return FALLBACK
+    if reason == "task-hold-condition":
+        checked_hold = task_hold_condition_details(details)
+        if checked_hold is not None:
+            hold = checked_hold["task_hold"]
+            target = f"sandbox {hold['sandbox']}" if "sandbox" in hold else f"task {hold['task']}"
+            message += f": {target}, until {hold['until']}, note {hold['note']!r}"
+            if hold['since'] is not None:
+                message += f", since {hold['since']}"
     if reason == "guard-preflight" and checked("guard_kind", details.get("guard_kind")):
         kind = details["guard_kind"]
         if kind == "trust":

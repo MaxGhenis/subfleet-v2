@@ -31,6 +31,10 @@ from subfleet.store import Store
 from subfleet.timers import BUSY, Timers, iso
 from tests.unit.test_codex_probe import SAVED_WHAM, _auth
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
+
 NOW = datetime(2026, 9, 5, 12, tzinfo=timezone.utc)
 #: Statuses a busy read may publish, and every other answer `probe_status` gives.
 USAGE = ("ok", "limited")

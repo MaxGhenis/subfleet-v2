@@ -14,6 +14,10 @@ from subfleet import retention_archive as rarch
 from subfleet.contracts import Credential, Lane, LaneOwner
 from subfleet.store import Store
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
+
 
 @pytest.fixture
 def retained(tmp_path):
@@ -116,19 +120,26 @@ def test_reach_a_real_pass_reports_a_deadline_it_passes_mid_pass(retained, monke
 
 # --- F1: the commit loop's deadline checkpoint (retention.py:585) -------------------
 
-def test_f1_a_job_archived_before_the_deadline_commits_in_its_own_pass(retained, monkeypatch):
+def test_f1_a_job_archived_before_the_deadline_commits_at_the_next_listing(retained, monkeypatch):
     """`maintenance`'s contract: the deadline bounds when new work may START; a
     started job finishes its slice (slices may start until deadline + SLICE_S).
     `a` is archived and verified 60 s into a 180 s pass; `b`'s slice starts at
-    60 s and one file outlasts it (190 s). `a` must still commit."""
+    60 s and one file outlasts it (190 s). With one listing a pass
+    (D-HOLDERS-LSOF1), `a` waits, archived, for the next pass's listing, the
+    pass says so (more work, progress), and that pass commits it."""
     store, root = retained
     _aged(store, root, ["a", "b"])
-    clock = _Clock()
+    clock, state = _Clock(), retention.RetentionState()
     _slow_archive(monkeypatch, clock, {"a": 60, "b": 190})
-    result = retention.maintenance(store, root, max_jobs=0, clock=clock, deadline=clock() + 180,
-                                   holders=_no_holders)
+    single = getattr(retention.maintenance, "real", retention.maintenance)
+    first = single(store, root, max_jobs=0, clock=clock, deadline=clock() + 180, holders=_no_holders,
+                   state=state)
     states = {name: _state(root, name) for name in ("a", "b")}
-    assert "a" in result["pruned"], (result["pruned"], result.get("interrupted"), states)
+    assert first["pruned"] == [] and first["awaiting_check2"] == ["a"], (first["pruned"], states)
+    assert first["more"] and first["progressed"] and states == {"a": "archived", "b": "quarantined"}
+    second = single(store, root, max_jobs=0, clock=clock, deadline=clock() + 180, holders=_no_holders,
+                    state=state)
+    assert "a" in second["pruned"], (second["pruned"], second.get("interrupted"))
 
 
 def test_f1_passes_to_drain_a_backlog_whose_batches_outlast_the_deadline(retained, monkeypatch):
@@ -148,7 +159,9 @@ def test_f1_passes_to_drain_a_backlog_whose_batches_outlast_the_deadline(retaine
             break
     print("\nDRAIN", rows)
     assert not store.list_jobs()
-    assert all(pruned for pruned, *_ in rows[:-1]), rows
+    # The first pass only archives (its batch's check 2 is the next listing);
+    # every later one commits the last batch and archives the next.
+    assert rows[0][0] == 0 and all(pruned for pruned, *_ in rows[1:-1]), rows
 
 
 def test_f1_a_parked_job_does_not_delay_verified_batch_commits(retained, monkeypatch):
@@ -171,7 +184,10 @@ def test_f1_a_parked_job_does_not_delay_verified_batch_commits(retained, monkeyp
         if all(store.get_job(n) is None for n in ("s1", "s2", "s3")):
             break
     print("\nPARKED", rows)
-    assert len(rows) == 1, f"s1..s3 waited {len(rows)} passes for their commit: {rows}"
+    # Archived in pass 1; pass 2's listing is the first that can serve their
+    # check 2 (D-HOLDERS-LSOF1), and `big` parking delays them no further.
+    assert rows[0][3]["s1"] == "archived", rows
+    assert len(rows) == 2, f"s1..s3 waited {len(rows)} passes for their commit: {rows}"
 
 
 # --- F2: no job starts once the pre-selection work outlasts the deadline -----------
@@ -197,21 +213,13 @@ def test_f2_slow_pin_reads_still_start_a_job_each_pass(retained, monkeypatch, ov
 # --- safety: deferred commits, restarts, leftover priority ------------------------
 
 def _archive_then_stop(store, root, monkeypatch, state=None):
-    """One pass that archives `a` and stops before its commit (cancel after the
-    second holder check: the same journal state a deadline leaves on a5ea556a)."""
-    cancel = threading.Event()
-    real_check = retention._Pass._check_holders
-
-    def check(run, retirements, *, second):
-        found = real_check(run, retirements, second=second)
-        if second:
-            cancel.set()
-        return found
-    with monkeypatch.context() as patch:
-        patch.setattr(retention._Pass, "_check_holders", check)
-        result = retention.maintenance(store, root, max_jobs=0, cancel=cancel, holders=_no_holders,
-                                       state=state)
-    assert result["interrupted"] == "cancelled" and result["pruned"] == []
+    """One pass that archives `a` and stops before its commit (the same journal
+    state a deadline left on a5ea556a). With one listing a pass (D-HOLDERS-LSOF1)
+    every pass that archives a job leaves it so: archived, waiting for the next
+    pass's holder check 2."""
+    single = getattr(retention.maintenance, "real", retention.maintenance)
+    result = single(store, root, max_jobs=0, holders=_no_holders, state=state)
+    assert result["awaiting_check2"] == ["a"] and result["pruned"] == []
     assert _state(root, "a") == "archived"
     return result
 
@@ -352,7 +360,11 @@ def test_a_failed_holder_scan_reports_a_pass_wide_blocker(retained, monkeypatch,
 
     result = retention.maintenance(store, root, max_jobs=0, batch=2, holders=holders)
     assert result["holder_scan_failed"] is True
-    assert result["more"] is True and result["pruned"] == []
+    # A failure at check 1 leaves `c` waiting behind the full batch. One at
+    # check 2 is the next pass's listing (D-HOLDERS-LSOF1), which also served
+    # check 1 for `c` (a finishing job holds no place in the batch): all three
+    # are put back, nothing else waits.
+    assert result["more"] is (not second) and result["pruned"] == []
     assert len(store.list_jobs()) == 3
     assert all((root / "jobs" / name / "stdout").read_bytes() == b"x" * 10
                for name in ("a", "b", "c"))

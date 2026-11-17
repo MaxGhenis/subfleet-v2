@@ -1,0 +1,93 @@
+{
+  "baseline": [],
+  "mutations": [
+    {
+      "name": "r1-share-detached-turn-census",
+      "command": [
+        "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpesKFrh/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-n",
+        "4",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-bzaxk8qp/r1-share-detached-turn-census-test/pytest",
+        "--junitxml=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-bzaxk8qp/r1-share-detached-turn-census-test/junit.xml",
+        "tests/fake/test_idle_capacity_pools.py::test_capacity_news_censuses_are_independent_for_each_pool"
+      ],
+      "cwd": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-bzaxk8qp/r1-share-detached-turn-census",
+      "returncode": 1,
+      "tests_run": 2,
+      "passed_tests": [],
+      "failures": [
+        {
+          "test": "tests.fake.test_idle_capacity_pools::test_capacity_news_censuses_are_independent_for_each_pool[detached-turn]",
+          "assertion": true
+        },
+        {
+          "test": "tests.fake.test_idle_capacity_pools::test_capacity_news_censuses_are_independent_for_each_pool[turn-detached]",
+          "assertion": true
+        }
+      ],
+      "errors": [],
+      "elapsed_s": 21.694,
+      "log": "/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/r2-mutation-r1-share-detached-turn-census.log",
+      "mutated_file_sha256": "c0ec5664fd106385757df082a158cda4405a5e4aa9853521dee71125ecb0a545",
+      "restored_bytes_match": true,
+      "killed_by": [
+        "test_capacity_news_censuses_are_independent_for_each_pool[detached-turn]",
+        "test_capacity_news_censuses_are_independent_for_each_pool[turn-detached]"
+      ],
+      "controls_passed": [],
+      "killed": true
+    },
+    {
+      "name": "r1-drop-unprepared-known-reset-clipping",
+      "command": [
+        "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpesKFrh/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-n",
+        "4",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-bzaxk8qp/r1-drop-unprepared-known-reset-clipping-test/pytest",
+        "--junitxml=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-bzaxk8qp/r1-drop-unprepared-known-reset-clipping-test/junit.xml",
+        "tests/fake/test_idle_capacity_events.py::test_c6_10_known_operator_reset_still_beats_the_long_clock[True]"
+      ],
+      "cwd": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-bzaxk8qp/r1-drop-unprepared-known-reset-clipping",
+      "returncode": 1,
+      "tests_run": 1,
+      "passed_tests": [],
+      "failures": [
+        {
+          "test": "tests.fake.test_idle_capacity_events::test_c6_10_known_operator_reset_still_beats_the_long_clock[True]",
+          "assertion": true
+        }
+      ],
+      "errors": [],
+      "elapsed_s": 23.076,
+      "log": "/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/r2-mutation-r1-drop-unprepared-known-reset-clipping.log",
+      "mutated_file_sha256": "723b13e3fa40f71bd464430a304f378fe58ba08c6f898c6a408e5fc2cc606b8a",
+      "restored_bytes_match": true,
+      "killed_by": [
+        "test_c6_10_known_operator_reset_still_beats_the_long_clock[True]"
+      ],
+      "controls_passed": [],
+      "killed": true
+    }
+  ],
+  "sources_sha256": {
+    "subfleet/daemon.py": "136a3cf79b51a5629371b47babc608c8f1352bc8745a7d58e0cda9e235337168",
+    "subfleet/store.py": "cc7bd67a6690dac28a50359a787783f27da181cf55bbfc658cba817fe1604e1d",
+    "subfleet/scheduler.py": "e33af820f856cafcdc6d42dbe5ba7ae138c3b6ed47eaff61392f3b232f6d6fe2",
+    "subfleet/contracts.py": "8ecdfe59f6b10a49c784706dfb668263c49132847f978e9e5020e15a41852136",
+    "tests/fake/test_idle_capacity_pools.py": "aa3d243c036214c5b63a38c87eb8ef2bd6ccf26f375eaf861acfb767d47bbe3c",
+    "tests/fake/test_idle_capacity_events.py": "40497c3fc65aac0c794fea30cc83c11e7be09cb30ddeb3ed91fd5c479f304f74"
+  },
+  "pristine_bytes_unchanged": true
+}
