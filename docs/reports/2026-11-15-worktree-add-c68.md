@@ -504,6 +504,7 @@ Deviations:
 - **The probe used the system Python, not uv.** The git probe ran with `/usr/bin/python3 -I`, a script in scratch and a scratch `HOME`.
 - **A commit message overstates the refusal's position.** 20388b8d7's message says the refusal comes "before any census or add starts". `_workspace` takes censuses before it reaches the add, so the refusal comes before the add's own census and its start. 70bba37c5's contract text and test docstring say so; history wasn't rewritten.
 - **Before runs used swapped files.** They ran with files swapped in place (`git show <rev>:<path> > <path>`) rather than a stash. Each file was restored from HEAD and its blob hash checked against HEAD's.
+- **Reads outside the worktree and scratch.** Three looks went outside the worktree and the job's scratch: `pgrep -f sf-c68-fix2` read the host's process table to find leftover test processes from the cut-off runs (it found none, and nothing was signalled); `ls -d $TMPDIR/sf-test-homes-*` counted the shared conftest folders; and `ls -ld /tmp/sf-failed` looked at the suite's failed-root folder. The brief's live-state and search rules arguably cover all three.
 
 Known limits (unchanged by this round): `GIT_CONFIG_PARAMETERS` passed by policy can still set `core.fsmonitor` over the pin (C-6.8 now says so). A key git rejects by its syntax fails the add as `workspace-prepare`, not `worktree-git-config`. The proof compares names and kinds, not contents (finding 4).
 
@@ -513,4 +514,4 @@ Housekeeping: the scratch `S` was writable, and everything this job made went un
 
 `/tmp/sf-failed` existed, empty, from 04:17Z, before any test of mine ran; I left it. The 15 basetemp and probe folders under `S` were removed with a guarded `shutil.rmtree` that asserts `sf-c68-fix2` is in each real path and that each is inside `S`. `S` keeps the logs (`fence-1.log`, `fleetA-1.log`, `fleetB-1.log`, `fleetC-1.log`), the plugins, the probe and the deselection lists, 176 KB, for the hub to read.
 
-Head built: the commit that adds this section, on 70bba37c5.
+Head built: the commit that adds this line, on 9919fab94 (which added the rest of this section).
