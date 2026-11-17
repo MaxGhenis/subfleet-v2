@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import fcntl
 import io
 import json
+import os
+from pathlib import Path
+import threading
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -56,9 +61,9 @@ def add_notice(core, *, service=False, text=TEXT, created_at=CREATED):
     return -row_id if service else row_id
 
 
-def offline_hook(core, *, event="UserPromptSubmit", source=None, prompt=None):
+def offline_hook(core, *, event="UserPromptSubmit", source=None, prompt=None, session=SESSION):
     stream = io.StringIO()
-    assert hooks.session_event(event, {"session_id": SESSION, "source": source, "prompt": prompt},
+    assert hooks.session_event(event, {"session_id": session, "source": source, "prompt": prompt},
                                core.root, client=OfflineClient(), stdout=stream, env={}) == 0
     return stream.getvalue()
 
@@ -394,3 +399,231 @@ def test_c15_9_invalid_activity_timestamps_fail_closed_without_blocking_the_hook
     assert offline_hook(core) == ""
     assert path.read_text() == contents
     assert core.store.one("SELECT state FROM notices")["state"] == "pending"
+
+
+# --- review r4 of #307: a bounded activity journal and bounded activity-lock waits ---
+
+OTHER = "other-caller"
+#: How long a test lets a hook or a pass run while another descriptor holds the
+#: activity lock. Before review r4 both waited for as long as the holder held it;
+#: now each wait ends after `notice_claims.ACTIVITY_LOCK_WAIT_S`. The margin is
+#: for the rest of the hook's work under a loaded test machine.
+STALL_S = 15.0
+
+
+def activity_records(root, session):
+    """The activity record files a session keeps: the aggregate, then published records."""
+    aggregate = notice_claims.activity_path(root, session)
+    folder = aggregate.with_suffix(".d")
+    published = sorted(folder.glob("*.json")) if folder.exists() else []
+    return ([aggregate] if aggregate.exists() else []) + published
+
+
+def session_entries(root, session):
+    """Every file or folder the offline hooks keep for one session."""
+    receipts = notice_claims.receipt_path(root, session)
+    key = receipts.name.split(".")[0]
+    return sorted(path for path in receipts.parent.rglob("*") if path.name.startswith(key)
+                  or path.parent.name.startswith(key))
+
+
+def hold_activity_lock(root, session):
+    """Hold the session's activity lock from another file descriptor, as a stopped
+    or hung hook process would."""
+    path = notice_claims.activity_path(root, session).with_suffix(".lock")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    return fd
+
+
+def test_c15_9_offline_hooks_keep_a_constant_number_of_activity_files(core, monkeypatch):
+    """Review r4 of #307, P2: N offline hooks with the daemon unreachable left N
+    activity files, and each hook read them all. A hook that holds the delivery lock
+    now folds the records into the aggregate file, so one record remains, holding the
+    same merged activity, and the daemon replays that value."""
+    clock = [1800000000.0]
+    wake_engine(core, monkeypatch, clock)
+    add_notice(core)
+    wake = notify_push.envelope("job-done: succeeded; rc=0; deliverable=-; out=-")
+    runs = [("UserPromptSubmit", None, "a person's prompt"), ("SessionStart", "compact", None),
+            ("UserPromptSubmit", None, wake), ("SessionStart", "resume", None)] * 3
+    human_at, counts = None, []
+    for index, (event, source, prompt) in enumerate(runs):
+        clock[0] += 7
+        output = offline_hook(core, event=event, source=source, prompt=prompt)
+        assert (TEXT in output) == (index == 0)          # printed once; its receipt holds it after
+        if prompt is not None and prompt != wake:
+            human_at = clock[0]
+        counts.append(len(activity_records(core.root, SESSION)))
+    assert counts == [1] * len(runs), "activity files after each offline hook"
+    assert activity_records(core.root, SESSION) == [notice_claims.activity_path(core.root, SESSION)]
+    assert notice_claims.read_activity(core.root, SESSION) == {
+        "at": clock[0], "source": "resume", "human_at": human_at}
+    # The receipt, the two lock files, the aggregate and the empty records folder.
+    assert len(session_entries(core.root, SESSION)) <= 5, session_entries(core.root, SESSION)
+    with notice_claims.delivery_lock(core.root, SESSION) as held:
+        assert held
+        notice_claims.reconcile(core, SESSION)
+    assert core.store.one("SELECT active_at,source,wake_streak FROM caller_wake_sessions "
+                          "WHERE session_id=?", (SESSION,)) == {
+        "active_at": clock[0], "source": "resume", "wake_streak": 0}
+    assert activity_records(core.root, SESSION) == []
+
+
+def test_c15_9_a_corrupt_activity_record_still_fences_only_its_own_caller(core, monkeypatch):
+    """Review r4 of #307, P2: folding never drops a corrupt record. Its caller's hooks
+    print nothing and publish nothing, and the pass leaves its notice; another caller's
+    hooks still fold to one record, and that caller is woken."""
+    clock = [1800000000.0]
+    engine, sent = wake_engine(core, monkeypatch, clock)
+    add_notice(core)
+    corrupt = notice_claims.activity_path(core.root, SESSION).with_suffix(".d") / (
+        f"{1:020d}-{'0' * 32}.json")
+    corrupt.parent.mkdir(parents=True)
+    contents = json.dumps({"at": "not a time", "source": None, "human_at": None})
+    corrupt.write_text(contents)
+    counts = []
+    for _ in range(6):
+        clock[0] += 7
+        assert offline_hook(core) == ""
+        assert offline_hook(core, session=OTHER) == ""
+        counts.append(len(activity_records(core.root, OTHER)))
+    assert counts == [1] * 6, "the other caller's activity files after each offline hook"
+    assert activity_records(core.root, SESSION) == [corrupt]
+    assert corrupt.read_text() == contents
+    with core.store.transaction() as tx:
+        tx.execute("INSERT INTO notices(job_id,session_id,text,state,created_at) "
+                   "VALUES ('job-done',?,'other notice','pending',?)", (OTHER, CREATED))
+    clock[0] += 301
+    engine.pass_once()
+    assert [session for session, _body in sent] == [OTHER]
+    assert core.store.one("SELECT state,wake_state FROM notices WHERE session_id=?", (SESSION,)) == {
+        "state": "pending", "wake_state": None}
+    assert activity_records(core.root, SESSION) == [corrupt]
+
+
+@pytest.mark.parametrize("when", ["before-replace", "after-replace"])
+def test_c15_9_a_record_published_during_a_fold_survives_it(core, monkeypatch, when):
+    """Review r4 of #307, P2: a fold unlinks exactly the records in its snapshot. A record
+    another hook publishes after that snapshot (without the activity lock, once its wait
+    ran out) and before the unlinks, here just before or just after the aggregate's
+    replace, survives, and the next fold takes it."""
+    clock = [1800000000.0]
+    wake_engine(core, monkeypatch, clock)
+    assert offline_hook(core) == ""
+    human_at = clock[0]
+    aggregate = notice_claims.activity_path(core.root, SESSION)
+    late = aggregate.with_suffix(".d") / f"{1:020d}-{'f' * 32}.json"
+    late_at = clock[0] + 5
+    replace = os.replace
+    published = []
+
+    def publish_late():
+        published.append(True)
+        late.write_text(json.dumps({"at": late_at, "source": "resume", "human_at": None}))
+
+    def racing_replace(source, destination):
+        if Path(destination) == aggregate and not published and when == "before-replace":
+            publish_late()
+        replace(source, destination)
+        if Path(destination) == aggregate and not published and when == "after-replace":
+            publish_late()
+
+    monkeypatch.setattr(notice_claims.os, "replace", racing_replace)
+    clock[0] += 1
+    assert offline_hook(core, event="SessionStart", source="compact") == ""
+    monkeypatch.setattr(notice_claims.os, "replace", replace)
+    assert published == [True]
+    assert activity_records(core.root, SESSION) == [aggregate, late]
+    assert json.loads(aggregate.read_text()) == {"at": clock[0], "source": "compact", "human_at": human_at}
+    assert notice_claims.read_activity(core.root, SESSION) == {
+        "at": late_at, "source": "resume", "human_at": human_at}
+    clock[0] = late_at + 1
+    assert offline_hook(core, event="SessionStart", source="startup") == ""
+    assert activity_records(core.root, SESSION) == [aggregate]
+    assert notice_claims.read_activity(core.root, SESSION) == {
+        "at": late_at + 1, "source": "startup", "human_at": human_at}
+
+
+def test_c15_9_a_crash_between_a_folds_replace_and_its_unlinks_loses_nothing(core, monkeypatch):
+    """Review r4 of #307, P2: the aggregate is replaced before the folded records are
+    unlinked. A crash between the two leaves both; reading them merges duplicates to the
+    same value, and the daemon replays it once."""
+    clock = [1800000000.0]
+    wake_engine(core, monkeypatch, clock)
+    with core.store.transaction() as tx:
+        tx.execute("INSERT INTO caller_wake_sessions(session_id,active_at,source,wake_streak,last_wake_at) "
+                   "VALUES (?,?,'compact',?,?)", (SESSION, clock[0] - 600, MAX_STREAK, clock[0] - 1))
+    with notice_claims.delivery_lock(core.root, SESSION) as held:
+        assert held                                      # the hooks below fold nothing
+        assert offline_hook(core) == ""
+        human_at = clock[0]
+        clock[0] += 1
+        assert offline_hook(core, event="SessionStart", source="compact") == ""
+    assert len(activity_records(core.root, SESSION)) == 2
+    aggregate = notice_claims.activity_path(core.root, SESSION)
+    replace = os.replace
+
+    class Crash(BaseException):
+        """The hook process dies here."""
+
+    def crash_after_replace(source, destination):
+        replace(source, destination)
+        if Path(destination) == aggregate:
+            raise Crash
+
+    monkeypatch.setattr(notice_claims.os, "replace", crash_after_replace)
+    clock[0] += 1
+    with pytest.raises(Crash):
+        offline_hook(core, event="SessionStart", source="resume")
+    monkeypatch.setattr(notice_claims.os, "replace", replace)
+    merged = {"at": clock[0], "source": "resume", "human_at": human_at}
+    assert json.loads(aggregate.read_text()) == merged
+    assert len(activity_records(core.root, SESSION)) == 4      # the aggregate and its three records
+    assert notice_claims.read_activity(core.root, SESSION) == merged
+    with notice_claims.delivery_lock(core.root, SESSION) as held:
+        assert held
+        notice_claims.reconcile(core, SESSION)
+    assert core.store.one("SELECT active_at,source,wake_streak,last_wake_at FROM caller_wake_sessions "
+                          "WHERE session_id=?", (SESSION,)) == {
+        "active_at": clock[0], "source": "resume", "wake_streak": 0, "last_wake_at": None}
+    assert activity_records(core.root, SESSION) == []
+
+
+def test_c15_9_the_activity_lock_waits_a_bounded_time(core):
+    """Review r4 of #307, P2: `activity_lock` waited with no timeout. It now gives up
+    after `wait_s` and says so, as `delivery_lock` does."""
+    fd = hold_activity_lock(core.root, SESSION)
+    try:
+        start = time.monotonic()
+        with notice_claims.activity_lock(core.root, SESSION, wait_s=0.2) as held:
+            elapsed = time.monotonic() - start
+            assert held is False
+        assert 0.2 <= elapsed < 0.2 + STALL_S
+    finally:
+        os.close(fd)
+    with notice_claims.activity_lock(core.root, SESSION, wait_s=0.2) as held:
+        assert held is True
+
+
+def test_c15_9_an_offline_hook_returns_while_another_process_holds_the_activity_lock(core, monkeypatch):
+    """Review r4 of #307, P2: an offline hook waited as long as another holder kept the
+    activity lock. It now waits a bounded time, publishes its activity all the same
+    (round 3: activity is never lost) and still prints its notice."""
+    clock = [1800000000.0]
+    wake_engine(core, monkeypatch, clock)
+    add_notice(core)
+    fd = hold_activity_lock(core.root, SESSION)
+    result = {}
+    hook = threading.Thread(target=lambda: result.update(output=offline_hook(core)), daemon=True)
+    try:
+        hook.start()
+        hook.join(STALL_S)
+        assert not hook.is_alive(), "the hook waited out the activity lock's holder"
+    finally:
+        os.close(fd)
+        hook.join(60)
+    assert TEXT in result["output"]
+    assert notice_claims.read_activity(core.root, SESSION) == {
+        "at": clock[0], "source": None, "human_at": clock[0]}

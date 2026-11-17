@@ -8,11 +8,14 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import datetime, timezone
+import fcntl
 import io
 import itertools
 import json
+import os
 from pathlib import Path
 import re
+import threading
 import time
 from types import SimpleNamespace
 
@@ -1229,3 +1232,103 @@ def test_personal_prompt_under_taken_lock_resets_streak(callers, monkeypatch, co
     assert callers.counts()[notice] == 1, "personal activity must reset the unattended streak"
     assert callers.daemon.store.one("SELECT wake_streak FROM caller_wake_sessions WHERE session_id=?", (sid,)) == {
         "wake_streak": 1}
+
+
+# --- review r4 of #307: no unbounded wait on the activity lock ---------------
+
+#: How long a test lets a pass or a hook run while the activity lock is held.
+#: Before review r4 each waited for as long as the holder kept the lock; now each
+#: wait ends after `notice_claims.ACTIVITY_LOCK_WAIT_S`. The margin is for the
+#: rest of their work on a loaded test machine.
+STALL_S = 15.0
+
+
+class StoppedDaemon:
+    """A hook client whose daemon is unreachable: the hook takes its offline path."""
+
+    def call(self, *args, **kwargs):
+        raise OSError("fixture daemon is unreachable")
+
+
+def hold_activity_lock(root, sid):
+    """Hold the caller's activity lock from another file descriptor, as a stopped or
+    hung hook process would."""
+    from subfleet import notice_claims
+    path = notice_claims.activity_path(root, sid).with_suffix(".lock")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    return fd
+
+
+def test_c15_9_a_held_activity_lock_skips_its_caller_without_stalling_the_pass(callers):
+    """Review r4 of #307, P2: the `caller-notices` pass waited for the activity lock
+    with no timeout, so one hook process stopped inside its publication stalled the pass
+    for every caller. The claim now gives up after a bounded wait: that caller's notice
+    stays `pending` with no claim and no attempt counted, the pass still wakes the next
+    caller, and a later pass, once the lock is free, wakes the first."""
+    held_sid, free_sid = "a-activity-lock-held", "b-activity-lock-free"
+    for sid in (held_sid, free_sid):
+        callers.register(sid)
+    held_notice, free_notice = callers.finish(held_sid), callers.finish(free_sid)
+    fd = hold_activity_lock(callers.daemon.root, held_sid)
+    passing = threading.Thread(target=callers.pass_once, daemon=True)
+    try:
+        passing.start()
+        passing.join(STALL_S)
+        assert not passing.is_alive(), "the pass waited out the activity lock's holder"
+    finally:
+        os.close(fd)
+        passing.join(60)
+    assert callers.counts()[free_notice] == 1, "the pass still serves other callers"
+    assert callers.counts()[held_notice] == 0
+    row = callers.row(held_notice)
+    assert (row["state"], row["transport"], row["wake_state"], row["wake_attempts"], row["wake_next_at"]) == (
+        "pending", None, None, 0, None)
+    clock = callers.daemon.store.one("SELECT * FROM caller_wake_sessions WHERE session_id=?", (held_sid,)) or {}
+    assert (clock.get("wake_streak") or 0, clock.get("last_wake_at")) == (0, None)
+    callers.pass_once()
+    assert callers.counts()[held_notice] == 1, "a later pass retries the caller"
+    assert callers.counts()[free_notice] == 1
+
+
+def test_c15_9_an_offline_hook_does_not_wait_out_a_wake_claim(callers, monkeypatch):
+    """Review r4 of #307, P2: a wake's claim holds the activity lock through its store
+    transaction, registry read and transcript read, and an offline hook waited all of it
+    out. The hook now waits a bounded time, publishes its activity all the same and
+    returns. It raced a claim already in progress, the race review r4 accepts (its
+    section 2), so that wake still goes; the activity stays for the next reconcile."""
+    from subfleet import notice_claims
+
+    monkeypatch.setattr(notice_claims, "time", SimpleNamespace(time=lambda: callers.now))
+    sid = "offline-during-claim"
+    callers.register(sid)
+    notice = callers.finish(sid)
+    in_claim, release = threading.Event(), threading.Event()
+    reserve = caller_wakes.reserve
+
+    def slow_claim(*args, **kwargs):
+        if kwargs.get("wake"):
+            in_claim.set()
+            release.wait(60)
+        return reserve(*args, **kwargs)
+
+    monkeypatch.setattr(caller_wakes, "reserve", slow_claim)
+    passing = threading.Thread(target=callers.pass_once, daemon=True)
+    hook = {}
+    prompt = threading.Thread(target=lambda: hook.update(printed=hook_prompt(
+        callers, sid, "still there?", client=StoppedDaemon())), daemon=True)
+    try:
+        passing.start()
+        assert in_claim.wait(60)
+        prompt.start()
+        prompt.join(STALL_S)
+        assert not prompt.is_alive(), "the hook waited out the wake's claim"
+    finally:
+        release.set()
+        prompt.join(60)
+        passing.join(60)
+    assert hook["printed"] == ""                                # the pass holds the delivery lock
+    assert notice_claims.read_activity(callers.daemon.root, sid) == {
+        "at": callers.now, "source": None, "human_at": callers.now}
+    assert callers.counts()[notice] == 1
