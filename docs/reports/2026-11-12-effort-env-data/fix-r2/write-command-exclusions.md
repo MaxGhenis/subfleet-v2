@@ -68,16 +68,7 @@ Result: confirmed the unconditional local push inside `worlds()` and the exact r
 
 Separated GitHub argv/publish-helper search:
 
-```sh
-python3 -u - <<'PY'
-import subprocess
-from pathlib import Path
-files=Path('docs/reports/2026-11-12-effort-env-data/fix-r2/daemon-import-tests.txt').read_text().splitlines()
-files += ['tests/fake/test_launch_gates_above_stdio.py','tests/unit/test_daemon_fifo_reads.py','tests/unit/test_stop_alarm.py']
-r=subprocess.run(['rg','-n',r'"gh"|\x27gh\x27|publish_review|wrapper_main|host_push[.](publish|run|execute)|\.publish\(',*files],text=True,capture_output=True)
-print(r.stdout)
-PY
-```
+The command is kept byte for byte in [write-command-exclusions-publish-search.txt](write-command-exclusions-publish-search.txt) (fix round 3 moved it there, because the hygiene test reads its regex as a markdown link).
 
 Result: only AST/source assertions referring to `wrapper_main`; no further executing GitHub command found.
 
