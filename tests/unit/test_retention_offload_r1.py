@@ -58,7 +58,8 @@ def test_copying_recall_never_drops_the_only_good_bundle(archives, env, monkeypa
     inside_bundle, outside_bundle = env.archive(name) / found.bundle, outside / found.bundle
     good = sha(inside_bundle)
     assert good is not None and sha(outside_bundle) == good
-    assert rof.read_stub(env.root, name)["bundle_sha256"] is None
+    # Round 2: the `copying` stub records the checksum before any copy.
+    assert rof.read_stub(env.root, name)["bundle_sha256"] == good
     inside_bundle.write_bytes(b"damaged internal bundle")
 
     report = rof.recall(env.root, name, drop_external=True)

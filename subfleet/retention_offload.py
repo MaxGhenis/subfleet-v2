@@ -65,6 +65,7 @@ STATES = ("copying", "verified", "offloaded")
 HEADROOM = 0.10
 STORED_MODE = 0o600
 OWNER = ".owner.json"
+_OWNER_TEMP = re.compile(r"^\.owner\.[0-9]+\.[0-9]+\.tmp$")
 _RECALL = ".recall."
 _STUB_TEMP = re.compile(r"^\.offload\.json\.[0-9]+\.tmp$")
 _SUFFIX = re.compile(r"^(.+)\.([0-9]+)$")
@@ -401,7 +402,10 @@ def _remove_at(dir_fd: int, name: str) -> None:
 
 
 def _identity(st: os.stat_result) -> list[int]:
-    return [st.st_dev, st.st_ino, getattr(st, "st_birthtime_ns", int(getattr(st, "st_birthtime", 0) * 10 ** 9))]
+    """An entry's identity on its volume: inode and birth time. Not `st_dev`:
+    macOS gives a disk a new one when its disk number changes at a remount.
+    Which volume is the one with the recorded UUID (`_external`)."""
+    return [st.st_ino, getattr(st, "st_birthtime_ns", int(getattr(st, "st_birthtime", 0) * 10 ** 9))]
 
 
 @dataclass
@@ -454,32 +458,54 @@ class Owner:
                 os.close(files_fd)
 
 
+def _unlink_quietly(folder_fd: int, name: str) -> None:
+    try:
+        os.unlink(name, dir_fd=folder_fd)
+    except FileNotFoundError:
+        pass
+
+
 def _write_owner(folder_fd: int, data: dict[str, Any], *, replace: bool) -> list[int]:
+    """Write the ledger through a synced temporary file, linked (the first
+    write) or renamed over the ledger. An error at any point removes the
+    temporary; one a crash leaves is swept by the next `_ownership(create=True)`."""
     temporary = f".owner.{os.getpid()}.{time.time_ns()}.tmp"
     fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
                  0o600, dir_fd=folder_fd)
     try:
-        pending = memoryview(json.dumps(data, sort_keys=True).encode() + b"\n")
-        while pending:
-            pending = pending[os.write(fd, pending):]
-        os.fchmod(fd, 0o600)
-        rfs.fullsync(fd)
-        identity = _identity(os.fstat(fd))
-    finally:
-        os.close(fd)
-    try:
+        try:
+            pending = memoryview(json.dumps(data, sort_keys=True).encode() + b"\n")
+            while pending:
+                pending = pending[os.write(fd, pending):]
+            os.fchmod(fd, 0o600)
+            rfs.fullsync(fd)
+            identity = _identity(os.fstat(fd))
+        finally:
+            os.close(fd)
         if replace:
             os.replace(temporary, OWNER, src_dir_fd=folder_fd, dst_dir_fd=folder_fd)
         else:
+            _step("ledger-first")
             os.link(temporary, OWNER, src_dir_fd=folder_fd, dst_dir_fd=folder_fd, follow_symlinks=False)
             os.unlink(temporary, dir_fd=folder_fd)
-        rfs.fullsync(folder_fd)
-    finally:
-        try:
-            os.unlink(temporary, dir_fd=folder_fd)
-        except FileNotFoundError:
-            pass
+    except Exception:
+        _unlink_quietly(folder_fd, temporary)
+        raise
+    rfs.fullsync(folder_fd)
     return identity
+
+
+def _sweep_owner_temps(folder_fd: int) -> None:
+    """Under the archive's lock: remove the ledger temporaries a crash left."""
+    swept = False
+    for name in os.listdir(folder_fd):
+        if _OWNER_TEMP.match(name):
+            found = _lstat_at(folder_fd, name)
+            if found is not None and stat.S_ISREG(found.st_mode):
+                _unlink_quietly(folder_fd, name)
+                swept = True
+    if swept:
+        rfs.fullsync(folder_fd)
 
 
 def _ownership(folder_fd: int, stub: dict[str, Any], *, create: bool) -> Owner:
@@ -488,10 +514,16 @@ def _ownership(folder_fd: int, stub: dict[str, Any], *, create: bool) -> Owner:
     if re.fullmatch(r"[0-9a-f]{64}", source) is None:
         raise Failed("the external path has no source identity; refusing an unowned target")
     expected = {"format": FORMAT, "source": source, "archive": stub["archive"],
-                "manifest_sha256": stub["manifest_sha256"], "directory": _identity(os.fstat(folder_fd))}
+                "manifest_sha256": stub["manifest_sha256"],
+                "volume": str(stub["volume"].get("uuid") or "").upper(),
+                "directory": _identity(os.fstat(folder_fd))}
     st = _lstat_at(folder_fd, OWNER)
     if st is None:
-        if not create or os.listdir(folder_fd):
+        # Only ledger temporaries (a crash in the first ledger write): unclaimed.
+        if not create or [n for n in os.listdir(folder_fd) if not _OWNER_TEMP.match(n)]:
+            raise Failed("the external folder is not owned by this archive; left as it is")
+        _sweep_owner_temps(folder_fd)
+        if os.listdir(folder_fd):
             raise Failed("the external folder is not owned by this archive; left as it is")
         data = {**expected, "entries": {}}
         marker = _write_owner(folder_fd, data, replace=False)
@@ -504,7 +536,11 @@ def _ownership(folder_fd: int, stub: dict[str, Any], *, create: bool) -> Owner:
             chunks = []
             while chunk := os.read(fd, rfs.CHUNK):
                 chunks.append(chunk)
-            data = json.loads(b"".join(chunks))
+            try:
+                data = json.loads(b"".join(chunks))
+            except ValueError as exc:
+                raise Failed(f"the external ownership marker {OWNER} of {stub['archive']} is damaged "
+                             f"({exc}); left as it is") from None
             marker = _identity(opened)
             if not isinstance(data, dict) or any(data.get(key) != value for key, value in expected.items()) \
                     or not isinstance(data.get("entries"), dict):
@@ -512,7 +548,7 @@ def _ownership(folder_fd: int, stub: dict[str, Any], *, create: bool) -> Owner:
             for relative, identity in data["entries"].items():
                 if not _valid_relative(relative) or len(relative.split("/")) > 2 \
                         or ("/" in relative and not relative.startswith("files/")) \
-                        or not isinstance(identity, list) or len(identity) != 3 \
+                        or not isinstance(identity, list) or len(identity) != 2 \
                         or any(not isinstance(value, int) for value in identity):
                     raise Failed("the external ownership ledger is malformed")
             if create:
@@ -520,6 +556,8 @@ def _ownership(folder_fd: int, stub: dict[str, Any], *, create: bool) -> Owner:
                 rfs.fullsync(fd)
         finally:
             os.close(fd)
+        if create:
+            _sweep_owner_temps(folder_fd)
     owner = Owner(folder_fd, data, marker)
     owner.preflight()
     if create:
@@ -529,9 +567,10 @@ def _ownership(folder_fd: int, stub: dict[str, Any], *, create: bool) -> Owner:
 
 
 def _copy_into(src_dir_fd: int, name: str, dst_dir_fd: int, dst_name: str, mode: int,
-               *, created: Callable[[int], None] | None = None) -> None:
+               *, created: Callable[[int], None] | None = None, sha256: str | None = None) -> None:
     """Copy one regular file into a new path (created exclusively), with its
-    mtime, `mode`, and a full sync."""
+    mtime, `mode`, and a full sync. With `sha256`, the bytes read must hash to
+    it: else the new copy is removed again and `Failed` names the file."""
     src = os.open(name, rfs.O_FILE, dir_fd=src_dir_fd)
     try:
         st = os.fstat(src)
@@ -546,15 +585,23 @@ def _copy_into(src_dir_fd: int, name: str, dst_dir_fd: int, dst_name: str, mode:
             if created is not None:
                 created(dst)
             _nocache(dst)
+            digest = hashlib.sha256()
             offset = 0
             while True:
                 chunk = os.pread(src, rfs.CHUNK, offset)
                 if not chunk:
                     break
+                digest.update(chunk)
                 view = memoryview(chunk)
                 while view:
                     view = view[os.write(dst, view):]
                 offset += len(chunk)
+            if sha256 is not None and digest.hexdigest() != sha256:
+                named, held = _lstat_at(dst_dir_fd, dst_name), os.fstat(dst)
+                if named is not None and (named.st_dev, named.st_ino) == (held.st_dev, held.st_ino):
+                    os.unlink(dst_name, dir_fd=dst_dir_fd)
+                raise Failed(f"{name}: the internal copy does not match the SHA-256 recorded for it; "
+                             "not copied, and nothing that matches was replaced")
             os.fchmod(dst, mode)
             os.utime(dst, ns=(st.st_atime_ns, st.st_mtime_ns))
             rfs.fullsync(dst)
@@ -567,8 +614,8 @@ def _copy_into(src_dir_fd: int, name: str, dst_dir_fd: int, dst_name: str, mode:
 def _place(src_dir_fd: int | None, name: str, dst_dir_fd: int, size: int, sha256: str, mode: int,
            *, owner: Owner, relative: str) -> None:
     """Make `name` in `dst_dir_fd` a copy of the source: an existing entry is
-    kept only if it already holds these bytes, else replaced (which needs the
-    source; the read-back decides whether the source was right)."""
+    kept if it already holds the bytes `sha256` names, else replaced from a
+    source that must hash to `sha256` too (`_copy_into`)."""
     st = _lstat_at(dst_dir_fd, name)
     if st is not None:
         owner.check(relative, st)
@@ -586,7 +633,7 @@ def _place(src_dir_fd: int | None, name: str, dst_dir_fd: int, size: int, sha256
     if st is not None:
         _remove_at(dst_dir_fd, name)
     _copy_into(src_dir_fd, name, dst_dir_fd, name, mode,
-               created=lambda fd: owner.claim(relative, fd))
+               created=lambda fd: owner.claim(relative, fd), sha256=sha256)
 
 
 def _heads_ok(folder_fd: int, name: str, expected: dict[str, str]) -> bool:
@@ -619,26 +666,36 @@ def _heads_ok(folder_fd: int, name: str, expected: dict[str, str]) -> bool:
 
 
 def _open_below(top: Path, rel: str, *, create: bool = False, private: bool = False) -> int:
-    """Open `top/rel` one component at a time, never following a link; with
-    `create`, make each missing directory (0700) and sync its parent."""
+    """Open `top/rel` one component at a time, never following a link.
+
+    With `create` or `private`, `rel` is a stub's path, `DIR/subfleet-archive/
+    <source>/<name>` below the mount, and the program's own folders are its
+    last three components, found by position: a user's folder above them is
+    only opened, whatever its name. `create` makes each of the three that is
+    missing (0700) and flushes its parent on every pass, made now or before,
+    so a resume flushes what a crash left unflushed; `private` sets
+    `subfleet-archive` and `<source>` to 0700 (`<name>` is `_ownership`'s)."""
     if not _valid_relative(rel):
         raise Failed(f"bad path {rel!r} under {top}")
+    parts = rel.split("/")
+    own = len(parts)
+    if create or private:
+        own = len(parts) - 3
+        if own < 0 or parts[own] != FOLDER:
+            raise Failed(f"bad path {rel!r} under {top}: not {FOLDER}/<source>/<name>")
     fd = rfs.open_dir(top)
     try:
-        parts = rel.split("/")
-        managed = False
         for index, part in enumerate(parts):
-            if create:
+            if create and index >= own:
                 try:
                     os.mkdir(part, 0o700, dir_fd=fd)
-                    rfs.fullsync(fd)
                 except FileExistsError:
                     pass
+                rfs.fullsync(fd)
             child = rfs.open_dir(part, dir_fd=fd)
             os.close(fd)
             fd = child
-            managed = managed or part == FOLDER
-            if private and managed and index != len(parts) - 1:
+            if private and own <= index < len(parts) - 1:
                 os.fchmod(fd, 0o700)
                 rfs.fullsync(fd)
     except BaseException:
@@ -795,10 +852,12 @@ class Target:
 
 
 def _source(root: Path) -> str:
+    """One name for the source archive root: its canonical path, inode and
+    birth time (`_identity`; a remount's new `st_dev` keeps the name)."""
     archive = Path(os.path.realpath(root / "archive"))
     try:
         st = os.stat(archive, follow_symlinks=False)
-        filesystem = f"{st.st_dev}\0{st.st_ino}".encode()
+        filesystem = "\0".join(str(value) for value in _identity(st)).encode()
     except FileNotFoundError:
         filesystem = b"absent"
     identity = os.fsencode(archive) + b"\0" + filesystem
@@ -970,33 +1029,36 @@ def _offload_one(root: Path, found: Plan, where: Target, keep_internal: bool,
     name, base = found.name, found.base
     _clean_stub_temps(base)
     if stub is None:
+        # The bundle's SHA-256 is read once, before any byte is copied; every
+        # later step, resume and recall compares against this value.
         stub = {"format": FORMAT, "archive": name, "job_id": found.job_id, "state": "copying",
                 "volume": {"uuid": where.volume.uuid, "name": where.volume.name, "fstype": where.volume.fstype,
                            "encrypted": where.volume.encrypted},
                 "path": where.path_of(name), "manifest_sha256": found.manifest_sha256,
                 "files": len(found.stores), "bytes": found.files_bytes, "bundle": found.bundle,
-                "bundle_bytes": found.bundle_bytes, "bundle_sha256": None, "modes": _modes(base, found),
-                "keep_internal": keep_internal, "removing": False, "started_at": _now(),
-                "subfleet_version": __version__}
+                "bundle_bytes": found.bundle_bytes, "bundle_sha256": _bundle_sha(root, found),
+                "modes": _modes(base, found), "keep_internal": keep_internal, "removing": False,
+                "started_at": _now(), "subfleet_version": __version__}
         _save(root, name, stub)
         _step("stub-copying")
     elif stub.get("manifest_sha256") != found.manifest_sha256:
         raise Failed(f"{STUB} names another manifest than the archive holds")
+    if found.bundle and not stub.get("bundle_sha256"):
+        raise Failed(f"{found.bundle}: {STUB} records no checksum; nothing copied or removed")
     folder = where.volume.mount / stub["path"]
     if stub["state"] == "copying":
         folder_fd = _open_below(where.volume.mount, stub["path"], create=True, private=True)
         try:
             owner = _ownership(folder_fd, stub, create=True)
-            bundle_sha = _copy_all(base, folder_fd, found, stub.get("bundle_sha256"), owner=owner)
+            _copy_all(base, folder_fd, found, stub.get("bundle_sha256"), owner=owner)
             _step("copied")
-            problems = _verify(folder, folder_fd, found, bundle_sha)
+            problems = _verify(folder, folder_fd, found, stub.get("bundle_sha256"))
         finally:
             os.close(folder_fd)
         if problems:
             raise Failed("the copy did not read back: " + ", ".join(problems[:5])
                          + (f" and {len(problems) - 5} more" if len(problems) > 5 else ""))
-        _save(root, name, stub, state="verified", bundle_sha256=bundle_sha, verified_at=_now(),
-              keep_internal=keep_internal)
+        _save(root, name, stub, state="verified", verified_at=_now(), keep_internal=keep_internal)
         _step("verified")
     else:
         # `verified`: read the external copy back again before anything
@@ -1045,11 +1107,28 @@ def _offload_one(root: Path, found: Plan, where: Target, keep_internal: bool,
     return "offloaded", left
 
 
-def _copy_all(base: Path, folder_fd: int, found: Plan, bundle_sha: str | None = None,
-              *, owner: Owner) -> str | None:
+def _bundle_sha(root: Path, found: Plan) -> str | None:
+    """The internal bundle's SHA-256 (None without one), read before offload
+    copies anything; `Failed` if it is not the bundle the manifest records."""
+    if not found.bundle:
+        return None
+    folder_fd = _archive_fd(root, found.name)
+    try:
+        digest = _digest_at(folder_fd, found.bundle, found.bundle_bytes)
+        if digest is None:
+            raise Failed(f"{found.bundle} is missing or not the {found.bundle_bytes} bytes the manifest records")
+        if not _heads_ok(folder_fd, found.bundle, found.bundle_heads) \
+                or _digest_at(folder_fd, found.bundle, found.bundle_bytes) != digest:
+            raise Failed(f"{found.bundle} does not hold the heads the manifest records")
+    finally:
+        os.close(folder_fd)
+    return digest
+
+
+def _copy_all(base: Path, folder_fd: int, found: Plan, bundle_sha: str | None, *, owner: Owner) -> None:
     """Make the external folder hold the stored files and the bundle, copying
-    what it lacks from the internal archive; the bundle's SHA-256 (the
-    source's, unless `bundle_sha` is already known; None without a bundle)."""
+    what it lacks from the internal archive: stored files against the
+    manifest's SHA-256, the bundle against the one the stub recorded."""
     owner.preflight()
     made_files = False
     try:
@@ -1086,19 +1165,16 @@ def _copy_all(base: Path, folder_fd: int, found: Plan, bundle_sha: str | None = 
     finally:
         os.close(files_fd)
     if found.bundle:
+        if bundle_sha is None:
+            raise Failed(f"{found.bundle}: {STUB} records no checksum; nothing copied")
         source = _archive_fd(base.parent.parent, base.name)
         try:
-            if bundle_sha is None:
-                bundle_sha = _digest_at(source, found.bundle, found.bundle_bytes)
-            if bundle_sha is None:
-                raise Failed(f"{found.bundle} is missing or not the {found.bundle_bytes} bytes the manifest records")
             _place(source, found.bundle, folder_fd, found.bundle_bytes, bundle_sha, STORED_MODE,
                    owner=owner, relative=found.bundle)
             _step("copy-bundle")
         finally:
             os.close(source)
     rfs.fullsync(folder_fd)
-    return bundle_sha
 
 
 def _remove_internal(base: Path, found: Plan, stub: dict[str, Any], mount: Path) -> list[str]:
@@ -1291,6 +1367,8 @@ def _recall_one(root: Path, name: str, stub: dict[str, Any], drop_external: bool
 
     base_fd = _archive_fd(root, name)
     try:
+        if external_authoritative(stub):
+            folder()       # its volume and ledger answer before anything internal changes
         if found.stores or modes.get("files") is not None:
             try:
                 os.mkdir("files", 0o700, dir_fd=base_fd)

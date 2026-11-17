@@ -285,6 +285,9 @@ def checker(env: Env, name: str, seen: list[str]):
             assert digest in (sha(inside / "files" / store), sha(outside / "files" / store)), (step, store)
         if expected.bundle:
             assert bundle_sha in (sha(inside / expected.bundle), sha(outside / expected.bundle)), step
+            stub = rof.read_stub(env.root, name)
+            # By hash: the stub holds the bundle's SHA-256 from its first write on.
+            assert stub is None or stub["bundle_sha256"] == bundle_sha, step
         checked = rarch._check_archive(env.root, name)
         assert checked["ok"], (step, checked["problems"])
     return hook

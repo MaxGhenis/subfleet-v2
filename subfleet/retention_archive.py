@@ -2315,7 +2315,9 @@ def _check_archive(root: Path, name: str, base: Path | None = None) -> dict[str,
         except rgit.GitError as exc:
             problems.append(f"bundle: {exc}")
     result = {"archive": name, "ok": not problems, "problems": problems, "manifest": manifest}
-    if base != meta:
+    # Resolved on both sides: a state root reached through a link (/var is
+    # /private/var) is still the archive itself.
+    if os.path.realpath(base) != os.path.realpath(meta):
         result["offloaded_to"] = str(base)
     return result
 
