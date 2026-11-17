@@ -890,3 +890,27 @@ CI runs the suite.
 - I kept `$TMPDIR/uv-cache` (shared) and the worktree's ignored `.venv`.
 
 Code head: `fc5d6bc4b`. Head built: the commit that adds this section.
+
+### Addendum: the runs after the report's first commit (`50ac2a7e4`)
+
+| Command (at) | Result | Load |
+| --- | --- | --- |
+| `test_same_decisions_on_generated_staged_files` alone, no `-n` | **no result at my 585 s cap**, as in both earlier rounds | 158-205 |
+| final-new (`50ac2a7e4`): the new tests and the 11 P2 rows | **16 passed**, 183 s, so every new test has now passed at the final bytes | 100-187 |
+| control: `test_a_relative_diff_config_hides_no_staged_file` in an unmutated `git archive` export | 1 passed, 2 s | ~70 |
+| `gs_mutants.py --named-only --no-control`, mutants 8, 10, 12, 13, 14 | **all killed** by their named tests | ~70 |
+| the same, mutant 11 | first run: its named test id lacked pytest's escaped backslash, so it showed "not killed" with 0 run. Fixed in `399f06a03`, then **killed** | ~130 |
+| the same, mutant 9 (no time budget) | **killed** | ~130 |
+| the same, mutants 1-7 | 1 and 2 **killed**; my 200 s cap stopped it before 3-7 | 136-159 |
+
+**Still not run:**
+- the generated test, to a result;
+- mutants 3-7 and the tool's control;
+- `test_guard_search_rel.py`;
+- the rest of `test_guard_subfleet_root.py`;
+- the other files that read the changed files;
+- step 3's four files.
+
+**Folders outside the job's scratch:**
+- `$TMPDIR/sf-gs-fix2` (`/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-gs-fix2`). Its logs, `run.sh`, `measure.py` and the TRUST sentence are copied to the attempt folder's `gs-fix-r2-evidence/`. A guarded `shutil.rmtree` that asserts `sf-gs-fix2` is in the path removed it at 19:48Z, and the folder is gone.
+- The `sf-mutants-*` folder that the capped mutant call left was inside it.
