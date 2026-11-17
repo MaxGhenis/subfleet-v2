@@ -192,3 +192,160 @@ The complete schema-compare file `tests/unit/test_host_push.py` was run once bef
 An initial top-level Darwin temp/cache directory was denied. Before the guarded runner was installed, migration checks used ordinary pytest fixture cleanup and transient checkout bytecode/dependency folders; all identified checkout folders are listed in the cleanup record. The final checks use guarded scratch paths. The complete repository suite and live-host tests were intentionally not run, per the brief. Process-inspection-dependent skips and the existing expected failure are listed with final test counts.
 
 Finished 2026-11-15 08:45:52 UTC; within the four-hour limit. Final cleanup exited0; six generated checkout cache directories and both scratch trees were removed. Final project status contains only the 32 intended changed/new files.
+
+## Fix round 1
+
+Started 2026-11-17 04:10:11 UTC (first command, `date -u`); deadline 07:10:11 UTC. The checkout began clean at detached `48dab4abe`. Every finding in `review-a3-r1.md` is fixed: P1, all four P2s and both P3s. None is left open. Git wrote its lock files this round, so each step is a commit.
+
+| Commit | Step |
+| --- | --- |
+| `127576d13` | Merge of #314's head `2954abd77` (D-SCHEMA-SLOTS1) |
+| `b8d3304ef` | Fix code for every finding, the new tests and the fixtures |
+| `a391f84e1` | Test fixes: the unit conftest drops a job's markers; a CLI fake daemon advertises `review.subject.v1` |
+| `9916047b1` | Contract, README and `run --help` |
+| this commit | This section |
+
+### Merge of 2954abd77
+
+`git merge --no-ff --no-commit 2954abd77` conflicted in nine files. Each was resolved as follows:
+
+- `subfleet/store.py`: slots 11 and 12 are now exactly #314's. Slot 11 is #307's storage schema; slot 12 holds the review fields. Each step is presence-checked, and versions are recorded only after the schema script succeeds, all in one transaction. This PR's `allow_same_family` column moves to a new slot 13 (`REVIEW_FAMILY_MIGRATION`, presence-checked the same way), and `SCHEMA_VERSION` becomes 13. The presence pass now covers slots 11 to 13 on every writable open.
+  - I dropped this PR's slot-11 backfill, which marked pending notices `stale`/`before-migration`. #314's slot 11 has none, and the ruling says slot 11 is exactly #314's.
+  - `NOTICE_WAKE_PREDATES` is gone.
+  - As a result, a store upgraded straight from schema 10 keeps its pending notices with an empty wake state. A store that ran #307 keeps #307's own stale marks.
+  - If #307 merges later onto these slots, it must do its backfill in a slot of its own.
+- `subfleet/store_schema.sql`: took #314's comment and set the header to version 13.
+- `subfleet/daemon.py` (writer check): took #314's comment. The P2 fix below then replaced the check itself.
+- `subfleet/cli.py` (`caller_pid`): took #314's keyword `family` signature and kept this PR's docstring.
+- `tests/unit/test_prune_217.py`, `tests/unit/test_store_migration_2.py`: kept this PR's index-dependency check, which is a superset of #314's: it reads index columns and the partial-index predicate, so automatic indexes are covered. `CREATE TABLE IF NOT EXISTS` statements drop with `IF EXISTS`. The auto-merge had imported `re` twice; one import was removed.
+- `tests/unit/test_store_review_subject_migration.py`: #314's version, with the version-13 step added to the expected versions and events.
+- `README.md`: kept both sides' rows and sentences.
+- `docs/acceptance-contract.md`, in four places:
+  - the change log keeps both lines;
+  - C-3.8 is #314's clause plus the slot-13 sentence;
+  - C-6.5 is #314's clause plus this PR's refusal;
+  - C-6.21 and C-6.22 are #314's, and C-6.23 and C-6.24 are this PR's.
+
+Two files merged cleanly but needed edits:
+- In `tests/unit/test_store_upgrade_slots.py`, the version asserts now read `SCHEMA_VERSION`. The recorded-version test runs for 12 and 13: a store recorded at 12 gains exactly version 13 and its two audit events, and a store recorded at 13 gains nothing.
+- `tests/unit/test_store_review_family_migration.py` now expects no backfill and versions `[11, 12, 13]`.
+
+### P1: a store that ran #314's code could not be opened
+
+- **Cause:** #314 and #330 both used migration slot 11, for different columns.
+- **Change:** the merge above.
+- **Evidence:** `tests/unit/test_store_upgrade_slots.py` now runs over six store layouts. Each layout was dumped from that revision's own, unmodified `Store`, run from `git archive <commit> subfleet` in scratch (`make_fixture.py`, which also adds one synthetic job and one notice). The three new ones are:
+  - `review-subject-new-v12.sql`: #314's new 11 + 12 layout, made by `2954abd77`.
+  - `review-family-old-v12.sql`: a store made by this PR's first head, `48dab4abe`.
+  - `review-family-old-over-subject-old-v12.sql`: the review's P1 case, made with real code. `48dab4abe`'s `Store` opened #314's old slot-11 store, failed with `OperationalError: no such column: wake_state`, and left versions `[11, 12]` with no wake columns.
+
+  The other three were already there: `release-217-v10`, `wake-caller-307-v11` (#307's slot 11) and `review-subject-old-v11` (#314's old layout).
+- **Before:** with this file run against `48dab4abe`'s code (a scratch tree), 12 failed and 5 passed. Among the failures are the old-#314 layout and the broken store.
+- **After:** all 27 cases pass at head.
+
+### P2: Sol was never chosen (`subfleet/policy.py:90`)
+
+- **Cause:** the build used the default reviewer only when the tier's other-family suffix was empty.
+- **Change:** `routing_chain` now walks `[the family's default, then the chain's other-family models from the tier upward]`, deduplicated, with the `--allow-same-family` tail last. `astra` is reached only after `sol61`. Demand, pins, `why` and the recheck use the same chain.
+- **Evidence:** `test_p2_sol_first_routing_matrix` gives this table (shipped policy, one lane per family up, fable reserve off). This test replaces the reviewer's `test_probe_routing_matrix`, which lives in the reviewer's workspace:
+
+| Tier | Claude caller | Codex caller | Unknown caller |
+| --- | --- | --- | --- |
+| trivial | `sol61 -> astra` (chosen `sol61`) | `opus -> haiku -> sonnet` (`opus`) | `haiku -> sonnet -> opus -> astra` (`haiku`) |
+| easy | `sol61 -> astra` (`sol61`) | `opus -> sonnet` (`opus`) | `sonnet -> opus -> astra` (`sonnet`) |
+| standard | `sol61 -> astra` (`sol61`) | `opus` (`opus`) | `opus -> astra` (`opus`) |
+| hard | `sol61 -> astra` (`sol61`) | `opus` (`opus`) | `astra` (`astra`) |
+
+`test_p2_astra_is_reached_only_when_sol_cannot_take_the_job` closes `sol61` on the Codex lane, and the walk becomes `sol61, astra`, choosing `astra`. I1's property (`test_i1_every_tier_family_and_chain_chooses_the_other_provider`) now expects the default first. All of these failed at the merge commit and pass at head. The I3 and I4 differentials against frozen A2 (null family, other tasks) are unchanged and pass.
+
+### P2: the code defaults were never checked (`policy.py:77`, `:560`)
+
+- **Cause:** only an explicit `review_family_defaults` entry was validated. Routing then resolved the unchecked code default and raised `pinned_model: unknown model 'sol61'`.
+- **Change:**
+  - `_usable_review_default` now runs the explicit key's checks (a known model, of the other family) on the code defaults too.
+  - An explicit entry that fails still refuses the policy.
+  - A code default that fails is dropped. The policy still loads, and `load_policy` stores and logs a warning (`_review_family_warnings`, written to `daemon.log`) naming the family and the tiers left with no reviewer.
+  - `routing_chain` returns `[]` for such a family. `scheduler.prepare` keeps that chain empty instead of substituting the policy's first model, so the review waits with `waiting for other-family reviewer: policy names no codex reviewer (review_family_defaults or chains.review) from this tier upward`.
+  - Submit accepts the job. It used to dereference a missing lane on an empty chain.
+- **Evidence:**
+  - In `test_review_family_fix_r1.py`: `test_p2_code_defaults_are_checked_at_load_and_a_policy_without_a_reviewer_loads`, `test_p2_a_review_with_no_other_family_reviewer_waits_naming_the_family` (four tiers) and `test_p2_a_policy_without_sol_but_with_astra_routes_claude_callers_to_astra`.
+  - In `test_review_family_fix_r1_daemon.py`: `test_a_review_with_no_other_family_reviewer_is_accepted_and_waits`, which checks that `why` never says `unknown model`.
+  - In `test_review_family_routing.py`: `test_i1_repurposed_default_name_never_selects_the_callers_provider` now expects the wait, not a `PolicyError`.
+
+  All of these failed before the fix and pass after.
+
+### P2: the Codex writer exemption trusted `caller_family` (`daemon.py:3989`)
+
+- **Cause:** the exemption tested the self-declared family.
+- **Change:**
+  - The CLI sends `caller_session_kind`, the family whose harness variable supplied the session id: `CLAUDE_CODE_SESSION_ID` gives `claude`, `CODEX_THREAD_ID` and `CODEX_SESSION_ID` give `codex`, and `SUBFLEET_SESSION_ID` gives none. With both families' markers present, an id gets a kind only when the process ancestry names that same family. The kind never comes from `--caller-family` or `SUBFLEET_CALLER_FAMILY` (`cli.session_source` and `session_kind`, used by `run` and `resume`).
+  - `daemon.codex_writer_exempt` skips the writer-instance comparison only for kind `codex` with a family that does not contradict it.
+  - A contradiction keeps the check and is recorded on the job as `caller_family_disagreement` in `job.submitted`, which `show` returns.
+  - A submission with no kind, as from an older CLI, keeps the check.
+  - `caller_pid` now keeps `CLAUDE_PID` for a Claude session id whatever family is declared, so the check can still identify the instance.
+- **Evidence:**
+  - `test_claude_session_declaring_codex_keeps_the_writer_instance_check` (the reviewer's case: refused as `unidentified-writer`, with the disagreement recorded and shown).
+  - `test_codex_family_without_a_codex_session_id_keeps_the_check`, `test_codex_thread_id_declaring_claude_is_a_recorded_disagreement_and_checked`, `test_a_codex_thread_id_keeps_its_exemption` and `test_an_invalid_session_kind_is_refused`.
+  - The CLI cases `test_p2_session_kind_follows_the_marker_never_the_declared_family` (six environments) and `test_p2_mixed_markers_give_a_kind_only_when_ancestry_agrees`.
+
+  The new cases failed at the merge commit and pass at head. `test_codex_writers.py` and `test_codex_writable_fanout.py` now carry the kind (the latter derives it from its synthetic `CODEX_THREAD_ID`), and both pass.
+
+### P2: same-family consent was a flag anyone sets (`cli.py:3660`, `daemon.py:3195`)
+
+- **Change:**
+  - The daemon refuses `allow_same_family` on a submission that carries a parent job, other than a resume's source, with the new refusal `same-family-consent` (exit 7, before insertion).
+  - The CLI refuses `run --allow-same-family` when `SUBFLEET_JOB`, `SUBFLEET_ATTEMPT` or `SUBFLEET_TURN_JOB` is set, or `--parent` is given. A lane job's `run` carries no parent unless it passes `--parent`, so the daemon check alone would catch little.
+  - An accepted consent is recorded as `same_family_consent: {session, session_kind}` in `job.submitted`, and `show` and `runs show` return it.
+  - C-6.23 now says what this does not stop: a desktop session can still consent, and so can a job that drops its markers and parent, or a client that writes its own frames.
+- **Evidence:** `test_same_family_consent_from_inside_a_job_is_refused_before_insertion`, `test_same_family_consent_records_who_gave_it_and_show_says_so` and `test_p2_cli_refuses_same_family_consent_inside_a_job` (three markers). All failed before and pass after.
+
+### P3: a same-family lane pin got the generic error (`scheduler.py:822`)
+
+- **Change:** `prepare` raises `review-same-family: ...` for a review pinned to a lane of the caller's family without `-m`, and submit refuses it the same way (`_pin_family`). The `review-same-family` template now covers lanes.
+- **Contract:** `--allow-same-family` does not lift a bare lane pin, because a pinned job walks only its chain's first model, the other family's reviewer. A same-family lane pin needs `-m` naming that family's model plus the flag.
+- **Evidence:** `test_p3_a_same_family_lane_pin_is_a_review_same_family_refusal` (both families, with and without the flag) and `test_a_same_family_lane_pin_is_refused_at_submit` failed before and pass after. `test_p3_same_family_lane_pin_with_a_same_family_model_and_consent_runs` is the positive control and passes before and after.
+
+### P3: no test of the family-naming reason on the reservation recheck (`route_check.py:312`)
+
+`test_p3_reservation_recheck_keeps_the_family_naming_wait_reason` drives `route_check.still_stands` through `test_route_check.check`: a concurrent reservation fills the fleet, and the recheck's reason must name `missing codex capacity` and equal a fresh evaluation's.
+- **Mutant:** deleting the `required_review_family=` argument at `route_check.py:312`, in the scratch tree, fails it (1 failed: the reason lacks the family clause).
+- **Restore:** the file was restored byte-identical (SHA-256 prefix `3bec93c45651e452` before and after; `cmp` equal).
+
+### Commands and results
+
+Every pytest run used `TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)`, `UV_CACHE_DIR=<that>sf-rva3-fix1/uv-cache`, `PYTHONDONTWRITEBYTECODE=1` and `-p no:cacheprovider`, with a new `--basetemp` under scratch named `pytest-*`. Workers stayed at four or fewer: runs started together shared that budget.
+
+| Command | Result |
+| --- | --- |
+| `date -u` | 04:10:11 UTC |
+| `uv sync --group dev` | exit 0, 49.7 s |
+| `git merge --no-ff --no-commit 2954abd77` | 9 conflicts, resolved as above; committed as `127576d13` |
+| Merge check, `-n 4`: upgrade slots, family/subject/numbered/QoS migrations, prune, reserve plumbing, store ids (8 files) | 135 passed, 487 s |
+| `make_fixture.py` for `2954abd77`, `48dab4abe` and `48dab4abe` over old #314 | 3 fixtures; the last reproduced P1 |
+| Red, `127576d13` tree, `-n 2`: new unit + daemon files, routing | 14 failed, 23 passed, 1 collection error (the unit file imported a name that did not exist yet), 153.7 s |
+| Red, `48dab4abe` tree: `test_store_upgrade_slots.py` | 12 failed, 5 passed, 27.2 s |
+| Green 1: new unit + daemon files | 33 passed, 4 failed (the lane's own `SUBFLEET_JOB` leaked into the CLI cases; the fable reserve blocked the synthetic Claude lane), 54.8 s |
+| Red 2, `127576d13` tree, `-n 2`: new unit file, now collectible | 22 failed, 3 passed, 59.8 s |
+| Green 2, `-n 2`: 9 new and changed files | 119 passed, 2 failed (`test_review_family_cli.py`'s fake daemon lacked #314's capability), 248.1 s |
+| Recheck mutant (scratch tree) | 1 failed, 62.6 s; restored byte-identical |
+| `tests/fake/test_state_contract.py` | 37 passed, 208.6 s |
+| `test_test_module_names.py`, `test_invariants_index.py`, `test_handler_refusals.py`, `test_protocol_registry.py` | 418 passed, 259.0 s |
+| Subject/numbered/QoS migrations, prune, reserve plumbing, store ids, retention subject (7 files) | 124 passed, 316.0 s |
+| Family admission, gate family, caller ancestry, subject CLI, policy support, unadmittable pin (6 files) | 118 passed, 96.1 s |
+| `-n 4`: CLI, policy, route check, writable fan-out, subject validation/submission/resume (CLI and fake), gate admission, gate service (10 files) | 640 passed, 511.4 s |
+| Final, `-n 4`: family CLI, CLI, both new files, caller ancestry, CLI batch (6 files) | 334 passed, 54.7 s |
+
+After the fixes, the latest run of each of the 38 test files ran here, in the order the brief sets. The new and changed tests ran first, then the importing files and the store and migration files, then the four required files. All pass: no test fails at head.
+
+### What did not run, and deviations
+
+- **Importing files not run.** `git grep -l` with an import parse finds 354 test modules that import a changed module (`policy`, `scheduler`, `daemon`, `cli`, `protocol`, `refusals`, `store`). This round ran 38 of them, so 316 did not run here; CI runs the whole suite.
+- **`tests/unit/test_host_push.py` was not run.** Its fixtures push to local bare repositories, a write-shaped command the brief forbids even behind a stub.
+- **Red evidence ran in scratch trees, not this checkout.** The trees were `git archive 127576d13` and `git archive 48dab4abe` (`subfleet`, `tests`, `pyproject.toml`) with the new test files copied in. This shows each test failing on the old code without reverting the checkout.
+  - The first red run of the new unit file was a collection error. After a one-line import change it ran per test.
+- **The reviewer's probe file (`test_zz_rv_a3_r1_probe.py`) is in the reviewer's workspace.** I wrote `test_p2_sol_first_routing_matrix` instead of rerunning the reviewer's `test_probe_routing_matrix`.
+- **`tests/unit/conftest.py` now also drops `SUBFLEET_JOB`, `SUBFLEET_ATTEMPT` and `SUBFLEET_TURN_JOB` from the "outside any session" environment.** These tests run inside a Subfleet job, whose markers would otherwise trip the new consent refusal.
+- **The stale-notice backfill is gone** (see the merge above). That follows D-SCHEMA-SLOTS1 and changes what a direct 10 → head upgrade leaves in `notices`.
+- **Offline `runs show` (daemon down) shows no caller record.** `same_family_consent` and `caller_family_disagreement` come from the daemon's `show`.
+- **Probe commands created cache folders in the checkout.** Early probes ran without `PYTHONDONTWRITEBYTECODE` and created `subfleet/__pycache__`, `subfleet/sessions/__pycache__` and `tests/__pycache__`; the test runs created `.hypothesis` and `uv sync` created `.venv`. All five are listed under cleanup below.
+- **Parallel runs.** Several pytest runs ran at the same time, each in the foreground, with at most four workers in total.
