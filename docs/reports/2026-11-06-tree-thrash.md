@@ -585,3 +585,5 @@ Environment: `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"`, `UV_CACHE_DIR=$TMPDIR/u
 - Complete runs of steps 4 and 5.
 
 No refusal or event key was added, so `test_handler_refusals.py` was not needed.
+
+Head built: `7d135be16`; this line is committed on top of it.
