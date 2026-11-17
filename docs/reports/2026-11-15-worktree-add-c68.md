@@ -515,3 +515,87 @@ Housekeeping: the scratch `S` was writable, and everything this job made went un
 `/tmp/sf-failed` existed, empty, from 04:17Z, before any test of mine ran; I left it. The 15 basetemp and probe folders under `S` were removed with a guarded `shutil.rmtree` that asserts `sf-c68-fix2` is in each real path and that each is inside `S`. `S` keeps the logs (`fence-1.log`, `fleetA-1.log`, `fleetB-1.log`, `fleetC-1.log`), the plugins, the probe and the deselection lists, 176 KB, for the hub to read.
 
 Head built: the commit that adds this line, after 9919fab94 (which added the rest of this section).
+
+
+Fix round 3 (CI run 44032601067 on 67e3538ff), 2026-11-17.
+
+Nothing under `subfleet/` changed this round. The only change is to four test doubles in `tests/unit/test_retention_sweep_race.py`, so neither the contract clause nor the change log changes.
+
+The first command, `date -u`, set the start at 16:52:04Z and the stop at 19:52:04Z. The workspace was a detached checkout of `fix/worktree-add-c68-217` at 67e3538ff. The fix is in 8b8e345b6, and this section is in the commit after it.
+
+Cause, confirmed. CI failed shard 5/7 on Python 3.12 and 3.14 with one test, `tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree`, which raised `TypeError: Schedule.install.<locals>.gitfile_admin() got an unexpected keyword argument 'strict'` on the explicit example `moves={'begin': 'away', 'gone-check': 'back', 'gone-lookup': 'away'}`. Each Python version had 1 failed, 3429 passed, 5 skipped and 11 xfailed. The path is `retention_archive.py:1520` (`source_of_gone_tree`) to `rgit.moved_tree`, then `registration(gitfile.parent)` (`retention_git.py:695`), then `gitfile_admin(tree, strict=strict)` (`:324`). The test's double was `def gitfile_admin(tree)`. The PR made `strict` keyword-only with default `False`, and `registration` passes it on unchanged, so the real function gets `strict=False`, which behaves as release/217 did. The double is at fault, not the production code: `retention_git.py` is left as it is.
+
+The change (8b8e345b6). `Schedule.install`'s double became `def gitfile_admin(tree, **kwargs)` and calls `real_lookup(tree, **kwargs)`, as the same `install`'s `registration_in` double already did. The three `lookup(tree)` doubles at `:247`, `:314` and `:591` got the same change. Nothing was skipped, marked xfail, given fewer examples or added to the known-flake allowlist.
+
+The failing node, before and after.
+- Before, at 67e3538ff: 1 failed in 805.41 s with the `TypeError` above, at `retention_git.py:324`. The statistics block was empty, because Hypothesis never reached its generate phase.
+- Which explicit examples ran before. The node was rerun with `--hypothesis-verbosity=verbose` on an untouched copy of 67e3538ff (`git archive`). The copy's test file has blob `b3150ae4c`, the same as 67e3538ff's, and `subfleet` was imported from the copy. All 15 explicit examples ran. 14 printed "Trying explicit example" and passed, and the eighth, `begin`/`gone-check`/`gone-lookup`, printed "Failing explicit example" with the `TypeError`. Hypothesis 6.168.1 keeps running explicit examples after a failure (`report_multiple_bugs`, `core.py:678`) and then raises before generating any. So at 67e3538ff no generated schedule ran against the PR's new `registration`, and its body ran for none of the 15 explicit examples via `moved_tree` with a sweep-moved tree; the eighth is the one whose path reaches it.
+- After, at 8b8e345b6, seed 20261117: 1 passed in 3529.82 s. The generate phase took 3170.87 s: 40 passing, 0 failing and 3 invalid examples, stopped at `max_examples=40`. The explicit phase must also pass before generation starts, so all 15 explicit examples passed, the eighth included.
+
+No example failed on its own assertions once the `TypeError` was gone: not in the run above, in the whole-file runs below, or among the explicit examples. So the PR's `registration` changes (lstat checks, `same_entry` instead of comparing `realpath`s, the `registration-malformed` answer) didn't break the sweep-race invariant on any schedule tried. No run with `retention_git.py` at 4aed7a3c9 was needed, and none was made.
+
+The three latent doubles can't fail before: their tests pass on 67e3538ff because nothing reaches `registration` while they are installed. In their place, a probe (`$S/probe_latent.py`, scratch, not committed) installed each shape as `rgit.gitfile_admin` and called the real `rgit.registration(tree)` on a synthetic worktree:
+- the old `lookup(tree)` raised `TypeError: old_lookup() got an unexpected keyword argument 'strict'`;
+- the new `lookup(tree, **kwargs)` returned admin `tree` and no reason, the same as unpatched.
+
+The sweep for other doubles. Two AST scans ran over the PR's diff and `tests/`. The first listed every keyword call on a line the PR added under `subfleet/`: 56 calls. The second found every double in `tests/` of those callees, and of the functions whose signatures changed. It caught `<any>.setattr(obj, "name", …)`, `setattr("a.b.name", …)`, builtin `setattr`, attribute and subscript assignment, `patch(…)`, `patch.object(…)` and `setitem`: 424 sites. A third pass covered whole-module swaps (`module.subprocess = …`) and setattr with a computed name. An independent read-only agent then searched for spellings those scans miss, given the code and the scans' method but not my conclusions. It looked at 722 more hits (computed-name setattr, `functools.partial`, `patch.dict`, `sys.modules` swaps, fake process classes, borrowed-method fakes, mutant builders) and found nothing new. Some rows below rest on its reading, as marked.
+
+| Double (file:line) | Replaces, signature | Can a production call reach it with the new keyword? | Done |
+|---|---|---|---|
+| `tests/unit/test_retention_sweep_race.py:720` (installed `:766`) | `rgit.gitfile_admin`, was `(tree)` | Yes: `retention_git.py:324`, from `moved_tree` (`:695`) and `source_of_gone_tree` (`retention_archive.py:1520`). This is the CI failure | Now `(tree, **kwargs)`, forwarded |
+| same file `:247` (`:272`, restored `:288`), `:314` (`:329`, `:338`), `:591` (`:605`) | `rgit.gitfile_admin`, were `(tree)` | Yes, by the same path, whenever the patched pass calls `registration` without `read`. Their tests don't today | Same change |
+| same file `:730`, `:735` | `rgit.registration_in` `(common, tree, **kwargs)`; `rgit.moved_tree` `(common, tree)` | `registration_in` already forwards. `moved_tree`'s signature didn't change, and its call is positional | None |
+| `tests/unit/test_retention_repository_walk.py:143`/`:152`, `:175`, `:227`, `:242`, `:253`/`:259` | `rgit.registration`, `(path)` | No. They are installed only around `rarch.known_repositories`, which calls `rgit.registration(tree)` positionally (`retention_archive.py:1424`). The one `strict` caller, `worktree_add.py:507`, uses `worktree_add`'s own imported name, and no retention module imports `worktree_add` | Left alone |
+| `tests/fake/test_unrun_worktrees.py:1122`, `:1223` | `daemon_module.registration_of`, `(common, candidate/tree, **kwargs)` | Yes (`daemon.py:6728`, `:6741`, `strict=True`), and they already forward | None |
+| none | `uncommitted.applied` | No double in `tests/`, only direct calls | None |
+| `tests/fake/test_unrun_worktrees.py:612`, `:1257`, `test_worktree_add_census.py:166`, `test_worktree_add_reuse.py:188`, `test_worktree_add_transient_reads.py:101` (`*args, **kwargs`); `test_unrun_worktrees.py:733` (`discard(workdir, tree, *rest)`, wrapping the instance's bound method) | `Daemon._discard_worktree` | Every double is set on an instance, and every production call passes four positional arguments (`daemon.py:6536`–`:6568`, `:9661`, `:9778`). No test patches it on the class, and no mutant rebuilds it | None |
+| `tests/unit/test_policy_support.py:176` | the shared `shutil.rmtree`, `remove(path)` | No. `worktree_add.py:606` passes `onexc=`, but this double is installed only around retention `maintenance()`, and only `daemon.py` imports `worktree_add`. The other three `rmtree` doubles (`test_unrun_worktrees.py:1074`, `test_live_store_guard_round4.py:113`, `test_worktree_add_proof.py:323`) take `**kwargs` | Left alone |
+| `tests/unit/test_retention_outcome_pages.py:326` | the shared `rfs.read_regular`, `(path)` | No. `worktree_add.py:166` and `:236` pass `limit=`, but this double is installed only around an outcomes lookup. `daemon_module.read_regular` and `provider_env.read_regular` doubles are other bindings | Left alone |
+| 88 `subprocess.Popen` sites; fake children without `wait(timeout=)` at `tests/fake/test_daemon_launch.py:34`–`41` and `test_launch_env_daemon.py:405`, `:428` (agent); `test_probe_cancel.py:62` (daemon's `subprocess` swapped, `guardian(command, **kwargs)`); `test_stop_watchdog.py:728` (wraps `Popen.wait`, asserts no timeout) | `subprocess.Popen` and `child.wait`, called with `start_new_session=` and `timeout=` (`daemon.py:6837`, `:6855`, `:6868`) | No. Every Popen double forwards `**kwargs` or restores the real one. The fakes without `wait(timeout=)`, and the probe-cancel guardian, run only read-only jobs (agent, for the first two files), which never add a worktree. The watchdog wrap is installed only around `daemon.close()` | Left alone |
+| 96 `subprocess.run` sites, 39 `procs.containment` sites | `run` with `cwd=`, `env=`, `input=`, `timeout=` (`worktree_add.py:183`, `:335`); `containment` with `root=`, `recorded_identities=` (`daemon.py:6788`) | No drift reachable. Of the 16 narrow `run` sites, none is on a path that adds or removes a worktree (other modules' `run`, or global patches in credential, wake and retry-tool tests). 34 `containment` doubles forward `**kwargs`, and 5 restore the real one | None |
+| `Path.resolve` at `test_canonical_identity_fix3.py:206`, `_fix4.py:50`, `:70`, `test_suggestion_error_boundaries.py:133` | `resolve(strict=True)` (`worktree_add.py:148`, `:154`) | All four take `strict` or `**kwargs` | None |
+| none | `os.path.realpath(strict=)`, `tempfile.TemporaryFile(dir=)`, `dataclasses.replace`, and `worktree_add.finished`, `kept_paths`, `prove`, `staged`, `removal_head`, `commit_kinds`, `lock_state`, `head` | No doubles. `worktree_add.drop_registration`'s two doubles (`test_unrun_worktrees.py:1104`, `:1240`) take `**kwargs` | None |
+| `os.lstat`, `os.stat`, `os.unlink`, `os.killpg`, `procs.identity`, `os.path.samefile`, `git_common_dir`, and the daemon's `_tree_git`, `_add_census`, `_recorded_common`, `_require_add_empty` | various | The PR calls these positionally (or with `timeout_s=`, which every `git_common_dir` double takes). Every `os.unlink` double takes `**kwargs` or restores the original, so `dir_fd=` (`worktree_add.py:591`) is accepted | None |
+
+Commands and results. `E` = `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)" UV_CACHE_DIR="$TMPDIR/uv-cache"` with `PYTHONPATH` unset. Scratch `S` = `$TMPDIR/sf-c68-fix3`. Every basetemp is new and named `pytest-*` under `S`. `N` = the failing node. The local venv runs Python 3.15.2; CI runs 3.12 and 3.14. One-minute load averages ran from 105 to 234, and the runs below took about 35 times as long as CI's (CI ran the 15 explicit examples in 22.95 s).
+
+| Command | Result |
+|---|---|
+| `gh run view 44032601067 --repo MaxGhenis/subfleet-v2 --log-failed` | As in the cause above |
+| `E uv sync --group dev` | Exit 0, 37 s |
+| `E uv run --no-sync python -m pytest N -p no:cacheprovider --hypothesis-show-statistics --hypothesis-seed=20261117 --basetemp=$S/pytest-r1-before -q`, at 67e3538ff | 1 failed in 805.41 s, with the `TypeError`; empty statistics |
+| `git archive 67e3538ff \| tar -x -C $S/before-tree`; `git hash-object` on the copy's test file | Blob `b3150ae4c…`, the same as 67e3538ff's |
+| In the copy: `.venv/bin/python -m pytest N -p no:cacheprovider --hypothesis-verbosity=verbose --hypothesis-show-statistics --hypothesis-seed=20261117 --basetemp=$S/pytest-p1-before-verbose -q` | 1 failed in 358.35 s: 14 explicit examples tried and passed, the eighth failed with the `TypeError`, no generate phase |
+| `git add tests/unit/test_retention_sweep_race.py`; `git commit -F` | 8b8e345b6 |
+| `E uv run --no-sync python -m pytest N -p no:cacheprovider --hypothesis-show-statistics --hypothesis-seed=20261117 --basetemp=$S/pytest-p2-after-node -q`, at the fix | 1 passed in 3529.82 s; generate phase 40 passing, 0 failing, 3 invalid |
+| `E uv run --no-sync --with 'pytest-xdist>=3.6' python -m pytest tests/unit/test_retention_sweep_race.py -n 2 -p no:cacheprovider --hypothesis-show-statistics --hypothesis-seed=20261118 --basetemp=$S/pytest-p3-file-default -q` | 13 passed in 5207.19 s. Property test: 40 passing, 0 failing, 2 invalid. One `PytestUnraisableExceptionWarning`: a `KeyboardInterrupt` raised inside Hypothesis's gc callback (`junkdrawer.py:497`). No test failed, and I didn't trace its source |
+| `E RETENTION_SWEEP_EXAMPLES=200 HYPOTHESIS_EXPERIMENTAL_OBSERVABILITY=1 HYPOTHESIS_STORAGE_DIRECTORY=$S/hyp-200 .venv/bin/python -m pytest tests/unit/test_retention_sweep_race.py -p no:cacheprovider --hypothesis-show-statistics --hypothesis-seed=20261119 --basetemp=$S/pytest-p4-file-200 -q`, serial | P4_RESULT |
+| `E uv run --no-sync --with 'pytest-xdist>=3.6' python -m pytest tests/fake/test_state_contract.py tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py tests/unit/test_handler_refusals.py -n 3 -p no:cacheprovider --basetemp=$S/pytest-p5-set -q` | P5_RESULT |
+| `.venv/bin/python -I $S/scan_calls.py 4aed7a3c9 67e3538ff` | 56 keyword calls on added lines (`$S/scan_calls.out`) |
+| `.venv/bin/python -I $S/scan_doubles.py tests <names>`, then again with module names | 424 double sites by literal name; the module-swap pass found `test_probe_cancel.py:62` and the `daemon_module.time` swaps (`$S/scan_doubles.out`, `$S/scan_modules.out`) |
+| `git grep` for computed-name `setattr`, `patch.multiple`, `sys.modules`, mutant builders and every spelling of `_discard_worktree` | As in the table |
+| `.venv/bin/python $S/probe_latent.py $S/probe-latent` | Old shape `TypeError`; new shape and unpatched both return admin `tree` |
+| Independent read-only agent (foreground, no test runs) | No new drift; near-misses as marked in the table |
+
+Step 3 of the brief: the only test file whose doubles changed is `test_retention_sweep_race.py`, covered above. Step 4 doesn't apply, because nothing under `subfleet/` changed.
+
+What didn't run:
+- The 200-example run didn't finish before the stop (P4_PARTIAL).
+- The whole suite, which CI runs.
+
+Deviations:
+- **Runs overlapped instead of following the brief's order.** At this load the order would not have fit three hours. The before-verbose, after-node and default whole-file runs started together (four workers in all). The 200-example run started while the after-node run was still going, after it had passed the explicit phase.
+- **The 200-example run** ran serially, without xdist, so it stayed within four workers. Hypothesis's observability log (`HYPOTHESIS_EXPERIMENTAL_OBSERVABILITY=1`, stored under `$S/hyp-200`) was switched on so that a run cut off at the stop could still be counted. It records examples and doesn't change the test.
+- **The before-verbose run used a `git archive` copy** of 67e3538ff under `S`, rather than swapping files in the worktree, because the after-fix runs were using the worktree at the same time.
+- **The latent doubles' "fails before"** is the probe, not their own tests, which pass on 67e3538ff because their paths never reach `registration`.
+- **No Workflow tool.** This lane runs headless, and the Workflow tool runs only in the background, so the sweep's independent check was one foreground agent. It took 88 minutes, against the 20 asked for.
+- **The tool backgrounded long commands.** Commands past its 600 s cap were moved to its background mode, which the brief allows. Each was polled to completion in the foreground before I relied on it.
+- **Folders outside the scratch.** Each was recorded and left in place, because a guarded `shutil.rmtree` asserting `sf-c68-fix3` refuses all of them:
+  - The property test makes `$TMPDIR/sweep-race-*` with `tempfile.mkdtemp` and removes it itself. SWEEP_LEFT
+  - The agent wrote its progress notes and scan under `/Users/maxghenis/reviews/_agent-progress/2026-11-17/` (`agent-a822822169dbb4dad.md` and `agent-a822822169dbb4dad-scan/`), against its brief's read-only rule.
+  - The shared `$TMPDIR/uv-cache` was used by `uv run --with`.
+- **The contract and change log are unchanged,** as the brief foresaw for a change only to test doubles.
+
+Housekeeping: CLEANUP
+
+Head built: the commit that adds this line, after 8b8e345b6.
