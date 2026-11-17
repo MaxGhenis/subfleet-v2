@@ -32,6 +32,8 @@ from tests.unit.test_retention_offload import (
     volumes,
 )
 
+pytestmark = pytest.mark.retention_catch_up
+
 OTHER_UUID = "0D9C0A44-6E21-4C44-8F5B-4B1C2B0B6E11"
 _STAT_EXTRA = ("st_atime", "st_mtime", "st_ctime", "st_atime_ns", "st_mtime_ns", "st_ctime_ns", "st_blksize",
                "st_blocks", "st_rdev", "st_flags", "st_gen", "st_birthtime", "st_birthtime_ns")

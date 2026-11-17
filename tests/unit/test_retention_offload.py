@@ -51,6 +51,10 @@ from subfleet import retention_offload as rof
 from subfleet import retention_volume as rvol
 from tests.unit.retention_world import Clock, World, git, snapshot
 
+# One listing a pass (release/217, D-HOLDERS-LSOF1): `Archives.build`'s one
+# `maintenance` call runs the follow-up pass that finishes the retirement.
+pytestmark = pytest.mark.retention_catch_up
+
 EXAMPLES = int(os.environ.get("OFFLOAD_PROP_EXAMPLES", "8"))
 PROPERTY = settings(max_examples=EXAMPLES, deadline=None,
                     suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.too_slow])

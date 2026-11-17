@@ -29,6 +29,8 @@ from tests.unit.test_retention_offload import (
     volumes,
 )
 
+pytestmark = pytest.mark.retention_catch_up
+
 
 def _outside(env: Env, name: str) -> Path:
     stub = rof.read_stub(env.root, name)
