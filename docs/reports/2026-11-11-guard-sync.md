@@ -578,6 +578,7 @@ The hub's 2026-11-11 cut stays as `axiom-brief-regime.before.sh`, `hand-authored
 - **Cause.** The block made up to four process calls per staged rule file, and two of them were `cat-file`.
 - **Change.** The block now takes the staged list once, filters it in one `awk`, and asks one `git cat-file --batch-check` for both the `:<manifest>` and `HEAD:<manifest>` of every file. One `awk` joins the answers in git's order and keeps the old message text. There are three git processes per checkout (`remote get-url`, `diff`, `cat-file`), whatever the index holds.
 - **Bound.** A command with more than 16 folders to check is refused with its own reason, and so is one with more than 16 briefs (see the parser finding). A candidate folder that does not exist is skipped before git runs (`e908a6892`); git would have failed there anyway.
+  - **Corrected in fix round 2.** The 16 counted path strings, not folders: `cd .; cd ./.; …` made 16 keys for one checkout, and with 3,000 staged files the review's command ran 128-150 s, past the timeout, which allows. Even 16 distinct checkouts would have outlasted it. The bound did not keep the work under the timeout. See "Fix round 2".
 - **Tests.**
   - `test_the_staged_file_count_does_not_multiply_git_processes` counts `start` events in `GIT_TRACE2_EVENT` with 2 and 60 staged files. The counts must be equal on each side and at most 4.
   - `test_more_than_16_places_to_check_is_refused`.
@@ -696,3 +697,196 @@ CI runs the suite.
 - I kept `$TMPDIR/uv-cache` (shared) and the worktree's ignored `.venv`.
 
 Head built: the commit that adds this section, on top of code head `e908a6892`.
+
+## Fix round 2
+
+Brief: the hub's fix round 2 for review r2 (`~/reviews/subfleet-hub/guard-sync-2026-11-11/review-r2.md`). Lane job 20261117-114947-gs-fix-r2 ran it in a detached checkout at `b58d8f977`. It started at 2026-11-17T16:52:04Z (`date -u`, first command).
+
+**Status: partial.** P1 and P2 are fixed in both hooks. Every new test failed before the fix and passed after it. The pins, the undo step and the mutants are written. The suite runs were cut short: load ran from 148 to 394, and every pytest call but three hit my 585 s cap. The mutants, `test_guard_search_rel.py`, most of `test_guard_subfleet_root.py` and step 3's four files did not run (see "Not run").
+
+Commits:
+- `52d515f9a`: the tests, before the fix.
+- `8d58890f1`: the fix, with a 20 s budget.
+- `f7673b439`: the budget cut to 15 s.
+- `03a5bb582`: pins, the undo step, mutants and the doc. It pinned an intermediate pair, `56015c96…`/`c1161574…`.
+- `fc5d6bc4b`: the first two folders exempt from the budget, re-pinned. This is the code head.
+- Then this report.
+
+### Where the Claude side lives
+
+As in fix round 1: the overlay is changed here, and the Claude hook's text is the fixtures under `tests/fixtures/guard/claude-blocks/`, for the hub to install. I never read or touched `~/.claude`. The `.before` cuts are unchanged. Fix round 1's two blocks are kept byte for byte as `claude-blocks/fix-r1/<rule>.sh` (`45775b4d…`, `0b6b418c…`) for the undo chain. `pinned()` globs `claude-blocks/*.sh` only, so it does not read them. `DriftTests::test_the_fix_r1_blocks_are_kept_byte_for_byte_and_are_not_in_the_overlay` pins them.
+
+### The findings
+
+**P1: the 16-place bound counted path strings, not folders.**
+- **Cause.** Both blocks keyed a candidate by its joined text. `join` kept `.`, `..`, repeated `/` and links as written, so every spelling was a new key. In the hand block each key cost three git processes and a pass over the whole index.
+- **Change, both blocks, both hooks.**
+  - The awk drops `.` and empty components from every path. The new `norm` keeps `..`, because only the file system can say where `..` after a link leads. A brief's path keeps a trailing `/`, because only a folder passes it.
+  - The shell resolves each candidate folder with `CDPATH= cd -P -- <dir>` and `pwd -P` before git runs.
+    - A trailing `echo x` keeps a newline that ends a physical path.
+    - If `pwd -P` fails, the path as written is kept.
+    - A folder `cd -P` cannot enter is skipped. `git -C` would fail there too.
+  - Keys are compared whole, in bash arrays: (folder, `--git-dir`) for the hand block, the resolved file for the brief block. An earlier draft kept a newline-delimited string of keys. I dropped it because a physical path can hold a newline or `\037`, and that could make a real checkout look already seen.
+  - Either block refuses more than 64 paths to resolve. This only bounds the parse and the resolving forks, and it denies, never allows. The brief block still refuses more than 16 distinct briefs, now counted after resolving.
+- **The budget (hand block): 15 s.**
+  - It never counts the first two folders: the payload cwd and the one a command names.
+  - Before each git call for a third or later folder, the block denies with its own reason once 15 s have passed since it began. It never allows a folder it did not check.
+  - The clock is `$SECONDS` minus its value at the block's start. bash 3.2 imports `SECONDS` from the environment, so only the difference is used.
+- **How I chose the number** (hook timings in scratch checkouts with 3,000 staged rule files and their manifests):
+  - At a load of 250-285, one git call took 10-30 s. `cat-file --batch-check` over 6,000 manifests took 30.7 s wall for 0.46 s of CPU.
+  - At that load the hook took 4.0-5.6 s for `echo hello` and 11.2 s for a lone stash. A searcher took 31.6 s at a load of 168.
+  - A budget of 20 s, plus one call, plus the rest of the hook, could pass 60 s. 15 s leaves 45 s for the call in flight and the later rules.
+- **Why the first two folders are exempt.**
+  - With the 15 s budget counted from the block's start and checked before every call, the harness row "companion test alone allowed" was refused, alone, at a load of about 320.
+  - That row is one checkout with one staged file. The parse and the forks alone took 15 s.
+  - 13 of the first 20 hand rows failed the same way in a `-n 4` run at a load of 320-354.
+  - A command that commits from one checkout names at most two folders: the payload cwd and the `cd` or `-C` target. Exempting two keeps load alone from refusing a normal commit.
+- **What the bound guarantees.**
+  - Spellings of one checkout cost what one `cd` costs.
+  - Folders that are not there cost no git process.
+  - Past the first two folders, the block starts no git call once 15 s have passed since it began. So the block's git work ends within the larger of 15 s and the first two folders' cost, plus one git call.
+- **What it leaves open.**
+  - One or two checkouts whose index alone outlasts the timeout. At a load of 250, one 3,000-file checkout plus the stash rule took the whole hook 44.5 s with 4 git processes.
+  - One git call that runs long after the last check.
+  - A pathological command that holds 64 lexically distinct `..` spellings pays 64 resolving forks, then is refused.
+- **Brief block.** It gets the same resolved keys, and its 16-brief refusal now counts distinct resolved briefs.
+- **Tests.**
+  - (a) `test_one_checkout_spelled_many_ways_is_checked_once`.
+    - Setup: the payload cwd is a rulespec checkout with a second worktree and 40 staged rule files, each with its manifest.
+    - Three commands, each followed by `git commit -m x` and the stash: one `cd .`; the review's 15 spellings; and `cd il/..`, `cd .//il/../il/..`, a trailing `/`, a link, `pushd …//rulespec/./il/..`, `cd ~/rulespec` and `cd ../rulespec/il/statutes/../..`.
+    - Measure: `start` events in `GIT_TRACE2_EVENT`, which must be equal on each side, with the Claude block at 3.
+    - **Before** (`52d515f9a` with `b58d8f977`'s hook): Claude 6, 48 and 21; overlay 7 for one `cd`.
+    - **After:** passed.
+  - (b) `test_the_hand_block_denies_when_its_time_budget_is_spent`.
+    - The wrapper: git is an exported bash function, `BASH_FUNC_git%%`, which both hooks' bash 3.2 imports and their `PATH` cannot bypass. It logs each call and sleeps 6 s.
+    - Four distinct rulespec checkouts. Unbounded, that is 12 calls and 72 s.
+    - Both sides must deny with the budget's reason after exactly 6 calls.
+    - **Before:** the Claude side allowed after its 9 calls of the first draft (7 s each).
+    - **After:** passed at `fc5d6bc4b`'s bytes (budget2, below).
+  - `test_too_many_places_to_check_is_refused` replaces `test_more_than_16_places_to_check_is_refused`, whose claim was false.
+    - Refused on both sides: 65 `cd il/..` spellings, 65 `-p` spellings and 17 distinct briefs.
+    - Allowed: 64 spellings, and 16 briefs.
+    - **Before:** failed, on the 16-folder message.
+- **Brief-block test.** `test_one_brief_spelled_17_ways_is_read_once`.
+  - 17 spellings (`./`, `..`, a link) of one brief, for a brief with the regime block and for one without.
+  - A logging `grep` (`BASH_FUNC_grep%%`) must show exactly the two greps of one read of the resolved file.
+  - The brief with the regime is allowed; the one without is denied for that.
+  - **Before:** refused as more than 16 briefs.
+- **The review's question 3.** `test_a_folder_that_is_not_there_starts_no_git_process`.
+  - The payload cwd and 17 `cd`, `-C` and `pushd` targets that do not exist must start 0 git processes and be allowed on both sides.
+  - **Before:** refused as more than 16 folders.
+- **Claims corrected.**
+  - `docs/private-guard-overlay.md`: the fix r1 sentence now says what the 16 was and what review r2 found. A new "fix r2" section states the bound and what it leaves open.
+  - The test docstring: the test it belonged to is replaced (above).
+  - Fix round 1's "Bound" paragraph above carries a correction.
+  - TRUST's fix r1 sentence is not edited. The fix r2 sentence corrects it.
+
+**P2: a staged rule file with a non-ASCII name got through.**
+- **Cause.**
+  - `git diff --cached --name-only` C-quotes a name that holds a byte outside printable ASCII, a double quote, a backslash or a control character.
+  - With `core.quotepath=off` it still quotes the last three. I probed `il/statutes/a"b.yaml`: still quoted.
+  - The anchor `^[a-z][a-z]…` never matched the leading `"`.
+- **Change, both hooks.**
+  - The diff runs with `-z --no-relative`, then `tr '\n\0' '\001\n'`. NULs become line ends, and a newline inside a name becomes `\001`.
+  - Each name under the anchor is then looked up with its own bytes. `cat-file --batch-check` reads the whole line, tab and space included.
+  - A name that holds `\001` is denied whatever is staged: the line-based lookup cannot carry a newline. A manifest spelled with `\001` where the name has a newline must not let the name through.
+  - The denial shows a control byte as `?`.
+- **Tests: rows in `HAND_CASES`, both sides.**
+  - `il/statutes/s-1.yaml` without its manifest, denied: the control, which passed before.
+  - `sécti-2.yaml` without its manifest (denied) and with it (allowed); the same through `git -C`.
+  - `a"b.yaml` without (denied) and with (allowed); `a\b.yaml` without (denied).
+  - A tab in the name, without (denied, shown as `?`) and with (allowed).
+  - A newline in the name, denied both with its real manifest staged and with a `\001` manifest staged.
+  - **Before:** every "denied" row but the control was allowed on both sides (7 failures).
+  - **After:** passed at `8d58890f1`.
+
+**Beyond the brief: a checkout's `diff.relative` hid every staged file.**
+- I found this while fixing P2, in the same diff call.
+- With `diff.relative=true` in a rulespec checkout's config, `git diff --cached --name-only`, run from a subfolder, prints paths relative to it and drops the rest. So `cd <rs>/il && git commit` passed the anchor nothing.
+- A lane's command can set that key.
+- `--no-relative` (git 2.28 or later) fixes it. Every git here is newer: this host's `/usr/bin/git` is 2.54, and `macos-15` CI ships 2.39.
+- **Test:** `test_a_relative_diff_config_hides_no_staged_file`, a `cd` form and a `-C` form.
+  - **Before:** allowed. **After:** passed.
+- The hub may drop this. Its mutant is 12.
+
+**Question 3** of the review is covered under P1 above.
+
+### Hash pairs
+
+- **New:** hook `7c96811e0c0ff0a90b4d9a62fee4fc55a69c2018e2d44ef59c78915499b2b213`, TRUST `d284687f16ab6fac7fccf08f457013afff3f761d243ad97246aa8de95ba0dee6`.
+  - TRUST changes only `hook_sha256` and appends one dated sentence. That sentence ends as the pin test requires.
+  - `03a5bb582` pinned an intermediate pair, `56015c96…`/`c1161574…`. `fc5d6bc4b` replaced it.
+- **Rollback:** fix round 1's pair, hook `324d2a84…` with TRUST `cc26c421…`.
+- **Undo step.** `GS4_TEXT` in `test_guard_subfleet_root.py` maps the two new blocks back to `claude-blocks/fix-r1/`. It edits nothing outside the blocks. `test_fix_r2_undoing_its_step_gives_the_fix_r1_pair` rebuilds both files byte for byte from it and `FR2_PROVENANCE`.
+- **The other undo tests.** `GS3_BLOCKS` now reads `fix-r1/`. `R3_TEXT`, the three earlier undo tests and the search-rel r12d rebuild all undo `GS4_TEXT` first.
+
+### The Claude hook edits the hub makes at install
+
+In `~/.claude/hooks/guard-never-rules.sh`:
+1. Add `git-config-pin.txt`'s line (`f653d463…`) right after the input read. Skip this step if the live hook already carries that line from d2958. That line is byte-identical to this fixture, so the hook should have one pin, not two.
+2. Replace the prefilter line (`c46d8eec…`) with `prefilter.txt` (`2acb063e…`). This is unchanged from fix round 1.
+3. Replace the two blocks:
+   - the hub's 2026-11-11 cut, `77002282…` and `f870acdf…`;
+   - or fix round 1's text, `45775b4d…` and `0b6b418c…`, if that was applied;
+   - with `axiom-brief-regime.sh` (`34c9279dbf1226cde2108ce983b1073142c663038a4fa45cda90665a43df42d5`) and `hand-authored-rulespec.sh` (`407e2dfae5cfc0447c466738ce2c15a2324ac2a213f9436503a9a775fb61a106`).
+
+The blocks need bash (3.2 is enough: `$SECONDS`, indexed arrays, `$'…'`), `tr`, and git 2.28 or later for `--no-relative`.
+
+### Contract
+
+No clause in `docs/acceptance-contract.md` names the overlay's rules, its git calls, its cost or its budget. C-14.1 covers the pair's bytes as a class, as in earlier rounds. So I amended nothing and added no change-log line.
+
+### Commands and results
+
+Environment, as in fix round 1:
+- `TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)`, `UV_CACHE_DIR=$TMPDIR/uv-cache`, scratch `$TMPDIR/sf-gs-fix2`, `PYTHONPATH` unset.
+- Each pytest call had a fresh `--basetemp …/sf-gs-fix2/pytest-<name>`, `-p no:cacheprovider` and `--timeout-method=thread`.
+- Each ran under `timeout 585` through `uv run --no-sync --with 'pytest-xdist>=3.6'`, with at most `-n 4`.
+
+| Command (at) | Result | Load |
+| --- | --- | --- |
+| `uv sync --group dev` | ok, 10.6 s | 255 |
+| probes: exported `git`/`grep` functions in bash 3.2, `tr`, `diff.relative`, trace2 `start` on a failed `-C`, control-byte names on APFS, `-c core.quotepath=off` | each as described above | ~200 |
+| before-r2 (`52d515f9a`, hook `b58d8f977`): the new tests and rows | **13 failed, 5 passed** (the 5: the ASCII control, three allow rows, and the existing brief row "regime spelled in another case", which `-k spelled` also matched), 196 s | 148-207 |
+| after-r2a (`8d58890f1`'s tree): the same, plus DriftTests | 25 passed, 1 failed (the fixture hash pin, not yet moved), 243 s | 155-181 |
+| measure.py, base (`af5e7239`, from `82d3dd819`) / r1 (`324d2a84`) / draft r2 (`a4928966`) | `echo`: 5.6 / 2.1 / 4.0 s. Review command, 3,000 files: 10.7 s, 1 git / **over the 240 s cap**, 33 git started / 44.5 s, **4 git** | 251-275 |
+| measure.py, draft r2 only | stash alone 11.2 s, 1 git; `find . -name x` 31.6 s, 0 git; one `cd` 45.9 s, 4 git; the 15 spellings 20.3 s, 4 git | 149-170 |
+| one checkout's steps by hand | `remote get-url` 0.05 s, diff 0.97 s, `tr`+`awk` 2.9 s, `cat-file` 30.7 s (0.46 s CPU); with `--buffer` 19.3, 10.0 and 6.7 s (noise, so not adopted) | 250-285 |
+| pins1 (`03a5bb582`'s tree): overlay file, undo, TRUST, DriftTests | **42 passed**, 143 s | 200-214 |
+| sync-axiom (`03a5bb582`): the Axiom tests | cap: 45 results, 6 F, names not printed | 170-197 |
+| sync-hand (same, `-v`) | cap: 20 results, 13 F | 320-354 |
+| one-hand: "companion test alone allowed" alone | **failed: the 15 s budget's reason**, 181 s; this led to `fc5d6bc4b` | 326 |
+| budget2 (`fc5d6bc4b`'s bytes): the budget test, companion, `cd` into the checkout, both `-C` forms | **5 passed**, 277 s | 361-394 |
+| pins2 (`fc5d6bc4b`): overlay file, undo/TRUST/doc tests, DriftTests, the new tests and P2 rows | cap: **54 passed, 0 failed**; the rest of the new tests did not start | 167-272 |
+
+### Not run
+
+- `test_same_decisions_on_generated_staged_files`. See the addendum if a later call ran it.
+- All the mutants in `tools/gs_mutants.py` (1-14) and its control. The new mutants 8-14 each have a named test. Each named test failed before the fix with every change reverted at once (before-r2), but no mutant was applied alone.
+- `test_guard_search_rel.py`.
+- `test_guard_subfleet_root.py` beyond the pin, undo and TRUST tests.
+- `test_review_publish_env_round8.py`, `test_guard_trust.py`, `test_doctor.py` and the other files that import `tests/fake/guard.py`.
+- Step 3's four files.
+- At `fc5d6bc4b`'s exact bytes, these never reported: most new tests, the P2 rows, the rest of `HAND_CASES` and `BRIEF_CASES`, and fsmonitor, later-rules and staged-count. They passed at `8d58890f1` (the new ones) or at `b58d8f977` (the old ones). Since then only the budget clause changed, and it cannot fire for two or fewer folders. Every one of those cases has at most two, except the budget test, which ran.
+
+CI runs the suite.
+
+### Deviations
+
+1. **The `--no-relative` fix is beyond the brief** (above). The hub may drop it.
+2. **The budget changed twice.** First 20 s, from the block's start, before every call. Then 15 s, from the measurements. Then the first two folders were exempt, after a load-only refusal. The brief asked for a budget "well under the 60 s timeout"; the exemption is my call, and the reasons are above.
+3. **New denial texts.**
+   - The hand block's "more than 64 folders" refusal.
+   - Its budget denial, which ends "Commit from one checkout per command, or retry when the host is less busy."
+   - The brief block's refusal now reads "more than 16 briefs to read, or more than 64 paths to them".
+4. **A new fixture folder**, `claude-blocks/fix-r1/`, for the undo chain.
+5. **`test_more_than_16_places_to_check_is_refused` is replaced** by `test_too_many_places_to_check_is_refused` and `test_a_folder_that_is_not_there_starts_no_git_process`.
+6. **The first measurement's base row was invalid.** I gave `git show` the hook hash `af5e7239` as a revision, and it wrote an empty file. The second run took the hook from `82d3dd819`, and it matched `af5e7239`.
+7. **Two probe files outside the scratch folder**, `/tmp/sf-probe-<pid>` and `/tmp/sf-gs-fix2-started`. Each was removed in the same command that made it.
+
+### Folders outside the job's scratch
+
+- `$TMPDIR/sf-gs-fix2` (`/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-gs-fix2`) held the probes, `run.sh`, `measure.py`, the logs, the basetemps and the scratch checkouts. It is removed at the end with a guarded `shutil.rmtree` that asserts `sf-gs-fix2` is in the path; the addendum records it.
+- I kept `$TMPDIR/uv-cache` (shared) and the worktree's ignored `.venv`.
+
+Code head: `fc5d6bc4b`. Head built: the commit that adds this section.
