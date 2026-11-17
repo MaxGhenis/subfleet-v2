@@ -1,0 +1,26 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_________ test_expired_sandbox_hold_stops_nothing_without_being_reaped _________
+
+    def test_expired_sandbox_hold_stops_nothing_without_being_reaped():
+        """Mutant 4: the row remains, while the clock ends its effect."""
+        with fleet() as (service, harness, clock, signals):
+            jobs = jobs_from(service, harness, [("review", "workspace-write", "dispatch")])
+            sandbox_hold(service, 100)
+            service._admit()
+            assert attempts(service, jobs["generated-0"]) == []
+            clock[0] = 100
+            service._admit()
+>           assert len(attempts(service, jobs["generated-0"])) == 1, "expired sandbox: job still held"
+E           AssertionError: expired sandbox: job still held
+E           assert 0 == 1
+E            +  where 0 = len([])
+E            +    where [] = attempts(<subfleet.daemon.Daemon object at 0x109f6f770>, '20261112-012544-generated-0')
+
+tests/fake/test_sandbox_hold_properties.py:293: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4462147440:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4462147440:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_sandbox_hold_properties.py::test_expired_sandbox_hold_stops_nothing_without_being_reaped
+1 failed in 2.10s
