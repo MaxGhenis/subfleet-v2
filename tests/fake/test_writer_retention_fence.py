@@ -30,6 +30,10 @@ from tests.fake.test_admission_liveness import CODEX, _checkout, _end, _live
 from tests.unit.retention_world import git, snapshot
 from tests.unit.test_retention_shared_folders import nested_repository, retiring_tree
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
+
 
 def measured(daemon, harness):
     """Codex lanes measured (no admission probe) and the harness's workdir a checkout."""

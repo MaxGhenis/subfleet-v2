@@ -12,6 +12,10 @@ import pytest
 from subfleet import dependencies, folders, procs, retention, retention_archive as rarch
 from tests.unit.retention_world import World, snapshot
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
+
 
 @pytest.fixture
 def world(tmp_path, monkeypatch):

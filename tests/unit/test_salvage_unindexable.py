@@ -32,6 +32,10 @@ from subfleet.salvage import (
 from tests.unit.test_retention_worktrees import owned  # noqa: F401 (a fixture)
 from tests.unit.test_salvage import git, repository  # noqa: F401 (a fixture)
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
+
 NESTED = ".review-scratch/pytest/test_a_checkout_whose_name_end0/repo /"
 ROOT = pytest.mark.skipif(os.geteuid() == 0, reason="root writes through a read-only directory")
 

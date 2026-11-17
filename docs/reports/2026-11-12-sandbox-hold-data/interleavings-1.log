@@ -1,0 +1,89 @@
+........FF..F                                                            [100%]
+=================================== FAILURES ===================================
+____________ test_composed_holds_preserve_the_retry_deadline[40-60] ____________
+
+sandbox_end = 40, expected_start = 60
+
+    @pytest.mark.parametrize("sandbox_end,expected_start", [(40, 60), (90, 90)])
+    def test_composed_holds_preserve_the_retry_deadline(sandbox_end, expected_start):
+        """A release cannot start a retry before its backoff, and a longer hold satisfies it."""
+        with fleet() as (service, harness, clock, signals):
+            ident = submit(service, harness, "build", "retry-backoff")
+            writable(service, ident)
+            service._admit()
+            [first] = attempts(service, ident)
+            finalize_transient(service, first)
+>           assert job(service, ident)["next_check_at"] == stamp(60)
+E           AssertionError: assert None == '2026-10-09T16:34:00Z'
+E            +  where '2026-10-09T16:34:00Z' = stamp(60)
+
+tests/fake/test_sandbox_hold_interleavings.py:94: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4470913888:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4470913888:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+____________ test_composed_holds_preserve_the_retry_deadline[90-90] ____________
+
+sandbox_end = 90, expected_start = 90
+
+    @pytest.mark.parametrize("sandbox_end,expected_start", [(40, 60), (90, 90)])
+    def test_composed_holds_preserve_the_retry_deadline(sandbox_end, expected_start):
+        """A release cannot start a retry before its backoff, and a longer hold satisfies it."""
+        with fleet() as (service, harness, clock, signals):
+            ident = submit(service, harness, "build", "retry-backoff")
+            writable(service, ident)
+            service._admit()
+            [first] = attempts(service, ident)
+            finalize_transient(service, first)
+>           assert job(service, ident)["next_check_at"] == stamp(60)
+E           AssertionError: assert None == '2026-10-09T16:34:00Z'
+E            +  where '2026-10-09T16:34:00Z' = stamp(60)
+
+tests/fake/test_sandbox_hold_interleavings.py:94: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4471426752:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4471426752:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+____ test_reset_pending_transaction_names_the_sandbox_hold_without_spending ____
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10a41b7e0>
+
+    def test_reset_pending_transaction_names_the_sandbox_hold_without_spending(monkeypatch):
+        """A live attempt ends after a sandbox hold; stale demand reaches action.pending."""
+        from tests.fake import test_task_hold_reset_demand as reset_helpers
+    
+        def hold_writable_jobs(service):
+            service.dispatch("tasks", {"action": "hold", "sandbox": "workspace-write",
+                                        "until": daemon_module.after(3600), "note": "disk brake"})
+    
+        monkeypatch.setattr(reset_helpers, "hold_build", hold_writable_jobs)
+        with reset_helpers.reset_fleet(pinned_lane="codex-6") as (service, http, ident):
+            writable(service, ident)
+            monkeypatch.setattr(service, "_workspace", lambda row: (row["workdir"], None, None, []))
+            reader = service.timers.demand
+            reads = []
+    
+            def demand():
+                found = reader()
+                reads.append(found)
+                if len(reads) == 2:
+                    with ThreadPoolExecutor(max_workers=1) as pool:
+                        pool.submit(reset_helpers.retry_waits_while_held, service, ident).result(timeout=30)
+                return found
+    
+            service.timers.demand = demand
+            result = service.timers.reset_credits_cycle()
+            assert len(reads) == 2 and [item["job_id"] for item in reads[1]] == [ident]
+>           assert (result["status"], result.get("sandbox_held")) == ("demand-gone", "workspace-write")
+E           AssertionError: assert ('demand-error', None) == ('demand-gone...kspace-write')
+E             
+E             At index 0 diff: 'demand-error' != 'demand-gone'
+E             Use -v to get more diff
+
+tests/fake/test_sandbox_hold_interleavings.py:159: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4471428096:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4471428096:daemon.py:1083 reset credits: automatic redemption on (only for a job waiting on the lane, one at a time, C-23.16); no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_sandbox_hold_interleavings.py::test_composed_holds_preserve_the_retry_deadline[40-60]
+FAILED tests/fake/test_sandbox_hold_interleavings.py::test_composed_holds_preserve_the_retry_deadline[90-90]
+FAILED tests/fake/test_sandbox_hold_interleavings.py::test_reset_pending_transaction_names_the_sandbox_hold_without_spending
+3 failed, 10 passed in 8.26s

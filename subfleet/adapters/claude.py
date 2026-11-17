@@ -60,8 +60,8 @@ from ..contracts import (
 from ..sessions.transcripts import NotRegularFile, open_regular, read_regular
 from .base import Adapter, AdapterError, open_stream, stream_path
 from .claude_stream import (
-    AUTH_ERROR_KINDS, TRANSIENT_ERROR_KINDS, RateLimitInfo, StreamSummary, message_text,
-    is_synthetic_api_error, model_answered, parse_lines, parse_stream,
+    AUTH_ERROR_KINDS, TRANSIENT_ERROR_KINDS, RateLimitInfo, StreamSummary, cli_placeholder,
+    message_text, is_synthetic_api_error, model_answered, parse_lines, parse_stream,
 )
 
 # --- constants ---------------------------------------------------------------
@@ -229,12 +229,43 @@ CLI_TOO_OLD_RE = re.compile(
     re.IGNORECASE,
 )
 
-# An explicit organisation block: the account exists and still cannot serve lanes.
+# Claude Code refusing subscription access: the account cannot serve lanes. The
+# text recorded for it names an organisation setting ("Your organization has
+# disabled Claude subscription access for Claude Code ...", claude-13 and claude-14
+# on 2026-09-23, claude-5 on 2026-09-30), with error kind `oauth_org_not_allowed`.
+# Yet it matched at re-enrolment on 2026-10-01 for five accounts whose
+# subscriptions Max had cancelled and let expire. So the refusal is quoted verbatim,
+# both known causes are named, and nothing here claims to know which applies.
 ORG_BLOCK_RE = re.compile(
     r"organization has disabled Claude subscription access"
     r"|organization has disabled|subscription access for Claude Code"
     r"|does not have access to Claude",
     re.IGNORECASE,
+)
+
+#: The `error` kind Claude Code stamps on that refusal (`claude_stream.ERROR_KINDS`).
+ORG_BLOCK_ERROR_KIND = "oauth_org_not_allowed"
+
+#: Both known causes of the refusal, neither asserted, and what to do after. It
+#: promises no outcome: re-enrolment still has its own checks, such as the
+#: identity one in `Daemon._enroll_lane`.
+ORG_BLOCK_CAUSES = (
+    "Either the account's subscription lapsed or was cancelled, or an org admin "
+    "disabled Claude Code; once the account is subscribed with Claude Code allowed, "
+    "run `subfleet lanes enroll` again."
+)
+
+#: The refusal lines recorded streams show Claude Code printing, verbatim and whole:
+#: the only refusal words the enrolment refusal's public template may quote (C-25.7,
+#: `refusals`, value `claude_refusal`). A line is added only from a recorded stream.
+#: The one so far: the 2026-09-30 claude-5 streams (Claude Code 2.1.284, 37 attempts,
+#: fixture `tests/fixtures/claude/org-block-recorded`, and `org-block-synthetic` built
+#: from their shape) carried it in the placeholder frame stamped
+#: `oauth_org_not_allowed` and in the error result; fixture `org-block` has the same
+#: sentence from the Claude Code 2.1.260 string table.
+SUBSCRIPTION_REFUSAL_LINES = (
+    "Your organization has disabled Claude subscription access for Claude Code · "
+    "Use an Anthropic API key instead, or ask your admin to enable access",
 )
 
 # Credential-shaped signatures. On their own these are NOT enough: C-9.3 requires a
@@ -286,12 +317,70 @@ def _scrub_non_limit(text: str) -> str:
     return text
 
 
+#: The longest line a `detail` quotes whole.
+LINE_EXCERPT_MAX = 300
+
+
 def _first_line_containing(corpus: str, match: re.Match[str]) -> str:
-    """The line the match landed on, trimmed, so a `detail` names its own evidence."""
+    """The line the match landed on, trimmed, so a `detail` names its own evidence.
+
+    A line longer than `LINE_EXCERPT_MAX` is cut to a window that still holds the
+    whole match, and each cut end is marked with an ellipsis: a long line must
+    never lose the very words that classified it.
+    """
     start = corpus.rfind("\n", 0, match.start()) + 1
     end = corpus.find("\n", match.end())
-    line = corpus[start : end if end != -1 else len(corpus)].strip()
-    return line[:300] if line else match.group(0)
+    raw = corpus[start : end if end != -1 else len(corpus)]
+    line = raw.strip()
+    if not line:
+        return match.group(0)
+    if len(line) <= LINE_EXCERPT_MAX:
+        return line
+    offset = start + len(raw) - len(raw.lstrip())
+    found_at, found_end = match.start() - offset, match.end() - offset
+    if found_end <= LINE_EXCERPT_MAX:
+        low = 0
+    else:
+        spare = max(0, LINE_EXCERPT_MAX - (found_end - found_at))
+        low = max(0, min(found_at - spare // 2, len(line) - LINE_EXCERPT_MAX))
+    high = max(low + LINE_EXCERPT_MAX, found_end)
+    return ("…" if low else "") + line[low:high] + ("…" if high < len(line) else "")
+
+
+#: What a `detail` says in place of a quote when every match lay inside text the
+#: scrubber removes: the words that matched are not repeated.
+SCRUBBED_AWAY = "the words that matched lie inside text the scrubber removes"
+
+# Quotes normally need 300 characters; retain safe context without scrubbing a
+# large diagnostic corpus again merely to produce one quote.
+QUOTE_SCRUB_CHARS = 4096
+
+
+def _scrubbed(text: str) -> str:
+    """`text` safely bounded and scrubbed within C-23.14's budget, before a
+    quoted line or excerpt is taken. A raw cut can drop a credential's label
+    (`password="…` far ahead of the words that matched), and a scrub of the cut text
+    then no longer knows the value. `cut_whole` keeps only safe whole lines within
+    a small head/tail budget, never cutting a credential's context, including a
+    quoted value spanning lines. Scrub those whole (#104 review r1, P1), within
+    MAX_SCRUB_CHARS; a match the safe cut drops supplies no quote."""
+    from ..sessions.handoff import MAX_SCRUB_CHARS, cut_whole, scrub_secrets
+    if len(text) > QUOTE_SCRUB_CHARS:
+        # The cut's marker is ours, never words the provider supplied (its count
+        # could even look like a 401 or 503 signature). Keep a line break instead.
+        text = re.sub(r"(?m)^… \[[\d,]+ characters omitted\] …\n", "\n",
+                      cut_whole(text, QUOTE_SCRUB_CHARS))
+    return scrub_secrets(text, whole=len(text) <= MAX_SCRUB_CHARS)[0]
+
+
+def _quoted(text: str, match: re.Match[str]) -> str:
+    """The line a `detail` quotes for `match`, a match of its pattern in `text`: the
+    line holding the pattern's first match in `text` scrubbed within its budget (`_scrubbed`),
+    excerpted (`_first_line_containing`); `SCRUBBED_AWAY` when the scrub removed
+    every match."""
+    clean = _scrubbed(text)
+    found = match.re.search(clean)
+    return _first_line_containing(clean, found) if found else SCRUBBED_AWAY
 
 
 def model_matches_requested(served: str | None, requested: str | None) -> bool:
@@ -920,8 +1009,20 @@ class ClaudeAdapter(Adapter):
         env_add = self.credential_env(credential)
         rc, stdout, stderr = self._run_turn(env_add, ENROLL_MODEL)
         summary = parse_stream(stdout)
-        corpus = f"{stderr}\n{chr(10).join(summary.texts())}"
+        # C-9.2, C-9.3: only what the CLI and the provider wrote, as `classify` reads
+        # it (`cli_texts`). A model's own words are never a refusal or an auth phrase.
+        corpus = "\n".join([stderr, *summary.cli_texts()])
 
+        # C-9.3: a refusal of subscription access is auth-dead with or without
+        # `system/init`, and a fresh token cannot answer it. Claude Code's own words
+        # are quoted, and the cause is not guessed (`ORG_BLOCK_CAUSES`).
+        refusal = _subscription_refusal(corpus, summary)
+        if refusal is not None:
+            # C-25.7: the client reads the reason's template, which quotes the line
+            # and names the kind only when they pass their closed checks; this
+            # message, with every word and kind, reaches daemon.log only.
+            raise AdapterError(f"claude: {refusal.statement()}", code=5, fix=ORG_BLOCK_CAUSES,
+                               reason="claude-subscription-refused", details=refusal.details())
         if not summary.has_init:
             detail = _first_auth_phrase(corpus) or f"rc {rc}, no system/init in the stream"
             raise AdapterError(
@@ -933,13 +1034,6 @@ class ClaudeAdapter(Adapter):
                 ),
                 reason="claude-authenticate",
             )
-        if ORG_BLOCK_RE.search(corpus):
-            raise AdapterError(
-                "claude: the organisation has disabled Claude Code subscription access "
-                "for this account",
-                code=5,
-                fix="ask the account's admin to enable Claude Code access",
-             reason="claude-org-disabled")
 
         home = env_add.get("CLAUDE_CONFIG_DIR")
         account = self.account_from_reference(credential)
@@ -1649,19 +1743,23 @@ class ClaudeAdapter(Adapter):
         if match:
             return finish(
                 OutcomeClass.CLI_TOO_OLD,
-                f"cli-too-old: {_first_line_containing(cli_corpus, match)}",
+                f"cli-too-old: {_quoted(cli_corpus, match)}",
                 answered={"cli": "version gate in the provider's own output"},
             )
 
         # 1. Authentication (C-9.3), from what the CLI and the provider wrote only
         #    (`cli_texts`): a model quoting these phrases is not the lane refusing,
         #    and an `auth-dead` job moves on to the next lane, disabling this one (C-4.5).
-        match = None if successful else ORG_BLOCK_RE.search(cli_corpus)
-        if match:
+        #    A refusal of subscription access is quoted as Claude Code said it, with
+        #    the known causes and no guess between them; a verified success has none.
+        refusal = None if successful else _subscription_refusal(cli_corpus, summary)
+        if refusal is not None:
             return finish(
                 OutcomeClass.AUTH_DEAD,
-                f"auth-dead: {_first_line_containing(cli_corpus, match)}",
-                answered={"auth": "explicit organisation block"},
+                f"auth-dead: {refusal.statement()}. {ORG_BLOCK_CAUSES}",
+                answered={"auth": f"subscription access refused ({refusal.source})"},
+                refusal={"verbatim": refusal.line, "source": refusal.source,
+                         "quoted_from": refusal.quoted_from},
             )
         auth_kind = next(
             (kind for kind in summary.error_kinds if kind in AUTH_ERROR_KINDS), None
@@ -1678,7 +1776,7 @@ class ClaudeAdapter(Adapter):
             if not summary.has_init:
                 return finish(
                     OutcomeClass.AUTH_DEAD,
-                    f"auth-dead: {_first_line_containing(cli_corpus, auth_signature)}",
+                    f"auth-dead: {_quoted(cli_corpus, auth_signature)}",
                     answered={"auth": "no system/init and a credential failure signature"},
                 )
             # C-9.3: the credential authenticated. Something else answered 401.
@@ -1719,7 +1817,7 @@ class ClaudeAdapter(Adapter):
         # above is the sole limit verdict that can override that success.
         match = None if successful else CREDITS_RE.search(scrubbed)
         if match:
-            line = _first_line_containing(scrubbed, match)
+            line = _quoted(scrubbed, match)
             until, clock_source = _closure_clock(
                 _clock_from_text(scrubbed, now), now
             )
@@ -1743,7 +1841,7 @@ class ClaudeAdapter(Adapter):
             )
         match = None if successful else LIMIT_RE.search(scrubbed)
         if match:
-            line = _first_line_containing(scrubbed, match)
+            line = _quoted(scrubbed, match)
             until, clock_source = _closure_clock(_clock_from_text(scrubbed, now), now)
             return finish(
                 OutcomeClass.LIMITED,
@@ -1811,7 +1909,7 @@ class ClaudeAdapter(Adapter):
             if transient_kind is not None:
                 parts.append(f"provider error kind {transient_kind}")
             if match is not None:
-                parts.append(_first_line_containing(cli_corpus, match))
+                parts.append(_quoted(cli_corpus, match))
             reason = "; ".join(parts)
             return finish(
                 OutcomeClass.TRANSIENT, f"transient: {reason}",
@@ -2042,8 +2140,129 @@ def _decode(value: Any) -> str:
 
 
 def _first_auth_phrase(corpus: str) -> str | None:
-    match = AUTH_SIGNATURE_RE.search(corpus) or ORG_BLOCK_RE.search(corpus)
-    return _first_line_containing(corpus, match) if match else None
+    """The first credential-failure or refusal line, from `corpus` scrubbed within its budget
+    (`_scrubbed`); None when there is none, or the scrub removed every match."""
+    clean = _scrubbed(corpus)
+    match = AUTH_SIGNATURE_RE.search(clean) or ORG_BLOCK_RE.search(clean)
+    return _first_line_containing(clean, match) if match else None
+
+
+@dataclass(frozen=True)
+class SubscriptionRefusal:
+    """Claude Code refusing subscription access, as its own evidence (C-9.3).
+
+    `line` is Claude Code's words verbatim from its source scrubbed within its budget
+    (`_scrubbed`), `error_kinds` every distinct `error`
+    kind the stream carried, in the parser's order. `source` is what made it a
+    refusal: "error-kind" when Claude Code stamped `oauth_org_not_allowed`, else
+    "text" (ORG_BLOCK_RE alone). `quoted_from` is where `line` came from. None of
+    it names a cause: `ORG_BLOCK_CAUSES` lists the known ones without choosing.
+    """
+
+    line: str | None
+    error_kinds: tuple[str, ...]
+    source: str
+    quoted_from: str | None      # "refusal-frame", "provider-error", "output"
+
+    def statement(self) -> str:
+        evidence = []
+        if self.line:
+            evidence.append(f'verbatim: "{self.line}"')
+        elif self.source == "text":
+            evidence.append(f"no words: {SCRUBBED_AWAY}")
+        else:
+            evidence.append(
+                f"no words: the frame carrying {ORG_BLOCK_ERROR_KIND} has none, "
+                "and neither has the provider's error text"
+            )
+        if self.error_kinds:
+            evidence.append(f"error_kinds: {', '.join(self.error_kinds)}")
+        return (
+            "Claude Code refused subscription access for this account "
+            f"({'; '.join(evidence)})"
+        )
+
+    def details(self) -> dict[str, str | None]:
+        """The enrolment refusal's `details` (C-25.7): the line as quoted, and the
+        kind that made it a refusal (`oauth_org_not_allowed` when stamped, else the
+        first credential kind, else none). `refusals.render` shows each only when it
+        passes its closed check: the line one of `SUBSCRIPTION_REFUSAL_LINES`, the
+        kind one of `AUTH_ERROR_KINDS`."""
+        kind = (ORG_BLOCK_ERROR_KIND if ORG_BLOCK_ERROR_KIND in self.error_kinds
+                else next((k for k in self.error_kinds if k in AUTH_ERROR_KINDS), None))
+        return {"claude_refusal": self.line, "error_kind": kind}
+
+
+def _provider_error_texts(summary: StreamSummary) -> tuple[str, ...]:
+    """The words Claude Code marked as an error: the result's `errors`, an error
+    result's text, and the text of every assistant frame stamped with an `error`
+    kind that is the CLI's own (`cli_placeholder`). Never a model's prose: a frame
+    a model served keeps its words out even when the CLI stamped it with a kind
+    outside `AUTH_ERROR_KINDS` (`max_output_tokens`, say), so every line this
+    returns is also in `StreamSummary.cli_texts` (C-9.2)."""
+    texts: list[str] = []
+    if summary.result is not None:
+        texts.extend(summary.result.errors)
+        if summary.result.is_error and summary.result.text:
+            texts.append(summary.result.text)
+    texts.extend(m.text for m in summary.assistants
+                 if m.error and m.text and cli_placeholder(m.raw))
+    return tuple(dict.fromkeys(t for t in texts if t))
+
+
+def _subscription_refusal(corpus: str, summary: StreamSummary) -> SubscriptionRefusal | None:
+    """The refusal when Claude Code's error kind or its text says so, else None.
+
+    It is a refusal when the stream carries `oauth_org_not_allowed` or the corpus
+    matches ORG_BLOCK_RE. The words quoted are the most specific Claude Code gave,
+    first found wins, so unrelated text that happens to match is never quoted in
+    place of the refusal itself:
+
+    1. the frame stamped `oauth_org_not_allowed`: its line ORG_BLOCK_RE matches,
+       else its first line (a reworded refusal is still quoted, not paraphrased);
+    2. the provider's error text (`_provider_error_texts`): a line it matches;
+    3. the rest of the corpus (stderr, ordinary text): the first line it matches;
+    4. a stamped refusal with no words of its own: the provider's error text's
+       first line, else nothing, and the statement says so.
+
+    Whether it is a refusal is read from the text as written; the words quoted are
+    taken from each source scrubbed within its budget first (`_scrubbed`), so a credential whose
+    label lies outside the excerpt is still masked (#104 review r1, P1). A text
+    refusal whose every match lay inside text the scrubber removes quotes nothing,
+    and the statement says so.
+    """
+    kinds = tuple(dict.fromkeys(summary.error_kinds))
+    stamped = ORG_BLOCK_ERROR_KIND in kinds
+    in_corpus = ORG_BLOCK_RE.search(corpus)
+    if not stamped and in_corpus is None:
+        return None
+    source = "error-kind" if stamped else "text"
+
+    def quote(clean: str, found: re.Match[str], where: str) -> SubscriptionRefusal:
+        return SubscriptionRefusal(_first_line_containing(clean, found), kinds, source, where)
+
+    for message in summary.assistants:
+        if message.error == ORG_BLOCK_ERROR_KIND:
+            clean = _scrubbed(message.text)
+            found = ORG_BLOCK_RE.search(clean) or re.search(r"\S", clean)
+            if found:
+                return quote(clean, found, "refusal-frame")
+    errors = tuple(_scrubbed(text) for text in _provider_error_texts(summary))
+    for clean in errors:
+        found = ORG_BLOCK_RE.search(clean)
+        if found:
+            return quote(clean, found, "provider-error")
+    if in_corpus is not None:
+        clean = _scrubbed(corpus)
+        found = ORG_BLOCK_RE.search(clean)
+        if found:
+            return quote(clean, found, "output")
+    if stamped:
+        for clean in errors:
+            found = re.search(r"\S", clean)
+            if found:
+                return quote(clean, found, "provider-error")
+    return SubscriptionRefusal(None, kinds, source, None)
 
 
 def _closure_clock(
