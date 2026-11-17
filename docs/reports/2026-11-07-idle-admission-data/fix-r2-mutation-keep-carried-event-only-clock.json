@@ -1,0 +1,64 @@
+{
+  "baseline": [],
+  "mutations": [
+    {
+      "name": "keep-carried-event-only-clock",
+      "command": [
+        "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpONvUUG/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-n",
+        "4",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-161by427/keep-carried-event-only-clock-test/pytest",
+        "--junitxml=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-161by427/keep-carried-event-only-clock-test/junit.xml",
+        "tests/fake/test_idle_capacity_carried_clock.py::test_probe_pending_look_brought_forward_keeps_at_most_30_seconds[long]",
+        "tests/fake/test_idle_capacity_carried_clock.py::test_route_moved_look_brought_forward_keeps_at_most_30_seconds[long]",
+        "tests/fake/test_idle_capacity_carried_clock.py::test_probe_pending_look_brought_forward_keeps_at_most_30_seconds[short]",
+        "tests/fake/test_idle_capacity_carried_clock.py::test_route_moved_look_brought_forward_keeps_at_most_30_seconds[short]"
+      ],
+      "cwd": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-161by427/keep-carried-event-only-clock",
+      "returncode": 1,
+      "tests_run": 4,
+      "passed_tests": [
+        "tests.fake.test_idle_capacity_carried_clock::test_probe_pending_look_brought_forward_keeps_at_most_30_seconds[short]",
+        "tests.fake.test_idle_capacity_carried_clock::test_route_moved_look_brought_forward_keeps_at_most_30_seconds[short]"
+      ],
+      "failures": [
+        {
+          "test": "tests.fake.test_idle_capacity_carried_clock::test_probe_pending_look_brought_forward_keeps_at_most_30_seconds[long]",
+          "assertion": true
+        },
+        {
+          "test": "tests.fake.test_idle_capacity_carried_clock::test_route_moved_look_brought_forward_keeps_at_most_30_seconds[long]",
+          "assertion": true
+        }
+      ],
+      "errors": [],
+      "elapsed_s": 44.626,
+      "log": "/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/r2-mutation-keep-carried-event-only-clock.log",
+      "mutated_file_sha256": "68ec70e679aaf9fbe9406f476176d375cb0f368634e5f144a30b863d7609c79a",
+      "restored_bytes_match": true,
+      "killed_by": [
+        "test_probe_pending_look_brought_forward_keeps_at_most_30_seconds[long]",
+        "test_route_moved_look_brought_forward_keeps_at_most_30_seconds[long]"
+      ],
+      "controls_passed": [
+        "test_probe_pending_look_brought_forward_keeps_at_most_30_seconds[short]",
+        "test_route_moved_look_brought_forward_keeps_at_most_30_seconds[short]"
+      ],
+      "killed": true
+    }
+  ],
+  "sources_sha256": {
+    "subfleet/daemon.py": "136a3cf79b51a5629371b47babc608c8f1352bc8745a7d58e0cda9e235337168",
+    "subfleet/store.py": "cc7bd67a6690dac28a50359a787783f27da181cf55bbfc658cba817fe1604e1d",
+    "subfleet/scheduler.py": "e33af820f856cafcdc6d42dbe5ba7ae138c3b6ed47eaff61392f3b232f6d6fe2",
+    "subfleet/contracts.py": "8ecdfe59f6b10a49c784706dfb668263c49132847f978e9e5020e15a41852136",
+    "tests/fake/test_idle_capacity_carried_clock.py": "88cf47c3f8d02a18236415075fc388e0b5ed73d9d9727fde30c9d95387c30a04"
+  },
+  "pristine_bytes_unchanged": true
+}

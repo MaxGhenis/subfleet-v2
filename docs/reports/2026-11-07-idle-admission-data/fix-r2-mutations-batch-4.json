@@ -1,0 +1,138 @@
+{
+  "baseline": [],
+  "mutations": [
+    {
+      "name": "r1-retain-route-error-history",
+      "command": [
+        "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpSvLVOj/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-n",
+        "4",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-wnw2jrgq/r1-retain-route-error-history-test/pytest",
+        "--junitxml=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-wnw2jrgq/r1-retain-route-error-history-test/junit.xml",
+        "tests/fake/test_idle_route_deferrals.py::test_successful_route_resets_prior_error_count[True]",
+        "tests/fake/test_idle_route_deferrals.py::test_intervening_success_should_not_delay_start_after_release[True]"
+      ],
+      "cwd": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-wnw2jrgq/r1-retain-route-error-history",
+      "returncode": 1,
+      "tests_run": 2,
+      "passed_tests": [],
+      "failures": [
+        {
+          "test": "tests.fake.test_idle_route_deferrals::test_successful_route_resets_prior_error_count[True]",
+          "assertion": true
+        },
+        {
+          "test": "tests.fake.test_idle_route_deferrals::test_intervening_success_should_not_delay_start_after_release[True]",
+          "assertion": true
+        }
+      ],
+      "errors": [],
+      "elapsed_s": 19.678,
+      "log": "/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/r2-mutation-r1-retain-route-error-history.log",
+      "mutated_file_sha256": "e9b4f7d93688883fb4b0c5a2a0cf0bf9a3dac8c0b6b31a01be9883894bef345a",
+      "restored_bytes_match": true,
+      "killed_by": [
+        "test_successful_route_resets_prior_error_count[True]",
+        "test_intervening_success_should_not_delay_start_after_release[True]"
+      ],
+      "controls_passed": [],
+      "killed": true
+    },
+    {
+      "name": "r1-discard-skipped-waiter-news",
+      "command": [
+        "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpSvLVOj/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-n",
+        "4",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-wnw2jrgq/r1-discard-skipped-waiter-news-test/pytest",
+        "--junitxml=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-wnw2jrgq/r1-discard-skipped-waiter-news-test/junit.xml",
+        "tests/fake/test_idle_capacity_guard_news.py::test_release_news_survives_temporary_door_hold[long-machine]"
+      ],
+      "cwd": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-wnw2jrgq/r1-discard-skipped-waiter-news",
+      "returncode": 1,
+      "tests_run": 1,
+      "passed_tests": [],
+      "failures": [
+        {
+          "test": "tests.fake.test_idle_capacity_guard_news::test_release_news_survives_temporary_door_hold[long-machine]",
+          "assertion": true
+        }
+      ],
+      "errors": [],
+      "elapsed_s": 19.665,
+      "log": "/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/r2-mutation-r1-discard-skipped-waiter-news.log",
+      "mutated_file_sha256": "c704885701661f99753e41a4a5e4abb5156b5bcc65b1fb8ca714e73d9658006a",
+      "restored_bytes_match": true,
+      "killed_by": [
+        "test_release_news_survives_temporary_door_hold[long-machine]"
+      ],
+      "controls_passed": [],
+      "killed": true
+    },
+    {
+      "name": "r1-read-expiries-after-pass",
+      "command": [
+        "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpSvLVOj/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-n",
+        "4",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-wnw2jrgq/r1-read-expiries-after-pass-test/pytest",
+        "--junitxml=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-wnw2jrgq/r1-read-expiries-after-pass-test/junit.xml",
+        "tests/fake/test_idle_admission_pacing.py::test_closure_expiring_during_the_first_pass_is_not_lost",
+        "tests/fake/test_idle_admission_pacing.py::test_closure_expiring_during_a_slow_pass_survives_its_completion"
+      ],
+      "cwd": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-wnw2jrgq/r1-read-expiries-after-pass",
+      "returncode": 1,
+      "tests_run": 2,
+      "passed_tests": [],
+      "failures": [
+        {
+          "test": "tests.fake.test_idle_admission_pacing::test_closure_expiring_during_the_first_pass_is_not_lost",
+          "assertion": true
+        },
+        {
+          "test": "tests.fake.test_idle_admission_pacing::test_closure_expiring_during_a_slow_pass_survives_its_completion",
+          "assertion": true
+        }
+      ],
+      "errors": [],
+      "elapsed_s": 17.427,
+      "log": "/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/r2-mutation-r1-read-expiries-after-pass.log",
+      "mutated_file_sha256": "10aa2a66cc11e82dacb1d8f185070d45d6aefeb3b97971ce4d51e88768e650ae",
+      "restored_bytes_match": true,
+      "killed_by": [
+        "test_closure_expiring_during_the_first_pass_is_not_lost",
+        "test_closure_expiring_during_a_slow_pass_survives_its_completion"
+      ],
+      "controls_passed": [],
+      "killed": true
+    }
+  ],
+  "sources_sha256": {
+    "subfleet/daemon.py": "136a3cf79b51a5629371b47babc608c8f1352bc8745a7d58e0cda9e235337168",
+    "subfleet/store.py": "cc7bd67a6690dac28a50359a787783f27da181cf55bbfc658cba817fe1604e1d",
+    "subfleet/scheduler.py": "e33af820f856cafcdc6d42dbe5ba7ae138c3b6ed47eaff61392f3b232f6d6fe2",
+    "subfleet/contracts.py": "8ecdfe59f6b10a49c784706dfb668263c49132847f978e9e5020e15a41852136",
+    "tests/fake/test_idle_route_deferrals.py": "3bedb5af3a23f9a0ba75a5c1019dba02d2ec20cca34c175280dc440c8ee3344f",
+    "tests/fake/test_idle_capacity_guard_news.py": "3d9f631dd40ea7876dbda9d5c429b7e1642f1d2984661e65d8352d132c95dff9",
+    "tests/fake/test_idle_admission_pacing.py": "0c32e8c14fa381a52745e9a56c6982d70b4f48d4070a393bd5bd26ac8d791f32"
+  },
+  "pristine_bytes_unchanged": true
+}
