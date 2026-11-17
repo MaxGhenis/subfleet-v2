@@ -880,6 +880,8 @@ scratch `$TMPDIR/sf-scrubop-fix1`, a new `--basetemp` with `pytest` in its name.
   tests/fake/test_state_contract.py tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py`;
   the growth test on both codes; mutants p0-1, p0-4, p1-1; G and F-never at the edges on
   289f15a5c; the superset mask dump against 289f15a5c and a4aded885. CI's run is the check for these.
+  The contract guards (`test_invariants_index.py` among them) didn't run after the C-23.14 edit, so the
+  clause's format is checked only by CI.
   Cause: at this load each long-placement test took 100–150 s, and calls I issued together ran one after
   another, so the edge and mutant calls took 18:11–19:16.
 - **One code commit.** The brief asks for a failing test and a fix per finding, in order. The fixes share
