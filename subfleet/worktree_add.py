@@ -47,32 +47,79 @@ def marker(job_id: str) -> str:
 #: keeps the add's marker and so holds the job until it exits (review r1 of #329, P2).
 PINNED_CONFIG = (("core.fsmonitor", "false"),)
 
+#: C's `unsigned long` and `int` on the 64-bit hosts git runs on here, as git 2.55 reads
+#: `GIT_CONFIG_COUNT` with them (`git_config_from_parameters`).
+_ULONG_MAX = 2**64 - 1
+_INT_MAX = 2**31 - 1
+#: C's `isspace` under the C locale, which every add runs under (`_git_env` sets `LC_ALL=C`).
+_C_SPACE = b" \t\n\v\f\r"
 
-def _config_count(value: str) -> int | None:
-    """What git reads from `GIT_CONFIG_COUNT`: C's `strtoul` over the whole value (empty is 0).
-    None when git refuses the value ("bogus count", "too many entries") and reads no config."""
-    digits = value.lstrip(" \t\n\v\f\r")
-    sign = digits[:1] if digits[:1] in ("+", "-") else ""
-    digits = digits[len(sign):]
-    if value == "":
+
+class ConfigRefused(Exception):
+    """C-6.8: the environment's `GIT_CONFIG_COUNT` entries are ones git 2.55 refuses, so the
+    add could not carry `PINNED_CONFIG`; the message is git's own reason, naming no value."""
+
+
+def _strtoul(raw: bytes) -> tuple[int, int]:
+    """C's `strtoul(raw, &end, 10)` under the C locale, with a 64-bit `unsigned long`: the
+    value and `end`'s offset. C-locale whitespace, one optional sign, then ASCII digits; with no
+    digits `end` is 0 (the start, before any whitespace); a magnitude past `ULONG_MAX` reads as
+    `ULONG_MAX`, and a minus sign negates the rest modulo 2**64, so `-1` is `ULONG_MAX` and
+    `-18446744073709551615` is 1. Leading zeros are stripped before any `int()`, which refuses
+    more than 4,300 digits (review r2 of #329, P2: 5,000 zeros raised `ValueError`)."""
+    at = 0
+    while at < len(raw) and raw[at] in _C_SPACE:
+        at += 1
+    negative = raw[at:at + 1] == b"-"
+    if raw[at:at + 1] in (b"+", b"-"):
+        at += 1
+    start = at
+    while at < len(raw) and 0x30 <= raw[at] <= 0x39:
+        at += 1
+    if at == start:
+        return 0, 0
+    significant = raw[start:at].lstrip(b"0") or b"0"
+    if len(significant) > len(str(_ULONG_MAX)) or int(significant) > _ULONG_MAX:
+        return _ULONG_MAX, at
+    magnitude = int(significant)
+    return (-magnitude) % 2**64 if negative else magnitude, at
+
+
+def config_count(env: dict[str, str]) -> int:
+    """How many `GIT_CONFIG_KEY_<n>`/`GIT_CONFIG_VALUE_<n>` entries git 2.55 reads from `env`
+    (`git_config_from_parameters`): `strtoul` over `GIT_CONFIG_COUNT`'s bytes (unset is 0, and so
+    is empty), refused when anything follows the number ("bogus count") or the number is above
+    `INT_MAX` ("too many entries"); then entry 0, 1, ... up to the count, each key before its
+    value, refused at the first one missing. Raises `ConfigRefused` with git's reason wherever
+    git would refuse; git then reads no config and runs nothing. Real git is the oracle for
+    every case in `tests/fake/test_worktree_add_census.py`."""
+    value = env.get("GIT_CONFIG_COUNT")
+    if value is None:
         return 0
-    if not digits or not digits.isascii() or not digits.isdigit():
-        return None
-    count = int(digits)
-    if count > 2**31 - 1 or (sign == "-" and count):
-        return None                         # "too many entries" (strtoul wraps a negative)
+    raw = os.fsencode(value)
+    count, end = _strtoul(raw)
+    if end != len(raw):
+        raise ConfigRefused("bogus count in GIT_CONFIG_COUNT")
+    if count > _INT_MAX:
+        raise ConfigRefused("too many entries in GIT_CONFIG_COUNT")
+    for index in range(count):             # ends at the first gap: at most len(env) entries
+        for name in (f"GIT_CONFIG_KEY_{index}", f"GIT_CONFIG_VALUE_{index}"):
+            if name not in env:
+                raise ConfigRefused(f"missing config {name.split('_')[2].lower()} {name}")
     return count
 
 
 def pinned(env: dict[str, str]) -> dict[str, str]:
-    """C-6.8: `env` with `PINNED_CONFIG` appended after any `GIT_CONFIG_COUNT` entries it
-    already has. Git reads these as `git -c` (command-line scope, over every config file), and
-    every git the add starts inherits them. A count git refuses is left as it is: git then reads
-    no config at all and runs nothing."""
+    """C-6.8: `env` with `PINNED_CONFIG` appended after the `GIT_CONFIG_COUNT` entries git reads
+    from it (`config_count`). Git reads these as `git -c` (command-line scope, over every config
+    file), and every git the add starts inherits them; only `GIT_CONFIG_PARAMETERS`, which git
+    reads after them, can set the same key over the pin. Raises `ConfigRefused` where git would
+    refuse the entries (or the pinned count): the add is then not started, and the daemon refuses
+    the job (`worktree-git-config`) rather than run a git that reads no pin."""
     env = dict(env)
-    count = _config_count(env.get("GIT_CONFIG_COUNT", ""))
-    if count is None:
-        return env
+    count = config_count(env)
+    if count + len(PINNED_CONFIG) > _INT_MAX:
+        raise ConfigRefused("too many entries in GIT_CONFIG_COUNT")
     for offset, (key, value) in enumerate(PINNED_CONFIG):
         env[f"GIT_CONFIG_KEY_{count + offset}"] = key
         env[f"GIT_CONFIG_VALUE_{count + offset}"] = value

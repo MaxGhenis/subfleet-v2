@@ -460,28 +460,178 @@ def test_the_add_pins_fsmonitor_off_after_the_config_it_inherits(state_daemon, m
     assert (read("core.fsmonitor"), read("user.name")) == ("false", "Synthetic Name")
 
 
-@pytest.mark.parametrize("count,index", [(None, 0), ("", 0), ("0", 0), ("2", 2), (" 2", 2), ("+2", 2), ("-0", 0),
-                                         ("abc", None), ("2 ", None), ("-1", None), ("2147483648", None)])
-def test_the_pin_follows_whatever_count_git_reads(tmp_path, count, index):
-    """`pinned` appends where git will read it, and leaves a count git refuses (git then reads no
-    config and runs nothing). Real git is the oracle for every count."""
-    base = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(tmp_path), "LC_ALL": "C"}
-    if count is not None:
-        base.update({"GIT_CONFIG_COUNT": count, "GIT_CONFIG_KEY_0": "user.name", "GIT_CONFIG_VALUE_0": "Synthetic",
-                     "GIT_CONFIG_KEY_1": "user.name", "GIT_CONFIG_VALUE_1": "Synthetic"})
+#: `GIT_CONFIG_COUNT` values, each read by real git as the oracle (review r2 of #329, P2: 5,000
+#: zeros raised `ValueError`, and `-18446744073709551615`, which git reads as 1, left an inherited
+#: `core.fsmonitor=true` unpinned): leading zeros, signs, C-locale and other whitespace, overflow
+#: either way, `INT_MAX`, empty and non-digits. Synthetic values only.
+COUNTS = {
+    "unset": None, "empty": "", "zero": "0", "zeros": "00", "5000-zeros": "0" * 5000,
+    "5000-zeros-then-2": "0" * 5000 + "2", "leading-zeros": "002", "two": "2", "three": "3", "four": "4",
+    "key-without-value": "4", "plus": "+2", "minus-zero": "-0", "plus-zero": "+0", "space-minus-zero": " -0",
+    "minus-one": "-1", "minus-minus": "--1", "plus-minus": "+-1", "minus-plus": "-+1", "plus-plus": "++1",
+    "plus-alone": "+", "minus-alone": "-", "space-alone": " ", "spaces": "  2", "tab": "\t2",
+    "newline": "\n2", "vertical-tab": "\v2", "form-feed": "\f2", "return": "\r2", "vtab-form-feed": "\v\f2",
+    "space-plus": " +2", "trailing-space": "2 ", "trailing-newline": "2\n", "plus-space": "+ 2",
+    "minus-space": "- 2", "wraps-to-one": "-18446744073709551615", "wraps-to-two": "-18446744073709551614",
+    "wraps-to-three": "-18446744073709551613", "wraps-with-zeros": "-0018446744073709551615",
+    "minus-overflow": "-18446744073709551616", "minus-5000-nines": "-" + "9" * 5000,
+    "ulong-max": "18446744073709551615", "overflow": "18446744073709551616", "5000-nines": "9" * 5000,
+    "int-max": "2147483647", "past-int-max": "2147483648", "wraps-to-int-max": "-18446744071562067969",
+    "wraps-past-int-max": "-18446744071562067968", "letters": "abc", "hex": "0x1", "exponent": "1e3",
+    "decimal": "1.0", "underscore": "1_0", "arabic-indic-digit": "١", "fullwidth-digit": "１",
+    "superscript": "²", "no-break-space": " 2", "en-quad": " 2", "next-line": "\x852",
+    "byte-a0": "\udca02", "trailing-byte": "2\udca0",
+}
+#: The entries the environment already has: an inherited `core.fsmonitor=true` first, which the
+#: pin must override wherever git reads it, then two more that git must keep reading.
+INHERITED = {"GIT_CONFIG_KEY_0": "core.fsmonitor", "GIT_CONFIG_VALUE_0": "true",
+             "GIT_CONFIG_KEY_1": "sf.probe", "GIT_CONFIG_VALUE_1": "1",
+             "GIT_CONFIG_KEY_2": "sf.probe", "GIT_CONFIG_VALUE_2": "2"}
+ENTRIES = ["core.fsmonitor true", "sf.probe 1", "sf.probe 2"]
+
+
+@pytest.fixture(scope="module")
+def fsmonitor_repo(tmp_path_factory):
+    """A repository whose own config sets `core.fsmonitor=true`, and a HOME with no config."""
+    base = tmp_path_factory.mktemp("fsmonitor")
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(base), "LC_ALL": "C",
+           "GIT_CONFIG_NOSYSTEM": "1"}
+    repo = base / "repo"
+    subprocess.run(["git", "init", "-q", str(repo)], env=env, check=True, timeout=60)
+    subprocess.run(["git", "-C", str(repo), "config", "core.fsmonitor", "true"], env=env, check=True, timeout=60)
+    return repo, env
+
+
+def git_reads(repo, env):
+    """What real git reads under `env`: its exit status, its first stderr line, and the
+    command-scope entries (`GIT_CONFIG_COUNT`'s) it took, in order."""
+    run = subprocess.run(["git", "-C", str(repo), "config", "--show-scope", "--get-regexp",
+                          r"^(core\.fsmonitor|sf\.probe)$"], env=env, capture_output=True, timeout=60)
+    said = (run.stderr.decode("utf-8", "backslashreplace").splitlines() or [""])[0]
+    read = [line.split("\t", 1)[1] for line in run.stdout.decode().splitlines() if line.startswith("command\t")]
+    return run.returncode, said, read
+
+
+@pytest.mark.parametrize("name", sorted(COUNTS))
+def test_the_pin_follows_whatever_count_git_reads(fsmonitor_repo, name):
+    """`pinned` appends the pin where git reads it, after exactly the entries git reads, and
+    refuses (`ConfigRefused`, with git's own reason) every count git refuses, so no add starts
+    with the pin unread. Real git 2.55 reads the same environment first, as the oracle."""
+    repo, base = fsmonitor_repo
+    base = {**base, **INHERITED}
+    if COUNTS[name] is not None:
+        base["GIT_CONFIG_COUNT"] = COUNTS[name]
+    if name == "key-without-value":
+        base["GIT_CONFIG_KEY_3"] = "sf.probe"
+    status, said, read = git_reads(repo, base)
+    if status == 128:
+        assert said.startswith("error: ") and read == [], (said, read)
+        with pytest.raises(worktree_add.ConfigRefused) as refused:
+            worktree_add.pinned(base)
+        assert f"error: {refused.value}" == said
+        return
+    count = len(read)
+    assert (status, said, read) == (0, "", ENTRIES[:count])
+    assert worktree_add.config_count(base) == count
     env = worktree_add.pinned(base)
-    repo = tmp_path / "repo"
-    subprocess.run(["git", "init", "-q", str(repo)], env=base | {"GIT_CONFIG_COUNT": "0"}, check=True, timeout=60)
-    subprocess.run(["git", "-C", str(repo), "config", "core.fsmonitor", "true"], env=base | {"GIT_CONFIG_COUNT": "0"},
-                   check=True, timeout=60)
+    pin = {"GIT_CONFIG_COUNT": str(count + 1), f"GIT_CONFIG_KEY_{count}": "core.fsmonitor",
+           f"GIT_CONFIG_VALUE_{count}": "false"}
+    assert env == {**base, **pin}
+    assert git_reads(repo, env) == (0, "", ENTRIES[:count] + ["core.fsmonitor false"])
     read = subprocess.run(["git", "-C", str(repo), "config", "--get", "core.fsmonitor"], env=env,
                           capture_output=True, text=True, timeout=60)
+    assert (read.returncode, read.stdout.strip()) == (0, "false")
+
+
+def test_git_refuses_the_counts_the_oracle_says_it_refuses(fsmonitor_repo):
+    """The oracle itself, pinned: the review's two values are ones git accepts (as 0 and as 1),
+    and each of git's four reasons occurs, so the parametrized test covers every branch."""
+    repo, base = fsmonitor_repo
+    seen = {}
+    for name in ("5000-zeros", "wraps-to-one", "minus-one", "trailing-space", "four", "key-without-value"):
+        env = {**base, **INHERITED, "GIT_CONFIG_COUNT": COUNTS[name]}
+        if name == "key-without-value":
+            env["GIT_CONFIG_KEY_3"] = "sf.probe"
+        seen[name] = git_reads(repo, env)
+    assert seen == {
+        "5000-zeros": (0, "", []),
+        "wraps-to-one": (0, "", ["core.fsmonitor true"]),
+        "minus-one": (128, "error: too many entries in GIT_CONFIG_COUNT", []),
+        "trailing-space": (128, "error: bogus count in GIT_CONFIG_COUNT", []),
+        "four": (128, "error: missing config key GIT_CONFIG_KEY_3", []),
+        "key-without-value": (128, "error: missing config value GIT_CONFIG_VALUE_3", []),
+    }
+
+
+def popen_spy(monkeypatch, seen):
+    """`subprocess.Popen` (which `subprocess.run` calls too), recording each `git worktree add`'s
+    environment first."""
+    real = subprocess.Popen
+
+    def spy(command, *args, **kwargs):
+        if "worktree" in command and "add" in command:
+            seen.append(kwargs.get("env"))
+        return real(command, *args, **kwargs)
+    monkeypatch.setattr(daemon_module.subprocess, "Popen", spy)
+
+
+@pytest.mark.parametrize("name", ["minus-one", "trailing-space", "four", "past-int-max", "letters"])
+def test_an_add_whose_config_git_would_refuse_never_starts(state_daemon, monkeypatch, tmp_path, name):  # noqa: F811
+    """Review r2 of #329 (P2): entries git refuses refuse the job (`worktree-git-config`, exit 7)
+    before any census or add, with git's reason in daemon.log only; no exception escapes and no
+    git runs unpinned. Before the fix the add ran with the environment as it was."""
+    daemon, _ = state_daemon
+    job = {"job_id": "refused-pin", "workdir_head": "commit"}
+    (daemon.root / "jobs" / job["job_id"]).mkdir(parents=True)
+    monkeypatch.setattr(daemon, "_tree_git", lambda *args: ["git"])
+    real_env = daemon_module._git_env
+    inherited = {**INHERITED, "GIT_CONFIG_COUNT": COUNTS[name]}
+    monkeypatch.setattr(daemon_module, "_git_env",
+                        lambda env: {**real_env(env), **inherited})
+    started, censuses = [], []
+    monkeypatch.setattr(daemon_module.subprocess, "Popen", lambda *args, **kwargs: started.append(args))
+    monkeypatch.setattr(daemon, "_add_census", lambda job: censuses.append(job) or procs.Containment())
+    with pytest.raises(daemon_module.AdapterError) as refused:
+        daemon._add_worktree(job, str(tmp_path / "tree"), None, 1)
+    assert (refused.value.reason, refused.value.code) == ("worktree-git-config", 7)
+    assert started == [] and censuses == []
+    daemon._log_handler.flush()
+    reason = {"minus-one": "too many entries", "past-int-max": "too many entries",
+              "four": "missing config key GIT_CONFIG_KEY_3"}.get(name, "bogus count")
+    assert f"job refused-pin: worktree add refused: git would refuse its config entries: {reason}" in \
+        (daemon.root / "daemon.log").read_text()
+
+
+@pytest.mark.parametrize("name,index", [("5000-zeros", 0), ("wraps-to-one", 1), ("minus-one", None)])
+def test_admission_pins_the_add_wherever_git_reads_its_count(state_daemon, monkeypatch, name, index):  # noqa: F811
+    """Review r2 of #329 (P2), through admission with real git: 5,000 zeros (count 0) raised an
+    uncaught `ValueError` out of `_admit`, and `-18446744073709551615` (count 1) left the inherited
+    `core.fsmonitor=true` in force. Each is now pinned where git reads it and the job is
+    reserved; a count git refuses (`-1`) fails the job with its stated refusal, no add started."""
+    daemon, harness = state_daemon
+    repository(daemon, harness)
+    job_id = submit(daemon, harness)
+    real_env = daemon_module._git_env
+    inherited = {**INHERITED, "GIT_CONFIG_COUNT": COUNTS[name]}
+    monkeypatch.setattr(daemon_module, "_git_env", lambda env: {**real_env(env), **inherited})
+    seen = []
+    popen_spy(monkeypatch, seen)
+    daemon._admit()
+    job = daemon.store.get_job(job_id)
+    tree = daemon.root / "worktrees" / job_id
     if index is None:
-        assert env == base and read.returncode == 128
-    else:
-        assert env["GIT_CONFIG_COUNT"] == str(index + 1)
-        assert (env[f"GIT_CONFIG_KEY_{index}"], env[f"GIT_CONFIG_VALUE_{index}"]) == ("core.fsmonitor", "false")
-        assert (read.returncode, read.stdout.strip()) == (0, "false")
+        assert (job["state"], job["rc"], seen) == ("failed", 7, [])
+        assert not tree.exists()
+        assert any("git would refuse the daemon's GIT_CONFIG_COUNT entries" in row["text"]
+                   for row in daemon.store.list_notices()), daemon.store.list_notices()
+        return
+    assert [a["state"] for a in daemon.store.list_attempts(job_id)] == ["reserved"], job
+    env = seen[0]
+    assert env["GIT_CONFIG_COUNT"] == str(index + 1)
+    assert (env[f"GIT_CONFIG_KEY_{index}"], env[f"GIT_CONFIG_VALUE_{index}"]) == ("core.fsmonitor", "false")
+    read = subprocess.run(["git", "-C", str(tree), "config", "--get", "core.fsmonitor"], env=env,
+                          capture_output=True, text=True, timeout=60)
+    assert (read.returncode, read.stdout.strip()) == (0, "false")
 
 
 def test_a_denied_group_stop_has_a_bounded_reap_and_retains_the_child(state_daemon, monkeypatch, tmp_path):  # noqa: F811

@@ -6719,11 +6719,21 @@ class Daemon:
 
     def _add_worktree(self, job: dict, workdir: str, common: str | None, cap: float):
         """C-6.8: the checkout has its own group, marked environment, and file-backed stderr."""
+        # C-6.8: `core.fsmonitor=false` pinned, so git starts no detached helper with the marker.
+        # Entries git would refuse refuse the job before any add starts (review r2 of #329, P2).
+        try:
+            env = worktree_add.pinned({**_git_env(None), "SUBFLEET_ATTEMPT": worktree_add.marker(job["job_id"]),
+                                       "SUBFLEET_ROOT": str(self.root)})
+        except worktree_add.ConfigRefused as exc:
+            self.log.warning("job %s: worktree add refused: git would refuse its config entries: %s",
+                             job["job_id"], refusals.scrubbed_line(str(exc)))
+            raise AdapterError("git would refuse the daemon's GIT_CONFIG_COUNT entries, so no worktree can be "
+                               "added; daemon.log has git's reason",
+                               fix="correct or remove GIT_CONFIG_COUNT and its GIT_CONFIG_KEY_<n> and "
+                                   "GIT_CONFIG_VALUE_<n> entries where the daemon is started, then restart it",
+                               reason="worktree-git-config") from None
         self._require_add_empty(job)
         command = [*self._tree_git(job, common, cap), "worktree", "add", "--detach", workdir, job["workdir_head"]]
-        # C-6.8: `core.fsmonitor=false` pinned, so git starts no detached helper with the marker.
-        env = worktree_add.pinned({**_git_env(None), "SUBFLEET_ATTEMPT": worktree_add.marker(job["job_id"]),
-                                   "SUBFLEET_ROOT": str(self.root)})
         timeout = self.policy["caps"]["worktree_add_timeout_s"]
         failure = None
         with tempfile.TemporaryFile(dir=self.root / "jobs" / job["job_id"]) as stderr:
