@@ -252,8 +252,8 @@ NEW_SED = (r"sed 's/\$[{]HOME[}]/$HOME/g; s/\$[{]SUBFLEET_ROOT[}]/$SUBFLEET_ROOT
 OLD_SED = r"sed 's/\$[{]HOME[}]/$HOME/g'"
 OLD_TRUST_TEXT = [
     (NEW_HOOK_SHA256, OLD_HOOK_SHA256),
-    # D-CODEX-0169 (2026-11-17): the lane pin moved 0.159.0 -> 0.169.0 after the 2026-09-29 TRUST.
-    ('"codex_version": "codex-cli 0.169.0"', '"codex_version": "codex-cli 0.159.0"'),
+    # D-CODEX-0169 (2026-11-17): the lane pin moved 0.159.0 -> 0.169.1 after the 2026-09-29 TRUST.
+    ('"codex_version": "codex-cli 0.169.1"', '"codex_version": "codex-cli 0.159.0"'),
 ]
 OLD_PROVENANCE_END = "Previous pin kept at TRUST.pre-0.159.0.bak."
 
@@ -988,12 +988,12 @@ def test_trust_keeps_the_installed_lane_pin():
     installed TRUST had pinned 0.159.0 since 2026-09-29. Installed, that TRUST would
     have refused every Codex lane at preflight (VERSION). This TRUST keeps the
     installed pin and its 0.158.0 and 0.159.0 provenance. D-CODEX-0169 (2026-11-17)
-    then moved the pin to 0.169.0 for GPT-6.2 Sol, with its own provenance."""
+    then moved the pin to 0.169.1 for GPT-6.2 Sol, with its own provenance."""
     trust = json.loads(TRUST.read_text())
-    assert trust["codex_version"] == "codex-cli 0.169.0"
+    assert trust["codex_version"] == "codex-cli 0.169.1"
     assert "lane pin moved 0.158.0 -> 0.159.0" in trust["provenance"]
-    assert "lane pin moved 0.159.0 -> 0.169.0" in trust["provenance"]
-    assert "Previous pin kept at TRUST.pre-0.169.0.bak" in trust["provenance"]
+    assert "lane pin moved 0.159.0 -> 0.169.1" in trust["provenance"]
+    assert "Previous pin kept at TRUST.pre-0.169.1.bak" in trust["provenance"]
 
 
 def test_trust_changed_only_the_hook_hash_and_the_appended_provenance():

@@ -33,7 +33,7 @@ def installed_text() -> str:
 
 
 def verified(*_args, **_kwargs):
-    return SimpleNamespace(ok=True, kind="verified", version="codex-cli 0.169.0", message="")
+    return SimpleNamespace(ok=True, kind="verified", version="codex-cli 0.169.1", message="")
 
 
 def refused(*_args, **_kwargs):
@@ -49,7 +49,7 @@ def test_the_rebuilt_installed_trust_is_the_installed_one_and_derives_to_the_rep
     assert sha(text.encode()) == kit.LIVE_TRUST_SHA256
     derived = kit.derive(text, *kit.repo_trust_and_sentence())
     trust = json.loads(derived)
-    assert trust["codex_version"] == "codex-cli 0.169.0" and trust["hook_sha256"] == kit.LIVE_HOOK_SHA256
+    assert trust["codex_version"] == "codex-cli 0.169.1" and trust["hook_sha256"] == kit.LIVE_HOOK_SHA256
     assert derived.replace(kit.LIVE_HOOK_SHA256, REPO_HOOK_SHA256) == kit.REPO_TRUST.read_text(encoding="utf-8")
     assert sha(derived.encode()) == kit.INSTALLED_TRUST_SHA256
 
@@ -92,7 +92,7 @@ def test_stage_swap_and_rollback(live, tmp_path):
     assert staged(live, stage) == 0
     assert (live / "TRUST").read_bytes() == before and not (live / kit.BACKUP).exists()
     new = (stage / "guard/TRUST").read_bytes()
-    assert json.loads(new)["codex_version"] == "codex-cli 0.169.0"
+    assert json.loads(new)["codex_version"] == "codex-cli 0.169.1"
     record = json.loads((stage / kit.PREFLIGHT).read_text())
     assert record["trust_sha256"] == sha(new) and record["lanes"] == ["lane-a", "lane-b"]
     assert kit.swap(live, stage) == 0

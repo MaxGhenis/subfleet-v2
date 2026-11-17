@@ -1,4 +1,4 @@
-"""D-CODEX-0169: move the installed guard TRUST's Codex pin from 0.159.0 to 0.169.0.
+"""D-CODEX-0169: move the installed guard TRUST's Codex pin from 0.159.0 to 0.169.1.
 
 The hub's install kit for docs/reports/2026-11-17-codex-0169-pin.md. It changes the
 installed TRUST only, never the installed hook. The installed hook (e869dd4c...) predates
@@ -17,7 +17,7 @@ subfleet.guard.preflight:
     $PY -E -P tools/guard_pin_0169.py rollback --live ~/.subfleet/guard
 
 `stage` refuses unless the live pair is the expected one (hook e869dd4c..., TRUST
-36267abb...) and the derived TRUST is the pinned 5a25280f.... It refuses a stage
+36267abb...) and the derived TRUST is the pinned 0224cb3f.... It refuses a stage
 folder that exists or sits inside `--live`, and with `--codex` it imports the
 preflight before it writes anything. It runs the guard preflight once for each
 `--lane-home` given, using the live hook, the staged TRUST and no cache. A lane whose
@@ -25,14 +25,14 @@ preflight raises counts as not verified. It writes the PREFLIGHT record, which l
 the lanes, only if every lane given verified, and it writes nothing under `--live`.
 `swap` re-checks the live pair, re-derives the staged TRUST from the live one, and
 checks the recorded digest, the pin and the PREFLIGHT record. It refuses if
-TRUST.pre-0.169.0.bak exists. It writes the backup and then the new TRUST, each by a
+TRUST.pre-0.169.1.bak exists. It writes the backup and then the new TRUST, each by a
 temporary file and an atomic rename within the folder, so neither name ever holds
 partial bytes.
 `rollback` runs only while the live hook is still e869dd4c... and the live TRUST is the
-pinned 5a25280f... that `swap` installs, or still the pre-move TRUST after a `swap` that
+pinned 0224cb3f... that `swap` installs, or still the pre-move TRUST after a `swap` that
 stopped before its rename. It reads nothing from the checkout. It writes the backup's
 bytes back by the same atomic rename, then renames the backup to
-TRUST.pre-0.169.0.bak.rolled-back-<UTC time>, so a later `swap` can run from a fresh
+TRUST.pre-0.169.1.bak.rolled-back-<UTC time>, so a later `swap` can run from a fresh
 stage. Once a later guard change replaces the hook or TRUST, `rollback` refuses.
 None of the three touches the Codex CLI: the hub upgrades it right after `swap` and
 downgrades it right after `rollback` (the report's steps).
@@ -56,12 +56,12 @@ ROOT = Path(__file__).resolve().parents[1]
 REPO_TRUST = ROOT / "private/guard/TRUST"
 LIVE_HOOK_SHA256 = "e869dd4cac5402112c3a135531de861c84089290ee31779f52145474f678dfed"
 LIVE_TRUST_SHA256 = "36267abbee6e414805defd0672138f0be9b8dd2fd8675f739c77df90332bafc0"
-INSTALLED_TRUST_SHA256 = "5a25280f2bd2879d158706a9b4370b8413eec369f2ce55d933fb0b1854e41f3c"
+INSTALLED_TRUST_SHA256 = "0224cb3f9c1adb3ca2879bde1513d6b67cc4d0766bf19ba4cd8dd8770c283047"
 OLD_VERSION_LINE = '"codex_version": "codex-cli 0.159.0"'
-NEW_VERSION_LINE = '"codex_version": "codex-cli 0.169.0"'
+NEW_VERSION_LINE = '"codex_version": "codex-cli 0.169.1"'
 SENTENCE_START = " 2026-11-17, D-CODEX-0169:"
 TAIL = '"\n}\n'
-BACKUP = "TRUST.pre-0.169.0.bak"
+BACKUP = "TRUST.pre-0.169.1.bak"
 PREFLIGHT = "PREFLIGHT"
 
 
