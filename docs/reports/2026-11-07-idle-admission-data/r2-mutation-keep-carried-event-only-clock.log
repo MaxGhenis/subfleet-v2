@@ -1,0 +1,27 @@
+bringing up nodes...
+bringing up nodes...
+
+FF..                                                                     [100%]
+=================================== FAILURES ===================================
+____ test_probe_pending_look_brought_forward_keeps_at_most_30_seconds[long] ____
+[gw0] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpONvUUG/bin/python
+tests/fake/test_idle_capacity_carried_clock.py:67: in test_probe_pending_look_brought_forward_keeps_at_most_30_seconds
+    assert row["next_check_at"] <= after(30)
+E   AssertionError: assert '2026-11-15T02:21:15Z' <= '2026-11-15T02:11:45Z'
+E    +  where '2026-11-15T02:11:45Z' = after(30)
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4461332864:daemon.py:999 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4461332864:daemon.py:1092 reset credits: automatic redemption off; no-reset marker absent
+_____ test_route_moved_look_brought_forward_keeps_at_most_30_seconds[long] _____
+[gw1] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpONvUUG/bin/python
+tests/fake/test_idle_capacity_carried_clock.py:92: in test_route_moved_look_brought_forward_keeps_at_most_30_seconds
+    assert row["next_check_at"] <= after(30)
+E   AssertionError: assert '2026-11-15T02:21:15Z' <= '2026-11-15T02:11:45Z'
+E    +  where '2026-11-15T02:11:45Z' = after(30)
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4460480560:daemon.py:999 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4460480560:daemon.py:1092 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_idle_capacity_carried_clock.py::test_probe_pending_look_brought_forward_keeps_at_most_30_seconds[long]
+FAILED tests/fake/test_idle_capacity_carried_clock.py::test_route_moved_look_brought_forward_keeps_at_most_30_seconds[long]
+2 failed, 2 passed in 35.44s

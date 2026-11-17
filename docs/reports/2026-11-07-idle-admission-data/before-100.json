@@ -1,0 +1,272 @@
+{
+  "label": "before-a8624a489",
+  "source": "/private/tmp/idle-admission-build/baseline-source",
+  "python": "3.15.2 (main, Oct 26 2026, 13:59:33) [Clang 23.1.3 ]",
+  "jobs": 100,
+  "lanes": 4,
+  "operator_hold_closures": 4,
+  "initial_events": 1000970,
+  "steady_ceiling_s": 30.0,
+  "seconds_wall": 120.069263375015,
+  "seconds_cpu": 10.138547000000003,
+  "cpu_s_per_min": 5.066349229611272,
+  "user_cpu_s": 8.227996000000001,
+  "system_cpu_s": 1.9106009999999998,
+  "detached_passes": 949,
+  "detached_passes_per_min": 474.22627906159494,
+  "events_committed": 401,
+  "events_per_hour": 12023.060352183324,
+  "event_kinds": [
+    {
+      "kind": "attempt.reserved",
+      "n": 200
+    },
+    {
+      "kind": "job.unprepared_wait",
+      "n": 201
+    }
+  ],
+  "lstat_calls": 3496,
+  "lstat_per_pass": 3.6838777660695468,
+  "pass_duration_s_mean": 0.02941377327520571,
+  "pass_duration_s_max": 0.47498800000175834,
+  "profiles": {
+    "due": {
+      "pass": {
+        "duration_s": 6.121266500005731,
+        "lstat": 736,
+        "placed": 0
+      },
+      "top15_cumulative": [
+        {
+          "function": "/private/tmp/idle-admission-build/baseline-source/subfleet/daemon.py:7268(_admit)",
+          "primitive_calls": 1,
+          "calls": 1,
+          "self_s": 5.584e-06,
+          "cumulative_s": 6.1216986250000005
+        },
+        {
+          "function": "/private/tmp/idle-admission-build/baseline-source/subfleet/daemon.py:7287(_admit_kind)",
+          "primitive_calls": 2,
+          "calls": 2,
+          "self_s": 9.378500000000001e-05,
+          "cumulative_s": 6.121693041
+        },
+        {
+          "function": "/Users/maxghenis/.subfleet/worktrees/20261107-071703-idle-admission-build/tools/benchmark_idle_admission.py:145(counted_pass)",
+          "primitive_calls": 1,
+          "calls": 1,
+          "self_s": 0.000263624,
+          "cumulative_s": 6.121276542
+        },
+        {
+          "function": "/private/tmp/idle-admission-build/baseline-source/subfleet/daemon.py:7561(_admit_pass)",
+          "primitive_calls": 1,
+          "calls": 1,
+          "self_s": 0.035487064000000006,
+          "cumulative_s": 6.121011458000001
+        },
+        {
+          "function": "/private/tmp/idle-admission-build/baseline-source/subfleet/daemon.py:6306(_workspace)",
+          "primitive_calls": 50,
+          "calls": 50,
+          "self_s": 0.001012628,
+          "cumulative_s": 4.25652542
+        },
+        {
+          "function": "/private/tmp/idle-admission-build/baseline-source/subfleet/salvage.py:200(_git)",
+          "primitive_calls": 100,
+          "calls": 100,
+          "self_s": 0.010958122,
+          "cumulative_s": 4.25506546
+        },
+        {
+          "function": "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/subprocess.py:627(run)",
+          "primitive_calls": 100,
+          "calls": 100,
+          "self_s": 0.015541794000000001,
+          "cumulative_s": 4.137713079
+        },
+        {
+          "function": "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/subprocess.py:991(__init__)",
+          "primitive_calls": 100,
+          "calls": 100,
+          "self_s": 0.026853123000000003,
+          "cumulative_s": 2.2762231230000003
+        },
+        {
+          "function": "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/subprocess.py:1992(_execute_child)",
+          "primitive_calls": 100,
+          "calls": 100,
+          "self_s": 0.020821278000000002,
+          "cumulative_s": 2.232101165
+        },
+        {
+          "function": "/private/tmp/idle-admission-build/baseline-source/subfleet/salvage.py:256(git_head)",
+          "primitive_calls": 50,
+          "calls": 50,
+          "self_s": 0.000213625,
+          "cumulative_s": 2.198695792
+        },
+        {
+          "function": "/private/tmp/idle-admission-build/baseline-source/subfleet/salvage.py:286(git_tree)",
+          "primitive_calls": 50,
+          "calls": 50,
+          "self_s": 0.00020746000000000002,
+          "cumulative_s": 2.056790753
+        },
+        {
+          "function": "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/subprocess.py:1351(communicate)",
+          "primitive_calls": 100,
+          "calls": 100,
+          "self_s": 0.014411706000000002,
+          "cumulative_s": 1.845544338
+        },
+        {
+          "function": "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/subprocess.py:2367(_communicate)",
+          "primitive_calls": 100,
+          "calls": 100,
+          "self_s": 0.038088335,
+          "cumulative_s": 1.8304261270000002
+        },
+        {
+          "function": "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/subprocess.py:253(_communicate_io_posix)",
+          "primitive_calls": 100,
+          "calls": 100,
+          "self_s": 0.004118896,
+          "cumulative_s": 1.696072827
+        },
+        {
+          "function": "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/selectors.py:385(select)",
+          "primitive_calls": 200,
+          "calls": 200,
+          "self_s": 0.024714118,
+          "cumulative_s": 1.6782615040000002
+        }
+      ],
+      "lstat_callers": {
+        "<frozen posixpath>:realpath:460 <- /private/tmp/idle-admission-build/baseline-source/subfleet/folders.py:_spelled:199 <- /private/tmp/idle-admission-build/baseline-source/subfleet/folders.py:present:192 <- /private/tmp/idle-admission-build/baseline-source/subfleet/daemon.py:present:3840 <- /private/tmp/idle-admission-build/baseline-source/subfleet/daemon.py:_detached_folders:3843 <- /private/tmp/idle-admission-build/baseline-source/subfleet/daemon.py:_admit_pass:8125 <- /Users/maxghenis/.subfleet/worktrees/20261107-071703-idle-admission-build/tools/benchmark_idle_admission.py:counted_pass:152 <- /private/tmp/idle-admission-build/baseline-source/subfleet/daemon.py:_admit_kind:7308": 250,
+        "<frozen posixpath>:realpath:460 <- /private/tmp/idle-admission-build/baseline-source/subfleet/folders.py:_spelled:199 <- /private/tmp/idle-admission-build/baseline-source/subfleet/folders.py:spelling:172 <- /private/tmp/idle-admission-build/baseline-source/subfleet/folders.py:canonical:113 <- /private/tmp/idle-admission-build/baseline-source/subfleet/daemon.py:_admit_pass:8211 <- /Users/maxghenis/.subfleet/worktrees/20261107-071703-idle-admission-build/tools/benchmark_idle_admission.py:counted_pass:152 <- /private/tmp/idle-admission-build/baseline-source/subfleet/daemon.py:_admit_kind:7308 <- /private/tmp/idle-admission-build/baseline-source/subfleet/daemon.py:_admit:7281": 250,
+        "/private/tmp/idle-admission-build/baseline-source/subfleet/folders.py:_kernel_path:272 <- /private/tmp/idle-admission-build/baseline-source/subfleet/folders.py:_spelled:203 <- /private/tmp/idle-admission-build/baseline-source/subfleet/folders.py:present:192 <- /private/tmp/idle-admission-build/baseline-source/subfleet/daemon.py:present:3840 <- /private/tmp/idle-admission-build/baseline-source/subfleet/daemon.py:_detached_folders:3843 <- /private/tmp/idle-admission-build/baseline-source/subfleet/daemon.py:_admit_pass:8125 <- /Users/maxghenis/.subfleet/worktrees/20261107-071703-idle-admission-build/tools/benchmark_idle_admission.py:counted_pass:152 <- /private/tmp/idle-admission-build/baseline-source/subfleet/daemon.py:_admit_kind:7308": 100,
+        "/private/tmp/idle-admission-build/baseline-source/subfleet/folders.py:_kernel_path:272 <- /private/tmp/idle-admission-build/baseline-source/subfleet/folders.py:_spelled:203 <- /private/tmp/idle-admission-build/baseline-source/subfleet/folders.py:spelling:172 <- /private/tmp/idle-admission-build/baseline-source/subfleet/folders.py:canonical:113 <- /private/tmp/idle-admission-build/baseline-source/subfleet/daemon.py:_admit_pass:8211 <- /Users/maxghenis/.subfleet/worktrees/20261107-071703-idle-admission-build/tools/benchmark_idle_admission.py:counted_pass:152 <- /private/tmp/idle-admission-build/baseline-source/subfleet/daemon.py:_admit_kind:7308 <- /private/tmp/idle-admission-build/baseline-source/subfleet/daemon.py:_admit:7281": 100,
+        "/private/tmp/idle-admission-build/baseline-source/subfleet/home_paths.py:_resolved_kind:445 <- /private/tmp/idle-admission-build/baseline-source/subfleet/home_paths.py:_live_kind:382 <- /private/tmp/idle-admission-build/baseline-source/subfleet/home_paths.py:names_live_root:348 <- /private/tmp/idle-admission-build/baseline-source/subfleet/home_paths.py:refuse_personal_override:311 <- /private/tmp/idle-admission-build/baseline-source/subfleet/home_paths.py:home_path:270 <- /private/tmp/idle-admission-build/baseline-source/subfleet/sessions/transcripts.py:claude_dir:208 <- /private/tmp/idle-admission-build/baseline-source/subfleet/sessions/registry.py:sessions_dir:67 <- /private/tmp/idle-admission-build/baseline-source/subfleet/sessions/registry.py:listing:300": 18,
+        "<frozen posixpath>:realpath:460 <- /private/tmp/idle-admission-build/baseline-source/subfleet/home_paths.py:is_account_home:656 <- /private/tmp/idle-admission-build/baseline-source/subfleet/home_paths.py:_resolved_kind:467 <- /private/tmp/idle-admission-build/baseline-source/subfleet/home_paths.py:_live_kind:382 <- /private/tmp/idle-admission-build/baseline-source/subfleet/home_paths.py:names_live_root:348 <- /private/tmp/idle-admission-build/baseline-source/subfleet/home_paths.py:refuse_personal_override:311 <- /private/tmp/idle-admission-build/baseline-source/subfleet/home_paths.py:home_path:270 <- /private/tmp/idle-admission-build/baseline-source/subfleet/sessions/transcripts.py:claude_dir:208": 18
+      }
+    },
+    "not_due": {
+      "pass": {
+        "duration_s": 0.008427916007349268,
+        "lstat": 0,
+        "placed": 0
+      },
+      "top15_cumulative": [
+        {
+          "function": "/private/tmp/idle-admission-build/baseline-source/subfleet/daemon.py:7268(_admit)",
+          "primitive_calls": 1,
+          "calls": 1,
+          "self_s": 3.417e-06,
+          "cumulative_s": 0.009464125
+        },
+        {
+          "function": "/private/tmp/idle-admission-build/baseline-source/subfleet/daemon.py:7287(_admit_kind)",
+          "primitive_calls": 2,
+          "calls": 2,
+          "self_s": 5.899800000000001e-05,
+          "cumulative_s": 0.009460708
+        },
+        {
+          "function": "/Users/maxghenis/.subfleet/worktrees/20261107-071703-idle-admission-build/tools/benchmark_idle_admission.py:145(counted_pass)",
+          "primitive_calls": 1,
+          "calls": 1,
+          "self_s": 8.8749e-05,
+          "cumulative_s": 0.008432417000000001
+        },
+        {
+          "function": "/private/tmp/idle-admission-build/baseline-source/subfleet/daemon.py:7561(_admit_pass)",
+          "primitive_calls": 1,
+          "calls": 1,
+          "self_s": 0.0008986860000000001,
+          "cumulative_s": 0.008342500000000001
+        },
+        {
+          "function": "/private/tmp/idle-admission-build/baseline-source/subfleet/store.py:465(query)",
+          "primitive_calls": 106,
+          "calls": 106,
+          "self_s": 0.000904597,
+          "cumulative_s": 0.002624219
+        },
+        {
+          "function": "~:0(<built-in method builtins.next>)",
+          "primitive_calls": 414,
+          "calls": 414,
+          "self_s": 8.081600000000001e-05,
+          "cumulative_s": 0.001728282
+        },
+        {
+          "function": "/private/tmp/idle-admission-build/baseline-source/subfleet/store.py:635(_reading)",
+          "primitive_calls": 414,
+          "calls": 414,
+          "self_s": 0.000102638,
+          "cumulative_s": 0.0016474660000000002
+        },
+        {
+          "function": "/private/tmp/idle-admission-build/baseline-source/subfleet/daemon.py:2819(_retry_pin)",
+          "primitive_calls": 100,
+          "calls": 100,
+          "self_s": 0.000116286,
+          "cumulative_s": 0.0016172460000000001
+        },
+        {
+          "function": "/private/tmp/idle-admission-build/baseline-source/subfleet/store.py:472(one)",
+          "primitive_calls": 101,
+          "calls": 101,
+          "self_s": 0.000114585,
+          "cumulative_s": 0.0014624610000000002
+        },
+        {
+          "function": "/private/tmp/idle-admission-build/baseline-source/subfleet/store.py:866(list_attempts)",
+          "primitive_calls": 100,
+          "calls": 100,
+          "self_s": 3.4365e-05,
+          "cumulative_s": 0.001431793
+        },
+        {
+          "function": "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/contextlib.py:198(__enter__)",
+          "primitive_calls": 207,
+          "calls": 207,
+          "self_s": 5.9671000000000005e-05,
+          "cumulative_s": 0.0009863340000000002
+        },
+        {
+          "function": "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/contextlib.py:207(__exit__)",
+          "primitive_calls": 207,
+          "calls": 207,
+          "self_s": 4.5505000000000006e-05,
+          "cumulative_s": 0.0008471240000000001
+        },
+        {
+          "function": "/private/tmp/idle-admission-build/baseline-source/subfleet/store.py:509(_checkout)",
+          "primitive_calls": 207,
+          "calls": 207,
+          "self_s": 0.000205929,
+          "cumulative_s": 0.0008059600000000001
+        },
+        {
+          "function": "/private/tmp/idle-admission-build/baseline-source/subfleet/daemon.py:7507(_note_admission)",
+          "primitive_calls": 1,
+          "calls": 1,
+          "self_s": 0.000701956,
+          "cumulative_s": 0.0008050420000000001
+        },
+        {
+          "function": "/private/tmp/idle-admission-build/baseline-source/subfleet/store.py:581(_checkin)",
+          "primitive_calls": 207,
+          "calls": 207,
+          "self_s": 0.00016916700000000002,
+          "cumulative_s": 0.0007193690000000001
+        }
+      ],
+      "lstat_callers": {}
+    }
+  }
+}

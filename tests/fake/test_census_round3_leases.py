@@ -24,6 +24,10 @@ from tests.fake.test_resume_contract import finish_reserved, finished_source, re
 from tests.fake.test_state_contract import state_daemon  # noqa: F401
 from tests.fake.test_turn_wait_reasons import message_in
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
+
 OBSERVER = 4500
 
 

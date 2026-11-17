@@ -1,0 +1,33 @@
+{
+ "subfleet_file": "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/old217/subfleet/__init__.py",
+ "task_hold_line": "None until 2026-11-15T06:00:00Z: disk brake",
+ "task_hold_line_waiting": "None until 2026-11-15T06:00:00Z: disk brake",
+ "format_status_hold_lines": [
+  "  None until 2026-11-15T06:00:00Z (1 waiting): disk brake"
+ ],
+ "why_queue": [
+  "Job: 20261115-030000-review is waiting (task-held)",
+  "Held: the operator holds ? jobs at admission until 2026-11-15T06:00:00Z (disk brake); it starts once the hold ends or `subfleet tasks release -- '?'`, and holds no other job back (C-11.10)",
+  "Next check: 2026-11-15T06:00:00Z"
+ ],
+ "why_release_hint": "Held: the operator holds ? jobs at admission until 2026-11-15T06:00:00Z (disk brake); it starts once the hold ends or `subfleet tasks release -- '?'`, and holds no other job back (C-11.10)",
+ "hint_argv": [
+  "subfleet",
+  "tasks",
+  "release",
+  "--",
+  "?`,",
+  "and",
+  "holds",
+  "no",
+  "other",
+  "job",
+  "back",
+  "(C-11.10)"
+ ],
+ "tasks release --sandbox workspace-write": "argparse exit 2",
+ "tasks release -- ?": {
+  "task": "?",
+  "sandbox": "absent"
+ }
+}
