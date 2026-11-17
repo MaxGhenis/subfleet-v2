@@ -1,0 +1,161 @@
+{
+  "baseline": [],
+  "mutations": [
+    {
+      "name": "keep-carried-clock-on-probe-pending-only",
+      "command": [
+        "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpM5mLAt/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-n",
+        "4",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-xvam7hyu/keep-carried-clock-on-probe-pending-only-test/pytest",
+        "--junitxml=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-xvam7hyu/keep-carried-clock-on-probe-pending-only-test/junit.xml",
+        "tests/fake/test_idle_capacity_carried_clock.py::test_probe_pending_look_brought_forward_keeps_at_most_30_seconds[long]",
+        "tests/fake/test_idle_capacity_carried_clock.py::test_probe_pending_look_brought_forward_keeps_at_most_30_seconds[short]",
+        "tests/fake/test_idle_capacity_carried_clock.py::test_route_moved_look_brought_forward_keeps_at_most_30_seconds[long]"
+      ],
+      "cwd": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-xvam7hyu/keep-carried-clock-on-probe-pending-only",
+      "returncode": 1,
+      "tests_run": 3,
+      "passed_tests": [
+        "tests.fake.test_idle_capacity_carried_clock::test_probe_pending_look_brought_forward_keeps_at_most_30_seconds[short]",
+        "tests.fake.test_idle_capacity_carried_clock::test_route_moved_look_brought_forward_keeps_at_most_30_seconds[long]"
+      ],
+      "failures": [
+        {
+          "test": "tests.fake.test_idle_capacity_carried_clock::test_probe_pending_look_brought_forward_keeps_at_most_30_seconds[long]",
+          "assertion": true
+        }
+      ],
+      "errors": [],
+      "elapsed_s": 36.594,
+      "log": "/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/r2-mutation-keep-carried-clock-on-probe-pending-only.log",
+      "mutated_file_sha256": "189601b62398cef93ffd9aff597c5aef64915be7c2b2ef0fc676531c79e56953",
+      "restored_bytes_match": true,
+      "killed_by": [
+        "test_probe_pending_look_brought_forward_keeps_at_most_30_seconds[long]"
+      ],
+      "controls_passed": [
+        "test_probe_pending_look_brought_forward_keeps_at_most_30_seconds[short]",
+        "test_route_moved_look_brought_forward_keeps_at_most_30_seconds[long]"
+      ],
+      "killed": true
+    },
+    {
+      "name": "keep-carried-clock-on-route-moved-only",
+      "command": [
+        "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpM5mLAt/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-n",
+        "4",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-xvam7hyu/keep-carried-clock-on-route-moved-only-test/pytest",
+        "--junitxml=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-xvam7hyu/keep-carried-clock-on-route-moved-only-test/junit.xml",
+        "tests/fake/test_idle_capacity_carried_clock.py::test_route_moved_look_brought_forward_keeps_at_most_30_seconds[long]",
+        "tests/fake/test_idle_capacity_carried_clock.py::test_route_moved_look_brought_forward_keeps_at_most_30_seconds[short]",
+        "tests/fake/test_idle_capacity_carried_clock.py::test_probe_pending_look_brought_forward_keeps_at_most_30_seconds[long]"
+      ],
+      "cwd": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-xvam7hyu/keep-carried-clock-on-route-moved-only",
+      "returncode": 1,
+      "tests_run": 3,
+      "passed_tests": [
+        "tests.fake.test_idle_capacity_carried_clock::test_probe_pending_look_brought_forward_keeps_at_most_30_seconds[long]",
+        "tests.fake.test_idle_capacity_carried_clock::test_route_moved_look_brought_forward_keeps_at_most_30_seconds[short]"
+      ],
+      "failures": [
+        {
+          "test": "tests.fake.test_idle_capacity_carried_clock::test_route_moved_look_brought_forward_keeps_at_most_30_seconds[long]",
+          "assertion": true
+        }
+      ],
+      "errors": [],
+      "elapsed_s": 39.372,
+      "log": "/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/r2-mutation-keep-carried-clock-on-route-moved-only.log",
+      "mutated_file_sha256": "33d2d57dd648e4ab67e84ddf210a57de875a419e7d1cc027ddfbb4cb34c5c767",
+      "restored_bytes_match": true,
+      "killed_by": [
+        "test_route_moved_look_brought_forward_keeps_at_most_30_seconds[long]"
+      ],
+      "controls_passed": [
+        "test_route_moved_look_brought_forward_keeps_at_most_30_seconds[short]",
+        "test_probe_pending_look_brought_forward_keeps_at_most_30_seconds[long]"
+      ],
+      "killed": true
+    },
+    {
+      "name": "drop-self-wake-guard",
+      "command": [
+        "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpM5mLAt/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-n",
+        "4",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-xvam7hyu/drop-self-wake-guard-test/pytest",
+        "--junitxml=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-xvam7hyu/drop-self-wake-guard-test/junit.xml",
+        "tests/fake/test_idle_admission_self_wake.py::test_a_real_pass_requeuing_its_own_job_still_rests[workspace-ready]",
+        "tests/fake/test_idle_admission_self_wake.py::test_only_the_pass_threads_own_queue_transition_is_ignored[own-thread-requeue]",
+        "tests/fake/test_idle_admission_self_wake.py::test_a_real_pass_requeuing_its_own_job_still_rests[none]",
+        "tests/fake/test_idle_admission_self_wake.py::test_only_the_pass_threads_own_queue_transition_is_ignored[other-thread-requeue]",
+        "tests/fake/test_idle_admission_self_wake.py::test_only_the_pass_threads_own_queue_transition_is_ignored[own-thread-lease]",
+        "tests/fake/test_idle_admission_self_wake.py::test_only_the_pass_threads_own_queue_transition_is_ignored[own-thread-requeue-after-pass]"
+      ],
+      "cwd": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/mutations/run-xvam7hyu/drop-self-wake-guard",
+      "returncode": 1,
+      "tests_run": 6,
+      "passed_tests": [
+        "tests.fake.test_idle_admission_self_wake::test_only_the_pass_threads_own_queue_transition_is_ignored[other-thread-requeue]",
+        "tests.fake.test_idle_admission_self_wake::test_a_real_pass_requeuing_its_own_job_still_rests[none]",
+        "tests.fake.test_idle_admission_self_wake::test_only_the_pass_threads_own_queue_transition_is_ignored[own-thread-requeue-after-pass]",
+        "tests.fake.test_idle_admission_self_wake::test_only_the_pass_threads_own_queue_transition_is_ignored[own-thread-lease]"
+      ],
+      "failures": [
+        {
+          "test": "tests.fake.test_idle_admission_self_wake::test_only_the_pass_threads_own_queue_transition_is_ignored[own-thread-requeue]",
+          "assertion": true
+        },
+        {
+          "test": "tests.fake.test_idle_admission_self_wake::test_a_real_pass_requeuing_its_own_job_still_rests[workspace-ready]",
+          "assertion": true
+        }
+      ],
+      "errors": [],
+      "elapsed_s": 22.275,
+      "log": "/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/docs/reports/2026-11-07-idle-admission-data/r2-mutation-drop-self-wake-guard.log",
+      "mutated_file_sha256": "93fa58dd30d8c3956c6514bd1b04345c469c72da28744a43140553f14a7fa7b6",
+      "restored_bytes_match": true,
+      "killed_by": [
+        "test_only_the_pass_threads_own_queue_transition_is_ignored[own-thread-requeue]",
+        "test_a_real_pass_requeuing_its_own_job_still_rests[workspace-ready]"
+      ],
+      "controls_passed": [
+        "test_a_real_pass_requeuing_its_own_job_still_rests[none]",
+        "test_only_the_pass_threads_own_queue_transition_is_ignored[other-thread-requeue]",
+        "test_only_the_pass_threads_own_queue_transition_is_ignored[own-thread-lease]",
+        "test_only_the_pass_threads_own_queue_transition_is_ignored[own-thread-requeue-after-pass]"
+      ],
+      "killed": true
+    }
+  ],
+  "sources_sha256": {
+    "subfleet/daemon.py": "136a3cf79b51a5629371b47babc608c8f1352bc8745a7d58e0cda9e235337168",
+    "subfleet/store.py": "cc7bd67a6690dac28a50359a787783f27da181cf55bbfc658cba817fe1604e1d",
+    "subfleet/scheduler.py": "e33af820f856cafcdc6d42dbe5ba7ae138c3b6ed47eaff61392f3b232f6d6fe2",
+    "subfleet/contracts.py": "8ecdfe59f6b10a49c784706dfb668263c49132847f978e9e5020e15a41852136",
+    "tests/fake/test_idle_capacity_carried_clock.py": "88cf47c3f8d02a18236415075fc388e0b5ed73d9d9727fde30c9d95387c30a04",
+    "tests/fake/test_idle_admission_self_wake.py": "c5f4d503ed3d195a014bbe8d48a7a175d3ddb766524ce0cd797540354b4d7fde"
+  },
+  "pristine_bytes_unchanged": true
+}
