@@ -568,16 +568,20 @@ Environment: `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"`, `UV_CACHE_DIR=$TMPDIR/u
 - `git config --show-origin --get-regexp '^protocol\.'`: no entries (exit 1).
 - `gh pr view 295 --json body,headRefOid` (read only): head `e5f6dc7be`.
 
+### Final runs (load fell to about 67 at 19:35 UTC)
+
+- The module's remaining cases, including I2/I5 with its new head-run assertion on unmutated HEAD (`-n 4`): 9 passed in 11.69 s.
+- **Ordered step 3**, `tests/fake/test_admission_tree_thrash.py tests/fake/test_admission_tree_thrash_head.py`, every case, `-n 4`: **27 passed in 21.93 s**. The measured shape took 19.32 s, I1 generated 7.54 s, I2/I5 4.56 s and the head module 3.85 s.
+- Ordered step 4, `tests/fake/test_unrun_worktrees.py tests/fake/test_detached_retention_fence.py`, `-n 4` (basetemp `bt-step4`): 186 passed and no failures shown when the 280 s cap stopped it at 19:40 UTC; it was not complete. No `transport 'file' not allowed` error appeared, and this environment has no `protocol.*` git setting.
+- Ordered step 5, `tests/fake/test_idle_*.py tests/unit/test_admission_store_wakes.py`, `-n 4`: 39 passed and no failures shown when the 250 s cap stopped it at 19:44 UTC; it was not complete.
+
 ### Not run
 
-Load and the 10-minute tool limit stopped these:
-- Ordered step 3 as one run of both modules: the main module's cases ran in the runs above, except I1, I3 and I6 generated, the hold-after-second, closed-after-evaluation, one-cut race, lease-arrival and two-pinned-lanes cases, and `failing_workspace[True]`. `test_admission_tree_thrash_head.py` did not run.
-- Step 4 (`test_unrun_worktrees.py`, `test_detached_retention_fence.py`). This environment has no `protocol.*` git setting, so review r2's `transport 'file' not allowed` errors are not expected here, but I did not observe it either way.
-- Step 5 (#301's `test_idle_*.py` and `test_admission_store_wakes.py` beside this change).
-- Step 6 (the fourteen-module admission suite).
+- Step 6, the fourteen-module admission suite.
 - The I2/I5 verdict under `cap-after-cut`.
 - A clean-copy rerun of `forget-sweep-eligibility-recheck`.
 - `tests/unit/test_ci_shard_plugin.py`.
 - Python 3.12 and 3.14.
+- Complete runs of steps 4 and 5.
 
 No refusal or event key was added, so `test_handler_refusals.py` was not needed.
