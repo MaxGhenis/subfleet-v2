@@ -1,0 +1,24 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____________ test_s5_turns_and_jobs_without_a_task_are_never_held _____________
+
+    def test_s5_turns_and_jobs_without_a_task_are_never_held():
+        """Invariant 5 / mutant 3: neither hold can stop turns or jobs without tasks."""
+        with fleet() as (service, harness, clock, signals):
+            specs = [("build", "workspace-write", "turn"), ("review", "", "turn"),
+                     (None, "workspace-write", "dispatch"), (None, "", "dispatch")]
+            jobs = jobs_from(service, harness, specs)
+            install_holds(service, {"build": 100, "review": 100}, 100)
+            service._admit()
+>           assert all(len(attempts(service, ident)) == 1 for ident in jobs.values()), "S5: exempt job was held"
+E           AssertionError: S5: exempt job was held
+E           assert False
+E            +  where False = all(<generator object test_s5_turns_and_jobs_without_a_task_are_never_held.<locals>.<genexpr> at 0x10a2ea140>)
+
+tests/fake/test_sandbox_hold_properties.py:281: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4462164160:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4462164160:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_sandbox_hold_properties.py::test_s5_turns_and_jobs_without_a_task_are_never_held
+1 failed in 1.67s

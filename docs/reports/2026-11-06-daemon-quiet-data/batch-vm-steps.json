@@ -1,0 +1,32 @@
+[
+  {
+    "batch": false,
+    "later_events": [
+      10,
+      10000
+    ],
+    "old_vm_steps": [
+      74,
+      50020
+    ],
+    "new_vm_steps": [
+      44,
+      35
+    ]
+  },
+  {
+    "batch": true,
+    "later_events": [
+      10,
+      10000
+    ],
+    "old_vm_steps": [
+      77,
+      50023
+    ],
+    "new_vm_steps": [
+      47,
+      38
+    ]
+  }
+]

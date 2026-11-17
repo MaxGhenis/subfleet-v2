@@ -1,0 +1,803 @@
+bringing up nodes...
+bringing up nodes...
+
+.FFFFFFFFFFFFFFFFFFFFFFF.F.........FF.FF.....FF..                        [100%]
+=================================== FAILURES ===================================
+_ test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[json-hold-plain-no-capabilities-op] _
+[gw0] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+daemon = <function daemon.<locals>.start at 0x10ac73ec0>
+capsys = <_pytest.capture.CaptureFixture object at 0x109d52570>
+older = 'no-capabilities-op', prefix = None, action = 'hold', as_json = True
+
+    @pytest.mark.parametrize("older", OLDER)
+    @pytest.mark.parametrize("prefix", [None, "disk:"], ids=["plain", "conditional"])
+    @pytest.mark.parametrize("action", ["hold", "release"])
+    @pytest.mark.parametrize("as_json", [True, False], ids=["json", "prose"])
+    def test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon(daemon, capsys, older, prefix, action, as_json):
+        sent = []
+        server = daemon({**OLDER[older], "tasks": lambda request: sent.append(request.args) or {}})
+        argv = [*ARGV[action], *(["--if-note-prefix", prefix] if prefix else []), *(["--json"] if as_json else [])]
+>       assert cli.main(argv) == Exit.CLI_TOO_OLD == 6
+E       AssertionError: assert 0 == <Exit.CLI_TOO_OLD: 6>
+E        +  where 0 = <function main at 0x109ce9080>(['tasks', 'hold', '--sandbox', 'workspace-write', '--until', '2099-06-01T00:00:00Z', ...])
+E        +    where <function main at 0x109ce9080> = cli.main
+E        +  and   <Exit.CLI_TOO_OLD: 6> = Exit.CLI_TOO_OLD
+
+tests/unit/test_sandbox_hold_versions.py:52: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{}
+_ test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[json-hold-conditional-release-217-before-309] _
+[gw0] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+daemon = <function daemon.<locals>.start at 0x10a78c360>
+capsys = <_pytest.capture.CaptureFixture object at 0x10a5358e0>
+older = 'release-217-before-309', prefix = 'disk:', action = 'hold'
+as_json = True
+
+    @pytest.mark.parametrize("older", OLDER)
+    @pytest.mark.parametrize("prefix", [None, "disk:"], ids=["plain", "conditional"])
+    @pytest.mark.parametrize("action", ["hold", "release"])
+    @pytest.mark.parametrize("as_json", [True, False], ids=["json", "prose"])
+    def test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon(daemon, capsys, older, prefix, action, as_json):
+        sent = []
+        server = daemon({**OLDER[older], "tasks": lambda request: sent.append(request.args) or {}})
+        argv = [*ARGV[action], *(["--if-note-prefix", prefix] if prefix else []), *(["--json"] if as_json else [])]
+>       assert cli.main(argv) == Exit.CLI_TOO_OLD == 6
+E       AssertionError: assert 0 == <Exit.CLI_TOO_OLD: 6>
+E        +  where 0 = <function main at 0x109ce9080>(['tasks', 'hold', '--sandbox', 'workspace-write', '--until', '2099-06-01T00:00:00Z', ...])
+E        +    where <function main at 0x109ce9080> = cli.main
+E        +  and   <Exit.CLI_TOO_OLD: 6> = Exit.CLI_TOO_OLD
+
+tests/unit/test_sandbox_hold_versions.py:52: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{}
+_ test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[json-hold-conditional-no-capabilities-op] _
+[gw2] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+daemon = <function daemon.<locals>.start at 0x109e2bec0>
+capsys = <_pytest.capture.CaptureFixture object at 0x109b15400>
+older = 'no-capabilities-op', prefix = 'disk:', action = 'hold', as_json = True
+
+    @pytest.mark.parametrize("older", OLDER)
+    @pytest.mark.parametrize("prefix", [None, "disk:"], ids=["plain", "conditional"])
+    @pytest.mark.parametrize("action", ["hold", "release"])
+    @pytest.mark.parametrize("as_json", [True, False], ids=["json", "prose"])
+    def test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon(daemon, capsys, older, prefix, action, as_json):
+        sent = []
+        server = daemon({**OLDER[older], "tasks": lambda request: sent.append(request.args) or {}})
+        argv = [*ARGV[action], *(["--if-note-prefix", prefix] if prefix else []), *(["--json"] if as_json else [])]
+>       assert cli.main(argv) == Exit.CLI_TOO_OLD == 6
+E       AssertionError: assert 0 == <Exit.CLI_TOO_OLD: 6>
+E        +  where 0 = <function main at 0x10941d080>(['tasks', 'hold', '--sandbox', 'workspace-write', '--until', '2099-06-01T00:00:00Z', ...])
+E        +    where <function main at 0x10941d080> = cli.main
+E        +  and   <Exit.CLI_TOO_OLD: 6> = Exit.CLI_TOO_OLD
+
+tests/unit/test_sandbox_hold_versions.py:52: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{}
+_ test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[json-hold-conditional-no-tasks-capability] _
+[gw0] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+daemon = <function daemon.<locals>.start at 0x10aac2de0>
+capsys = <_pytest.capture.CaptureFixture object at 0x10a2878f0>
+older = 'no-tasks-capability', prefix = 'disk:', action = 'hold', as_json = True
+
+    @pytest.mark.parametrize("older", OLDER)
+    @pytest.mark.parametrize("prefix", [None, "disk:"], ids=["plain", "conditional"])
+    @pytest.mark.parametrize("action", ["hold", "release"])
+    @pytest.mark.parametrize("as_json", [True, False], ids=["json", "prose"])
+    def test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon(daemon, capsys, older, prefix, action, as_json):
+        sent = []
+        server = daemon({**OLDER[older], "tasks": lambda request: sent.append(request.args) or {}})
+        argv = [*ARGV[action], *(["--if-note-prefix", prefix] if prefix else []), *(["--json"] if as_json else [])]
+>       assert cli.main(argv) == Exit.CLI_TOO_OLD == 6
+E       AssertionError: assert 0 == <Exit.CLI_TOO_OLD: 6>
+E        +  where 0 = <function main at 0x109ce9080>(['tasks', 'hold', '--sandbox', 'workspace-write', '--until', '2099-06-01T00:00:00Z', ...])
+E        +    where <function main at 0x109ce9080> = cli.main
+E        +  and   <Exit.CLI_TOO_OLD: 6> = Exit.CLI_TOO_OLD
+
+tests/unit/test_sandbox_hold_versions.py:52: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{}
+_ test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[json-release-plain-release-217-before-309] _
+[gw2] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+daemon = <function daemon.<locals>.start at 0x109ec0360>
+capsys = <_pytest.capture.CaptureFixture object at 0x1038d5880>
+older = 'release-217-before-309', prefix = None, action = 'release'
+as_json = True
+
+    @pytest.mark.parametrize("older", OLDER)
+    @pytest.mark.parametrize("prefix", [None, "disk:"], ids=["plain", "conditional"])
+    @pytest.mark.parametrize("action", ["hold", "release"])
+    @pytest.mark.parametrize("as_json", [True, False], ids=["json", "prose"])
+    def test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon(daemon, capsys, older, prefix, action, as_json):
+        sent = []
+        server = daemon({**OLDER[older], "tasks": lambda request: sent.append(request.args) or {}})
+        argv = [*ARGV[action], *(["--if-note-prefix", prefix] if prefix else []), *(["--json"] if as_json else [])]
+>       assert cli.main(argv) == Exit.CLI_TOO_OLD == 6
+E       AssertionError: assert 0 == <Exit.CLI_TOO_OLD: 6>
+E        +  where 0 = <function main at 0x10941d080>(['tasks', 'release', '--sandbox', 'workspace-write', '--json'])
+E        +    where <function main at 0x10941d080> = cli.main
+E        +  and   <Exit.CLI_TOO_OLD: 6> = Exit.CLI_TOO_OLD
+
+tests/unit/test_sandbox_hold_versions.py:52: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{}
+_ test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[json-release-plain-no-capabilities-op] _
+[gw3] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+daemon = <function daemon.<locals>.start at 0x10873bec0>
+capsys = <_pytest.capture.CaptureFixture object at 0x1078711f0>
+older = 'no-capabilities-op', prefix = None, action = 'release', as_json = True
+
+    @pytest.mark.parametrize("older", OLDER)
+    @pytest.mark.parametrize("prefix", [None, "disk:"], ids=["plain", "conditional"])
+    @pytest.mark.parametrize("action", ["hold", "release"])
+    @pytest.mark.parametrize("as_json", [True, False], ids=["json", "prose"])
+    def test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon(daemon, capsys, older, prefix, action, as_json):
+        sent = []
+        server = daemon({**OLDER[older], "tasks": lambda request: sent.append(request.args) or {}})
+        argv = [*ARGV[action], *(["--if-note-prefix", prefix] if prefix else []), *(["--json"] if as_json else [])]
+>       assert cli.main(argv) == Exit.CLI_TOO_OLD == 6
+E       AssertionError: assert 0 == <Exit.CLI_TOO_OLD: 6>
+E        +  where 0 = <function main at 0x107805080>(['tasks', 'release', '--sandbox', 'workspace-write', '--json'])
+E        +    where <function main at 0x107805080> = cli.main
+E        +  and   <Exit.CLI_TOO_OLD: 6> = Exit.CLI_TOO_OLD
+
+tests/unit/test_sandbox_hold_versions.py:52: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{}
+_ test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[json-release-conditional-no-capabilities-op] _
+[gw0] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+daemon = <function daemon.<locals>.start at 0x10aac28e0>
+capsys = <_pytest.capture.CaptureFixture object at 0x108e943b0>
+older = 'no-capabilities-op', prefix = 'disk:', action = 'release'
+as_json = True
+
+    @pytest.mark.parametrize("older", OLDER)
+    @pytest.mark.parametrize("prefix", [None, "disk:"], ids=["plain", "conditional"])
+    @pytest.mark.parametrize("action", ["hold", "release"])
+    @pytest.mark.parametrize("as_json", [True, False], ids=["json", "prose"])
+    def test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon(daemon, capsys, older, prefix, action, as_json):
+        sent = []
+        server = daemon({**OLDER[older], "tasks": lambda request: sent.append(request.args) or {}})
+        argv = [*ARGV[action], *(["--if-note-prefix", prefix] if prefix else []), *(["--json"] if as_json else [])]
+>       assert cli.main(argv) == Exit.CLI_TOO_OLD == 6
+E       AssertionError: assert 0 == <Exit.CLI_TOO_OLD: 6>
+E        +  where 0 = <function main at 0x109ce9080>(['tasks', 'release', '--sandbox', 'workspace-write', '--if-note-prefix', 'disk:', ...])
+E        +    where <function main at 0x109ce9080> = cli.main
+E        +  and   <Exit.CLI_TOO_OLD: 6> = Exit.CLI_TOO_OLD
+
+tests/unit/test_sandbox_hold_versions.py:52: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{}
+_ test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[json-release-conditional-release-217-before-309] _
+[gw3] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+daemon = <function daemon.<locals>.start at 0x108730360>
+capsys = <_pytest.capture.CaptureFixture object at 0x1072981a0>
+older = 'release-217-before-309', prefix = 'disk:', action = 'release'
+as_json = True
+
+    @pytest.mark.parametrize("older", OLDER)
+    @pytest.mark.parametrize("prefix", [None, "disk:"], ids=["plain", "conditional"])
+    @pytest.mark.parametrize("action", ["hold", "release"])
+    @pytest.mark.parametrize("as_json", [True, False], ids=["json", "prose"])
+    def test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon(daemon, capsys, older, prefix, action, as_json):
+        sent = []
+        server = daemon({**OLDER[older], "tasks": lambda request: sent.append(request.args) or {}})
+        argv = [*ARGV[action], *(["--if-note-prefix", prefix] if prefix else []), *(["--json"] if as_json else [])]
+>       assert cli.main(argv) == Exit.CLI_TOO_OLD == 6
+E       AssertionError: assert 0 == <Exit.CLI_TOO_OLD: 6>
+E        +  where 0 = <function main at 0x107805080>(['tasks', 'release', '--sandbox', 'workspace-write', '--if-note-prefix', 'disk:', ...])
+E        +    where <function main at 0x107805080> = cli.main
+E        +  and   <Exit.CLI_TOO_OLD: 6> = Exit.CLI_TOO_OLD
+
+tests/unit/test_sandbox_hold_versions.py:52: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{}
+_ test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[json-release-plain-no-tasks-capability] _
+[gw2] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+daemon = <function daemon.<locals>.start at 0x10a206de0>
+capsys = <_pytest.capture.CaptureFixture object at 0x10997a780>
+older = 'no-tasks-capability', prefix = None, action = 'release', as_json = True
+
+    @pytest.mark.parametrize("older", OLDER)
+    @pytest.mark.parametrize("prefix", [None, "disk:"], ids=["plain", "conditional"])
+    @pytest.mark.parametrize("action", ["hold", "release"])
+    @pytest.mark.parametrize("as_json", [True, False], ids=["json", "prose"])
+    def test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon(daemon, capsys, older, prefix, action, as_json):
+        sent = []
+        server = daemon({**OLDER[older], "tasks": lambda request: sent.append(request.args) or {}})
+        argv = [*ARGV[action], *(["--if-note-prefix", prefix] if prefix else []), *(["--json"] if as_json else [])]
+>       assert cli.main(argv) == Exit.CLI_TOO_OLD == 6
+E       AssertionError: assert 0 == <Exit.CLI_TOO_OLD: 6>
+E        +  where 0 = <function main at 0x10941d080>(['tasks', 'release', '--sandbox', 'workspace-write', '--json'])
+E        +    where <function main at 0x10941d080> = cli.main
+E        +  and   <Exit.CLI_TOO_OLD: 6> = Exit.CLI_TOO_OLD
+
+tests/unit/test_sandbox_hold_versions.py:52: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{}
+_ test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[prose-hold-plain-release-217-before-309] _
+[gw0] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+daemon = <function daemon.<locals>.start at 0x10aa9b740>
+capsys = <_pytest.capture.CaptureFixture object at 0x10a573da0>
+older = 'release-217-before-309', prefix = None, action = 'hold'
+as_json = False
+
+    @pytest.mark.parametrize("older", OLDER)
+    @pytest.mark.parametrize("prefix", [None, "disk:"], ids=["plain", "conditional"])
+    @pytest.mark.parametrize("action", ["hold", "release"])
+    @pytest.mark.parametrize("as_json", [True, False], ids=["json", "prose"])
+    def test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon(daemon, capsys, older, prefix, action, as_json):
+        sent = []
+        server = daemon({**OLDER[older], "tasks": lambda request: sent.append(request.args) or {}})
+        argv = [*ARGV[action], *(["--if-note-prefix", prefix] if prefix else []), *(["--json"] if as_json else [])]
+>       assert cli.main(argv) == Exit.CLI_TOO_OLD == 6
+E       AssertionError: assert 0 == <Exit.CLI_TOO_OLD: 6>
+E        +  where 0 = <function main at 0x109ce9080>(['tasks', 'hold', '--sandbox', 'workspace-write', '--until', '2099-06-01T00:00:00Z', ...])
+E        +    where <function main at 0x109ce9080> = cli.main
+E        +  and   <Exit.CLI_TOO_OLD: 6> = Exit.CLI_TOO_OLD
+
+tests/unit/test_sandbox_hold_versions.py:52: AssertionError
+----------------------------- Captured stdout call -----------------------------
+held: None until None (None)
+_ test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[json-release-conditional-no-tasks-capability] _
+[gw3] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+daemon = <function daemon.<locals>.start at 0x10842ede0>
+capsys = <_pytest.capture.CaptureFixture object at 0x107bd0950>
+older = 'no-tasks-capability', prefix = 'disk:', action = 'release'
+as_json = True
+
+    @pytest.mark.parametrize("older", OLDER)
+    @pytest.mark.parametrize("prefix", [None, "disk:"], ids=["plain", "conditional"])
+    @pytest.mark.parametrize("action", ["hold", "release"])
+    @pytest.mark.parametrize("as_json", [True, False], ids=["json", "prose"])
+    def test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon(daemon, capsys, older, prefix, action, as_json):
+        sent = []
+        server = daemon({**OLDER[older], "tasks": lambda request: sent.append(request.args) or {}})
+        argv = [*ARGV[action], *(["--if-note-prefix", prefix] if prefix else []), *(["--json"] if as_json else [])]
+>       assert cli.main(argv) == Exit.CLI_TOO_OLD == 6
+E       AssertionError: assert 0 == <Exit.CLI_TOO_OLD: 6>
+E        +  where 0 = <function main at 0x107805080>(['tasks', 'release', '--sandbox', 'workspace-write', '--if-note-prefix', 'disk:', ...])
+E        +    where <function main at 0x107805080> = cli.main
+E        +  and   <Exit.CLI_TOO_OLD: 6> = Exit.CLI_TOO_OLD
+
+tests/unit/test_sandbox_hold_versions.py:52: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{}
+_ test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[json-hold-plain-release-217-before-309] _
+[gw1] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+daemon = <function daemon.<locals>.start at 0x107e89940>
+capsys = <_pytest.capture.CaptureFixture object at 0x107669010>
+older = 'release-217-before-309', prefix = None, action = 'hold', as_json = True
+
+    @pytest.mark.parametrize("older", OLDER)
+    @pytest.mark.parametrize("prefix", [None, "disk:"], ids=["plain", "conditional"])
+    @pytest.mark.parametrize("action", ["hold", "release"])
+    @pytest.mark.parametrize("as_json", [True, False], ids=["json", "prose"])
+    def test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon(daemon, capsys, older, prefix, action, as_json):
+        sent = []
+        server = daemon({**OLDER[older], "tasks": lambda request: sent.append(request.args) or {}})
+        argv = [*ARGV[action], *(["--if-note-prefix", prefix] if prefix else []), *(["--json"] if as_json else [])]
+>       assert cli.main(argv) == Exit.CLI_TOO_OLD == 6
+E       AssertionError: assert 0 == <Exit.CLI_TOO_OLD: 6>
+E        +  where 0 = <function main at 0x10704d080>(['tasks', 'hold', '--sandbox', 'workspace-write', '--until', '2099-06-01T00:00:00Z', ...])
+E        +    where <function main at 0x10704d080> = cli.main
+E        +  and   <Exit.CLI_TOO_OLD: 6> = Exit.CLI_TOO_OLD
+
+tests/unit/test_sandbox_hold_versions.py:52: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{}
+_ test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[prose-hold-plain-no-capabilities-op] _
+[gw2] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+daemon = <function daemon.<locals>.start at 0x10a2068e0>
+capsys = <_pytest.capture.CaptureFixture object at 0x109c84e30>
+older = 'no-capabilities-op', prefix = None, action = 'hold', as_json = False
+
+    @pytest.mark.parametrize("older", OLDER)
+    @pytest.mark.parametrize("prefix", [None, "disk:"], ids=["plain", "conditional"])
+    @pytest.mark.parametrize("action", ["hold", "release"])
+    @pytest.mark.parametrize("as_json", [True, False], ids=["json", "prose"])
+    def test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon(daemon, capsys, older, prefix, action, as_json):
+        sent = []
+        server = daemon({**OLDER[older], "tasks": lambda request: sent.append(request.args) or {}})
+        argv = [*ARGV[action], *(["--if-note-prefix", prefix] if prefix else []), *(["--json"] if as_json else [])]
+>       assert cli.main(argv) == Exit.CLI_TOO_OLD == 6
+E       AssertionError: assert 0 == <Exit.CLI_TOO_OLD: 6>
+E        +  where 0 = <function main at 0x10941d080>(['tasks', 'hold', '--sandbox', 'workspace-write', '--until', '2099-06-01T00:00:00Z', ...])
+E        +    where <function main at 0x10941d080> = cli.main
+E        +  and   <Exit.CLI_TOO_OLD: 6> = Exit.CLI_TOO_OLD
+
+tests/unit/test_sandbox_hold_versions.py:52: AssertionError
+----------------------------- Captured stdout call -----------------------------
+held: None until None (None)
+_ test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[prose-hold-conditional-no-capabilities-op] _
+[gw3] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+daemon = <function daemon.<locals>.start at 0x10842e8e0>
+capsys = <_pytest.capture.CaptureFixture object at 0x107d0ea20>
+older = 'no-capabilities-op', prefix = 'disk:', action = 'hold', as_json = False
+
+    @pytest.mark.parametrize("older", OLDER)
+    @pytest.mark.parametrize("prefix", [None, "disk:"], ids=["plain", "conditional"])
+    @pytest.mark.parametrize("action", ["hold", "release"])
+    @pytest.mark.parametrize("as_json", [True, False], ids=["json", "prose"])
+    def test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon(daemon, capsys, older, prefix, action, as_json):
+        sent = []
+        server = daemon({**OLDER[older], "tasks": lambda request: sent.append(request.args) or {}})
+        argv = [*ARGV[action], *(["--if-note-prefix", prefix] if prefix else []), *(["--json"] if as_json else [])]
+>       assert cli.main(argv) == Exit.CLI_TOO_OLD == 6
+E       AssertionError: assert 0 == <Exit.CLI_TOO_OLD: 6>
+E        +  where 0 = <function main at 0x107805080>(['tasks', 'hold', '--sandbox', 'workspace-write', '--until', '2099-06-01T00:00:00Z', ...])
+E        +    where <function main at 0x107805080> = cli.main
+E        +  and   <Exit.CLI_TOO_OLD: 6> = Exit.CLI_TOO_OLD
+
+tests/unit/test_sandbox_hold_versions.py:52: AssertionError
+----------------------------- Captured stdout call -----------------------------
+held: None until None (None)
+_ test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[prose-hold-conditional-release-217-before-309] _
+[gw2] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+daemon = <function daemon.<locals>.start at 0x10a1bf7e0>
+capsys = <_pytest.capture.CaptureFixture object at 0x109c76fc0>
+older = 'release-217-before-309', prefix = 'disk:', action = 'hold'
+as_json = False
+
+    @pytest.mark.parametrize("older", OLDER)
+    @pytest.mark.parametrize("prefix", [None, "disk:"], ids=["plain", "conditional"])
+    @pytest.mark.parametrize("action", ["hold", "release"])
+    @pytest.mark.parametrize("as_json", [True, False], ids=["json", "prose"])
+    def test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon(daemon, capsys, older, prefix, action, as_json):
+        sent = []
+        server = daemon({**OLDER[older], "tasks": lambda request: sent.append(request.args) or {}})
+        argv = [*ARGV[action], *(["--if-note-prefix", prefix] if prefix else []), *(["--json"] if as_json else [])]
+>       assert cli.main(argv) == Exit.CLI_TOO_OLD == 6
+E       AssertionError: assert 0 == <Exit.CLI_TOO_OLD: 6>
+E        +  where 0 = <function main at 0x10941d080>(['tasks', 'hold', '--sandbox', 'workspace-write', '--until', '2099-06-01T00:00:00Z', ...])
+E        +    where <function main at 0x10941d080> = cli.main
+E        +  and   <Exit.CLI_TOO_OLD: 6> = Exit.CLI_TOO_OLD
+
+tests/unit/test_sandbox_hold_versions.py:52: AssertionError
+----------------------------- Captured stdout call -----------------------------
+held: None until None (None)
+_ test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[prose-hold-plain-no-tasks-capability] _
+[gw0] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+daemon = <function daemon.<locals>.start at 0x10aaaa160>
+capsys = <_pytest.capture.CaptureFixture object at 0x10a1fa060>
+older = 'no-tasks-capability', prefix = None, action = 'hold', as_json = False
+
+    @pytest.mark.parametrize("older", OLDER)
+    @pytest.mark.parametrize("prefix", [None, "disk:"], ids=["plain", "conditional"])
+    @pytest.mark.parametrize("action", ["hold", "release"])
+    @pytest.mark.parametrize("as_json", [True, False], ids=["json", "prose"])
+    def test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon(daemon, capsys, older, prefix, action, as_json):
+        sent = []
+        server = daemon({**OLDER[older], "tasks": lambda request: sent.append(request.args) or {}})
+        argv = [*ARGV[action], *(["--if-note-prefix", prefix] if prefix else []), *(["--json"] if as_json else [])]
+>       assert cli.main(argv) == Exit.CLI_TOO_OLD == 6
+E       AssertionError: assert 0 == <Exit.CLI_TOO_OLD: 6>
+E        +  where 0 = <function main at 0x109ce9080>(['tasks', 'hold', '--sandbox', 'workspace-write', '--until', '2099-06-01T00:00:00Z', ...])
+E        +    where <function main at 0x109ce9080> = cli.main
+E        +  and   <Exit.CLI_TOO_OLD: 6> = Exit.CLI_TOO_OLD
+
+tests/unit/test_sandbox_hold_versions.py:52: AssertionError
+----------------------------- Captured stdout call -----------------------------
+held: None until None (None)
+_ test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[json-hold-plain-no-tasks-capability] _
+[gw1] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+daemon = <function daemon.<locals>.start at 0x107e89b20>
+capsys = <_pytest.capture.CaptureFixture object at 0x1079354c0>
+older = 'no-tasks-capability', prefix = None, action = 'hold', as_json = True
+
+    @pytest.mark.parametrize("older", OLDER)
+    @pytest.mark.parametrize("prefix", [None, "disk:"], ids=["plain", "conditional"])
+    @pytest.mark.parametrize("action", ["hold", "release"])
+    @pytest.mark.parametrize("as_json", [True, False], ids=["json", "prose"])
+    def test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon(daemon, capsys, older, prefix, action, as_json):
+        sent = []
+        server = daemon({**OLDER[older], "tasks": lambda request: sent.append(request.args) or {}})
+        argv = [*ARGV[action], *(["--if-note-prefix", prefix] if prefix else []), *(["--json"] if as_json else [])]
+>       assert cli.main(argv) == Exit.CLI_TOO_OLD == 6
+E       AssertionError: assert 0 == <Exit.CLI_TOO_OLD: 6>
+E        +  where 0 = <function main at 0x10704d080>(['tasks', 'hold', '--sandbox', 'workspace-write', '--until', '2099-06-01T00:00:00Z', ...])
+E        +    where <function main at 0x10704d080> = cli.main
+E        +  and   <Exit.CLI_TOO_OLD: 6> = Exit.CLI_TOO_OLD
+
+tests/unit/test_sandbox_hold_versions.py:52: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{}
+_ test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[prose-release-conditional-release-217-before-309] _
+[gw1] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+daemon = <function daemon.<locals>.start at 0x107e89da0>
+capsys = <_pytest.capture.CaptureFixture object at 0x1079345c0>
+older = 'release-217-before-309', prefix = 'disk:', action = 'release'
+as_json = False
+
+    @pytest.mark.parametrize("older", OLDER)
+    @pytest.mark.parametrize("prefix", [None, "disk:"], ids=["plain", "conditional"])
+    @pytest.mark.parametrize("action", ["hold", "release"])
+    @pytest.mark.parametrize("as_json", [True, False], ids=["json", "prose"])
+    def test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon(daemon, capsys, older, prefix, action, as_json):
+        sent = []
+        server = daemon({**OLDER[older], "tasks": lambda request: sent.append(request.args) or {}})
+        argv = [*ARGV[action], *(["--if-note-prefix", prefix] if prefix else []), *(["--json"] if as_json else [])]
+>       assert cli.main(argv) == Exit.CLI_TOO_OLD == 6
+E       AssertionError: assert 0 == <Exit.CLI_TOO_OLD: 6>
+E        +  where 0 = <function main at 0x10704d080>(['tasks', 'release', '--sandbox', 'workspace-write', '--if-note-prefix', 'disk:'])
+E        +    where <function main at 0x10704d080> = cli.main
+E        +  and   <Exit.CLI_TOO_OLD: 6> = Exit.CLI_TOO_OLD
+
+tests/unit/test_sandbox_hold_versions.py:52: AssertionError
+----------------------------- Captured stdout call -----------------------------
+released: None (no hold was in force); 0 waiting jobs queued again
+_ test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[prose-release-plain-release-217-before-309] _
+[gw3] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+daemon = <function daemon.<locals>.start at 0x1085077e0>
+capsys = <_pytest.capture.CaptureFixture object at 0x1078705f0>
+older = 'release-217-before-309', prefix = None, action = 'release'
+as_json = False
+
+    @pytest.mark.parametrize("older", OLDER)
+    @pytest.mark.parametrize("prefix", [None, "disk:"], ids=["plain", "conditional"])
+    @pytest.mark.parametrize("action", ["hold", "release"])
+    @pytest.mark.parametrize("as_json", [True, False], ids=["json", "prose"])
+    def test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon(daemon, capsys, older, prefix, action, as_json):
+        sent = []
+        server = daemon({**OLDER[older], "tasks": lambda request: sent.append(request.args) or {}})
+        argv = [*ARGV[action], *(["--if-note-prefix", prefix] if prefix else []), *(["--json"] if as_json else [])]
+>       assert cli.main(argv) == Exit.CLI_TOO_OLD == 6
+E       AssertionError: assert 0 == <Exit.CLI_TOO_OLD: 6>
+E        +  where 0 = <function main at 0x107805080>(['tasks', 'release', '--sandbox', 'workspace-write'])
+E        +    where <function main at 0x107805080> = cli.main
+E        +  and   <Exit.CLI_TOO_OLD: 6> = Exit.CLI_TOO_OLD
+
+tests/unit/test_sandbox_hold_versions.py:52: AssertionError
+----------------------------- Captured stdout call -----------------------------
+released: None (no hold was in force); 0 waiting jobs queued again
+_ test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[prose-hold-conditional-no-tasks-capability] _
+[gw2] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+daemon = <function daemon.<locals>.start at 0x10a1ce0c0>
+capsys = <_pytest.capture.CaptureFixture object at 0x109cba030>
+older = 'no-tasks-capability', prefix = 'disk:', action = 'hold'
+as_json = False
+
+    @pytest.mark.parametrize("older", OLDER)
+    @pytest.mark.parametrize("prefix", [None, "disk:"], ids=["plain", "conditional"])
+    @pytest.mark.parametrize("action", ["hold", "release"])
+    @pytest.mark.parametrize("as_json", [True, False], ids=["json", "prose"])
+    def test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon(daemon, capsys, older, prefix, action, as_json):
+        sent = []
+        server = daemon({**OLDER[older], "tasks": lambda request: sent.append(request.args) or {}})
+        argv = [*ARGV[action], *(["--if-note-prefix", prefix] if prefix else []), *(["--json"] if as_json else [])]
+>       assert cli.main(argv) == Exit.CLI_TOO_OLD == 6
+E       AssertionError: assert 0 == <Exit.CLI_TOO_OLD: 6>
+E        +  where 0 = <function main at 0x10941d080>(['tasks', 'hold', '--sandbox', 'workspace-write', '--until', '2099-06-01T00:00:00Z', ...])
+E        +    where <function main at 0x10941d080> = cli.main
+E        +  and   <Exit.CLI_TOO_OLD: 6> = Exit.CLI_TOO_OLD
+
+tests/unit/test_sandbox_hold_versions.py:52: AssertionError
+----------------------------- Captured stdout call -----------------------------
+held: None until None (None)
+_ test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[prose-release-conditional-no-capabilities-op] _
+[gw3] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+daemon = <function daemon.<locals>.start at 0x1084be020>
+capsys = <_pytest.capture.CaptureFixture object at 0x108093230>
+older = 'no-capabilities-op', prefix = 'disk:', action = 'release'
+as_json = False
+
+    @pytest.mark.parametrize("older", OLDER)
+    @pytest.mark.parametrize("prefix", [None, "disk:"], ids=["plain", "conditional"])
+    @pytest.mark.parametrize("action", ["hold", "release"])
+    @pytest.mark.parametrize("as_json", [True, False], ids=["json", "prose"])
+    def test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon(daemon, capsys, older, prefix, action, as_json):
+        sent = []
+        server = daemon({**OLDER[older], "tasks": lambda request: sent.append(request.args) or {}})
+        argv = [*ARGV[action], *(["--if-note-prefix", prefix] if prefix else []), *(["--json"] if as_json else [])]
+>       assert cli.main(argv) == Exit.CLI_TOO_OLD == 6
+E       AssertionError: assert 0 == <Exit.CLI_TOO_OLD: 6>
+E        +  where 0 = <function main at 0x107805080>(['tasks', 'release', '--sandbox', 'workspace-write', '--if-note-prefix', 'disk:'])
+E        +    where <function main at 0x107805080> = cli.main
+E        +  and   <Exit.CLI_TOO_OLD: 6> = Exit.CLI_TOO_OLD
+
+tests/unit/test_sandbox_hold_versions.py:52: AssertionError
+----------------------------- Captured stdout call -----------------------------
+released: None (no hold was in force); 0 waiting jobs queued again
+_ test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[prose-release-conditional-no-tasks-capability] _
+[gw1] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+daemon = <function daemon.<locals>.start at 0x107d758a0>
+capsys = <_pytest.capture.CaptureFixture object at 0x10793bc80>
+older = 'no-tasks-capability', prefix = 'disk:', action = 'release'
+as_json = False
+
+    @pytest.mark.parametrize("older", OLDER)
+    @pytest.mark.parametrize("prefix", [None, "disk:"], ids=["plain", "conditional"])
+    @pytest.mark.parametrize("action", ["hold", "release"])
+    @pytest.mark.parametrize("as_json", [True, False], ids=["json", "prose"])
+    def test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon(daemon, capsys, older, prefix, action, as_json):
+        sent = []
+        server = daemon({**OLDER[older], "tasks": lambda request: sent.append(request.args) or {}})
+        argv = [*ARGV[action], *(["--if-note-prefix", prefix] if prefix else []), *(["--json"] if as_json else [])]
+>       assert cli.main(argv) == Exit.CLI_TOO_OLD == 6
+E       AssertionError: assert 0 == <Exit.CLI_TOO_OLD: 6>
+E        +  where 0 = <function main at 0x10704d080>(['tasks', 'release', '--sandbox', 'workspace-write', '--if-note-prefix', 'disk:'])
+E        +    where <function main at 0x10704d080> = cli.main
+E        +  and   <Exit.CLI_TOO_OLD: 6> = Exit.CLI_TOO_OLD
+
+tests/unit/test_sandbox_hold_versions.py:52: AssertionError
+----------------------------- Captured stdout call -----------------------------
+released: None (no hold was in force); 0 waiting jobs queued again
+_ test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[prose-release-plain-no-tasks-capability] _
+[gw0] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+daemon = <function daemon.<locals>.start at 0x10aaa9620>
+capsys = <_pytest.capture.CaptureFixture object at 0x10a572b70>
+older = 'no-tasks-capability', prefix = None, action = 'release'
+as_json = False
+
+    @pytest.mark.parametrize("older", OLDER)
+    @pytest.mark.parametrize("prefix", [None, "disk:"], ids=["plain", "conditional"])
+    @pytest.mark.parametrize("action", ["hold", "release"])
+    @pytest.mark.parametrize("as_json", [True, False], ids=["json", "prose"])
+    def test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon(daemon, capsys, older, prefix, action, as_json):
+        sent = []
+        server = daemon({**OLDER[older], "tasks": lambda request: sent.append(request.args) or {}})
+        argv = [*ARGV[action], *(["--if-note-prefix", prefix] if prefix else []), *(["--json"] if as_json else [])]
+>       assert cli.main(argv) == Exit.CLI_TOO_OLD == 6
+E       AssertionError: assert 0 == <Exit.CLI_TOO_OLD: 6>
+E        +  where 0 = <function main at 0x109ce9080>(['tasks', 'release', '--sandbox', 'workspace-write'])
+E        +    where <function main at 0x109ce9080> = cli.main
+E        +  and   <Exit.CLI_TOO_OLD: 6> = Exit.CLI_TOO_OLD
+
+tests/unit/test_sandbox_hold_versions.py:52: AssertionError
+----------------------------- Captured stdout call -----------------------------
+released: None (no hold was in force); 0 waiting jobs queued again
+_ test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[prose-release-plain-no-capabilities-op] _
+[gw0] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+daemon = <function daemon.<locals>.start at 0x10a9ec860>
+capsys = <_pytest.capture.CaptureFixture object at 0x10a561520>
+older = 'no-capabilities-op', prefix = None, action = 'release', as_json = False
+
+    @pytest.mark.parametrize("older", OLDER)
+    @pytest.mark.parametrize("prefix", [None, "disk:"], ids=["plain", "conditional"])
+    @pytest.mark.parametrize("action", ["hold", "release"])
+    @pytest.mark.parametrize("as_json", [True, False], ids=["json", "prose"])
+    def test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon(daemon, capsys, older, prefix, action, as_json):
+        sent = []
+        server = daemon({**OLDER[older], "tasks": lambda request: sent.append(request.args) or {}})
+        argv = [*ARGV[action], *(["--if-note-prefix", prefix] if prefix else []), *(["--json"] if as_json else [])]
+>       assert cli.main(argv) == Exit.CLI_TOO_OLD == 6
+E       AssertionError: assert 0 == <Exit.CLI_TOO_OLD: 6>
+E        +  where 0 = <function main at 0x109ce9080>(['tasks', 'release', '--sandbox', 'workspace-write'])
+E        +    where <function main at 0x109ce9080> = cli.main
+E        +  and   <Exit.CLI_TOO_OLD: 6> = Exit.CLI_TOO_OLD
+
+tests/unit/test_sandbox_hold_versions.py:52: AssertionError
+----------------------------- Captured stdout call -----------------------------
+released: None (no hold was in force); 0 waiting jobs queued again
+___ test_sandbox_hold_and_release_send_one_explicit_target[argv0-expected0] ____
+[gw0] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10a579760>
+capsys = <_pytest.capture.CaptureFixture object at 0x10a57af00>
+argv = ['tasks', 'hold', '--sandbox', 'workspace-write', '--until', '2026-11-12T18:00:00Z', ...]
+expected = {'action': 'hold', 'task': None, 'sandbox': 'workspace-write', 'until': '2026-11-12T18:00:00Z', ...}
+
+    @pytest.mark.parametrize("argv,expected", [
+        (HOLD_ARGV, {"action": "hold", "task": None, "sandbox": "workspace-write", "until": UNTIL,
+                     "note": HOLD["note"]}),
+        (RELEASE_ARGV, {"action": "release", "task": None, "sandbox": "workspace-write", "until": None,
+                        "note": None}),
+    ])
+    def test_sandbox_hold_and_release_send_one_explicit_target(monkeypatch, capsys, argv, expected):
+        calls = client_for(monkeypatch, {"task_hold": HOLD})
+        assert cli.main([*argv, "--json"]) == 0
+>       assert calls == [("capabilities", {}), ("tasks", expected)]
+E       AssertionError: assert [('tasks', {'... room', ...})] == [('capabiliti...0:00Z', ...})]
+E         
+E         At index 0 diff: ('tasks', {'action': 'hold', 'task': None, 'until': '2026-11-12T18:00:00Z', 'note': 'disk: preserve room', 'sandbox': 'workspace-write'}) != ('capabilities', {})
+E         Right contains one more item: ('tasks', {'action': 'hold', 'task': None, 'sandbox': 'workspace-write', 'until': '2026-11-12T18:00:00Z', ...})
+E         Use -v to get more diff
+
+tests/unit/test_sandbox_hold_cli.py:68: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"task_hold": {"note": "disk: preserve room", "sandbox": "workspace-write", "since": "2026-11-12T17:00:00Z", "until": "2026-11-12T18:00:00Z"}}
+___ test_sandbox_hold_and_release_send_one_explicit_target[argv1-expected1] ____
+[gw0] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10a553740>
+capsys = <_pytest.capture.CaptureFixture object at 0x109a4b410>
+argv = ['tasks', 'release', '--sandbox', 'workspace-write']
+expected = {'action': 'release', 'task': None, 'sandbox': 'workspace-write', 'until': None, ...}
+
+    @pytest.mark.parametrize("argv,expected", [
+        (HOLD_ARGV, {"action": "hold", "task": None, "sandbox": "workspace-write", "until": UNTIL,
+                     "note": HOLD["note"]}),
+        (RELEASE_ARGV, {"action": "release", "task": None, "sandbox": "workspace-write", "until": None,
+                        "note": None}),
+    ])
+    def test_sandbox_hold_and_release_send_one_explicit_target(monkeypatch, capsys, argv, expected):
+        calls = client_for(monkeypatch, {"task_hold": HOLD})
+        assert cli.main([*argv, "--json"]) == 0
+>       assert calls == [("capabilities", {}), ("tasks", expected)]
+E       AssertionError: assert [('tasks', {'...: None, ...})] == [('capabiliti...: None, ...})]
+E         
+E         At index 0 diff: ('tasks', {'action': 'release', 'task': None, 'until': None, 'note': None, 'sandbox': 'workspace-write'}) != ('capabilities', {})
+E         Right contains one more item: ('tasks', {'action': 'release', 'task': None, 'sandbox': 'workspace-write', 'until': None, ...})
+E         Use -v to get more diff
+
+tests/unit/test_sandbox_hold_cli.py:68: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"task_hold": {"note": "disk: preserve room", "sandbox": "workspace-write", "since": "2026-11-12T17:00:00Z", "until": "2026-11-12T18:00:00Z"}}
+________ test_sandbox_condition_reuses_note_prefix_capability[release] _________
+[gw0] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109a4f500>
+capsys = <_pytest.capture.CaptureFixture object at 0x109a48ec0>
+argv = ['tasks', 'release', '--sandbox', 'workspace-write']
+
+    @pytest.mark.parametrize("argv", [HOLD_ARGV, RELEASE_ARGV], ids=["hold", "release"])
+    def test_sandbox_condition_reuses_note_prefix_capability(monkeypatch, capsys, argv):
+        # #304: a conditional call goes as `hold-if`/`release-if`, with no condition preflight.
+        calls = client_for(monkeypatch, {"task_hold": HOLD},
+                           capabilities=[protocol.TASKS_IF_NOTE_PREFIX_V2_CAPABILITY, *SANDBOX_CAPABLE])
+        assert cli.main([*argv, "--if-note-prefix", "disk:", "--json"]) == 0
+>       assert [op for op, _ in calls] == ["capabilities", "tasks"]
+E       AssertionError: assert ['tasks'] == ['capabilities', 'tasks']
+E         
+E         At index 0 diff: 'tasks' != 'capabilities'
+E         Right contains one more item: 'tasks'
+E         Use -v to get more diff
+
+tests/unit/test_sandbox_hold_cli.py:89: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"task_hold": {"note": "disk: preserve room", "sandbox": "workspace-write", "since": "2026-11-12T17:00:00Z", "until": "2026-11-12T18:00:00Z"}}
+__________ test_sandbox_condition_reuses_note_prefix_capability[hold] __________
+[gw1] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1079899d0>
+capsys = <_pytest.capture.CaptureFixture object at 0x106dad220>
+argv = ['tasks', 'hold', '--sandbox', 'workspace-write', '--until', '2026-11-12T18:00:00Z', ...]
+
+    @pytest.mark.parametrize("argv", [HOLD_ARGV, RELEASE_ARGV], ids=["hold", "release"])
+    def test_sandbox_condition_reuses_note_prefix_capability(monkeypatch, capsys, argv):
+        # #304: a conditional call goes as `hold-if`/`release-if`, with no condition preflight.
+        calls = client_for(monkeypatch, {"task_hold": HOLD},
+                           capabilities=[protocol.TASKS_IF_NOTE_PREFIX_V2_CAPABILITY, *SANDBOX_CAPABLE])
+        assert cli.main([*argv, "--if-note-prefix", "disk:", "--json"]) == 0
+>       assert [op for op, _ in calls] == ["capabilities", "tasks"]
+E       AssertionError: assert ['tasks'] == ['capabilities', 'tasks']
+E         
+E         At index 0 diff: 'tasks' != 'capabilities'
+E         Right contains one more item: 'tasks'
+E         Use -v to get more diff
+
+tests/unit/test_sandbox_hold_cli.py:89: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"task_hold": {"note": "disk: preserve room", "sandbox": "workspace-write", "since": "2026-11-12T17:00:00Z", "until": "2026-11-12T18:00:00Z"}}
+_ test_a_new_cli_and_daemon_hold_and_release_the_sandbox_through_the_socket[conditional] _
+[gw3] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+daemon = <function daemon.<locals>.start at 0x108259800>
+capsys = <_pytest.capture.CaptureFixture object at 0x10806ac60>
+prefix = 'disk:'
+
+    @pytest.mark.parametrize("prefix", [None, "disk:"], ids=["plain", "conditional"])
+    def test_a_new_cli_and_daemon_hold_and_release_the_sandbox_through_the_socket(daemon, capsys, prefix):
+        with fresh_daemon() as (service, harness, clock, signals):
+            def forward(request):
+                try:
+                    if service.conversations.owns(request.op):
+                        return service.conversations.handle(request.op, request.args, None)
+                    return service.dispatch(request.op, request.args)
+                except protocol.ProtocolError as error:
+                    return protocol.refuse(request.id, error)
+    
+            server = daemon({"capabilities": forward, "tasks": forward})
+            condition = ["--if-note-prefix", prefix] if prefix else []
+            assert cli.main([*ARGV["hold"], *condition, "--json"]) == 0
+            held = json.loads(capsys.readouterr().out)
+            assert held["task_hold"]["sandbox"] == "workspace-write" and held["task_hold"]["until"] == UNTIL
+            assert service.store.one("SELECT expires_at FROM leases WHERE lease_key='sandbox-hold:workspace-write'")
+            assert cli.main([*ARGV["release"], *condition, "--json"]) == 0
+            released = json.loads(capsys.readouterr().out)
+            assert (released["released"], released["was_held"]) == ("workspace-write", True)
+            assert service.store.one("SELECT 1 FROM leases WHERE lease_key='sandbox-hold:workspace-write'") is None
+>           assert server.ops() == ["capabilities", "tasks", "capabilities", "tasks"]
+E           AssertionError: assert ['tasks', 'tasks'] == ['capabilitie...ies', 'tasks']
+E             
+E             At index 0 diff: 'tasks' != 'capabilities'
+E             Right contains 2 more items, first extra item: 'capabilities'
+E             Use -v to get more diff
+
+tests/unit/test_sandbox_hold_versions.py:92: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4429625440:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4429625440:daemon.py:1088 reset credits: automatic redemption off; no-reset marker absent
+_ test_a_new_cli_and_daemon_hold_and_release_the_sandbox_through_the_socket[plain] _
+[gw2] darwin -- Python 3.12.14 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-sbh-f1/venv/bin/python
+
+daemon = <function daemon.<locals>.start at 0x10a211800>
+capsys = <_pytest.capture.CaptureFixture object at 0x109c663c0>, prefix = None
+
+    @pytest.mark.parametrize("prefix", [None, "disk:"], ids=["plain", "conditional"])
+    def test_a_new_cli_and_daemon_hold_and_release_the_sandbox_through_the_socket(daemon, capsys, prefix):
+        with fresh_daemon() as (service, harness, clock, signals):
+            def forward(request):
+                try:
+                    if service.conversations.owns(request.op):
+                        return service.conversations.handle(request.op, request.args, None)
+                    return service.dispatch(request.op, request.args)
+                except protocol.ProtocolError as error:
+                    return protocol.refuse(request.id, error)
+    
+            server = daemon({"capabilities": forward, "tasks": forward})
+            condition = ["--if-note-prefix", prefix] if prefix else []
+            assert cli.main([*ARGV["hold"], *condition, "--json"]) == 0
+            held = json.loads(capsys.readouterr().out)
+            assert held["task_hold"]["sandbox"] == "workspace-write" and held["task_hold"]["until"] == UNTIL
+            assert service.store.one("SELECT expires_at FROM leases WHERE lease_key='sandbox-hold:workspace-write'")
+            assert cli.main([*ARGV["release"], *condition, "--json"]) == 0
+            released = json.loads(capsys.readouterr().out)
+            assert (released["released"], released["was_held"]) == ("workspace-write", True)
+            assert service.store.one("SELECT 1 FROM leases WHERE lease_key='sandbox-hold:workspace-write'") is None
+>           assert server.ops() == ["capabilities", "tasks", "capabilities", "tasks"]
+E           AssertionError: assert ['tasks', 'tasks'] == ['capabilitie...ies', 'tasks']
+E             
+E             At index 0 diff: 'tasks' != 'capabilities'
+E             Right contains 2 more items, first extra item: 'capabilities'
+E             Use -v to get more diff
+
+tests/unit/test_sandbox_hold_versions.py:92: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4458967744:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4458967744:daemon.py:1088 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/unit/test_sandbox_hold_versions.py::test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[json-hold-plain-no-capabilities-op]
+FAILED tests/unit/test_sandbox_hold_versions.py::test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[json-hold-conditional-release-217-before-309]
+FAILED tests/unit/test_sandbox_hold_versions.py::test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[json-hold-conditional-no-capabilities-op]
+FAILED tests/unit/test_sandbox_hold_versions.py::test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[json-hold-conditional-no-tasks-capability]
+FAILED tests/unit/test_sandbox_hold_versions.py::test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[json-release-plain-release-217-before-309]
+FAILED tests/unit/test_sandbox_hold_versions.py::test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[json-release-plain-no-capabilities-op]
+FAILED tests/unit/test_sandbox_hold_versions.py::test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[json-release-conditional-no-capabilities-op]
+FAILED tests/unit/test_sandbox_hold_versions.py::test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[json-release-conditional-release-217-before-309]
+FAILED tests/unit/test_sandbox_hold_versions.py::test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[json-release-plain-no-tasks-capability]
+FAILED tests/unit/test_sandbox_hold_versions.py::test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[prose-hold-plain-release-217-before-309]
+FAILED tests/unit/test_sandbox_hold_versions.py::test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[json-release-conditional-no-tasks-capability]
+FAILED tests/unit/test_sandbox_hold_versions.py::test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[json-hold-plain-release-217-before-309]
+FAILED tests/unit/test_sandbox_hold_versions.py::test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[prose-hold-plain-no-capabilities-op]
+FAILED tests/unit/test_sandbox_hold_versions.py::test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[prose-hold-conditional-no-capabilities-op]
+FAILED tests/unit/test_sandbox_hold_versions.py::test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[prose-hold-conditional-release-217-before-309]
+FAILED tests/unit/test_sandbox_hold_versions.py::test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[prose-hold-plain-no-tasks-capability]
+FAILED tests/unit/test_sandbox_hold_versions.py::test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[json-hold-plain-no-tasks-capability]
+FAILED tests/unit/test_sandbox_hold_versions.py::test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[prose-release-conditional-release-217-before-309]
+FAILED tests/unit/test_sandbox_hold_versions.py::test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[prose-release-plain-release-217-before-309]
+FAILED tests/unit/test_sandbox_hold_versions.py::test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[prose-hold-conditional-no-tasks-capability]
+FAILED tests/unit/test_sandbox_hold_versions.py::test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[prose-release-conditional-no-capabilities-op]
+FAILED tests/unit/test_sandbox_hold_versions.py::test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[prose-release-conditional-no-tasks-capability]
+FAILED tests/unit/test_sandbox_hold_versions.py::test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[prose-release-plain-no-tasks-capability]
+FAILED tests/unit/test_sandbox_hold_versions.py::test_p6_a_new_cli_sends_no_sandbox_target_to_an_older_daemon[prose-release-plain-no-capabilities-op]
+FAILED tests/unit/test_sandbox_hold_cli.py::test_sandbox_hold_and_release_send_one_explicit_target[argv0-expected0]
+FAILED tests/unit/test_sandbox_hold_cli.py::test_sandbox_hold_and_release_send_one_explicit_target[argv1-expected1]
+FAILED tests/unit/test_sandbox_hold_cli.py::test_sandbox_condition_reuses_note_prefix_capability[release]
+FAILED tests/unit/test_sandbox_hold_cli.py::test_sandbox_condition_reuses_note_prefix_capability[hold]
+FAILED tests/unit/test_sandbox_hold_versions.py::test_a_new_cli_and_daemon_hold_and_release_the_sandbox_through_the_socket[conditional]
+FAILED tests/unit/test_sandbox_hold_versions.py::test_a_new_cli_and_daemon_hold_and_release_the_sandbox_through_the_socket[plain]
+30 failed, 19 passed in 39.80s

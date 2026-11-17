@@ -339,3 +339,9 @@ def test_outcomes_never_open_a_database_linked_outside_the_state_root(tmp_path, 
     monkeypatch.setattr(store, "Store", refuse)
     with pytest.raises(ValueError, match="state.sqlite3 is outside the state root"):
         rnotices.archived_outcomes(root, "s-one")
+
+
+# Release/217 (#294, D-NOTICE-KEEP1) wrote these tests against the one-pass rule. Under #297 a
+# job archived in a pass retires after the next pass's listing (C-8.4), so one maintenance
+# call runs the catch-up passes the daemon would (as fix round 2 did for its modules).
+pytestmark = pytest.mark.retention_catch_up

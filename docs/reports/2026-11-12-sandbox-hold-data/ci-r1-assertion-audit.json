@@ -1,0 +1,23 @@
+{
+  "files": [
+    {
+      "file": "tests/unit/test_host_push_build_budget.py",
+      "assertions_unchanged": 51,
+      "settings_calls_unchanged": 2,
+      "given_calls_and_strategy_bounds_unchanged": 2
+    },
+    {
+      "file": "tests/unit/test_host_push_store_completion_pr183.py",
+      "assertions_unchanged": 22,
+      "settings_calls_unchanged": 1,
+      "given_calls_and_strategy_bounds_unchanged": 1
+    },
+    {
+      "file": "tests/unit/test_host_push_store_interleavings.py",
+      "assertions_unchanged": 103,
+      "settings_calls_unchanged": 2,
+      "given_calls_and_strategy_bounds_unchanged": 2
+    }
+  ],
+  "production_unchanged": true
+}

@@ -24,18 +24,21 @@ jobs:
     # tests see the same load (pytest-xdist on one runner made them fail far more
     # often: #94, #98). tools/ci_shard_plugin.py splits the test files by measured
     # time (.github/test-shards.json). On 2026-10-12/13 five of this repository's
-    # macOS jobs ran at once most of the time while the rest queued, so five
-    # shards per interpreter make two full waves of five jobs.
+    # macOS jobs ran at once most of the time while the rest queued. On
+    # 2026-11-15 the map remeasured from four runs predicted 42.3 min per shard
+    # at five shards, and shard 1 was cancelled at 45 on seven PRs; seven shards
+    # predict 30.2, at the cost of a third wave of jobs.
     # The limit leaves room for one test to run to its 20-minute bound.
-    # tests/unit/test_ci_shard_plugin.py fails once a predicted shard passes half
-    # the limit: then add a shard and regenerate the map.
+    # tests/unit/test_ci_shard_plugin.py fails once a predicted shard passes
+    # 35 minutes or the limit less 10, whichever is lower: then add a shard and
+    # regenerate the map (tools/ci_shard_durations.py).
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         python: ["3.12", "3.14"]
         # Every entry is I/N for one N, I = 1..N (tests/unit/test_ci_shard_plugin.py checks).
-        shard: ["1/5", "2/5", "3/5", "4/5", "5/5"]
+        shard: ["1/7", "2/7", "3/7", "4/7", "5/7", "6/7", "7/7"]
     env:
       SHARD: ${{ matrix.shard }}
     steps:
