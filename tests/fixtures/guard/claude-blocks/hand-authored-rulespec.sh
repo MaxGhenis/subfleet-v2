@@ -9,7 +9,7 @@
 # large index costs a few processes, not four per file; a folder that is not there costs none.
 # Guard sync fix r2 (2026-11-17): a path's `.` and repeated `/` collapse, and each folder is resolved (cd -P,
 # pwd -P) before git runs, so every spelling of one checkout is checked once; more than 64 paths to resolve
-# is refused. The git work stops at a 20 s budget, checked before each git call, and the command is then
+# is refused. The git work stops at a 15 s budget, checked before each git call, and the command is then
 # denied, never allowed (the hook's 60 s timeout allows). Staged names are read raw (-z, --no-relative), so
 # each name under the anchor is looked up with its own bytes, and one holding a newline is denied.
 if printf '%s' "$command" | grep -qE 'git[[:space:]].*(commit|\\$)'; then
@@ -79,7 +79,7 @@ if printf '%s' "$command" | grep -qE 'git[[:space:]].*(commit|\\$)'; then
   if [ "$hr_list" = "TOOMANY" ]; then
     block "[hand-authored-rulespec] This command names more than 64 folders to commit from (each cd/pushd target, with each git -C applied); the guard cannot check them all in time. Commit from one checkout per command."
   fi
-  hr_late="[hand-authored-rulespec] The guard's 20 s budget for checking staged indexes ran out before it checked every folder this command commits from; it does not let an unchecked commit through. Commit from one checkout per command."
+  hr_late="[hand-authored-rulespec] The guard's 15 s budget for checking staged indexes ran out before it checked every folder this command commits from; it does not let an unchecked commit through. Commit from one checkout per command, or retry when the host is less busy."
   # Each folder is keyed by its physical path (the trailing x keeps a newline that ends it) and its git dir,
   # compared whole; a folder that is not there costs no git process.
   hr_n=0
@@ -91,16 +91,16 @@ if printf '%s' "$command" | grep -qE 'git[[:space:]].*(commit|\\$)'; then
     while [ "$hr_i" -lt "$hr_n" ] && { [ "${hr_dirs[hr_i]}" != "$gdir" ] || [ "${hr_gds[hr_i]}" != "$hr_gd" ]; }; do hr_i=$((hr_i + 1)); done
     [ "$hr_i" -eq "$hr_n" ] || continue
     hr_dirs[hr_n]=$gdir; hr_gds[hr_n]=$hr_gd; hr_n=$((hr_n + 1))
-    [ $((SECONDS - hr_t0)) -lt 20 ] || block "$hr_late"
+    [ $((SECONDS - hr_t0)) -lt 15 ] || block "$hr_late"
     origin_url=$(git -C "$gdir" ${hr_gd:+"--git-dir=$hr_gd"} remote get-url origin 2>/dev/null)
     printf '%s' "$origin_url" | grep -qiE 'TheAxiomFoundation/rulespec-' || continue
-    [ $((SECONDS - hr_t0)) -lt 20 ] || block "$hr_late"
+    [ $((SECONDS - hr_t0)) -lt 15 ] || block "$hr_late"
     hr_files=$(git -C "$gdir" ${hr_gd:+"--git-dir=$hr_gd"} diff --cached --name-only -z --no-relative --diff-filter=ACMR 2>/dev/null \
       | LC_ALL=C tr '\n\0' '\001\n' \
       | LC_ALL=C awk '/\.test\.yaml$/ || /\/composed\// || /^\.axiom\// { next }
           /^[a-z][a-z](-[a-z0-9-]+)?\/(statutes|regulations|policies|legislation|programs)\/.+\.ya?ml$/')
     [ -n "$hr_files" ] || continue
-    [ $((SECONDS - hr_t0)) -lt 20 ] || block "$hr_late"
+    [ $((SECONDS - hr_t0)) -lt 15 ] || block "$hr_late"
     missing=$( { printf '%s\n--\n' "$hr_files"
                  printf '%s\n' "$hr_files" \
                    | LC_ALL=C awk '{ sub(/\.[^.]*$/, ""); print ":.axiom/encoding-manifests/" $0 ".json"; print "HEAD:.axiom/encoding-manifests/" $0 ".json" }' \
