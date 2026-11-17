@@ -457,3 +457,7 @@ The runs, in order:
 - A fresh Actions run, which waits for the hub's push.
 
 Head built: `5c645aaa1` (the fix). This section is committed on top of it.
+
+## Fix round 3 (review r2)
+
+Draft in progress (started 2026-11-17 16:52 UTC, detached at `001e57a28`); filled in as each item lands.

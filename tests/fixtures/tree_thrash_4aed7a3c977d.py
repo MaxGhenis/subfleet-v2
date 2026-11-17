@@ -1,13 +1,31 @@
-"""Frozen D-TREE-THRASH1 differential oracle: exact original method bytes.
+"""Frozen D-TREE-THRASH1 differential oracle: exact release/217 method bytes.
 
-Source: a8624a4899a2:subfleet/daemon.py, lines 7561-8914.
-Full source SHA256: c78dfc024c802627dfd83f0504fa872baf6d11605b4d5dbab8d2e6818faa753e
-Method SHA256: a894326e79493fd6dc79b8fea75fd392add53d8283f123f4e49e328ee4afbcf5
+Source: 4aed7a3c977d:subfleet/daemon.py (release/217 with #301), lines 7870-9261.
+Full source SHA256: d0f3258f0795389797a3ebf6644dd05d765a115cf80286c59eb5e1fef7250883
+Method SHA256: d76c4b7913de5da0e913563b53415e72abff7eadf2f5302628be6f30f74c480f
 
 Created by parsing the base source and copying the method's complete lines,
 without rewriting its indentation or AST. The test checks those copied bytes
 before compiling this method in the current daemon's namespace. The wrapper
 exists only to retain the original method indentation; this file is not imported.
+
+The oracle must be release/217's `_admit_pass`, never this branch's: a copy of
+HEAD's method compares the change with itself. When another PR that changes
+`_admit_pass` lands on release/217 and this branch merges it, freeze again:
+
+1. Take the release/217 commit the branch merged, `R` (12 hex digits name it).
+   Extract `Daemon._admit_pass` from `git show R:subfleet/daemon.py` with `ast`:
+   the source's lines `node.lineno - 1` to `node.end_lineno`, as bytes, unchanged.
+2. Write this docstring, updated, then two blank lines, `class Daemon:` and those
+   bytes, to `tests/fixtures/tree_thrash_<R>.py`; `git rm` the old fixture by name.
+3. Set `BASE` to `R` and `BASE_METHOD_SHA256` to the method bytes' SHA-256 in
+   `tests/fake/test_admission_tree_thrash.py`, and update the hashes and the
+   source line above.
+4. Diff the frozen method against HEAD's `_admit_pass`: the hunks must be exactly
+   this PR's own (`git diff <merge base> <PR head> -- subfleet/daemon.py`, inside
+   the method). Any other hunk means the wrong base, or a bad merge.
+5. Run `test_i2_i5_generated_reservations_holds_and_capacity_clocks_equal_the_base`
+   and the measured shape; both compare the frozen method with HEAD's.
 """
 
 
@@ -48,7 +66,7 @@ class Daemon:
                     self._push_workspace_store_failures.pop(job_id, None)
                     self._push_workspace_store_first_failure.pop(job_id, None)
                     self.pushes.submit(self._run_worker, self._discard_cancelled_push_workspace, job_id)
-        tables = (self._capacity_waits, self._route_deferrals, self._retry_verdicts, self._turn_check_errors,
+        tables = (self._capacity_waits, self._capacity_news, self._route_deferrals, self._retry_verdicts, self._turn_check_errors,
                   self._pin_episodes, self._probe_misses)
         gone = {job_id for table in tables for job_id in table.copy() if job_id not in pending}
         if gone:
@@ -77,8 +95,9 @@ class Daemon:
         # C-11.10: an operator's task hold is a row here too, and no capacity: its
         # release frees nothing a capacity wait waits for (it wakes its own jobs).
         leases_now = frozenset((row["lease_key"], row["holder"]) for row in self.store.query(
-            f"SELECT lease_key,holder FROM leases WHERE {probes} AND NOT (lease_key >= ? AND lease_key < ?)",
-            LEASE_CENSUS_SKIPS))
+            f"SELECT lease_key,holder FROM leases WHERE {probes} AND NOT (lease_key >= ? AND lease_key < ?) "
+            "AND NOT (lease_key >= ? AND lease_key < ?)",
+            (*LEASE_CENSUS_SKIPS, *SANDBOX_CENSUS_SKIPS)))
         quarantines_now = (frozenset(row["attempt_id"] for row in self.store.query(PROVIDER_QUARANTINES)
                                     if scheduler.uncontained_quarantine(row))
                            if scheduler.provider_caps_on(self.policy) else frozenset())
@@ -87,6 +106,7 @@ class Daemon:
                          or self._provider_quarantines_seen.get(kind, frozenset()) - quarantines_now)
             self._leases_seen = {**self._leases_seen, kind: leases_now}
             self._provider_quarantines_seen = {**self._provider_quarantines_seen, kind: quarantines_now}
+        freed = self._capacity_change_news(kind) or freed
         if kind == "detached" and self._take_answer_news():
             freed = True                            # C-6.14: a pilot answered; its lane is free
         cap = policy_cap(self.policy["caps"], "max_active_attempts")
@@ -185,6 +205,14 @@ class Daemon:
                                        if self._pin_episodes.get(job["job_id"], {}).get("open"))
         episodes_after_commits(task_hold_read[0])
         for job in scheduler.ordered_jobs(self.policy, queued, liveness, ancestors=priority_jobs):
+            # Save news before any temporary guard can skip this waiter. Repeated
+            # news coalesces; only ordinary expedited capacity waits retain it.
+            known = self._capacity_waits.get(job["job_id"])
+            if job["wait_reason"] == "capacity" and known and known["expedite"]:
+                if freed:
+                    self._capacity_news[job["job_id"]] = True
+            else:
+                self._capacity_news.pop(job["job_id"], None)
             if job["job_id"] in workspace_skips:
                 continue
             if task_hold_read[0] != self._task_hold_epoch:
@@ -452,7 +480,8 @@ class Daemon:
                            if known and known["hold"].get("reason") == "behind-older-job" else None)
             unblocked = predecessor is not None and not any(
                 waiter[0] == predecessor and not waiter[3] for waiter in older_waiters(tier))
-            hurried = bool(freed and known and known["expedite"]) or turn_came or unblocked
+            saved_news = self._capacity_news.pop(job["job_id"], False)
+            hurried = bool((freed or saved_news) and known and known["expedite"]) or turn_came or unblocked
             if job["next_check_at"] and job["next_check_at"] > utcnow() and not hurried:
                 # C-11.8: a job every lane refuses now for a reason no wait ends waits
                 # for nothing another job could take, however its clock was set (a
@@ -503,12 +532,26 @@ class Daemon:
                 refused = unadmittable_now(far_s=0)[0]          # None too for a route not evaluated
                 if refused:
                     for_good = unadmittable_now()[0]
+                    try:
+                        # Standing refusals omit reading/slot reasons. Judge the
+                        # whole verdict before granting the event-only ceiling,
+                        # and retain every known reset without preparing a tree.
+                        waiting_decision = self._route(routed_job, extra_exclusions=extra_exclusions,
+                                                       desktop=desktop_account)
+                    except Unroutable as exc:
+                        self._unroutable(job, exc, holds)
+                        continue
+                    # C-6.12: a completed evaluation ends the run of route errors.
+                    self._route_deferrals.pop(job["job_id"], None)
                     hold = {"reason": scheduler.refusal_label(refused), "refused_now": refused, "unprepared": True,
                             **({"for_good": for_good} if for_good else {})}
                     # No lane would take it: C-23.16's demand, as the look it skipped would have found.
-                    rechecks = self._capacity_wait(job["job_id"], "unprepared:" + "|".join(refused), hold,
+                    rechecks = self._capacity_wait(job["job_id"], "unprepared:" + scheduler.verdict_signature(waiting_decision), hold,
                                                    lane_wait=True)
-                    next_check = after(scheduler.capacity_recheck_delay(rechecks))
+                    next_check = scheduler.waiting_metadata(
+                        waiting_decision, rechecks=rechecks,
+                        ceiling_s=scheduler.capacity_recheck_ceiling(waiting_decision),
+                        capacity_steer=routed_job.get("capacity_steer"))["next_check_at"]
                     with self.store.transaction("job.unprepared_wait", job_id=job["job_id"]) as tx:
                         taken = self._task_held_at_write(tx, job, holds)            # C-11.10 (R3-1)
                         if taken is None:
@@ -783,7 +826,13 @@ class Daemon:
                         continue
                     hold["next_check_at"] = next_check
                 elif clocked:
-                    hold.setdefault("next_check_at", current["next_check_at"])
+                    if "next_check_at" not in hold:
+                        # No probe set it: the clock the job carried here, which a
+                        # look brought forward may have from an event-only verdict.
+                        taken, hold["next_check_at"] = self._clip_carried_clock(
+                            job, current["next_check_at"], holds, "probe-pending")
+                        if taken:
+                            continue
                     self._refresh_hold(job["job_id"], hold)
                 wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
                 holds[job["job_id"]] = hold
@@ -1029,7 +1078,8 @@ class Daemon:
                             rechecks = self._capacity_wait(job["job_id"], scheduler.verdict_signature(decision), hold,
                                                            lane_wait=not decision.chosen_lane)
                             waiting = scheduler.waiting_metadata(
-                                decision, rechecks=rechecks, capacity_steer=decision_job.get("capacity_steer"))
+                                decision, rechecks=rechecks, ceiling_s=scheduler.capacity_recheck_ceiling(decision),
+                                capacity_steer=decision_job.get("capacity_steer"))
                             if not rechecks:
                                 self.store.add_decision(job["job_id"], decision)
                             tx.execute("UPDATE jobs SET state='waiting',wait_reason=?,next_check_at=? WHERE job_id=?",
@@ -1257,6 +1307,8 @@ class Daemon:
                             hold = self._ramp.hold(klass, reserved_at)
                             if hold:
                                 ramp_hold = holds[job["job_id"]] = hold
+                                if saved_news:
+                                    self._capacity_news[job["job_id"]] = True
                                 status = "held"
                                 break
                         for key, holder in leases:
@@ -1327,6 +1379,10 @@ class Daemon:
                 # jobs it competes with wait behind it (C-6.9), and the next pass,
                 # which follows this one at once, looks at it again.
                 self._count_route(deferred=1)
+                # C-6.10: a moved route is no event-only verdict, and it sets no clock:
+                # a job brought forward keeps at most 30 s of the one it carried.
+                if self._clip_carried_clock(job, job["next_check_at"], holds, "route-moved")[0]:
+                    continue
                 # C-11.8: never from a decision with rotation's lanes left out, which read
                 # `excluded`, a standing refusal they are not (review of #153 r2, P3-B).
                 moved_for_good = None if rotation else scheduler.refused_for_good(

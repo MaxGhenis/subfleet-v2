@@ -1,9 +1,10 @@
 """D-TREE-THRASH1: a fresh detached tree is cut for placement, not for waiting.
 
-The differential oracle is the frozen actual `_admit_pass` at a8624a489,
-hash-checked and compiled into the current daemon's namespace. It exercises the
-old scheduling code without requiring Git history. Every daemon and repository
-is isolated.
+The differential oracle is release/217's actual `_admit_pass` at 4aed7a3c9
+(after #301), frozen byte for byte, hash-checked and compiled into the current
+daemon's namespace. It exercises the base's scheduling code without requiring
+Git history; the fixture's docstring says how to freeze it again. Every daemon
+and repository is isolated.
 """
 from __future__ import annotations
 
@@ -35,8 +36,8 @@ def submit(service, harness, repository, **changes):
     return submit_writer(service, harness, repository, caller_session=None, **changes)
 
 
-BASE = "a8624a4899a2"
-BASE_METHOD_SHA256 = "a894326e79493fd6dc79b8fea75fd392add53d8283f123f4e49e328ee4afbcf5"
+BASE = "4aed7a3c977d"
+BASE_METHOD_SHA256 = "d76c4b7913de5da0e913563b53415e72abff7eadf2f5302628be6f30f74c480f"
 FUTURE = "2099-12-31T00:00:00Z"
 WAITING_METADATA = scheduler.waiting_metadata
 MOVEMENTS = itertools.count()
