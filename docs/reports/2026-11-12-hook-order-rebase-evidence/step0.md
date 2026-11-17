@@ -1,0 +1,8 @@
+Start 2026-11-12T05:51:30Z; deadline 08:51:30Z. Initial HEAD detached 62103194a83650d3ac4ea532776f632e476390d5; clean. Assigned branch checked out elsewhere; preserve all original refs.
+Target b51f08f961e1b1dcfb93347eb080f9ddd9a9260d verified cat-file exit0.
+Release symbol grep only cli.py:1975 _same_process (unrelated); contract C-23.25:711 lacks at any position; C-23.26:712 amended release text. C-2.1:431 stays unchanged.
+Release hooks.py:911-918 strips913, appends914, !=915; installed990-993 lacks drift. Full release hooks diff inspected; last hunk attached_runner new758; desired_groups806 through installed993 unchanged. settings_path165-167 uses home_paths.home_path; home_path240-275 refuses missing overrides273-274 and personal overrides269-270 under pytest.
+Doctor123-142 consumes missing_events140; cli3264-3299 consumes changed_events3283/3290; operations245-258 plan(remove=True)247 and apply(remove=True)254 only other production callers (git grep confirmed).
+Equality CLI calls139/159 preceded by temp SETTINGS_ENV138/158; all other settings calls explicit path.
+Official https://code.claude.com/docs/en/hooks fetched 2026-11-12: literal historical sentence absent; current line563 When an event fires, its matching hooks run in parallel. Keep PR 2026-09-28 quote; behavior independently confirmed.
+No AGENTS.md found. Initial old-base home_paths.py sed failed; corrected git show target. Initial system scratch mkdir failed PermissionError. Rebase command failed could not create shared git rebase-merge (tool exit0 despite error). Use private git metadata and scratch /private/tmp/sf-hor-b1; deliver bundle.

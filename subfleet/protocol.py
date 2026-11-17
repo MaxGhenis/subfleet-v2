@@ -52,6 +52,11 @@ TASKS_IF_NOTE_PREFIX_CAPABILITY = "tasks.if_note_prefix.v1"
 #: the write transaction. Older daemons refuse these actions before any write.
 TASKS_IF_NOTE_PREFIX_V2_CAPABILITY = "tasks.if_note_prefix.v2"
 
+#: C-11.10 (D-RO-ADMIT1): `tasks` takes a `sandbox` target. An older daemon drops
+#: the field (C-16.2), sees no task and refuses "unknown task None", so a client
+#: sends a sandbox target only to a daemon that lists this.
+TASKS_SANDBOX_CAPABILITY = "tasks.sandbox.v1"
+
 OPS = (
     "submit", "list", "show", "wait", "kill", "lanes", "readings", "why",
     "notice.pending", "notice.ack", "notice.mark", "notice.list", "notice.withdraw", "ping", "daemon.status",
@@ -368,6 +373,7 @@ class TasksArgs:
     until: str | None = None
     note: str | None = None
     if_note_prefix: str | None = None
+    sandbox: str | None = None
 
 
 @dataclass

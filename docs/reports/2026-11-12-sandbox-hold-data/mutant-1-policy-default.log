@@ -1,0 +1,24 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______ test_sandbox_hold_reads_the_job_row_instead_of_the_task_default ________
+
+    def test_sandbox_hold_reads_the_job_row_instead_of_the_task_default():
+        """Mutant 1: explicit read-only builds run; explicit writable reviews wait."""
+        with fleet() as (service, harness, clock, signals):
+            specs = [("build", "read-only", "dispatch"), ("review", "workspace-write", "dispatch")]
+            jobs = jobs_from(service, harness, specs)
+            sandbox_hold(service, 100)
+            service._admit()
+>           assert len(attempts(service, jobs["generated-0"])) == 1, "row sandbox: explicit read-only build held"
+E           AssertionError: row sandbox: explicit read-only build held
+E           assert 0 == 1
+E            +  where 0 = len([])
+E            +    where [] = attempts(<subfleet.daemon.Daemon object at 0x10c5df770>, '20261112-012528-generated-0')
+
+tests/fake/test_sandbox_hold_properties.py:260: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4502452080:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4502452080:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_sandbox_hold_properties.py::test_sandbox_hold_reads_the_job_row_instead_of_the_task_default
+1 failed in 9.01s
