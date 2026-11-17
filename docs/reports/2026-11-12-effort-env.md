@@ -296,3 +296,151 @@ The importer exclusions, fallback paths, timeout adjustments, interrupted/incomp
 All four named-file staging/commit steps (regression, alias/contract fix, retry compatibility and final report) were denied with exit 128 by the parent repository's `index.lock` permissions. No new commit was created; the hub must collect the working-tree changes. Final commit argv/results are in `final-commit.json`/`final-commit.log`. `git diff --check`, final status, HEAD verification and evidence/cleanup assertions all passed (exit 0); results are in `final-checks.json`. Read-only discovery/setup results are in the command ledger.
 
 Head built (working-tree changes; commits denied): `4fd796b49ae63417e845c93ad8f456978c161f1c`
+
+## Fix round 3
+
+Review r3 of #310 (`~/reviews/subfleet-hub/effort-env-2026-11-10/review-r3.md`) found two P1s, two P2s and two P3s. This round fixes both P1s, both P2s and the first P3. The second P3 (the stale PR body) is the hub's, and the body is untouched. Started **2026-11-17 13:37:51 UTC** (`date -u`, first command) in a detached checkout of c07e5f193. Report written by 15:05 UTC, inside the three-hour limit. Evidence is in `docs/reports/2026-11-12-effort-env-data/fix-r3/`: one log per run from `run.sh`, which records the exact command, UTC start and end, and exit code.
+
+Commits, all on the workspace's detached HEAD (the assigned branch is checked out in the caller's worktree):
+
+- `a1788cb9a`: evidence P1.
+- `561c2c8ef`: failing tests.
+- `d5713c58e`: daemon and refusal fix, with the contract.
+- `9df56ca24`: `test_legacy_hold` stand-in.
+- `2df2c11d6`: run evidence and mutants.
+- Then this report.
+
+### Findings, causes and changes
+
+**P1: round 2's evidence turned CI red.** Cause: `tests/frontend/test_visual_report_hygiene.py` scans raw `.md` text for `](`. In `fix-r2/write-command-exclusions.md`, line 77's regex `host_push[.](publish|run|execute)` matched as a link to `publish|run|execute`, even inside a fenced block. Change: the fenced command (old lines 72–79) moved, byte for byte, into `fix-r2/write-command-exclusions-publish-search.txt`. Its SHA-256 equals that of the removed lines: `eb57d7b172a4…d3b3`. The `.md` now names the file with a link that resolves. Test: `test_every_report_link_resolves_inside_the_repository[2026-11-12-effort-env-data]` failed at c07e5f193 (`hygiene-before`: 1 failed, 59 passed) and passes after (`hygiene-after`: 60 passed; `hygiene-final` after this report, below).
+
+**P1: imported v1 attempts no longer resumed.** Cause: `_resume_submission` pinned the recorded `model_short` whenever one was present. The importer always records one, in v1's own spelling: `importer.py:1462` holds the requested name, which it resolves without case and by scope at `:419–433`. `resolve_model` accepts only a current key, a retired alias or an exact ID, so `"Astra"` or `"astra-v1-only-name"` was refused `unknown-pinned-model`.
+
+Change: the new module function `daemon._resume_pin(policy, recorded, model_id)` keeps the recorded alias only when `resolve_model(..., note=False)` maps it to an entry whose `id` equals `attempt["model_requested"]`; otherwise it pins `attempt["model_requested"]`. `_resume_submission` reads the evidence in memory and never writes it (C-23.32). Evidence that isn't a JSON object counts as no alias. The comment that said imported attempts may lack an alias now says what the code does.
+
+Test: `test_c23_32_imported_resume_runs_at_its_source_model_id_whatever_v1_named_it`. The source attempt carries the importer's evidence keys with `imported: true`, and its `model_short` is each of `"Astra"`, `"astra-v1-only-name"`, `None`, `"astra"` and `"gpt-6-astra"`. Each case asserts that the resume:
+
+- is accepted on the source lane, pinned `astra`;
+- passes the round's invariant;
+- reaches the adapter's `resume_launch` through `Daemon._launch` with `gpt-6-astra`;
+- leaves the source attempt row, `evidence_json` included, unchanged after submit and after launch.
+
+Before the fix: `Astra` and `astra-v1-only-name` failed with `AdapterError: unknown pinned model 'Astra'` (and `'astra-v1-only-name'`), and the three controls passed. After: all five pass.
+
+**P2: a model-ID rollover was accepted but could never launch.** Cause: the same unconditional alias pin. After `haiku` moved to a new ID with the old one kept under `haiku_legacy`, the resume pinned `haiku`. Its launch then failed the identity check, `resume["model_id"] != model["id"]` (`resume-identity-mismatch`, now `daemon.py:10146`). Change: the P1 rule. `haiku` no longer names an entry at the source's ID, so the resume pins the old ID, which resolves to `haiku_legacy`.
+
+Test: `test_resume_after_a_policy_change_pins_an_entry_at_its_source_model_id`, with three cases:
+
+- `id-rollover`: the new `haiku` carries effort `high`.
+- `alias-removed`: `opus_alternate` (effort `high`), sharing `opus`'s ID, is deleted; `opus` has effort `low`.
+- `alias-retired`: a control.
+
+It drives `Daemon._launch` before checking the pin, so a `spawn_error` shows as an empty call list. Before the fix:
+
+- `id-rollover` failed with `('haiku', []) == ('haiku_legacy', [(..., 'claude-haiku-4-5-20251001', None)])`: accepted, then refused at launch.
+- `alias-removed` was refused `unknown-pinned-model`.
+- `alias-retired` passed.
+
+After: all three pass. `id-rollover` launches `haiku_legacy` at the old ID with that entry's effort (none). `alias-removed` falls back to the ID and launches `opus` at `low`, as the base did.
+
+**The round's invariant.** `assert_resume_pins_source_model_id` asserts that the pinned job's policy entry `id` equals the manifest's `resume["model_id"]`. It runs on every accepted case above and has been added to round 2's `test_resume_keeps_source_effort_when_policy_aliases_share_a_model_id` (four cases, which still pass).
+
+**P2: the refusal changed form when no alias held the source's ID.** Cause: head pinned the still-valid alias `haiku`. The digest's `resolve_model(resume["model_id"])` then raised `PolicyError`, which surfaced as `ProtocolError` `invalid-args`, code 2, carrying the state root's `policy.json` path and the `pinned_model` key. Change: under the P1 rule the pin is the old ID, so the pin site in `submit` refuses first (`daemon.py:3266–3279`), before the request digest, as `AdapterError` `unknown-pinned-model`, code 7. Its message is the base's, `unknown pinned model '<id>'; policy models: …`. A comment at the digest line records that the pin has already refused such an ID.
+
+Test: `test_resume_is_refused_unknown_pinned_model_when_no_entry_holds_its_source_model_id` (ID bump, no legacy alias). It asserts:
+
+- the exact type, reason, code and message;
+- no `policy.json` and no `pinned_model` in the message;
+- the fix and the wire text;
+- that no job was added.
+
+Before: it failed with `ProtocolError: …/state/policy.json: pinned_model: unknown model 'claude-haiku-4-5-20251001'; …`. After: passes.
+
+**P3: the refusal's fix couldn't be acted on.** Cause: `"pin a model from the live policy"` asked a resume for a pin that `_resume_submission` overrides. On the wire the fix comes from `refusals.render` by reason, not from the exception, so changing only the raise site wouldn't reach a client.
+
+Change, modeled on `by_policy`: a resume's refusal carries `details["resume_pin"] = True`. `refusals.render` then gives that reason's fix as `RESUME_PIN_FIX`, "submit a fresh job: a resume always runs on its source's model". The exception's own `fix` is the same constant. A non-resume pin keeps its old text.
+
+Tests:
+
+- The P2 test above asserts both `refusal.fix` and `protocol.refusal_text(refusal)`.
+- `test_a_resume_refused_for_its_source_model_asks_for_a_fresh_job` in `tests/unit/test_handler_refusals.py` covers the wire, with markers `True`, `False`, `1`, `"yes"` and `None` and with a checked and an unchecked model. Before: the two `True` cases failed.
+- The rendering property's independent statement of the rule (`expected()`) and its strategy now include `resume_pin`, with an explicit `@example`. Before: that example failed (`property-before`: 1 failed).
+
+Under the P1 rule a removed alias falls back to the provider ID, so this refusal remains only when no entry holds that ID.
+
+**C-12.4 and the change log** (`docs/acceptance-contract.md`):
+
+- **Clause.** The C-12.4 sentence now says the code's rule. The recorded alias is kept only while `resolve_model` maps it to an entry at the attempt's provider model ID, a retired alias included. Otherwise (no alias, an imported v1 spelling, a removed alias, or an ID rollover) the resume pins the provider ID, whose first current entry supplies the effort. With no entry at that ID, the resume is refused at its pin, before the digest, as `unknown-pinned-model` (code 7), and its repair is a fresh job.
+- **C-25.7.** The clause names this repair beside the by-policy addition.
+- **Change log.** The D-EFFORT-ENV1 line now reads `C-12.4, C-25.7, C-26.8 (…, fix round 3 2026-11-17, D-EFFORT-ENV1, PR #310 reviews r1/r2/r3; …)` and describes the round.
+
+**Caller fix.** `tests/unit/test_legacy_hold.py` calls `Daemon._resume_submission` on a `SimpleNamespace` stand-in, which had no `policy`. The first run after the fix gave 1 failed, 55 passed (`AttributeError: … no attribute 'policy'`). The stand-in now carries the default policy, and the file passes (56).
+
+### Mutants (not required by the brief)
+
+`fix-r3/mutant.py` applies one mutant and runs the round's 24 new and changed cases. It then restores the file and checks its SHA-256; `mutants.jsonl` holds every restore hash. All four were killed:
+
+| Mutant | Result | Killed by |
+| --- | --- | --- |
+| Keep any alias that resolves, at any ID | 2 failed, 22 passed | `id-rollover`, the no-entry refusal |
+| Never keep the alias (the base's rule) | 4 failed, 20 passed | round 2's four alias cases |
+| Resume refusal without the fresh-job fix | 1 failed, 23 passed | the no-entry refusal |
+| `render` ignores `resume_pin` | 4 failed, 20 passed | both wire cases with `True`, the property's example, the no-entry refusal |
+
+### Commands and results
+
+Every pytest command ran through `fix-r3/run.sh` with these settings:
+
+- `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"` and `UV_CACHE_DIR=$TMPDIR/uv-cache`;
+- `PYTHONPATH` unset and `PYTHONDONTWRITEBYTECODE=1`;
+- `uv run --no-sync --with 'pytest-xdist>=3.6' pytest --basetemp=$TMPDIR/sf-eff-fix3/pytest-<label>-<time> -p no:cacheprovider`, at most `-n 4`.
+
+Setup: `uv sync --group dev` exited 0 (CPython 3.15.2, with the GIL). The listed order is the order run. Runs overlap and must not be summed.
+
+| Label | Scope | Result | Exit |
+| --- | --- | --- | --- |
+| `hygiene-before` | hygiene file, at c07e5f193 | 1 failed, 59 passed | 1 |
+| `hygiene-after` | hygiene file, P1 moved | 60 passed | 0 |
+| `new-before` | 24 new and changed cases, daemon unchanged | 7 failed, 17 passed (the expected seven) | 1 |
+| `property-before` | the rendering property with its new example | 1 failed, 383 deselected | 1 |
+| `new-after` | the same 24 cases, fixed | 24 passed | 0 |
+| `legacy-hold-first` | `tests/unit/test_legacy_hold.py` | 1 failed, 55 passed (stand-in without `policy`) | 1 |
+| `legacy-hold` | the same, stand-in fixed | 56 passed | 0 |
+| `resume-contract` | `tests/fake/test_resume_contract.py` | 38 passed | 0 |
+| `importers-a` | `test_admission_priority.py`, `test_census_round3_leases.py` | 41 passed | 0 |
+| `importers-b` | `test_census_round3_interleavings.py` | 1 passed (167 s) | 0 |
+| `guards-a` | `test_test_module_names.py`, `test_invariants_index.py`, `test_handler_refusals.py` | 410 passed | 0 |
+| `guards-b` | `tests/fake/test_state_contract.py` | 37 passed | 0 |
+| `mutant-*` (4) | 24 cases each | killed, as tabled above | 1 each |
+| `hygiene-final` | hygiene file, after this report | 60 passed | 0 |
+
+Every "before" run used this head's `subfleet/`. At a1788cb9a, `git diff --quiet HEAD -- subfleet` showed it unchanged from c07e5f193. The PR's changed lines in `subfleet/daemon.py` hash the same at 276afddd8 and at c07e5f193 (diff from 4fd796b49^2 and from 4aed7a3c9 respectively), and `subfleet/refusals.py` had no PR lines.
+
+Other commands, all exit 0: `date -u`; `git status`/`log`/`diff`/`rev-parse`/`merge-base`; reading the review, report and contract; `gh pr view 310 --repo MaxGhenis/subfleet-v2` (a read); `uv sync --group dev`; edits by Python string replacement with uniqueness assertions; the `shasum` check of the moved snippet; `git add` of named files and `git commit` (five commits, none refused).
+
+### Not run
+
+- The other test files that import `daemon.py` (the review counts 257), as the brief directs; CI covers them.
+- The whole suite and the host-push files.
+- Any live state, real CLI or provider.
+
+### Deviations from the brief
+
+- **C-25.7 also amended.** The client's fix comes from `refusals.render`, so P3 needed the `resume_pin` marker in `subfleet/refusals.py`. C-25.7 lists such template additions, and the change-log line now names C-25.7.
+- **Two test files beyond the resume file changed.** `tests/unit/test_handler_refusals.py` gained the wire test, the strategy key, the `expected()` rule and an `@example`. `tests/unit/test_legacy_hold.py`'s stand-in gained `policy`.
+- **Run order.** The hygiene file ran before the code change and again at the end, rather than only second. `test_legacy_hold.py` ran before the resume file, as the first check of the fix.
+- **First `new-before` run.** It had a setup error in my new imported test: the store refuses to update `model_requested`, which already held `gpt-6-astra`. It gave 10 failed, 14 passed, five of them that setup error. I removed the update, and the corrected run reused the label, so its log replaced the first one. The counts here come from the console.
+- **Inaccurate commit message.** Commit `561c2c8ef` says its before-state is "daemon.py and refusals.py as at 276afddd8". Precisely, it is c07e5f193's files, whose PR lines equal 276afddd8's; release/217's own lines differ. History is not rewritten.
+- **Mutants.** Four mutants were added; the brief didn't ask for them.
+
+**Seen, not changed.** If an attempt's `model_requested` were itself a policy key or retired alias for another ID, the fallback pin would resolve by key and its launch would refuse. That is unchanged from the base. Daemon attempts record `model["id"]`, and the importer records a resolved ID, v1's `meta.model`, or `unknown`, so whether any live attempt has such a value is UNPROVEN (I may not read the live store).
+
+### Workspace and cleanup
+
+- **Scratch:** `/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-eff-fix3`, holding the pytest basetemps and this section's draft.
+- **Outside it, both generated in this worktree:** `/Users/maxghenis/.subfleet/worktrees/20261117-083629-eff-fix-r3/.venv` (from `uv sync`) and `/Users/maxghenis/.subfleet/worktrees/20261117-083629-eff-fix-r3/.hypothesis`. No `__pycache__` was written.
+- **Removal:** after the final run, each is moved under the scratch and removed with `shutil.rmtree`, guarded by an assertion that `sf-eff-fix3` is in the path; the scratch goes the same way. CLEANUP_RESULT
+- **Left:** `$TMPDIR/uv-cache`, which the brief names as the cache and which existed before this job.
+- **Never touched:** live state, live processes, credentials, `git push`, GitHub writes and history rewrites.
+
+Head built: HEAD_BUILT
