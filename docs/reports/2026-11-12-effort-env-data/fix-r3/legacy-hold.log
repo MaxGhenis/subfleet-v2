@@ -1,0 +1,10 @@
+# label: legacy-hold
+# start: 2026-11-17T14:23:04Z
+# command: uv run --no-sync --with pytest-xdist\>=3.6 pytest --basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T//sf-eff-fix3/pytest-legacy-hold-142304 -p no:cacheprovider -n 4 -q -rfE tests/unit/test_legacy_hold.py
+bringing up nodes...
+bringing up nodes...
+
+........................................................                 [100%]
+56 passed in 206.60s (0:03:26)
+# end: 2026-11-17T14:26:52Z
+# exit: 0
