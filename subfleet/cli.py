@@ -164,16 +164,55 @@ def _ancestor_caller_family() -> str | None:
     return None
 
 
-def session_id(env: dict[str, str] | None = None, *, family: str | None = None) -> str | None:
+#: C-6.5: the family whose harness exports each session-id variable. A
+#: `SUBFLEET_SESSION_ID` is of no known kind.
+SESSION_ID_KINDS = {"CLAUDE_CODE_SESSION_ID": "claude", "CODEX_THREAD_ID": "codex", "CODEX_SESSION_ID": "codex"}
+
+
+def session_source(env: dict[str, str] | None = None, *,
+                   family: str | None = None) -> tuple[str | None, str | None]:
+    """The caller's session id and its kind: the family whose harness marker supplied it.
+
+    The kind never follows `--caller-family` or `SUBFLEET_CALLER_FAMILY` (C-6.5):
+    a Claude session that declares codex still carries a Claude session id.
+    With both families' markers, an id chosen by a declared family has a kind
+    only when the process ancestry names that same family.
+    """
     env = os.environ if env is None else env
     if all(_caller_markers(env)):
         family = family or caller_family(env=env)
         names = (("CLAUDE_CODE_SESSION_ID", "SUBFLEET_SESSION_ID") if family == "claude" else
                  ("SUBFLEET_SESSION_ID", "CODEX_THREAD_ID", "CODEX_SESSION_ID") if family == "codex" else
                  ("SUBFLEET_SESSION_ID",))
-        return next((env[name].strip() for name in names if env.get(name, "").strip()), None)
-    return (env.get("CLAUDE_CODE_SESSION_ID") or env.get("SUBFLEET_SESSION_ID")
-            or env.get("CODEX_THREAD_ID") or env.get("CODEX_SESSION_ID") or "").strip() or None
+        name = next((name for name in names if env.get(name, "").strip()), None)
+        if name is None:
+            return None, None
+        kind = SESSION_ID_KINDS.get(name)
+        return env[name].strip(), (kind if kind and _ancestor_caller_family() == kind else None)
+    for name in ("CLAUDE_CODE_SESSION_ID", "SUBFLEET_SESSION_ID", "CODEX_THREAD_ID", "CODEX_SESSION_ID"):
+        if (env.get(name) or "").strip():
+            return env[name].strip(), SESSION_ID_KINDS.get(name)
+    return None, None
+
+
+def session_id(env: dict[str, str] | None = None, *, family: str | None = None) -> str | None:
+    return session_source(env, family=family)[0]
+
+
+def session_kind(env: dict[str, str] | None = None, *, family: str | None = None) -> str | None:
+    """C-6.5: `claude` or `codex` for the harness that supplied the session id."""
+    return session_source(env, family=family)[1]
+
+
+#: C-6.23: a process launched by a Subfleet job (or a conversation turn) carries
+#: these; same-family consent is refused from it.
+JOB_ENV_MARKERS = ("SUBFLEET_JOB", "SUBFLEET_ATTEMPT", "SUBFLEET_TURN_JOB")
+
+
+def inside_subfleet_job(env: dict[str, str] | None = None) -> str | None:
+    """The job marker in this environment, or None outside a Subfleet job."""
+    env = os.environ if env is None else env
+    return next((name for name in JOB_ENV_MARKERS if (env.get(name) or "").strip()), None)
 
 
 def caller_family(explicit: str | None = None,
@@ -354,7 +393,10 @@ def caller_pid(env: dict[str, str] | None = None, *, family: str | None = None) 
     while keeping worktree holds.
     """
     env = os.environ if env is None else env
-    if family == "codex" or all(_caller_markers(env)) and (family or caller_family(env=env)) != "claude":
+    # C-6.5: a Claude session id keeps its process marker whatever family is
+    # declared, so the daemon's writer-instance check can still identify it.
+    if session_kind(env, family=family) != "claude" and (
+            family == "codex" or all(_caller_markers(env)) and (family or caller_family(env=env)) != "claude"):
         return None
     try:
         value = int((env.get("CLAUDE_PID") or "").strip())
@@ -1012,6 +1054,13 @@ def _prepare_submit(args: argparse.Namespace,
         return None, fail(Exit.INVALID_INPUT, f"run: {exc}")
     except ProtocolError as exc:
         return None, _protocol_failure(exc)
+    marker = inside_subfleet_job() if getattr(args, "allow_same_family", False) else None
+    if marker or getattr(args, "allow_same_family", False) and getattr(args, "parent", None):
+        # C-6.23: consent to a same-family review is a person's. The daemon
+        # refuses it on a parented submission too; this refuses it earlier.
+        return None, fail(Exit.REFUSED, "run: --allow-same-family is refused inside a Subfleet job "
+                          f"({marker or '--parent'} is set); a person gives that consent from their own session",
+                          "submit the review without --allow-same-family, or ask a person to submit it")
     workdir, error = _validate_run(args)
     if error is not None:
         return None, error
@@ -1047,6 +1096,7 @@ def _prepare_submit(args: argparse.Namespace,
         independent=bool(args.independent),
         parent_job_id=args.parent or os.environ.get("SUBFLEET_TURN_JOB"),
         caller_session=session_id(family=family),
+        caller_session_kind=session_kind(family=family),
         caller_family=family,
         allow_same_family=bool(getattr(args, "allow_same_family", False)),
         review_subject=getattr(args, "subject", None),
@@ -2363,6 +2413,7 @@ def cmd_resume(args: argparse.Namespace) -> int:
         parent_job_id=args.id,
         independent=True,  # a continuation may follow an explicitly cancelled job
         caller_session=session_id(family=family),
+        caller_session_kind=session_kind(family=family),
         caller_family=family,
         caller_pid=caller_pid(family=family),
         review_subject=source.get("review_subject"),

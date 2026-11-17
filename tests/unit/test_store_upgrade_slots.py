@@ -25,6 +25,15 @@ FAMILY_FIELDS = {"allow_same_family"}
 WAKE_FIELDS = {"wake_state", "wake_attempts", "wake_next_at", "wake_at", "wake_reason"}
 
 
+#: Every layout a shipped revision left, each dumped from that revision's own
+#: Store: release/217 (10), #307 (11), #314 before its fix (old 11), #314's
+#: fix head 2954abd77 (11 + 12), #330's first head 48dab4abe (12 with the
+#: consent column) and that head's failed upgrade of an old-#314 store (12
+#: recorded, wake columns missing: review-a3-r1 P1).
+LAYOUTS = ["release-217-v10", "wake-caller-307-v11", "review-subject-old-v11", "review-subject-new-v12",
+           "review-family-old-v12", "review-family-old-over-subject-old-v12"]
+
+
 def archived_store(path, revision):
     with sqlite3.connect(path) as conn:
         conn.executescript((FIXTURES / f"{revision}.sql").read_text())
@@ -36,7 +45,7 @@ def snapshot(store):
             for row in store.query("SELECT name FROM sqlite_master WHERE type='table'")}
 
 
-@pytest.mark.parametrize("revision", ["release-217-v10", "wake-caller-307-v11", "review-subject-old-v11"])
+@pytest.mark.parametrize("revision", LAYOUTS)
 def test_real_historical_store_upgrades_to_current_and_reopens_unchanged(tmp_path, revision):
     path = archived_store(tmp_path / "historic.sqlite3", revision)
     with Store(path, read_only=True) as source:
@@ -88,7 +97,7 @@ def test_slot_11_migration_and_schema_equal_307(tmp_path):
                 assert " ".join(actual.split()) == " ".join(ddl.split()), name
 
 
-@pytest.mark.parametrize("revision", ["release-217-v10", "wake-caller-307-v11", "review-subject-old-v11"])
+@pytest.mark.parametrize("revision", LAYOUTS)
 def test_failed_schema_script_rolls_back_upgrade_and_next_open_retries(tmp_path, monkeypatch, revision):
     path = archived_store(tmp_path / "historic.sqlite3", revision)
     with Store(path, read_only=True) as source:

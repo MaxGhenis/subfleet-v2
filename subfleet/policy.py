@@ -68,34 +68,88 @@ def flatten_chain(chain: Sequence[str | list[str]], tier_index: int = 0) -> list
                              for name in (entry if isinstance(entry, list) else [entry])))
 
 
-#: C-6.23: a caller's default reviewer when its eligible review chain contains
-#: no model of the other family. Older operator policies need no new key.
+#: C-6.23: each caller family's first reviewer, from the other family, at every
+#: tier (Max, d2937 item 3: "a Claude caller gets Sol first"). Older operator
+#: policies need no new key; `load_policy` checks these as it checks the key.
 REVIEW_FAMILY_DEFAULTS = {"claude": "sol61", "codex": "opus"}
+OTHER_FAMILY = {"claude": "codex", "codex": "claude"}
 
 
-def review_family_defaults(policy: Mapping[str, Any]) -> dict[str, str]:
-    return {**REVIEW_FAMILY_DEFAULTS, **policy.get("review_family_defaults", {})}
+def _usable_review_default(models: Mapping[str, Any], family: str, name: Any) -> str | None:
+    """Why `name` cannot be `family`'s default reviewer, or None when it can."""
+    if not isinstance(name, str) or name not in models:
+        return f"unknown model {name!r}; expected a models key"
+    if models[name].get("provider") == family:
+        return "reviewer must be from the other model family"
+    return None
+
+
+def review_family_defaults(policy: Mapping[str, Any]) -> dict[str, str | None]:
+    """C-6.23: each caller family's default reviewer, None when the policy has none.
+
+    An explicit `review_family_defaults` entry was checked at load; a code
+    default the policy cannot serve (no such model, or a same-family one) is
+    dropped, as `load_policy` warns, so routing never pins an unknown model.
+    """
+    explicit = policy.get("review_family_defaults", {})
+    explicit = explicit if isinstance(explicit, Mapping) else {}
+    chosen: dict[str, str | None] = {}
+    for family, code_default in REVIEW_FAMILY_DEFAULTS.items():
+        name = explicit.get(family, code_default)
+        chosen[family] = None if _usable_review_default(policy["models"], family, name) else name
+    return chosen
+
+
+def review_family_warnings(policy: Mapping[str, Any]) -> list[str]:
+    """C-6.23: the families for which this policy can name no other-family reviewer.
+
+    A family whose default is unusable still has its review chain's other-family
+    models; only a tier with neither leaves that family's reviews waiting.
+    """
+    warnings: list[str] = []
+    defaults = review_family_defaults(policy)
+    explicit = policy.get("review_family_defaults", {})
+    chain = policy.get("chains", {}).get("review")
+    for family, name in defaults.items():
+        if name is not None:
+            continue
+        other = OTHER_FAMILY[family]
+        code_default = REVIEW_FAMILY_DEFAULTS[family]
+        why = (f"review_family_defaults.{family}: code default {code_default!r} is unusable "
+               f"({_usable_review_default(policy['models'], family, code_default)})")
+        if isinstance(explicit, Mapping) and family in explicit:
+            why = f"review_family_defaults.{family}: {explicit[family]!r} is unusable"
+        if not isinstance(chain, list):
+            warnings.append(f"{why}; {family}-caller reviews have no {other} reviewer and wait")
+            continue
+        tiers = list(policy.get("tiers", ()))
+        bare = [tiers[index] if index < len(tiers) else str(index) for index in range(len(chain))
+                if not any(policy["models"][model]["provider"] == other
+                           for model in flatten_chain(chain, index))]
+        if bare:
+            warnings.append(f"{why}, and chains.review has no {other} model from tier "
+                            f"{bare[0]!r} upward; {family}-caller reviews at {', '.join(map(repr, bare))} "
+                            f"have no {other} reviewer and wait")
+    return warnings
 
 
 def routing_chain(policy: Mapping[str, Any], task: str, tier_index: int = 0, *,
                   caller_family: str | None = None, allow_same_family: bool = False) -> list[str]:
     """C-6.23: an independent review walks only models of the other family.
 
-    Ordinary tasks and unattributed reviews keep exactly their old chain.
-    Explicit permission appends today's chain after the independent choices.
+    The family's default reviewer comes first at every tier, then the review
+    chain's other models of that family in chain order from the job's tier
+    upward. With no default and no such model the chain is empty and the
+    review waits for a reviewer the policy names. Ordinary tasks and
+    unattributed reviews keep exactly their old chain. Explicit permission
+    appends today's chain after the independent choices.
     """
     chain = flatten_chain(policy["chains"][task], tier_index)
     if task != "review" or caller_family not in REVIEW_FAMILY_DEFAULTS:
         return chain
-    independent = [name for name in chain if policy["models"][name]["provider"] != caller_family]
-    if not independent:
-        default = resolve_model(policy, review_family_defaults(policy)[caller_family], note=False)
-        if policy["models"][default]["provider"] == caller_family:
-            other = "codex" if caller_family == "claude" else "claude"
-            raise PolicyError(policy.get("_policy_path", "policy.json"),
-                              f"review_family_defaults.{caller_family}",
-                              f"missing {other} reviewer: default {default!r} belongs to the caller's family")
-        independent = [default]
+    default = review_family_defaults(policy)[caller_family]
+    independent = [*([default] if default else ()),
+                   *(name for name in chain if policy["models"][name]["provider"] != caller_family)]
     return list(dict.fromkeys([*independent, *(chain if allow_same_family else ())]))
 
 
@@ -565,10 +619,9 @@ def load_policy(path: str | Path) -> dict[str, Any]:
             key = f"review_family_defaults.{family}"
             if family not in REVIEW_FAMILY_DEFAULTS:
                 fail(key, "must name a caller family: claude or codex")
-            if not isinstance(name, str) or name not in models:
-                fail(key, f"unknown model {name!r}; expected a models key")
-            if models[name]["provider"] == family:
-                fail(key, "reviewer must be from the other model family")
+            problem = _usable_review_default(models, family, name)
+            if problem:
+                fail(key, problem)
 
     chains = value["chains"]
     if not isinstance(chains, dict) or not chains:
@@ -970,6 +1023,18 @@ def load_policy(path: str | Path) -> dict[str, Any]:
         if not isinstance(item, int) or isinstance(item, bool) or item <= 0:
             fail(f"push.{key}", "must be a positive whole number")
     value["push"] = settings
+
+    # C-6.23: the code defaults get the explicit key's checks. One the policy
+    # cannot serve is dropped, not fatal: an operator's policy without `sol61`
+    # still loads, and the families it leaves without a reviewer are named.
+    value["_review_family_warnings"] = review_family_warnings(value)
+    if value["_review_family_warnings"]:
+        try:
+            from . import daemon_log
+            for warning in value["_review_family_warnings"]:
+                daemon_log.write_scrubbed(f"subfleet: policy warning: {warning}", logging.WARNING)
+        except Exception:       # a warning never stops a policy from loading
+            pass
 
     # Metadata is replaced even when a caller serializes a previously loaded map.
     value["_policy_hash"] = hashlib.sha256(raw).hexdigest()

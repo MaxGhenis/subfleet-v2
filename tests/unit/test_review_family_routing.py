@@ -55,7 +55,9 @@ def test_i1_every_tier_family_and_chain_chooses_the_other_provider(chain, tier, 
     eligible = list(dict.fromkeys(name for entry in chain[tier:]
                                   for name in (entry if isinstance(entry, list) else [entry])
                                   if policy["models"][name]["provider"] != family))
-    expected = eligible or [{"claude": "sol61", "codex": "opus"}[family]]
+    # Fix round 1 (d2937 item 3): the family's default reviewer comes first at
+    # every tier, then the chain's other-family models from the tier upward.
+    expected = list(dict.fromkeys([{"claude": "sol61", "codex": "opus"}[family], *eligible]))
     assert scheduler.prepare(policy, snapshot, spec)["chain"] == expected
     assert scheduler.demand_models(policy, spec) == frozenset(expected)
     assert scheduler.pin_provider(policy, spec) == policy["models"][expected[0]]["provider"]
@@ -174,5 +176,8 @@ def test_i1_repurposed_default_name_never_selects_the_callers_provider(family, d
     snapshot = view([lane(), lane("codex-1")])
     spec = job(task="review", tier="hard", caller_family=family)
     other = "codex" if family == "claude" else "claude"
-    with pytest.raises(PolicyError, match=f"missing {other} reviewer"):
-        scheduler.evaluate(policy, snapshot, spec)
+    # Fix round 1: an unusable default is dropped, so the review waits and its
+    # reason names the missing family; it never fails or runs same-family.
+    decision = scheduler.evaluate(policy, snapshot, spec)
+    assert decision.chosen_lane is None and decision.chain == ()
+    assert f"policy names no {other} reviewer" in decision.reason

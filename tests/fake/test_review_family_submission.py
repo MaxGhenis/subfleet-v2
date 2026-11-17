@@ -21,8 +21,8 @@ def test_same_family_review_pin_has_its_own_refusal_and_no_writes(state_daemon, 
                                                        pinned_model=model))
     assert error.value.code == 7 and error.value.reason == "review-same-family"
     assert protocol.refusal_text(error.value) == (
-        "review: the pinned model belongs to the caller's family",
-        "choose a model from the other family, or pass --allow-same-family")
+        "review: the pinned model or lane belongs to the caller's family",
+        "pin a model or lane of the other family, or pass -m naming a same-family model with --allow-same-family")
     assert {table: service.store.query(f"SELECT * FROM {table} ORDER BY rowid")
             for table in before} == before
 

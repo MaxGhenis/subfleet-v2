@@ -682,6 +682,36 @@ def abandoned_detail(receipt: Any, default: str = "starting-no-receipt") -> str:
     return reason if isinstance(reason, str) and reason else default
 
 
+#: C-6.5, C-6.23: what `submit` records about the caller beside the job row, and
+#: what `show` returns: the kind of session id it carried, a declared family the
+#: id contradicts, and who gave a same-family consent.
+CALLER_ATTRIBUTION_KEYS = ("caller_session_kind", "caller_family_disagreement", "same_family_consent")
+
+
+def caller_attribution(args: Any) -> dict[str, Any]:
+    """C-6.5, C-6.23: the caller record a submission adds to `job.submitted`."""
+    kind, family = getattr(args, "caller_session_kind", None), getattr(args, "caller_family", None)
+    record: dict[str, Any] = {}
+    if kind:
+        record["caller_session_kind"] = kind
+    if kind and family and kind != family:
+        record["caller_family_disagreement"] = {"declared": family, "session_kind": kind,
+                                                "writer_check": "applied"}
+    if getattr(args, "allow_same_family", False):
+        record["same_family_consent"] = {"session": getattr(args, "caller_session", None),
+                                         "session_kind": kind}
+    return record
+
+
+def codex_writer_exempt(job: dict[str, Any]) -> bool:
+    """C-6.5: skip the writer-instance comparison only for a Codex thread id.
+
+    The kind of session id the submission carried decides; a declared family
+    that contradicts it, or no kind at all (an older client), keeps the check.
+    """
+    return job.get("caller_session_kind") == "codex" and job.get("caller_family") in (None, "codex")
+
+
 def json_bytes(value: Any) -> bytes:
     return (json.dumps(value, sort_keys=True, ensure_ascii=False) + "\n").encode()
 
@@ -2994,6 +3024,14 @@ class Daemon:
             raise protocol.ProtocolError(refusals.HANDLER_MESSAGES["caller-family"][0], reason="caller-family")
         if type(args.allow_same_family) is not bool:
             raise protocol.ProtocolError("allow_same_family must be true or false", reason="invalid-args")
+        if args.caller_session_kind is not None and (type(args.caller_session_kind) is not str or
+                                                     args.caller_session_kind not in ("claude", "codex")):
+            raise protocol.ProtocolError("caller_session_kind must be claude, codex or null", reason="invalid-args")
+        if args.allow_same_family and args.parent_job_id and args.kind != "resume":
+            # C-6.23: same-family consent is a person's, from their own session.
+            # A submission that carries a parent job comes from inside a job.
+            message, fix = refusals.HANDLER_MESSAGES["same-family-consent"]
+            raise AdapterError(message, code=7, fix=fix, reason="same-family-consent")
         if ((args.review_subject is not None or args.review_round is not None) and args.task != "review"
                 or args.review_round is not None and args.review_subject is None):
             raise protocol.ProtocolError(refusals.HANDLER_MESSAGES["review-fields"][0], reason="review-fields")
@@ -3215,6 +3253,13 @@ class Daemon:
                 # C-11.2: resolved as admission resolves it (same lanes, and the
                 # job's provider narrows a name two providers share), then kept as
                 # the lane id, so no later roster change can make it ambiguous.
+                if (args.task == "review" and model is None and args.pinned_lane
+                        and args.caller_family in ("claude", "codex")
+                        and self._pin_family(args) == args.caller_family):
+                    # C-6.23: a lane of the caller's own family is a same-family
+                    # review; --allow-same-family lifts it only beside -m.
+                    message, fix = refusals.HANDLER_MESSAGES["review-same-family"]
+                    raise AdapterError(message, code=7, fix=fix, reason="review-same-family")
                 lane = self._resolve_pin(args, model, reason) if args.pinned_lane else None
                 pinned_lane = lane.lane_id if lane else None
                 # The request digest keeps the pin as the caller wrote it, so a
@@ -3233,12 +3278,18 @@ class Daemon:
                     task_model = next((k for k, v in self.policy["models"].items() if v["provider"] == lane.provider), None)
                 if mcp_servers:
                     self._refuse_mcp(mcp_servers, sandbox, task_model, lane, turn)
-                if task_model is None:
+                # C-6.23: a review whose policy names no other-family reviewer
+                # from its tier up is accepted and waits, naming that family.
+                awaiting_reviewer = task_model is None and not model and scheduler.required_review_family(
+                    {"task": args.task, "caller_family": args.caller_family,
+                     "allow_same_family": args.allow_same_family}) is not None
+                if task_model is None and not awaiting_reviewer:
                     raise ValueError(f"pinned_lane: policy has no model for provider {lane.provider}")
-                provider = self.policy["models"][task_model]["provider"]
+                provider = (self.policy["models"][task_model]["provider"] if task_model
+                            else lane.provider if lane else None)
                 if lane and lane.provider != provider:
                     raise ValueError("pinned lane and model providers disagree")
-                if needs_shell and (model or lane) and not launch_has_shell(provider, sandbox):
+                if needs_shell and provider and (model or lane) and not launch_has_shell(provider, sandbox):
                     raise AdapterError(f"needs a shell: {task_model} runs {sandbox.value} jobs without one",
                                        code=7, fix="pass -s workspace-write, or pin a Codex model",
                                        reason="needs-shell", details={"model": task_model, "sandbox": sandbox.value})
@@ -3303,7 +3354,7 @@ class Daemon:
                                 existing=[r["job_id"] for r in self.store.query("SELECT job_id FROM jobs")])
             jobdir = self.root / "jobs" / job_id
             values = dataclasses.asdict(args)
-            for k in ("allow_tmp", "no_preamble", "dry_run", "batch", "pinned_provider"):
+            for k in ("allow_tmp", "no_preamble", "dry_run", "batch", "pinned_provider", "caller_session_kind"):
                 values.pop(k)
             values.update(job_id=job_id, state="queued", payload_digest=digest, needs_shell=needs_shell,
                           workdir=recorded_workdir, workdir_head=head, out_path=out,
@@ -3325,7 +3376,8 @@ class Daemon:
             if turn is None:
                 by_policy = from_policy and sandbox == Sandbox.WORKSPACE_WRITE
                 try:
-                    cleared = self._writable_precheck(values, instance, write_target)
+                    cleared = self._writable_precheck({**values, "caller_session_kind": args.caller_session_kind},
+                                                      instance, write_target)
                 except AdapterError as exc:
                     if not by_policy:
                         raise
@@ -3450,6 +3502,7 @@ class Daemon:
                          **({"pin": {"requested": args.pinned_lane, "lane_id": pinned_lane}}
                             if args.pinned_lane and args.pinned_lane != pinned_lane else {}),
                          **({"caller_instance": instance} if instance else {}),
+                         **caller_attribution(args),
                          **({"write_target": write_target} if write_target else {}),
                          **({"folder": folder} if folder else {}),
                          "depends": depends,
@@ -3517,6 +3570,14 @@ class Daemon:
         if not lane:
             raise ValueError(f"unknown lane {args.pinned_lane}")
         return lane
+
+    def _pin_family(self, args: protocol.SubmitArgs) -> str | None:
+        """C-6.23: the provider of the lane a submission pins, when it is known:
+        the enrolled lane of that exact id, else the `-a`/`-H` flag's provider."""
+        lane = next((row for row in self._pin_roster() if row["lane_id"] == args.pinned_lane), None)
+        if lane is not None:
+            return lane["provider"]
+        return args.pinned_provider if args.pinned_provider in ("claude", "codex") else None
 
     def _policy_entry(self, args: protocol.SubmitArgs) -> str | None:
         """C-11.1: the `permissions` entry a submit that named no sandbox reads."""
@@ -3990,7 +4051,9 @@ class Daemon:
             # A Codex thread has a session id but no Claude writer-process
             # identity. Keep target, revive and policy-cap checks; only the
             # process comparison belongs to callers that supply that identity.
-            if job.get("caller_family") == "codex":
+            # The kind of id decides, never the declared family (C-6.5): a
+            # Claude session that declares codex is still compared.
+            if codex_writer_exempt(job):
                 continue
             theirs = recorded[holder].get("caller_instance")
             if instance is not None and theirs == instance:
@@ -4341,6 +4404,7 @@ class Daemon:
                    if job.get("mcp_servers") not in (None, "[]") else None)
             submitted = self._submitted(a.job_id)
             return {"job": job, "batch": submitted.get("batch"), "mcp": mcp,
+                    **{key: submitted[key] for key in CALLER_ATTRIBUTION_KEYS if key in submitted},
                     "uncommitted": submitted.get("uncommitted"),
                     "cancel": self._cancel_info(a.job_id),
                     "workspace": ({"at": workspace["ts"], "event": workspace["kind"],

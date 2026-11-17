@@ -213,6 +213,10 @@ class SubmitArgs:
     review_round: int | None = None
     # C-6.23: explicit authorization to accept a same-family review.
     allow_same_family: bool = False
+    # C-6.5: which harness marker supplied `caller_session`: `claude` for a
+    # Claude Code session id, `codex` for a Codex thread or session id, None
+    # for any other (or an older client). It decides the Codex writer exemption.
+    caller_session_kind: str | None = None
 
 
 @dataclass

@@ -22,7 +22,7 @@ from .contracts import (CAPACITY_RECHECK_BASE_S, CAPACITY_RECHECK_CEILING_S, DEF
                         HEADROOM_FLOOR, Decision, Exit, hold_source_shown, launch_has_shell)
 from .policy import (MEMORY_PRESSURE_LEVELS, PolicyError, admission_settings, cap, flatten_chain, lane_slot_cap,
                      provider_cap, provider_caps_on, resolve_model, resolve_sandbox, routing_chain,
-                     turn_cap, job_needs_shell)
+                     turn_cap, job_needs_shell, OTHER_FAMILY)
 
 ACTIVE_ATTEMPTS = frozenset({"reserved", "starting", "running", "finalizing"})
 
@@ -804,7 +804,21 @@ def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dic
                              follow=not authorization_reason) if pin else None)
     if authorization_reason and selected and pin != selected["lane_id"]:
         raise RouteError("unmeasured_reserve_reason: pinned_lane must be the canonical lane id")
-    if not chain and selected:
+    family = job.get("caller_family")
+    if (selected and task == "review" and not job.get("pinned_model")
+            and family in OTHER_FAMILY and selected["provider"] == family):
+        # C-6.23: a lane pin of the caller's own family is a same-family review.
+        # `--allow-same-family` does not lift it: a pinned job walks only its
+        # chain's first model, and that is the other family's reviewer.
+        raise RouteError(f"review-same-family: caller family {family} requires a {OTHER_FAMILY[family]} "
+                         f"reviewer and lane {pin!r} is a {family} lane; a same-family lane pin also needs "
+                         f"-m naming a {family} model and --allow-same-family")
+    reviewer = required_review_family(job)
+    if not chain and reviewer and not (selected and selected["provider"] == reviewer):
+        # C-6.23: the policy names no other-family reviewer from this tier up.
+        # The review waits for one; it never falls back to the caller's family.
+        pass
+    elif not chain and selected:
         if job_mcp_servers(job) and selected["provider"] != MCP_PROVIDER:
             raise RouteError(f"mcp_servers: this job names MCP servers, which only a Claude launch starts, "
                              f"and lane {pin!r} is a {selected['provider']} lane")
@@ -818,7 +832,7 @@ def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dic
         chain = (mcp_chain(policy, policy["models"], job) or [next(iter(policy["models"]))])[:1]
     if pin:
         chain = chain[:1]
-        if selected and policy["models"][chain[0]]["provider"] != selected["provider"]:
+        if selected and chain and policy["models"][chain[0]]["provider"] != selected["provider"]:
             raise RouteError("pinned_lane and pinned_model/task: different providers", policy_dependent=True)
     # C-9.5, D-CAP1: the models this job's own attempts found at capacity (`capacity_steer`, model
     # id to the end of its steer) are excluded while the steer is live. The remaining models
@@ -1333,7 +1347,10 @@ def decision_reason(evaluations: Iterable[Mapping[str, Any]], chosen_lane: str |
                 for short, until in (steered or {}).items()]
     messages += [row["reason"] for row in evaluations]
     if chosen_lane is None:
-        if required_review_family:
+        if required_review_family and not evaluations:
+            messages.append(f"waiting for other-family reviewer: policy names no {required_review_family} "
+                            "reviewer (review_family_defaults or chains.review) from this tier upward")
+        elif required_review_family:
             messages.append(f"waiting for other-family reviewer: missing {required_review_family} capacity")
         messages.append("earliest reset: " + (_earliest_reset(evaluations, now) or "unknown"))
     return "; ".join(messages)
