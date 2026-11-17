@@ -869,8 +869,9 @@ scratch `$TMPDIR/sf-scrubop-fix1`, a new `--basetemp` with `pytest` in its name.
   reads_each_closer_once or drawn_reminder_outcomes"`): **12 failed, 4 passed in 197.5 s**.
 - Edges on the fix, three `-n 4` calls of 8 tests each, capped at 585 s: each printed 4 passes and was
   cut before its summary. **12 passed, none failed, 12 unfinished**; xdist's `-q` doesn't name which.
-- Mutants: `mutants.py` in three calls (19:22–19:31 for the last): six killed, as above; the worktree's
-  `handoff.py` hash was checked unchanged after the calls that finished.
+- Mutants: `mutants.py` in three calls (19:22–19:31 for the last): six killed, as above. No call reached
+  the driver's own hash check (each hit its cap first); `git status` after them shows the worktree clean,
+  with `handoff.py` as committed in `65161c4e4`.
 
 ### What didn't run, and deviations
 
