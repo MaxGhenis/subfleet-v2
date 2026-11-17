@@ -56,7 +56,7 @@ BRIEF_JOIN = ('function join(base, p, file) { p = expand(p); return norm(substr(
 BRIEF_JOIN_R1 = 'function join(base, p, file) { p = expand(p); return substr(p, 1, 1) == "/" ? p : base "/" p }'
 BRIEF_RESOLVE = ("pf_abs=$(CDPATH= cd -P -- \"${ab_dir:-/}\" 2>/dev/null || exit 1; { pwd -P || printf '%s\\n' "
                  "\"${ab_dir:-/}\"; } 2>/dev/null; echo x) || continue")
-BUDGET = '[ $((SECONDS - hr_t0)) -lt 15 ] || block "$hr_late"'
+BUDGET = '[ "$hr_n" -le 2 ] || [ $((SECONDS - hr_t0)) -lt 15 ] || block "$hr_late"'
 RAW_NAMES = ("diff --cached --name-only -z --no-relative --diff-filter=ACMR 2>/dev/null \\\n"
              "      | LC_ALL=C tr '\\n\\0' '\\001\\n' \\\n")
 NEWLINE_DENIED = "if (f[i] ~ /\\001/ || ("

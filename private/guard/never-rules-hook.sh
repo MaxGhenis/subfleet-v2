@@ -489,8 +489,10 @@ fi
 # large index costs a few processes, not four per file; a folder that is not there costs none.
 # Guard sync fix r2 (2026-11-17): a path's `.` and repeated `/` collapse, and each folder is resolved (cd -P,
 # pwd -P) before git runs, so every spelling of one checkout is checked once; more than 64 paths to resolve
-# is refused. The git work stops at a 15 s budget, checked before each git call, and the command is then
-# denied, never allowed (the hook's 60 s timeout allows). Staged names are read raw (-z, --no-relative), so
+# is refused. The git work is bounded by time: before each git call for a third or later folder, the block
+# denies once 15 s have passed since it began, and never allows (the hook's 60 s timeout allows). The first
+# two folders, the payload cwd and the one a command names, are always checked in full, so load alone does
+# not refuse a commit from one checkout. Staged names are read raw (-z, --no-relative), so
 # each name under the anchor is looked up with its own bytes, and one holding a newline is denied.
 if printf '%s' "$command" | grep -qE 'git[[:space:]].*(commit|\\$)'; then
   hr_t0=$SECONDS
@@ -571,16 +573,16 @@ if printf '%s' "$command" | grep -qE 'git[[:space:]].*(commit|\\$)'; then
     while [ "$hr_i" -lt "$hr_n" ] && { [ "${hr_dirs[hr_i]}" != "$gdir" ] || [ "${hr_gds[hr_i]}" != "$hr_gd" ]; }; do hr_i=$((hr_i + 1)); done
     [ "$hr_i" -eq "$hr_n" ] || continue
     hr_dirs[hr_n]=$gdir; hr_gds[hr_n]=$hr_gd; hr_n=$((hr_n + 1))
-    [ $((SECONDS - hr_t0)) -lt 15 ] || block "$hr_late"
+    [ "$hr_n" -le 2 ] || [ $((SECONDS - hr_t0)) -lt 15 ] || block "$hr_late"
     origin_url=$(git -C "$gdir" ${hr_gd:+"--git-dir=$hr_gd"} remote get-url origin 2>/dev/null)
     printf '%s' "$origin_url" | grep -qiE 'TheAxiomFoundation/rulespec-' || continue
-    [ $((SECONDS - hr_t0)) -lt 15 ] || block "$hr_late"
+    [ "$hr_n" -le 2 ] || [ $((SECONDS - hr_t0)) -lt 15 ] || block "$hr_late"
     hr_files=$(git -C "$gdir" ${hr_gd:+"--git-dir=$hr_gd"} diff --cached --name-only -z --no-relative --diff-filter=ACMR 2>/dev/null \
       | LC_ALL=C tr '\n\0' '\001\n' \
       | LC_ALL=C awk '/\.test\.yaml$/ || /\/composed\// || /^\.axiom\// { next }
           /^[a-z][a-z](-[a-z0-9-]+)?\/(statutes|regulations|policies|legislation|programs)\/.+\.ya?ml$/')
     [ -n "$hr_files" ] || continue
-    [ $((SECONDS - hr_t0)) -lt 15 ] || block "$hr_late"
+    [ "$hr_n" -le 2 ] || [ $((SECONDS - hr_t0)) -lt 15 ] || block "$hr_late"
     missing=$( { printf '%s\n--\n' "$hr_files"
                  printf '%s\n' "$hr_files" \
                    | LC_ALL=C awk '{ sub(/\.[^.]*$/, ""); print ":.axiom/encoding-manifests/" $0 ".json"; print "HEAD:.axiom/encoding-manifests/" $0 ".json" }' \

@@ -173,7 +173,7 @@ def test_private_overlay_bytes_remain_the_original_reviewed_pair():
     reads and rewrote both Axiom blocks' command parsing (hook 324d2a84…),
     and its fix r2 (2026-11-17) resolved each folder before git runs, bounded
     the rulespec git work by a 15 s budget and read staged names raw (hook
-    56015c96…); TRUST pins those bytes. That TRUST is the
+    7c96811e…); TRUST pins those bytes. That TRUST is the
     installed one of 2026-09-29 (b3193b97…, the codex-cli 0.159.0 pin; with
     hook a60d1c51… it is the rollback) with the new hook hash and eight dated provenance
     additions appended (D-LANE-SCOPE1's three sentences, r2's one, r3's one,
@@ -184,8 +184,8 @@ def test_private_overlay_bytes_remain_the_original_reviewed_pair():
     repo = Path(__file__).resolve().parents[2]
     directory = repo / "private/guard"
     expected = {
-        "never-rules-hook.sh": "56015c962c2bb7c74f7e251981e0ae3486c4aee4f0da0955b36e3fdc1b555f1e",
-        "TRUST": "c11615749942dad6651df5f22b74eaf5d884b73d8f2a4d8bfc18d1e51e14b2d6",
+        "never-rules-hook.sh": "7c96811e0c0ff0a90b4d9a62fee4fc55a69c2018e2d44ef59c78915499b2b213",
+        "TRUST": "d284687f16ab6fac7fccf08f457013afff3f761d243ad97246aa8de95ba0dee6",
     }
     for name, digest in expected.items():
         assert hashlib.sha256((directory / name).read_bytes()).hexdigest() == digest

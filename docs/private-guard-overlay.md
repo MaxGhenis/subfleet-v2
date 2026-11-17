@@ -713,11 +713,14 @@ now drop `.` and empty components from each path and resolve each folder (`cd -P
 before they use it, comparing the resolved keys whole, so every spelling of one checkout or brief
 is checked once, and a folder that is not there starts no git process. Either block refuses more
 than 64 paths to resolve, and the brief block more than 16 distinct briefs. The hand block checks
-a 15 s budget, counted from its start, before each git call; once the budget is spent it denies,
-and it never allows a folder it did not check. The budget bounds when the block starts its last
-git call, not how long that call runs: one call on a large index under heavy load can still carry
-the hook past 60 s. At a load of 250 to 285, one `cat-file --batch-check` over 6,000 manifests
-took 7 to 31 s for 0.4 s of CPU, and the whole hook took 44.5 s for one 3,000-file checkout.
+its first two folders in full, the payload cwd and the one a command names; before each git call
+for a later folder it denies once 15 s have passed since it began, and it never allows a folder it
+did not check. The bound is when the block starts its last git call, not how long the first two
+folders or that call take: one or two checkouts with a large index under heavy load can still
+carry the hook past 60 s. At a load of 250 to 285, one `cat-file --batch-check` over 6,000
+manifests took 7 to 31 s for 0.4 s of CPU, and the whole hook took 44.5 s for one 3,000-file
+checkout. At a load of about 320, a budget that also covered the first folder refused a commit
+from one checkout with one staged file, so the first two are exempt.
 
 The block also read git's quoted names. `git diff --cached --name-only` quotes a name holding a
 non-ASCII byte, a double quote, a backslash or a control character, the anchor never matched the
@@ -731,8 +734,8 @@ hook and TRUST byte for byte (`test_fix_r2_undoing_its_step_gives_the_fix_r1_pai
 
 | File | SHA-256 |
 | --- | --- |
-| `never-rules-hook.sh` | `56015c962c2bb7c74f7e251981e0ae3486c4aee4f0da0955b36e3fdc1b555f1e` |
-| `TRUST` | `c11615749942dad6651df5f22b74eaf5d884b73d8f2a4d8bfc18d1e51e14b2d6` |
+| `never-rules-hook.sh` | `7c96811e0c0ff0a90b4d9a62fee4fc55a69c2018e2d44ef59c78915499b2b213` |
+| `TRUST` | `d284687f16ab6fac7fccf08f457013afff3f761d243ad97246aa8de95ba0dee6` |
 
 TRUST is the installed TRUST of 2026-09-29 (`b3193b97…`), changing only `hook_sha256` and
 appending eight dated provenance additions (D-LANE-SCOPE1's three sentences, r2's one, r3's one,

@@ -38,8 +38,8 @@ Two changes, each held to an invariant below:
   hook.
 * Fix r2 (2026-11-17, review r2 of #303): the 16-place bound counted path strings, so `cd .; cd ./.; …` made
   16 keys for one checkout, and 16 real checkouts still outlasted the timeout. Both blocks now resolve each
-  folder before they use it and check it once; the hand block stops its git work at a 15 s budget and
-  denies. It also read git's quoted staged names, so a non-ASCII rule name got through; it now reads them raw
+  folder before they use it and check it once; past its first two folders the hand block stops its git
+  work at a 15 s budget and denies. It also read git's quoted staged names, so a non-ASCII rule name got through; it now reads them raw
   (``-z``), and with ``--no-relative``. The fix r1 text is kept under ``claude-blocks/fix-r1/`` for the undo
   chain.
 
@@ -75,8 +75,9 @@ I6 (bounded work) The hand-authored-rulespec block's git processes do not grow w
    (``test_the_staged_file_count_…``). Both blocks resolve each folder before they use it, so every
    spelling of one checkout or brief is checked once (``test_one_checkout_spelled_…``,
    ``test_one_brief_spelled_…``) and a folder that is not there starts no git process
-   (``test_a_folder_that_is_not_there_…``). The hand block's git work stops at a 15 s budget and then
-   denies (``test_the_hand_block_denies_when_its_time_budget_…``); either block refuses more than 64
+   (``test_a_folder_that_is_not_there_…``). The hand block checks its first two folders in full and starts
+   no git call for a later one once 15 s have passed, then denies
+   (``test_the_hand_block_denies_when_its_time_budget_…``); either block refuses more than 64
    paths to resolve, and the brief block more than 16 distinct briefs (``test_too_many_places_…``). Since
    fix r2 the bound is time, not a count of path strings.
 I8 (every staged name) The hand-authored-rulespec block reads staged names raw, so a name under the anchor is
@@ -132,7 +133,7 @@ PREFILTER_BEFORE_SHA256 = "c46d8eec748c649daaae06b0982bb5fc0cf6011918a35144d0ea1
 #: The fix r2's blocks (2026-11-17) and the fix r1's prefilter line (2026-11-15), which the hub installs in the
 #: Claude hook, and the git config pin both hooks carry after their input read.
 AXIOM_SHA256 = {"axiom-brief-regime": "34c9279dbf1226cde2108ce983b1073142c663038a4fa45cda90665a43df42d5",
-                "hand-authored-rulespec": "7ecf7bfa1116525e5e620d335d6b4afbaad7883a686532ffed8b85235a47ac97"}
+                "hand-authored-rulespec": "407e2dfae5cfc0447c466738ce2c15a2324ac2a213f9436503a9a775fb61a106"}
 #: The fix r1's blocks (2026-11-15), kept byte for byte under ``claude-blocks/fix-r1/`` for the undo chain
 #: (tests/unit/test_guard_subfleet_root.py: undoing GS4_TEXT gives the fix r1 hook from this one).
 AXIOM_R1_SHA256 = {"axiom-brief-regime": "45775b4dd77fcac19c71c3e341559dcd129ad634e2848b8b74d2380dfe2781d4",
@@ -878,13 +879,14 @@ def test_one_checkout_spelled_many_ways_is_checked_once(tmp_path):
 
 @needs_jq
 def test_the_hand_block_denies_when_its_time_budget_is_spent(tmp_path):
-    """I6 (fix r2): the block's git work is bounded by time, not by a count of folders. Here git sleeps 8 s
-    before each call, and three distinct rulespec checkouts would cost nine calls, 72 s, past the 60 s hook
-    timeout, which allows. The block checks its budget (15 s from its start) before each git call, so after
-    at most two calls (16 s) it stops, on both sides, and denies with its own reason: it never allows a
-    folder it did not check. The assertions count calls, not seconds."""
+    """I6 (fix r2): the block's git work is bounded by time, not by a count of folders. Here git sleeps 6 s
+    before each call, and four distinct rulespec checkouts would cost twelve calls, 72 s, past the 60 s hook
+    timeout, which allows. The first two folders are checked in full (six calls, 36 s); before each git call
+    for a later one the block checks its budget (15 s since it began), so it stops there, on both sides, and
+    denies with its own reason: it never allows a folder it did not check. The assertions count calls, not
+    seconds."""
     fix = AxiomFixture(tmp_path)
-    checkouts = [fix.home / f"rulespec-{n}" for n in range(3)]
+    checkouts = [fix.home / f"rulespec-{n}" for n in range(4)]
     for repo in checkouts:
         repo.mkdir()
         fix.git(repo, "init", "-q", "-b", "main")
@@ -895,10 +897,10 @@ def test_the_hand_block_denies_when_its_time_budget_is_spent(tmp_path):
     for side in ("claude", "overlay"):
         log = tmp_path / f"git-calls-{side}"
         reason = side_reason(fix, side, "hand-authored-rulespec", command, fix.plain,
-                             {"BASH_FUNC_git%%": SLOW_GIT.format(log=log, pause=8)})
+                             {"BASH_FUNC_git%%": SLOW_GIT.format(log=log, pause=6)})
         assert reason.startswith(HAND_BUDGET), (side, reason)
         calls = log.read_text().splitlines()
-        assert 1 <= len(calls) <= 2, (side, calls)
+        assert len(calls) == 6, (side, calls)
 
 
 @needs_jq

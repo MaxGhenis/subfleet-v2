@@ -200,7 +200,7 @@ FR1_HOOK_SHA256 = "324d2a846213bbc621fee618a65d49b4c5015253f973d341d78db214855bc
 FR1_TRUST_SHA256 = "cc26c42108f87085d516fa3e525c17a47720461631065f4886201013e2176293"
 #: The overlay's hook after the guard sync fix r2 (2026-11-17: each folder resolved before git runs, a 15 s git
 #: budget, raw staged names); TRUST's hook_sha256.
-NEW_HOOK_SHA256 = "56015c962c2bb7c74f7e251981e0ae3486c4aee4f0da0955b36e3fdc1b555f1e"
+NEW_HOOK_SHA256 = "7c96811e0c0ff0a90b4d9a62fee4fc55a69c2018e2d44ef59c78915499b2b213"
 
 FAKE_HOME = "/Users/tester"
 SCOPED_CWD = FAKE_HOME + "/work/repo"
@@ -647,8 +647,9 @@ FR2_PROVENANCE = (
     " one checkout spelled 16 ways (cd ., cd ./., ...) cost 16 checks, and 16 real checkouts could still outlast"
     " the 60 s timeout, which allows; both Axiom blocks now resolve each folder (cd -P, pwd -P) before they use"
     " it and check it once, and refuse more than 64 paths to resolve (the brief block also more than 16"
-    " distinct briefs); [hand-authored-rulespec] stops its git work at a 15 s budget, checked before each git"
-    " call, and then denies; it reads staged names raw (git diff -z, --no-relative), so a name git quotes"
+    " distinct briefs); [hand-authored-rulespec] checks its first two folders in full and, before each git call"
+    " for a later one, denies once 15 s have passed since it began; it reads staged names raw (git diff -z,"
+    " --no-relative), so a name git quotes"
     " (non-ASCII, a double quote, a backslash, a control character) is looked up with its own bytes, one"
     " holding a newline is denied, and a checkout's diff.relative hides no staged file. The blocks are the"
     " text the hub installs in the Claude hook. The build recomputed hook_sha256 for the new bytes, and"
