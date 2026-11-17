@@ -14,7 +14,7 @@ Between the second and third sessions, the hub merged release/217 at 85769b826 i
 
 - **No live census bug.** b51f08f96 and 85769b826 (release/217) already match every root a process can carry, byte for byte. This branch changes no census code: `subfleet/procs.py` is identical to 85769b826's (and to b51f08f96's).
 - **C-25.6 is the fix.** `peers.py` now holds the vis(3) notation and keeps the line's trailing space. It looks for the root as `ps` prints it, and it refuses a root that no environment can hold with exit 7, where release/217 let the app's caller past the check. The contract now says this.
-- **Evidence.** On b51f08f96, the 29 new census cases pass and the 26 new C-25.6 cases fail. All 11 mutants are killed.
+- **Evidence.** On b51f08f96, the 29 new census cases pass and the 26 C-25.6 cases the branch had then fail. Fix round 1 later added five C-25.6 cases, which did not run there. All 11 mutants are killed (run before fix round 1).
 
 ## Commits
 
@@ -74,7 +74,7 @@ The second session recorded these findings. Where this session relied on one, it
    - `test_census_finds_the_marker_under_arbitrary_root_bytes` (real children);
    - `test_census_finds_a_marked_process_under_any_root_wherever_its_variable_falls` (9 roots × 3 positions, with near-miss roots).
 2. **Unholdable values:** `test_a_root_or_id_no_environment_can_hold_leaves_the_census_unverifiable`. It covers a NUL, a lone surrogate, and a low surrogate below U+DC80, in the root or the attempt id.
-3. **Notation:** `test_ps_prints_every_byte_as_ps_text_says` and `test_ps_prints_any_environment_as_ps_text_says`. Under Homebrew's framework 3.14.7, 3 passed and the root-last case skipped (its precondition is false there). Under uv's non-framework 3.14.7, 4 passed.
+3. **Notation:** `test_ps_prints_every_byte_as_ps_text_says` and `test_ps_prints_any_environment_as_ps_text_says`. In this session, the rendering file's 4 tests gave 3 passed and the root-last case skipped under Homebrew's framework 3.14.7, where the launcher put variables after the root, and 4 passed under uv's non-framework 3.14.7. Fix round 1 removed that skip: the child now runs the loaded Python binary directly, and the root-last case asserts that the root ends the line. Review r2 ran all 5 rendering tests at 18c584724 under Homebrew's framework 3.14.7: 5 passed, none skipped.
 4. **Notation shape** (Hypothesis): `test_ps_text_invariants` (up to 1,500 bytes) and `test_ps_text_keeps_nfc_and_nfd_as_their_own_bytes`.
 5. **C-25.6 veto:**
    - `test_the_root_veto_holds_for_every_root_wherever_it_falls` (Hypothesis, through `process_chain` with `_ps` faked);
@@ -90,22 +90,22 @@ This ran on a `git archive` of b51f08f96 in scratch, with this branch's five tes
 |---|---|---|
 | `tests/unit/test_census_procargs.py` (18 new of 70) | 70 passed | D-CEN1 already compares bytes. |
 | `tests/process/test_census_root_bytes_process.py` (11, all new) | 11 passed | Same reason. |
-| `tests/unit/test_conversation_peers_attachments.py`, the 9 new functions (18 cases) | 18 failed | 16: `peers.ps_text`/`PS_BYTES` missing. `..._found_as_ps_prints_it`: the app's caller was admitted ("this needs the app" path, not the marker refusal). `..._keeps_the_space_a_root_ends_in`: the chain stripped `/tmp/root `. |
+| `tests/unit/test_conversation_peers_attachments.py`, the 9 new functions (18 cases) | 18 failed | 16: `peers.ps_text`/`PS_BYTES` missing. `..._found_as_ps_prints_it`: the right verdict for the wrong reason. Its caller is `/bin/zsh` on `ttys001`; b51f08f96 misses the root marker and refuses the caller for its terminal ("this needs the Subfleet app; a terminal (ttys001) is not enough"), not with the marker refusal the test expects. Nobody is admitted. `..._keeps_the_space_a_root_ends_in`: the chain stripped `/tmp/root `. |
 | `tests/process/test_ps_rendering.py` (4, all new) | 4 failed | `peers.ps_text` missing. |
 | `tests/unit/test_person_boundary.py -k no_environment_can_hold` (4 new) | 4 failed | 2: `peers.UNHOLDABLE_ROOT` missing. 2: the app's caller was taken for a person and reached `unknown-approval` (exit 2). |
 
-So the 29 new census cases pass there, as the brief expected, and the 26 new C-25.6 cases fail. The decision record carries these numbers (24123d6f9).
+So the 29 new census cases pass there, as the brief expected, and the 26 C-25.6 cases the branch had then fail. The decision record carries these numbers (24123d6f9). Fix round 1 later added five C-25.6 cases: four in `test_person_boundary.py` (the two "before `ps` can time out" / "even when `ps` would time out" tests, each for a NUL and a lone surrogate) and the native-buffer case in `test_ps_rendering.py`. They failed before that round's changes (the four against `judge`'s old order, the native-buffer case with the old child helper), but they did not run on b51f08f96.
 
 ## Mutants
 
 Each mutant was applied alone to `sf-mnar-b2/mut`, a `git archive` of the head (mutant 11 used a copy, `mut2`). The script asserts that the original text occurs exactly once and prints the diff. After the run it writes the file back from `sf-mnar-b2/pristine` and asserts that the sha256 equals the pristine file's: `peers.py` 3d2aa00e1ac01564…, `procs.py` 0bdc61b5a1a877ab…. All 11 restores matched.
 
-Mutants 1 and 2 ran the whole peers file, the whole person file, and the rendering file under both Pythons. At load 240 to 275, mutants 3 to 11 ran only the files that hold their expected killers (see the deviations).
+Mutants 1 and 2 ran the whole peers file, the whole person file, and the rendering file under both Pythons. At load 240 to 275, mutants 3 to 11 ran only the files that hold their expected killers (see the deviations). The mutants ran on this session's code and tests, before fix round 1, when the real-`ps` root-last case still skipped under a framework Python. They were not rerun after fix round 1.
 
 | # | Mutant | Killed by (genuine failures) |
 |---|---|---|
 | 1 | peers matches the root as written | `test_a_root_marker_is_found_as_ps_prints_it`, `..._with_another_variable_after_it_is_found`, the veto property; the 4 unholdable-root person tests; real `ps`: `..._with_a_variable_after_it` (both Pythons) and `..._that_ends_the_line` (non-framework) |
-| 2 | `process_chain` strips both ends | `test_the_chain_keeps_the_space_a_root_ends_in`, the veto property; real `ps`: `..._that_ends_the_line` (non-framework only; it is skipped under a framework Python) |
+| 2 | `process_chain` strips both ends | `test_the_chain_keeps_the_space_a_root_ends_in`, the veto property; real `ps`: `..._that_ends_the_line` (non-framework only; at this run it skipped under a framework Python) |
 | 3 | `endswith` | `..._with_another_variable_after_it_is_found`, the veto property; real `ps`: `..._with_a_variable_after_it` (non-framework). Under the framework Python that test failed on a 5 s `ps` timeout, which was load, not a kill. |
 | 4 | `ValueError` escapes `judge` | all 4 unholdable-root person tests (`ValueError` and `UnicodeEncodeError` escape) |
 | 5 | NFC-normalise | `test_ps_text_examples[Jose + U+0301]`, `test_ps_text_keeps_nfc_and_nfd_as_their_own_bytes`. Two real-process failures were 5 s `ps` timeouts, which was load. |
@@ -116,13 +116,13 @@ Mutants 1 and 2 ran the whole peers file, the whole person file, and the renderi
 | 10 | stripped root | `..._is_the_roots_own_bytes[ends in a space]` and `[over 1,000 bytes]`, both census properties; real process `[ends in a space]` and `[over 1,000 bytes]` |
 | 11 | root NUL refusal dropped | `test_a_root_or_id_no_environment_can_hold_leaves_the_census_unverifiable[a NUL in the root]` |
 
-No mutant survived. Two killers are platform-conditional. Under a framework Python, mutant 2 is killed by the unit tests but not by the real `ps` test, which skips there. Mutant 3's real-process kill was measured only under the non-framework Python.
+No mutant survived. Two killers were platform-conditional at this run. Under a framework Python, mutant 2 was killed by the unit tests but not by the real `ps` test, which skipped there then. Fix round 1 made that test run, and assert that the root ends the line, under a framework Python too; whether it now kills mutant 2 there has not been measured. Mutant 3's real-process kill was measured only under the non-framework Python.
 
 ## Both reviews
 
 - **Round 1:** findings 1-6, 8 and 9 were answered by 3f724e616 and 3f0fd0279 and carried over, with the notation now in peers. Finding 8 (the attempt id) is now a raw-reader test. Finding 7 (a precise fail-before list) is answered by the table above.
 - **Round 2:**
-  1. CI red under a framework Python: answered in a27c83673. The rendering tests read through `peers._ps`, assert a contiguous run bounded by spaces, and check the root-last precondition or skip.
+  1. CI red under a framework Python: answered in a27c83673. The rendering tests read through `peers._ps`, assert a contiguous run bounded by spaces, and check the root-last precondition or skip. Fix round 1 later replaced that skip with an assertion.
   2. The false signal sentence: cut in 6591bba28. Round 2's replacement doesn't hold on release/217 either, because D-KILL4 makes marked members signal targets.
   3. Stale fail-before numbers: answered by this session's fresh run (above, and in 24123d6f9).
   4. "All but the first predate this change": corrected in 6591bba28.
@@ -198,7 +198,7 @@ Switch C-25.6 to the raw `KERN_PROCARGS2` reader. That would retire both `ps_tex
 > **What was wrong.** On a state root that is not printable ASCII, or that ends in a space, C-25.6's person check could not find `SUBFLEET_ROOT` in a caller's `ps -E` line. `ps` prints the line in vis(3) notation (`é` prints as `M-CM-)`), `judge` looked for the root as written, and `process_chain` stripped both ends of the line. This PR's original census half is already on release/217: D-CEN1 (8d9fe7e42) compares raw `KERN_PROCARGS2` strings with the markers' `os.fsencode` bytes. This branch adds tests that pin that for every root, and it changes no census code (`subfleet/procs.py` is release/217's).
 >
 > **The fix (C-25.6).**
-> - `peers.ps_text`/`PS_BYTES` (moved from procs) render the root as `ps` prints it.
+> - `peers.ps_text`/`PS_BYTES`, new in `peers.py`, render the root as `ps` prints it. (`subfleet/procs.py` does not change against release/217.)
 > - `process_chain` strips only the newline.
 > - `judge` validates the root before inspecting the process chain, so a root that no environment can hold is refused with exit 7 even if `ps` would time out; release/217 let the app's caller past the check.
 > - The real-`ps` root-last test launches the loaded Python binary directly and asserts the root is last, including under framework Python.
@@ -207,10 +207,10 @@ Switch C-25.6 to the raw `KERN_PROCARGS2` reader. That would retire both `ps_tex
 > C-5.5 gains one sentence (byte-for-byte `os.fsencode` comparison). C-25.6 gains the notation, and the change list gains one line.
 >
 > **Evidence.**
-> - Unit and real-process tests for every root. Earlier macOS 26 measurements matched under framework Python (3 passed, root-last skipped) and non-framework Python (4 passed). Fix round 1 removes that framework skip and adds a native-buffer root-last regression: 1 failed before the helper fix, 1 passed after. This round's sandbox denied the four real-`ps` cases, so unrestricted CI/round 2 must run them.
-> - On b51f08f96 the 29 new census cases pass, as expected, and the 26 new C-25.6 cases fail.
-> - 11 of 11 mutants are killed.
-> - The Fix round 1 section below records this round's complete command results and any remaining local verification. CI runs the whole suite.
+> - Unit and real-process tests for every root. Fix round 1 removed the framework-Python skip of the real-`ps` root-last case and added a native-buffer root-last check: 1 failed before the helper fix, 1 passed after. Fix round 1's sandbox denied `/bin/ps`; review r2 then ran all 5 rendering tests at 18c584724 under Homebrew's framework 3.14.7: 5 passed, none skipped.
+> - On b51f08f96 the 29 new census cases pass, as expected, and the 26 C-25.6 cases the branch had then fail. Fix round 1's five later C-25.6 cases (4 person-boundary, 1 native-buffer) failed before that round's changes but did not run on b51f08f96.
+> - 11 of 11 mutants are killed (run before fix round 1).
+> - This report's Fix round 1 section records that round's command results and what it left unverified. CI runs the whole suite.
 >
 > **Environment note.** The kernel shows no environment for platform, hardened-runtime binaries (C-5.5, D-KILL2), so neither reader finds a marker on them. `fix/containment-marker-gap` was never merged.
 >
@@ -255,6 +255,8 @@ Each test command used `uv run --no-sync --with 'pytest-xdist>=3.6' python /priv
 
 The mandatory command's file counts: `test_state_contract.py`: 37 passed; `test_test_module_names.py`: 1 passed; `test_invariants_index.py`: 25 passed; `test_handler_refusals.py`: 372 passed.
 
+A note on the command data, added 2026-11-17 after review r2. In the `importers` and `importers-retry` runs, `by_module` has an entry keyed `""` with `{"passed": 1}`, so its per-module sums exceed the run's `counts` by one (450 passed against 449; 16 against 15). The data's own `build_evidence.py` explains how it got there. It keys `by_module` by each JUnit testcase's `classname`, defaulting to `""`, and it counts as passed any testcase with no `failure`, `error` or `skipped` element. `counts` come from the testsuite totals, which count one test fewer than there are testcase elements. So the `""` entry is a testcase written without a class name or an outcome, not a pass. The table above follows `counts`: `finalize_report.py` hard-codes 449 for `importers` and drops the `""` key for `importers-retry`. The JUnit files were removed at cleanup, so which case each entry was can't be checked now. The named entries suggest which. In `importers-retry`, they account for exactly 15 of its 16 node ids, leaving `TestSuggestionMachine::runTest`, the one case the data lists as not verified passing. In `importers`, the one collected case that is neither among the 449 passed nor among the 15 listed as not passing is `test_c25_5_any_start_failure_is_scrubbed_wherever_it_happens`, which the retry then ran and passed. The JSON is left as recorded.
+
 Other commands and checks:
 
 - `gh pr view 177 --repo MaxGhenis/subfleet-v2`, the supplied review/report reads, and focused `rg`/`sed`/`cat` source inspection succeeded. No `AGENTS.md` was found in the worktree. The exact operation groups and outcomes are recorded in the command data.
@@ -277,3 +279,13 @@ One importer case remains unverified because it did not finish before the time r
 Finished **2026-11-15T22:11:07Z** (174 minutes after start), before the three-hour deadline.
 
 Head built: `d1f6ed52334c1a77ec23f0c6545e7893c1a41bb2`.
+
+## Review r2 documentation fixes (2026-11-17)
+
+Review r2 approved 18c584724 with one P2 and four P3s: the P2 and three P3s concern these documents, and one P3 concerns the live PR body, which the hub rewrites. This round changed only this report and the decision record; no code or test changed.
+
+- **P2, the fail-before reason for `test_a_root_marker_is_found_as_ps_prints_it`.** The record and the fail-before table said release/217 admitted the app's caller there. It didn't. The test's caller is `/bin/zsh` on `ttys001` (`executable` returns `/bin/zsh`). `peers.py` is byte-identical at b51f08f96 and a4aded885. Run on that chain, release/217's `judge` returns `person=False` with "this needs the Subfleet app; a terminal (ttys001) is not enough": it misses the root marker and refuses the caller for its terminal. The test fails on the reason. Both documents now say so. The same probe confirmed the other fail-before claim the record makes: with the app's image and chain, release/217 admits both unholdable roots ("the Subfleet app"). It also showed what release/217 gets wrong: when the app's image has a parent carrying `SUBFLEET_ROOT=/tmp/subfleet-JosM-CM-)-root`, release/217 admits it for the root `/tmp/subfleet-José-root`.
+- **P3, framework-skip leftovers** (the notation invariant, mutant 2's row and the mutant summary). At 18c584724 the root-last real-`ps` test asserts that the root ends the line and has no framework skip. Only the host-inspection fixture can still skip the real-`ps` tests. Those lines now say that the skip belonged to the third session's runs and that fix round 1 removed it. They also say that the mutants were not rerun afterwards.
+- **P3, "moved from procs" and "26 new C-25.6 cases".** `git diff --stat a4aded885..18c584724` lists no `subfleet/procs.py`, so against release/217 `PS_BYTES` and `ps_text` are new in `peers.py`. Fix round 1 added five C-25.6 cases (4 in `test_person_boundary.py`, 1 native-buffer case in `test_ps_rendering.py`), and none ran on b51f08f96. The headline, the fail-before summary and the proposed PR body now say both.
+- **P3, the command data's `""` entries.** These are explained in the Fix round 1 section above. The JSON is unchanged: its JUnit sources are gone, so no corrected value can be checked.
+- **Real-`ps` cases.** Fix round 1's sandbox denied `/bin/ps`. Review r2 then ran all 5 rendering tests at 18c584724 under Homebrew's framework 3.14.7: 5 passed, 0 skipped. It reports that CI's shard-4 outcomes at that head show all 5 passing under python.org's framework 3.12.10. CI has no 3.14 result for shards 1 and 4 at 18c584724: review r2 found both jobs cancelled after about 14 hours in the queue, with no runner and no steps.
