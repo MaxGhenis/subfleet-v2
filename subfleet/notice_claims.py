@@ -101,11 +101,12 @@ def activity_path(root: Path, session: str) -> Path:
 
 
 @contextmanager
-def activity_lock(root: Path, session: str, *, wait_s: float = 0.0):
+def activity_lock(root: Path, session: str, *, wait_s: float):
     """Order activity publication against the final wake claim, never rendering.
 
     Yields whether the lock is held; it is tried for at most `wait_s`, so no
-    holder stalls a hook or the pass (review r4 of #307). Hooks release this
+    holder stalls a hook or the pass (review r4 of #307). `wait_s` has no
+    default: a caller that forgot it would run its body unlocked. Hooks release this
     short lock before attempting delivery_lock. The daemon, and a hook's fold,
     take delivery_lock first, so the two locks cannot form a wait cycle.
     """
