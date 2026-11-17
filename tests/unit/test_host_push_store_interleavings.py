@@ -577,16 +577,18 @@ def test_permanent_preparing_error_keeps_running_build_slot_until_cleanup(worlds
         world.patch.setattr(host_push, "prepare_workspace", prepare)
         fault_transaction(world, "job.workspace_preparing", "update", sqlite3.IntegrityError("preparing constraint"))
         fault_transaction(world, "job.workspace_failed", "notice", sqlite3.OperationalError("database is locked"))
-        actual = core.store.transaction
+        # Fix r1 of #309: the build is queued inside the preparing transaction, after
+        # its hold read. Its UPDATE faults only once the worker has started, so the
+        # build is running when the preparing write fails, as before the reorder.
+        actual = core.pushes.submit
 
-        @contextmanager
-        def after_worker_starts(kind="state.changed", **kwargs):
-            if kind == "job.workspace_preparing":
+        def submit_then_worker_starts(function, *args, **kwargs):
+            future = actual(function, *args, **kwargs)
+            if args and args[0] == core._prepare_push_workspace and args[2].name == job:
                 assert entered.wait(30)
-            with actual(kind, **kwargs) as tx:
-                yield tx
+            return future
 
-        world.patch.setattr(core.store, "transaction", after_worker_starts)
+        world.patch.setattr(core.pushes, "submit", submit_then_worker_starts)
         try:
             core._admit_kind("detached")
             future = core._push_workspaces[job]

@@ -1,0 +1,36 @@
+{
+  "command": [
+    "uv",
+    "--cache-dir",
+    "/private/tmp/sf-ia-f1/test-tmp/uv-cache",
+    "run",
+    "--no-sync",
+    "pytest",
+    "-q",
+    "--tb=short",
+    "tests/fake/test_admission_route_isolation.py::test_c6_3_a_reading_that_ages_out_before_the_reservation_is_judged_again",
+    "tests/fake/test_admission_route_isolation.py::test_c6_3_an_override_that_ends_before_the_reservation_is_judged_again",
+    "--basetemp",
+    "/private/tmp/sf-ia-f1/route-timing-retry-01",
+    "--junitxml",
+    "/Users/maxghenis/.subfleet/worktrees/20261113-070659-ia-fix-r1/docs/reports/2026-11-07-idle-admission-data/fix-r1-route-timing-retry.xml"
+  ],
+  "environment": {
+    "TMPDIR": "/private/tmp/sf-ia-f1/test-tmp",
+    "UV_CACHE_DIR": "/private/tmp/sf-ia-f1/test-tmp/uv-cache"
+  },
+  "returncode": 1,
+  "elapsed_s": 89.789,
+  "counts": {
+    "passed": 1,
+    "failed": 1,
+    "errors": 0,
+    "skipped": 0
+  },
+  "failures": [
+    {
+      "name": "test_c6_3_an_override_that_ends_before_the_reservation_is_judged_again",
+      "message": "AssertionError: assert [(None, None)] == [('codex-1', ...T14:53:09Z'))]\n  \n  At index 0 diff: (None, None) != ('codex-1', ('act-1', '2026-11-13T14:53:09Z'))\n  Use -v to get more diff"
+    }
+  ]
+}

@@ -12,6 +12,10 @@ from subfleet import retention
 from subfleet.contracts import Credential, Lane, LaneOwner
 from subfleet.store import Store
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
+
 LONG_AGO = "2026-01-01T00:00:00Z"
 
 

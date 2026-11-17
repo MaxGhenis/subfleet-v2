@@ -80,6 +80,13 @@ struct MainWindow: View {
             // conversation) moves the highlight, so clicking a row always selects.
             if let id, selection != "cv:" + id { selection = "cv:" + id }
         }
+        .onChange(of: model.focusReasserted) { _, _ in
+            // A click for the conversation already focused moves no focus, but the
+            // highlight may be on a native session whose open the click dropped:
+            // put it back, or clicking that row again would select nothing new.
+            // `select` then finds the conversation focused and its pages left.
+            if let id = model.state.focusedConversationID, selection != "cv:" + id { selection = "cv:" + id }
+        }
         .foregroundStyle(Theme.text.primary.color)
         .background(Theme.surface.conversation.color)
         .tint(Theme.accent)
@@ -91,6 +98,7 @@ struct MainWindow: View {
         .onChange(of: model.selectedSuggestionID) { _, id in
             if let id, selection != "sg:" + id { selection = "sg:" + id }
         }
+        .background(MainWindowReader(model: model))
         .onAppear { model.start() }
         .onReceive(NotificationCenter.default.publisher(for: .subfleetNewConversation)) { _ in
             palette.close(restoringFocus: false)
@@ -102,6 +110,38 @@ struct MainWindow: View {
         .background(TextScaleEqualsShortcut(scale: $textScale))
         .environment(\.textScale, textScale)
         .environment(\.searchPalette, palette)
+    }
+}
+
+/// Tells the model which window is the main one, so it can tell whether the
+/// focused conversation is on screen (D-24): the window this view moves into.
+/// Nothing is cleared when it leaves: a closed window reads as not visible,
+/// and the model's weak reference ends with the window.
+struct MainWindowReader: NSViewRepresentable {
+    let model: UIModel
+
+    func makeNSView(context: Context) -> NSView { Reader(model: model) }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    final class Reader: NSView {
+        private weak var model: UIModel?
+
+        init(model: UIModel) {
+            self.model = model
+            super.init(frame: .zero)
+        }
+
+        required init?(coder: NSCoder) { nil }
+
+        // Told later, outside SwiftUI's update of the view tree: the model's
+        // state is published.
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window else { return }
+            DispatchQueue.main.async { [weak model, weak window] in
+                if let window { model?.mainWindow = window }
+            }
+        }
     }
 }
 
@@ -518,6 +558,12 @@ struct ConversationView: View {
                 .disabled(renamedTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             Button("Cancel", role: .cancel) {}
         }
+        .onChange(of: conversation.conversation_id) { _, _ in
+            // A request is answered in its own conversation: when another one
+            // replaces it here (a notification's click, C-29.9), its sheet closes,
+            // so an answer never lands on a conversation the window no longer shows.
+            approval = nil
+        }
         .inspector(isPresented: Binding(get: { model.changesScope?.conversationID == conversation.conversation_id },
                                         set: { if !$0 { model.changesScope = nil } })) {
             if let scope = model.changesScope {
@@ -672,9 +718,11 @@ struct ConversationView: View {
 
     /// Opens a card's request for the person to answer.
     private func review(_ card: ApprovalCard) {
+        let conversationID = conversation.conversation_id
         Task {
-            if let id = await model.approvalID(for: card, conversationID: conversation.conversation_id) {
-                approval = (card, id)
+            if let id = await model.approvalID(for: card, conversationID: conversationID) {
+                // Only while its conversation is still the one shown.
+                if model.state.focusedConversationID == conversationID { approval = (card, id) }
             } else {
                 model.problem = "That approval is no longer pending."
             }
