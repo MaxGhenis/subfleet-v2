@@ -8,7 +8,10 @@ committed the build as `0b750661a` and this report as `1593a4efd`. Review r1
 found more (URL forms, hostile types, re-raises, escapes, chain cost); "Fix r1"
 records what changed. Review r2 found a test the release/217 merge broke, a URL
 password with an `@` and then a raw `/`, keys split by invisible characters and
-an untested outer frame; "Fix r2" at the end records what changed.
+an untested outer frame; "Fix r2" records what changed. Review r3 found a
+mask fix r2's terminal reading lost, approval masking that missed two URL
+passwords, and r2's follower case (a key split across feeds) still open; "Fix
+round 3" at the end records what changed.
 
 Start: `2026-11-12 05:49:38 UTC` (`date -u`, first command). Base:
 `b51f08f961e1b1dcfb93347eb080f9ddd9a9260d`. Work is confined to the assigned
@@ -716,6 +719,8 @@ was printed.
 
   The tests weren't run against `bb118f63d` itself. Review r2's own run
   showed the leak there.
+- Review r3 found one case still open: a key split across the follower's
+  feeds (`pass\u200bword:\n`, then its value). Fix round 3 closes it.
 - Left, for the hub to file:
   - Bidirectional controls (Cf, such as U+202E) are read as invisible but
     written raw. A terminal that does bidi could reorder what it shows.
@@ -1208,8 +1213,9 @@ Other commands:
 - Shell metacharacters in a URL password stay in view (IR-20). See P1 above.
 - The contract's new sentences sit in C-5.10, as in fixes r1 and r2. C-27.1
   and C-23.14 aren't amended. C-5.10 now states the approval rule.
-- The new property tests' generators draw the review's shapes first about
-  half the time. Plain generators found nothing in 60 examples (run 2).
+- The new property tests' generators make each part's first choice the
+  review's shape (one of two branches). Plain generators found nothing in 60
+  examples (run 2).
 - The PR body isn't edited; its new content is listed above.
 - The ultracode note asks for a Workflow. A headless run gets no completion
   notice, so the work stayed inline.
@@ -1224,9 +1230,12 @@ Folders outside scratch:
 - The harness wrote the background run's output under
   `/private/tmp/claude-501/` (its own task file, not mine to remove).
 
-Scratch `$TMPDIR/sf-wcp-fix3` held the probes, the copies, the run outputs and
-the basetemps. It is removed at the end with a guarded `shutil.rmtree` that
-asserts `sf-wcp-fix3` is in the path and is the folder's name.
+Scratch `$TMPDIR/sf-wcp-fix3` held the probes, the copies (the mutant runner's
+partial one included), the run outputs and the basetemps. It was removed at
+06:39 UTC with a guarded `shutil.rmtree` that asserts `sf-wcp-fix3` is in the
+path and is the folder's name; it no longer exists. No process of mine is left.
+No live state, credential store or caller file was read or changed.
 
-Head built: the commit holding this section, on top of `ee4f86a07` (code,
-tests, runner and contract).
+Head built: the commit holding this section's last edit, on top of `ee4f86a07`
+(code, tests, runner and contract). Finished at 06:40 UTC, 2 h 31 min after the
+start.

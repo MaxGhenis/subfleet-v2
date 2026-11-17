@@ -158,12 +158,12 @@ INVISIBLES = ["\x1b[0m", "\u200b", "\x1f", "\u00ad", "\x07", "\ufeff", "\x1c", "
               "\x7f", "\x08", "\x85", "\u202e", "\u180e", "\x1b", "\x1d", "\x1e"]
 SEPARATORS = [" ", ":\n", "=", ": ", ":", "\n", "=\n", "\t", "='", '="']
 ENDS = ["\n", "", " ", "'", '"', " for x", *INVISIBLES]
-#: Nothing, half the time; else one of `INVISIBLES`.
+#: Nothing, or one of `INVISIBLES`: one of two branches.
 MAYBE_INVISIBLE = st.one_of(st.just(""), st.sampled_from(INVISIBLES))
 
 
 def _often(first, choices: list):
-    """`first` about half the time, else any of `choices`."""
+    """`first`, or any of `choices`: one of two branches."""
     return st.one_of(st.just(first), st.sampled_from(choices))
 
 
@@ -172,8 +172,8 @@ def keyed_texts(draw, key="Bearer", cut=0, before="x\u200b", inside="", after="\
     """One or two values, each after a key: a word may come before the key, and an
     invisible or control character before it, inside it, after it and after its
     separator. Each part is its first choice (the arguments, review r3's P1 shape
-    `x\u200bBearer\x1b[0m <value>` by default) about half the time, so that shape is
-    drawn often and others around it."""
+    `x\u200bBearer\x1b[0m <value>` by default) or any choice, one of two branches, so
+    that shape is drawn often and others around it."""
     letters = draw(st.permutations(POOL))
     parts = []
     for index in range(draw(st.integers(1, 2))):
