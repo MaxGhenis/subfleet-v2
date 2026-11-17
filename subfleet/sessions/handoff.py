@@ -2592,34 +2592,47 @@ def _closer_value_end(text: str, closer: re.Match, inner: int, lines: _Lines, re
                       *, point: int | None = None, scan: bool = True) -> int | None:
     """Where the quoted value that opens inside a private key or reminder (at or after `inner`)
     and holds its `closer` ends, the latest if several; the end of the closer's line when the
-    window that would show it is too long to read (fail closed); None when no value holds it.
-    A value must open on the closer's line (within a line, as the excerpt rules read it), so a
-    closer whose line holds no quote inside the block is held by none. Each look-back reads at
-    most `_SPLIT_WINDOW_MAX` characters but one: where the block's part of the closer's line is
-    longer than that and its last such stretch holds no quote, `_quote_on_line` reads back to
-    the nearest quote or line break, within the block. With `scan` False that read is not made:
-    such a closer is taken as held (fail closed), so every look-back is within a window.
+    window that would show it is too long to read (fail closed); None when no value holds it
+    (`_value_holding`, without saying whether the answer failed closed)."""
+    return _value_holding(text, closer, inner, lines, reader, point=point, scan=scan)[0]
 
-    A value holds the closer when it opens before `point` and ends after it: the closer's end by
-    default. `_erased_keys` passes an opener's start, to ask whether a value holds an opener (one
-    that opens at or after `inner` and before the opener, on the opener's line)."""
-    at = closer.start()
-    point = closer.end() if point is None else point
+
+def _value_holding(text: str, tag: re.Match, inner: int, lines: _Lines, reader: _SplitReader,
+                   *, point: int | None = None, scan: bool = True) -> tuple[int | None, bool]:
+    """`_closer_value_end`'s answer for `tag` (a closer, or with `point` an opener), and whether a
+    read decided it: False where it failed closed, when the window that would show the value is
+    too long to read or past the read budget, and the answer is the end of the tag's line.
+
+    A value must open on the tag's line (within a line, as the excerpt rules read it), so a tag
+    whose line holds no quote inside the block is held by none. Each look-back reads at most
+    `_SPLIT_WINDOW_MAX` characters but one: where the block's part of the tag's line is longer
+    than that and its last such stretch holds no quote, `_quote_on_line` reads back to the nearest
+    quote or line break, within the block. With `scan` False that read is not made: such a tag
+    is taken as held (fail closed), so every look-back is within a window.
+
+    A value the quoted-value rule replaces holds a closer when it covers the whole closer: it
+    opens before the closer's end and ends at or after it, so a value with no closing quote,
+    masked to its line's end, holds a closer that ends the line (review r1 of #331, P0-3). With
+    `point` (an opener's start, `_erased_keys`) it holds the opener when it opens before `point`
+    and ends after it: one that opens at or after `inner` and before the opener, on its line."""
+    at = tag.start()
+    closer = point is None
+    point = tag.end() if closer else point
     line = lines.start(at, inner, _SPLIT_WINDOW_MAX)
-    stop = lines.end(closer.end())
+    stop = lines.end(tag.end())
     if line is None:
-        # The block's part of the closer's line is longer than a window, so any window holding a
-        # value that holds the closer is too: a quote there fails closed.
+        # The block's part of the tag's line is longer than a window, so any window holding a
+        # value that holds the tag is too: a quote there fails closed.
         near = at - _SPLIT_WINDOW_MAX
         if (text.find('"', near, at) < 0 and text.find("'", near, at) < 0
                 and scan and not _quote_on_line(text, inner, near)):
-            return None
-        return stop
+            return None, True
+        return stop, False
     if text.find('"', line, at) < 0 and text.find("'", line, at) < 0:
-        return None
+        return None, True
     room = reader.room()
     if stop - line > room:
-        return stop                                    # no window holding the closer's line fits
+        return stop, False                             # no window holding the tag's line fits
     fits, window = stop - room, line                   # a readable window starts at `fits` or after
     for _ in range(2):        # a key and its separator may each have a line above the value
         low = max(inner, window - _SPLIT_WINDOW_MAX)
@@ -2627,18 +2640,18 @@ def _closer_value_end(text: str, closer: re.Match, inner: int, lines: _Lines, re
         if run == low:
             if low == inner:
                 break                                  # nothing visible above it in the block
-            return stop                                # blank for longer than a window: fail closed
+            return stop, False                         # blank for longer than a window: fail closed
         above = run - 1
         if above < fits:
-            return stop
+            return stop, False
         window = lines.start(above, inner, above - max(inner, fits))
         if window is None:
-            return stop
+            return stop, False
     values = reader.values(text, window, stop)
     if values is None:
-        return stop
-    ends = [b for a, b in values if inner <= a < point < b]
-    return max(ends) if ends else None
+        return stop, False
+    ends = [b for a, b in values if inner <= a < point and (point <= b if closer else point < b)]
+    return (max(ends) if ends else None), True
 
 
 def _closer_splits(text: str, spans: list[tuple[int, int, int]], opening: re.Pattern, closing: re.Pattern,
@@ -2660,19 +2673,28 @@ def _closer_splits(text: str, spans: list[tuple[int, int, int]], opening: re.Pat
 
     Where a value holds the last closer a block reaches and no closer follows the value, the
     rest of that value is masked and the walk stops: the whole-text scrub's block never closes,
-    so it leaves the block's text, and every later block of the layer, in place. With `ends` (a
-    list), each block's outcome is appended to it in order: the end of the closer the whole-text
-    scrub's block ends at, or None where it never closes (no closer past the masks, or a value
-    holding the last one). For reminders `_erased_keys` reads it: a private key that opens in a
-    reminder the whole-text scrub leaves is resolved there, and the part of it past the reminder
-    is masked (issue #325)."""
+    so it leaves the block's text, and every later block of the layer, in place.
+
+    With `ends` (a list), each block's outcome is appended to it in order, as `(closes, low,
+    reach)`, which `_erased_keys` reads for reminders (issue #325; review r1 of #331, P0-1):
+    - `closes`: the end of the closer the walk ends the block at, or None where it never closes
+      (no closer past the masks, or a value holding the last one). A walk that stops at a closer
+      an earlier block's run-on read from takes that run-on's outcome, which goes on from there.
+    - `low`: the earliest end the whole-text block may have. It is `closes` (None too) where every
+      answer the walk rests on was read; where one failed closed (`_value_holding`'s False: the
+      closer was taken as held unread), it is that closer's end, at which the block may close.
+    - `reach`: the end of the last mask the walk put down for the block (its own end if none).
+    So `closes == low` says the outcome is known; otherwise the block ends somewhere from `low`
+    to `closes`, or may never close."""
     masks: list[tuple[int, int]] = []
-    lines, ahead, covers, seen = _Lines(text), _Ahead(closing, text), _Covers(earlier or []), set()
-    for start, end, _ in spans:
+    lines, ahead, covers = _Lines(text), _Ahead(closing, text), _Covers(earlier or [])
+    seen: dict[int, int] = {}                          # a closer's start: the block whose walk read from it
+    outcomes: list[tuple[int | None, int | None, int]] = []
+    for index, (start, end, _) in enumerate(spans):
         inner = opening.match(text, start).end()
         closer = ahead(inner)                          # the lazy match ends at the first closer
         assert closer is not None and closer.end() == end
-        first, closes = True, None
+        first, closes, reach, unread = True, None, end, None   # `unread`: the first closer held unread
         while True:
             reached = closer
             while reached is not None and (past := covers.over(reached.start(), reached.end())) is not None:
@@ -2681,98 +2703,306 @@ def _closer_splits(text: str, spans: list[tuple[int, int, int]], opening: re.Pat
                 break                                  # none past the masks: the whole-text block never closes
             if reached is not closer:
                 masks.append((closer.end(), reached.end()))
+                reach = max(reach, reached.end())
                 closer = reached
             if not first and closer.start() in seen:
-                closes = closer.end()                  # an earlier block's run-on goes on from here
+                # An earlier block's run-on goes on from here, so its outcome is this block's; where
+                # that one rests on a closer held unread, this block may close from here on.
+                closes, earlier_low, earlier_reach = outcomes[seen[closer.start()]]
+                reach = max(reach, earlier_reach)
+                if unread is None and earlier_low != closes:
+                    unread = max(closer.end(), earlier_low or 0)
                 break
-            seen.add(closer.start())
+            seen[closer.start()] = index
             first = False
-            value_end = _closer_value_end(text, closer, inner, lines, reader)
+            value_end, read = _value_holding(text, closer, inner, lines, reader)
             if value_end is None:
                 closes = closer.end()
                 break
+            if not read and unread is None:
+                unread = closer.end()                  # held unread: the block may close here
             following = ahead(value_end)
             masks.append((closer.end(), following.end() if following is not None else value_end))
+            reach = max(reach, following.end() if following is not None else value_end)
             if following is None:
                 break                                  # a value holds the last closer: it never closes
             closer = following
-        if ends is not None:
-            ends.append(closes)
+        outcomes.append((closes, closes if unread is None else unread, reach))
+    if ends is not None:
+        ends.extend(outcomes)
     return masks
 
 
-def _erased_keys(text: str, spans: list[tuple[int, int, int]], ends: list[int | None],
-                 reader: _SplitReader) -> list[tuple[int, int]]:
-    """Each private key whose opener release's removal of a reminder erased while the whole-text
-    scrub keeps that opener, as the whole-text scrub resolves the key: from its opener to the end
-    of the closer that ends it, in `text`'s positions (issue #325). `spans` are release's
-    reminder blocks in `text`, and `ends` their outcomes (`_closer_splits`).
+class _QuoteBefore:
+    """Whether a quote stands on a position's line before it, for positions asked in order
+    (`_erased_keys`): the last quote and the last line break before each, kept from one backward
+    read of each stretch since the position asked before, so no character is read more than four
+    times in all. A position before the last one asked gets True (read it in full)."""
 
-    The whole-text scrub masks quoted values before it removes reminders, so it keeps a
-    reminder's opener, and the text after it, in two cases:
-    - the reminder never closes (`ends`' None): a value holds its last closer and none follows.
-      That reminder and every later one stay.
-    - a quoted value holds the reminder's opener (`_closer_value_end` asked about the opener's
-      start): that reminder's text stays, but for any block an opener inside it starts.
-    A private key that opens in such a reminder is the whole-text scrub's. It runs to the first
-    private key closer after it that the whole-text scrub's reminders leave (outside `gone`) and
-    that no value opening inside the key holds, as `_closer_splits` walks a key. Release's text
-    holds the part of it past the reminder with no opener, so release keeps that part; its
-    mask's start, inside the reminder, carries to the reminder's place.
+    def __init__(self, text: str) -> None:
+        self.text, self.at, self.quote, self.brk = text, 0, -1, -1
 
-    It errs toward hiding more. A reminder no key opens in is not checked and counts as removed,
-    so its closers end no key here; so does one whose held opener has another opener after it,
-    whose block the whole-text scrub may start there. A key whose opener a value holds is
-    resolved anyway. A key whose closers all fall in `gone` or in values is masked to the last
-    closer it reaches: if the whole-text key never closes it shows, and this hides more. Each
-    look-back stays within a window (`scan=False`; a check it can't make takes the opener or
-    closer as held), the walk reads each closer once, and its windows come from the same read
-    budget, after the other layers' (so their masks are as before this step).
+    def __call__(self, at: int) -> bool:
+        text, low = self.text, self.at
+        if at < low:
+            return True
+        if at > low:
+            self.quote = max(self.quote, text.rfind('"', low, at), text.rfind("'", low, at))
+            self.brk = max(self.brk, text.rfind("\n", low, at), text.rfind("\r", low, at))
+            self.at = at
+        return self.quote > self.brk
 
-    A data URI needs none of this. Its body (`[A-Za-z0-9+/=\\s]`) stops at a reminder's closer
-    (`<`) and at the quote of a value that holds one, so the whole-text match of a data URI that
-    opens inside a reminder ends inside it, in text release removed."""
-    lines = _Lines(text)
-    live: list[tuple[int, int]] = []                   # release's reminders the whole-text scrub keeps
-    gone: list[tuple[int, int]] = []                   # what the whole-text scrub's reminders remove
-    floor = reach = 0                                  # where values may open; the whole-text removal's reach
-    stopped = False
-    for (start, end, _), closes in zip(spans, ends):
-        stopped = stopped or closes is None
-        if stopped:
-            live.append((start, end))                  # no closer is left: no later reminder goes either
+
+def _uncarried(at: int, spans: list[tuple[int, int, int]]) -> int:
+    """The position, in the text a block rule read, of the character at `at` in the text its
+    `spans` leave (`_carried`'s inverse, for a character outside every placeholder)."""
+    shift = 0
+    for start, end, length in spans:
+        if start - shift > at:
+            break
+        shift += end - start - length
+    return at + shift
+
+
+def _open_key(text: str, spans: list[tuple[int, int, int]],
+              ends: list[tuple[int | None, int | None, int]]) -> int | None:
+    """Where, in `text`, the first private key opens that `_closer_splits`' walk over release's
+    text never closes (`ends`' None), or the first opener after release's last key, which no closer
+    follows; None if there is neither."""
+    for (start, _, _), (closes, _, _) in zip(spans, ends):
+        if closes is None:
+            return start
+    key = _PEM_START_RE.search(text, spans[-1][1] if spans else 0)
+    return None if key is None else key.start()
+
+
+def _erased_keys(text: str, spans: list[tuple[int, int, int]],
+                 ends: list[tuple[int | None, int | None, int]], run_ons: list[tuple[int, int]],
+                 reader: _SplitReader, mirror: int | None = None,
+                 ) -> tuple[list[tuple[int, int]], list[tuple[int, int]], dict[int, int]]:
+    """The private keys release's removal of reminders changes, masked as the whole-text scrub
+    resolves them, in `text`'s positions (issue #325; review r1 of #331): from each key's opener
+    to the end of the closer that ends it. `spans` are release's reminder blocks in `text`, `ends`
+    their outcomes and `run_ons` their masks (`_closer_splits`), and `mirror` the opener (in
+    `text`) of the first key whose walk over release's text never closes (`_open_key`). Also
+    returns, for `_data_uri_run_ons`, each reminder the whole-text scrub may remove whose block
+    runs on past it (its start and the block's end), and every reminder it may remove, by start.
+
+    Which reminders the whole-text scrub keeps. It masks quoted values before it removes
+    reminders, so its reminder blocks open at the first opener no value holds and close at the
+    first closer after it that no value holds. The step follows them over release's reminders:
+    - A value on an opener's line that opens before it holds it, wherever the value opens (an
+      earlier reminder's text and run-on included). An opener on a line with no quote before it
+      is held by none, and costs no window (`_QuoteBefore`); any other is read once, within one
+      window from the shared budget (`_value_holding`, `scan=False`). A read that fails closed (a
+      longer line, or no budget) decides nothing.
+    - Where a value holds release's opener, an opener inside the reminder may open the block;
+      the text before it stays.
+    - A block that opens at release's opener, or at one inside, ends where that reminder's walk
+      ends (`ends`). Only an end the walk read counts: where it rests on a closer held unread,
+      the block ends somewhere from that closer to the walk's end, and a later reminder in that
+      stretch is one the scrub may remove or keep. A reminder an earlier block surely covers is
+      removed without a check.
+    - A block that surely opens and surely never closes keeps every reminder from it on.
+    Each reminder is so kept (`live`: a key opener in it is the whole-text scrub's), removed
+    (its text and run-on in `gone`: a closer there ends no key), or, where a read can't decide,
+    both: that hides more (invariant 3).
+
+    The keys. A key opens at a private key opener in a reminder the scrub may keep, or, from
+    `mirror` on, at any opener outside the reminders it surely removes: there no closer in
+    release's text ends the key, but one in a kept reminder may (a key whose closer such a
+    reminder holds, review r1, P0-4). Its walk takes the closers after it in order, as
+    `_closer_splits` walks a key: a closer in `gone` ends nothing, nor does one that a value
+    opening inside the key holds (or may: a read that fails closed takes it as held); the first
+    other closer ends the key. Each closer is read once in all: every search for one starts
+    past the last, and the next key opens after the one before ends. A key no closer ends is
+    masked to the end of the last thing it ran over, and the walk stops there: no closer
+    follows, so the whole-text scrub closes no later key either. The masks' starts, inside a
+    removed reminder, carry to its place in release's text."""
+    lines, quoted = _Lines(text), _QuoteBefore(text)
+
+    def held(opener: re.Match) -> bool | None:
+        """Whether a quoted value holds a reminder opener; None where the read failed closed."""
+        if not quoted(opener.start()):
+            return False
+        value_end, read = _value_holding(text, opener, 0, lines, reader, point=opener.start(), scan=False)
+        return (value_end is not None) if read else None
+
+    def opens(start: int, end: int) -> tuple[str, int]:
+        """Whether the whole-text block opens in release's reminder `[start, end)`: "yes", "no"
+        (a value holds every opener in it) or "maybe"; and at which opener (`start`, or one after)."""
+        opener = _REMINDER_START_RE.match(text, start)
+        verdict = held(opener)
+        if verdict is not True:
+            return ("yes" if verdict is False else "maybe"), start
+        for inner in _REMINDER_START_RE.finditer(text, opener.end(), end):
+            verdict = held(inner)
+            if verdict is not True:
+                return ("yes" if verdict is False else "maybe"), inner.start()
+        return "no", start
+
+    live: list[tuple[int, int]] = []                   # release's reminders the whole-text scrub may keep
+    gone: list[tuple[int, int]] = list(run_ons)        # what its reminder blocks may remove
+    removed: list[tuple[int, int]] = []                # release's reminders it surely removes
+    runs: list[tuple[int, int, int]] = []              # each block it may open: where, its reminder's end, its end
+    removals: dict[int, int] = {}                      # the same, by where the block opens: its end
+    sure = maybe = 0          # it surely removes up to `sure` from a block's start; no block passes `maybe`
+    after = None              # "kept": it keeps every later reminder; "maybe": it may
+    for (start, end, _), (closes, low, reach) in zip(spans, ends):
+        if after is not None:
+            live.append((start, end))
+            if after == "maybe":
+                gone.append((start, reach))
+                runs.append((start, end, reach))
             continue
-        removed = True                                 # inside an earlier run-on, or no key opens here
-        if start >= reach and _PEM_START_RE.search(text, start, end) is not None:
-            opener = _REMINDER_START_RE.match(text, start)
-            if _closer_value_end(text, opener, floor, lines, reader, point=start, scan=False) is not None:
-                live.append((start, end))              # a value holds the opener
-                # Another opener inside may start the whole-text block: its closers end no key.
-                removed = _REMINDER_START_RE.search(text, opener.end(), end) is not None
-        if removed:
-            gone.append((start, closes))
-            reach = max(reach, closes)
-        floor = max(end, reach)
-    if not live:
-        return []
+        if start < sure:
+            removed.append((start, end))               # inside an earlier block, wherever it ends
+            gone.append((start, reach))
+            continue
+        state, at = opens(start, end)
+        if state == "no":
+            live.append((start, end))
+            if start < maybe:
+                gone.append((start, end))              # an earlier block may still remove it
+            continue
+        if closes is None:
+            # The block may never close; from it on the whole-text scrub may keep every reminder.
+            live.append((start, end))
+            after = "kept" if state == "yes" and start >= maybe and low is None else "maybe"
+            if after == "maybe":
+                gone.append((start, reach))
+                runs.append((at, end, reach))
+            continue
+        gone.append((start, max(reach, closes)))
+        runs.append((at, end, closes))
+        if state == "maybe" or at > start:
+            live.append((start, end))                  # its text before the block's opener may stay
+        else:
+            removed.append((start, end))               # by its own block, or by an earlier one
+        if state == "yes" and start >= maybe:
+            sure, maybe = low, closes                  # `low` is at or past `end`
+        else:
+            maybe = max(maybe, closes)
+    for at, _, block_end in runs:
+        removals[at] = max(removals.get(at, 0), block_end)
+    if not live and mirror is None:
+        return [], runs, removals
+    live = _merged(live)
+    live_starts, removed_starts = [a for a, _ in live], [a for a, _ in removed]
+
+    def taken(at: int) -> int | None:
+        """The end of the reminder the whole-text scrub surely removes that holds `at`, unless it
+        may keep `at`; else None."""
+        i = bisect.bisect_right(live_starts, at) - 1
+        if i >= 0 and at < live[i][1]:
+            return None
+        j = bisect.bisect_right(removed_starts, at) - 1
+        return removed[j][1] if j >= 0 and at < removed[j][1] else None
+
+    regions = [(a, b if mirror is None else min(b, mirror)) for a, b in live if mirror is None or a < mirror]
+    if mirror is not None:
+        regions.append((mirror, len(text)))
     covers, ahead = _Covers(gone), _Ahead(_PEM_END_RE, text)
     masks: list[tuple[int, int]] = []
     cursor = 0
-    for low, high in live:
+    for low, high in regions:
         while (key := _PEM_START_RE.search(text, max(low, cursor), high)) is not None:
-            last, closer = None, ahead(key.end())
+            if (skip := taken(key.start())) is not None:
+                cursor = skip                          # the whole-text scrub removed this opener
+                continue
+            closer, past, ended = ahead(key.end()), key.end(), None
             while closer is not None:
-                last = closer
-                past = covers.over(closer.start(), closer.end())
-                if past is None:
-                    past = _closer_value_end(text, closer, key.end(), lines, reader, scan=False)
-                    if past is None:
-                        break                          # the closer that ends the key
+                over = covers.over(closer.start(), closer.end())
+                if over is None:
+                    over = _closer_value_end(text, closer, key.end(), lines, reader, scan=False)
+                    if over is None:
+                        ended = closer                 # the closer that ends the key
+                        break
+                past = max(past, over, closer.end())
                 closer = ahead(past)
-            if last is None:
-                return masks                           # no closer follows: the whole-text scrub resolves no more keys
-            masks.append((key.start(), last.end()))
-            cursor = last.end()
+            if ended is None:
+                if past > key.end():
+                    masks.append((key.start(), past))  # no closer ends it: it shows, and this hides more
+                return masks, runs, removals           # no closer follows: no later key closes either
+            masks.append((key.start(), ended.end()))
+            cursor = ended.end()
+    return masks, runs, removals
+
+
+#: What a data URI's body holds (`_DATA_BODY_RE`), for `str.rstrip`.
+_BODY_CHARS = _BODY_WORD + "+/=" + _SPACES
+#: Where a data URI's prefix may start (`_DATA_URI_PREFIX_RE`).
+_DATA_START_RE = re.compile(r"(?i)data:")
+#: How far back from a body `_body_reaches` reads for a data URI's prefix.
+_PREFIX_MAX = 512
+
+
+def _body_reaches(text: str, at: int, floor: int, ends: set[int]) -> bool:
+    """Whether a data URI's body may run, in the whole-text scrub, up to `at`: the run of body
+    characters before `at` (read back no further than `floor` and one window) follows a data
+    URI's prefix (read back at most `_PREFIX_MAX`), or the end of a reminder block the whole-text
+    scrub may remove (`ends`), past which the body may go on; or is longer than a window (fail
+    closed)."""
+    low = max(floor, at - _SPLIT_WINDOW_MAX)
+    run = _run_back(text, at, _BODY_CHARS, low)
+    if (run == low and low > floor) or run in ends:
+        return True
+    if run == 0 or text[run - 1] != ",":
+        return False
+    return any(_DATA_URI_PREFIX_RE.fullmatch(text, found.start(), run) is not None
+               for found in _DATA_START_RE.finditer(text, max(0, run - _PREFIX_MAX), run))
+
+
+def _data_uri_run_ons(text: str, spans: list[tuple[int, int, int]], layers: list[list[tuple[int, int, int]]],
+                      runs: list[tuple[int, int, int]], removals: dict[int, int],
+                      reader: _SplitReader) -> list[tuple[int, int]]:
+    """What a data URI's body takes, in the whole-text scrub, past a reminder block it removes, in
+    `text`'s positions (review r1 of #331, P0-5). `spans` are release's reminder blocks in `text`,
+    `layers` its private key and data URI blocks in the texts they read, and `runs` each reminder
+    block the whole-text scrub may remove: where it opens, the end of release's reminder it opens
+    in, and where it ends (`_erased_keys`), and `removals` the same by where each opens.
+
+    The whole-text scrub removes reminders before it reads data URIs, so a body that reaches a
+    block's opener goes on from the block's end. Where that block is release's reminder exactly,
+    release's text has the same text before and after it, and its body goes on alike. Where the
+    block runs on past release's reminder (its closer in a value), or opens at an opener inside
+    release's reminder (a value holds release's opener), release's body ends elsewhere: at the
+    quote of the value that holds the closer, or nowhere, its opener removed with the reminder.
+    So where a body may reach such a block's opener (`_body_reaches`), and release's own data URI
+    doesn't run past the block's end, the whole-text body's run from there is masked: body
+    characters (`_DATA_BODY_RE`), and on past each block the whole-text scrub may remove that opens
+    where they stop; and the rest of a quoted value whose key that run ends in (`_data_uri_splits`).
+    A run stops at a reminder's tag (`<`), so the runs and look-backs read each character a fixed
+    number of times."""
+    if not runs:
+        return []
+    pem, uris = layers
+    opened = {start for start, _, _ in spans}
+    ends = set(removals.values())
+    places = [a for a, _ in _carried(_carried([(e, e) for _, _, e in runs], spans), pem)]
+    uri_starts = [start for start, _, _ in uris]
+    masks: list[tuple[int, int]] = []
+    floor = 0
+    for (at, end, block_end), place in zip(runs, places):
+        low, floor = floor, max(floor, block_end)
+        if (at in opened and block_end <= end) or not _body_reaches(text, at, low, ends):
+            continue
+        i = bisect.bisect_right(uri_starts, place) - 1
+        if i >= 0 and uris[i][0] < place < uris[i][1]:
+            continue                                   # release's own body runs on past the block
+        cursor = segment = block_end
+        while True:
+            body = _DATA_BODY_RE.match(text, cursor)
+            stop = body.end() if body is not None else cursor
+            nxt = removals.get(stop)
+            if nxt is None or nxt <= stop:
+                break
+            cursor = segment = nxt
+        if stop - 4 >= segment and _DATA_START_RE.match(text, stop - 4) is not None:
+            stop -= 4                                  # a data URI's own `data`: release's block takes it
+        if stop > block_end:
+            masks.append((block_end, stop))
+            masks.extend(_data_uri_splits(text, [(segment, stop, 0)], reader))
     return masks
 
 
@@ -2780,22 +3010,30 @@ def _split_masks(text: str, strip_reminders: bool, tally: _Tally) -> tuple[str, 
     """`_resolve_blocks(text, strip_reminders, tally)`, and the ranges of what it leaves that
     the quoted values a block splits still hold (`_data_uri_splits`, `_closer_splits`), each
     block rule read over the text it is given, as `_resolve_blocks` gives it; with reminders
-    stripped, also the part past a reminder of each private key whose opener the reminder's
-    removal erased and the whole-text scrub keeps (`_erased_keys`, issue #325)."""
+    stripped, also each private key release's removal of reminders changes, as the whole-text
+    scrub resolves it (`_erased_keys`, issue #325 and review r1 of #331), and the part of a data
+    URI's body the whole-text scrub runs on past a removed reminder (`_data_uri_run_ons`)."""
     reader = _SplitReader()
     masks: list[tuple[int, int]] = []
-    erased: tuple[str, list[tuple[int, int, int]], list[int | None]] | None = None
+    erased: tuple[str, list[tuple[int, int, int]], list, list[tuple[int, int]]] | None = None
     if strip_reminders:
         resolved, spans = _block_layer(_SYSTEM_REMINDER_RE, "", text, None)
-        ends: list[int | None] = []
-        masks = _carried(_closer_splits(text, spans, _REMINDER_START_RE, _REMINDER_END_RE, reader, ends=ends), spans)
-        erased = (text, spans, ends)
+        ends: list[tuple[int | None, int | None, int]] = []
+        run_ons = _closer_splits(text, spans, _REMINDER_START_RE, _REMINDER_END_RE, reader, ends=ends)
+        masks = _carried(run_ons, spans)
+        erased = (text, spans, ends, run_ons)
         text = resolved
     layers: list[list[tuple[int, int, int]]] = []
+    mirror: int | None = None
     for pattern, out in _BLOCK_RULES:
         resolved, spans = _block_layer(pattern, out, text, tally)
-        found = (_closer_splits(text, spans, _PEM_START_RE, _PEM_END_RE, reader, masks) if pattern is _PEM_RE
-                 else _data_uri_splits(text, spans, reader))
+        if pattern is _PEM_RE:
+            keys: list[tuple[int | None, int | None, int]] | None = [] if erased is not None else None
+            found = _closer_splits(text, spans, _PEM_START_RE, _PEM_END_RE, reader, masks, ends=keys)
+            if keys is not None:
+                mirror = _open_key(text, spans, keys)
+        else:
+            found = _data_uri_splits(text, spans, reader)
         masks = _carried(masks, spans) + _carried(found, spans)
         layers.append(spans)
         text = resolved
@@ -2803,11 +3041,14 @@ def _split_masks(text: str, strip_reminders: bool, tally: _Tally) -> tuple[str, 
         # Last, so the layers above read their windows within the budget they always had. These
         # masks are not among the `earlier` ones the private-key layer reads: the closer such a key
         # ends at ends it in the whole-text scrub, so a block release ends there runs on no further.
-        original, spans, ends = erased
-        keys = _carried(_erased_keys(original, spans, ends, reader), spans)
+        original, spans, ends, run_ons = erased
+        start = None if mirror is None else _uncarried(mirror, spans)
+        added, runs, removals = _erased_keys(original, spans, ends, run_ons, reader, start)
+        added += _data_uri_run_ons(original, spans, layers, runs, removals, reader)
+        added = _carried(added, spans)
         for later in layers:
-            keys = _carried(keys, later)
-        masks += keys
+            added = _carried(added, later)
+        masks += added
     return text, _merged(masks)
 
 
