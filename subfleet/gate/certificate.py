@@ -13,7 +13,7 @@ from ..sessions.transcripts import read_regular
 from ..store import utc_now
 from .errors import GateError
 from .revision import assert_expected
-from .verdict import SCHEMA_VERSION, VERDICT_BEGIN, VERDICT_END, parse_verdict
+from .verdict import SCHEMA_VERSION, parse_verdict, wrap_verdict
 
 GATE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 Event = Callable[[str, dict[str, Any]], None]
@@ -75,10 +75,8 @@ def certificate(
     if not isinstance(expected, dict):
         raise GateError("agreement certificate has no artifact revision", 4)
     assert_expected(expected, approval.get("expected_revision"))
-    verdict = parse_verdict(
-        VERDICT_BEGIN + "\n" + json.dumps(round_state.get("verdict")) + "\n" + VERDICT_END,
-        expected,
-    )
+    # The stored verdict is written back with its sentinels escaped (D-GATE-CERT1).
+    verdict = parse_verdict(wrap_verdict(round_state.get("verdict")), expected)
     if round_state.get("status") != "approve" or verdict["verdict"] != "approve":
         raise GateError("agreement certificate requires peer approval", 4)
     if round_state.get("peer", state["peer"]) != state["peer"]:
