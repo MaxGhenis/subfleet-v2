@@ -1,0 +1,135 @@
+bringing up nodes...
+bringing up nodes...
+
+FFFFFFFFFFFFFFFF                                                         [100%]
+=================================== FAILURES ===================================
+[gw2] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpPmU1w6/bin/python
+E   AssertionError: {'pruned': [], 'errors': [], 'bytes_before': 25125, 'bytes_after': 25125, ...}
+    assert [] == ['job-1']
+      
+      Right contains one more item: 'job-1'
+      Use -v to get more diff
+/Users/maxghenis/.subfleet/worktrees/20261117-114947-ao-fix-r2/tests/unit/test_retention_offload.py:144: AssertionError: {'pruned': [], 'errors': [], 'bytes_before': 25125, 'bytes_after': 25125, ...}
+[gw0] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpPmU1w6/bin/python
+E   AssertionError: {'pruned': [], 'errors': [], 'bytes_before': 25125, 'bytes_after': 25125, ...}
+    assert [] == ['job-1']
+      
+      Right contains one more item: 'job-1'
+      Use -v to get more diff
+/Users/maxghenis/.subfleet/worktrees/20261117-114947-ao-fix-r2/tests/unit/test_retention_offload.py:144: AssertionError: {'pruned': [], 'errors': [], 'bytes_before': 25125, 'bytes_after': 25125, ...}
+[gw1] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpPmU1w6/bin/python
+E   AssertionError: {'pruned': [], 'errors': [], 'bytes_before': 25125, 'bytes_after': 25125, ...}
+    assert [] == ['job-1']
+      
+      Right contains one more item: 'job-1'
+      Use -v to get more diff
+/Users/maxghenis/.subfleet/worktrees/20261117-114947-ao-fix-r2/tests/unit/test_retention_offload.py:144: AssertionError: {'pruned': [], 'errors': [], 'bytes_before': 25125, 'bytes_after': 25125, ...}
+[gw3] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpPmU1w6/bin/python
+E   AssertionError: {'pruned': [], 'errors': [], 'bytes_before': 25125, 'bytes_after': 25125, ...}
+    assert [] == ['job-1']
+      
+      Right contains one more item: 'job-1'
+      Use -v to get more diff
+/Users/maxghenis/.subfleet/worktrees/20261117-114947-ao-fix-r2/tests/unit/test_retention_offload.py:144: AssertionError: {'pruned': [], 'errors': [], 'bytes_before': 25125, 'bytes_after': 25125, ...}
+[gw3] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpPmU1w6/bin/python
+E   AssertionError: {'pruned': ['job-1'], 'errors': [], 'bytes_before': 23, 'bytes_after': 23, ...}
+    assert ['job-1'] == ['job-2']
+      
+      At index 0 diff: 'job-1' != 'job-2'
+      Use -v to get more diff
+/Users/maxghenis/.subfleet/worktrees/20261117-114947-ao-fix-r2/tests/unit/test_retention_offload.py:144: AssertionError: {'pruned': ['job-1'], 'errors': [], 'bytes_before': 23, 'bytes_after': 23, ...}
+[gw1] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpPmU1w6/bin/python
+E   AssertionError: {'pruned': ['job-1'], 'errors': [], 'bytes_before': 25125, 'bytes_after': 25125, ...}
+    assert ['job-1'] == ['job-2']
+      
+      At index 0 diff: 'job-1' != 'job-2'
+      Use -v to get more diff
+/Users/maxghenis/.subfleet/worktrees/20261117-114947-ao-fix-r2/tests/unit/test_retention_offload.py:144: AssertionError: {'pruned': ['job-1'], 'errors': [], 'bytes_before': 25125, 'bytes_after': 25125, ...}
+[gw0] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpPmU1w6/bin/python
+E   AssertionError: {'pruned': ['job-1'], 'errors': [], 'bytes_before': 25125, 'bytes_after': 25125, ...}
+    assert ['job-1'] == ['job-2']
+      
+      At index 0 diff: 'job-1' != 'job-2'
+      Use -v to get more diff
+/Users/maxghenis/.subfleet/worktrees/20261117-114947-ao-fix-r2/tests/unit/test_retention_offload.py:144: AssertionError: {'pruned': ['job-1'], 'errors': [], 'bytes_before': 25125, 'bytes_after': 25125, ...}
+[gw2] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpPmU1w6/bin/python
+E   AssertionError: {'pruned': ['job-1'], 'errors': [], 'bytes_before': 25125, 'bytes_after': 25125, ...}
+    assert ['job-1'] == ['job-2']
+      
+      At index 0 diff: 'job-1' != 'job-2'
+      Use -v to get more diff
+/Users/maxghenis/.subfleet/worktrees/20261117-114947-ao-fix-r2/tests/unit/test_retention_offload.py:144: AssertionError: {'pruned': ['job-1'], 'errors': [], 'bytes_before': 25125, 'bytes_after': 25125, ...}
+[gw2] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpPmU1w6/bin/python
+E   AssertionError: {'pruned': ['job-2'], 'errors': [], 'bytes_before': 23, 'bytes_after': 23, ...}
+    assert ['job-2'] == ['job-3']
+      
+      At index 0 diff: 'job-2' != 'job-3'
+      Use -v to get more diff
+/Users/maxghenis/.subfleet/worktrees/20261117-114947-ao-fix-r2/tests/unit/test_retention_offload.py:144: AssertionError: {'pruned': ['job-2'], 'errors': [], 'bytes_before': 23, 'bytes_after': 23, ...}
+[gw3] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpPmU1w6/bin/python
+E   AssertionError: {'pruned': ['job-2'], 'errors': [], 'bytes_before': 25125, 'bytes_after': 25125, ...}
+    assert ['job-2'] == ['job-3']
+      
+      At index 0 diff: 'job-2' != 'job-3'
+      Use -v to get more diff
+/Users/maxghenis/.subfleet/worktrees/20261117-114947-ao-fix-r2/tests/unit/test_retention_offload.py:144: AssertionError: {'pruned': ['job-2'], 'errors': [], 'bytes_before': 25125, 'bytes_after': 25125, ...}
+[gw1] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpPmU1w6/bin/python
+E   AssertionError: {'pruned': ['job-2'], 'errors': [], 'bytes_before': 25125, 'bytes_after': 25125, ...}
+    assert ['job-2'] == ['job-3']
+      
+      At index 0 diff: 'job-2' != 'job-3'
+      Use -v to get more diff
+/Users/maxghenis/.subfleet/worktrees/20261117-114947-ao-fix-r2/tests/unit/test_retention_offload.py:144: AssertionError: {'pruned': ['job-2'], 'errors': [], 'bytes_before': 25125, 'bytes_after': 25125, ...}
+[gw0] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpPmU1w6/bin/python
+E   AssertionError: {'pruned': ['job-2'], 'errors': [], 'bytes_before': 25125, 'bytes_after': 25125, ...}
+    assert ['job-2'] == ['job-3']
+      
+      At index 0 diff: 'job-2' != 'job-3'
+      Use -v to get more diff
+/Users/maxghenis/.subfleet/worktrees/20261117-114947-ao-fix-r2/tests/unit/test_retention_offload.py:144: AssertionError: {'pruned': ['job-2'], 'errors': [], 'bytes_before': 25125, 'bytes_after': 25125, ...}
+[gw2] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpPmU1w6/bin/python
+E   AssertionError: {'pruned': ['job-3'], 'errors': [], 'bytes_before': 25125, 'bytes_after': 25125, ...}
+    assert ['job-3'] == ['job-4']
+      
+      At index 0 diff: 'job-3' != 'job-4'
+      Use -v to get more diff
+/Users/maxghenis/.subfleet/worktrees/20261117-114947-ao-fix-r2/tests/unit/test_retention_offload.py:144: AssertionError: {'pruned': ['job-3'], 'errors': [], 'bytes_before': 25125, 'bytes_after': 25125, ...}
+[gw0] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpPmU1w6/bin/python
+E   AssertionError: {'pruned': ['job-3'], 'errors': [], 'bytes_before': 23, 'bytes_after': 23, ...}
+    assert ['job-3'] == ['job-4']
+      
+      At index 0 diff: 'job-3' != 'job-4'
+      Use -v to get more diff
+/Users/maxghenis/.subfleet/worktrees/20261117-114947-ao-fix-r2/tests/unit/test_retention_offload.py:144: AssertionError: {'pruned': ['job-3'], 'errors': [], 'bytes_before': 23, 'bytes_after': 23, ...}
+[gw3] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpPmU1w6/bin/python
+E   AssertionError: {'pruned': ['job-3'], 'errors': [], 'bytes_before': 25125, 'bytes_after': 25125, ...}
+    assert ['job-3'] == ['job-4']
+      
+      At index 0 diff: 'job-3' != 'job-4'
+      Use -v to get more diff
+/Users/maxghenis/.subfleet/worktrees/20261117-114947-ao-fix-r2/tests/unit/test_retention_offload.py:144: AssertionError: {'pruned': ['job-3'], 'errors': [], 'bytes_before': 25125, 'bytes_after': 25125, ...}
+[gw1] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpPmU1w6/bin/python
+E   AssertionError: {'pruned': ['job-3'], 'errors': [], 'bytes_before': 25125, 'bytes_after': 25125, ...}
+    assert ['job-3'] == ['job-4']
+      
+      At index 0 diff: 'job-3' != 'job-4'
+      Use -v to get more diff
+/Users/maxghenis/.subfleet/worktrees/20261117-114947-ao-fix-r2/tests/unit/test_retention_offload.py:144: AssertionError: {'pruned': ['job-3'], 'errors': [], 'bytes_before': 25125, 'bytes_after': 25125, ...}
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_offload_r2.py::test_copying_resume_must_not_replace_good_external_bundle
+FAILED tests/unit/test_retention_offload_r2.py::test_a_resumed_copy_from_a_damaged_internal_bundle_stops_naming_it
+FAILED tests/unit/test_retention_offload_r2.py::test_crash_in_first_ledger_write_wedges_offload
+FAILED tests/unit/test_retention_offload_r2.py::test_a_folder_holding_something_besides_ledger_temporaries_is_still_refused
+FAILED tests/unit/test_retention_offload_r2.py::test_a_target_below_a_folder_named_subfleet_archive_keeps_its_modes
+FAILED tests/unit/test_retention_offload_r2.py::test_a_crash_in_the_first_ledger_write_leaves_a_temporary_the_rerun_clears
+FAILED tests/unit/test_retention_offload_r2.py::test_a_copying_archive_whose_target_is_gone_is_recalled
+FAILED tests/unit/test_retention_offload_r2.py::test_the_copying_stub_records_the_bundle_checksum_before_any_copy
+FAILED tests/unit/test_retention_offload_r2.py::test_every_program_folders_parent_is_flushed_on_resume
+FAILED tests/unit/test_retention_offload_r2.py::test_a_resumed_offload_after_a_remount_with_new_device_number[verified]
+FAILED tests/unit/test_retention_offload_r2.py::test_a_resumed_offload_after_a_remount_with_new_device_number[copied]
+FAILED tests/unit/test_retention_offload_r2.py::test_remount_with_new_device_number
+FAILED tests/unit/test_retention_offload_r2.py::test_a_damaged_ownership_marker_fails_naming_the_file
+FAILED tests/unit/test_retention_offload_r2.py::test_never_offloaded_archive_through_a_symlinked_root
+FAILED tests/unit/test_retention_offload_r2.py::test_a_resumed_offload_after_a_remount_with_new_device_number[removing]
+FAILED tests/unit/test_retention_offload_r2.py::test_a_state_root_with_a_new_device_number_keeps_its_source
+16 failed in 157.12s (0:02:37)

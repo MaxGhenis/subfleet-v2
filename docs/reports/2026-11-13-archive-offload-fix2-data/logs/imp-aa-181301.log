@@ -1,0 +1,130 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.15.2, pytest-9.1.1, pluggy-1.6.0 -- /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpC8YIuj/bin/python
+cachedir: .pytest_cache
+hypothesis profile 'default'
+rootdir: /Users/maxghenis/.subfleet/worktrees/20261117-114947-ao-fix-r2
+configfile: pyproject.toml
+plugins: xdist-3.8.0, timeout-2.4.0, hypothesis-6.168.1
+created: 4/4 workers
+4 workers [299 items]
+
+scheduling tests via LoadScheduling
+
+tests/unit/test_host_push_retention.py::test_retention_retires_an_accepted_push_job_whose_checkout_has_a_git_directory 
+tests/unit/test_host_push_store_interleavings.py::test_permanent_ownership_failure_fails_only_its_job_with_one_notice[corrupt] 
+tests/unit/test_pr192_review_r2.py::test_stop_between_backup_and_delete_preserves_original_and_copy[interrupt-after-copy] 
+tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[attempts.publish_denied] 
+[gw2] [  0%] PASSED tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[attempts.publish_denied] 
+tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[jobs.provider_qos] 
+[gw1] [  0%] PASSED tests/unit/test_pr192_review_r2.py::test_stop_between_backup_and_delete_preserves_original_and_copy[interrupt-after-copy] 
+tests/unit/test_pr192_review_r2.py::test_stop_between_backup_and_delete_preserves_original_and_copy[kill-before-delete] 
+[gw2] [  1%] PASSED tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[jobs.provider_qos] 
+tests/unit/test_prune_217.py::test_prune_hashes_and_copies_launch_evidence[jobs-needs_shell-1] 
+[gw2] [  1%] PASSED tests/unit/test_prune_217.py::test_prune_hashes_and_copies_launch_evidence[jobs-needs_shell-1] 
+tests/unit/test_prune_217.py::test_prune_hashes_and_copies_launch_evidence[attempts-has_shell-1] 
+[gw3] [  1%] SKIPPED tests/unit/test_host_push_store_interleavings.py::test_permanent_ownership_failure_fails_only_its_job_with_one_notice[corrupt] 
+tests/unit/test_host_push_store_interleavings.py::test_permanent_ownership_failure_fails_only_its_job_with_one_notice[constraint] 
+[gw0] [  2%] SKIPPED tests/unit/test_host_push_retention.py::test_retention_retires_an_accepted_push_job_whose_checkout_has_a_git_directory 
+tests/unit/test_host_push_retention.py::test_a_job_without_host_push_whose_git_is_a_directory_is_still_kept 
+[gw2] [  2%] PASSED tests/unit/test_prune_217.py::test_prune_hashes_and_copies_launch_evidence[attempts-has_shell-1] 
+tests/unit/test_prune_217.py::test_prune_hashes_and_copies_launch_evidence[attempts-capability-writable] 
+[gw2] [  2%] PASSED tests/unit/test_prune_217.py::test_prune_hashes_and_copies_launch_evidence[attempts-capability-writable] 
+tests/unit/test_prune_217.py::test_prune_hashes_and_copies_launch_evidence[attempts-publish_denied-1] 
+[gw1] [  3%] PASSED tests/unit/test_pr192_review_r2.py::test_stop_between_backup_and_delete_preserves_original_and_copy[kill-before-delete] 
+tests/unit/test_pr192_review_r2.py::test_later_archive_rows_have_no_prune_record 
+[gw1] [  3%] PASSED tests/unit/test_pr192_review_r2.py::test_later_archive_rows_have_no_prune_record 
+tests/unit/test_prune_217.py::test_partition_unfinished_jobs_readers_and_backup_restore 
+[gw2] [  3%] PASSED tests/unit/test_prune_217.py::test_prune_hashes_and_copies_launch_evidence[attempts-publish_denied-1] 
+tests/unit/test_prune_217.py::test_a_new_table_is_included_in_the_proof 
+[gw2] [  4%] PASSED tests/unit/test_prune_217.py::test_a_new_table_is_included_in_the_proof 
+tests/unit/test_prune_217.py::test_the_release_daemon_and_prune_share_the_lifetime_lock 
+[gw3] [  4%] SKIPPED tests/unit/test_host_push_store_interleavings.py::test_permanent_ownership_failure_fails_only_its_job_with_one_notice[constraint] 
+tests/unit/test_host_push_store_interleavings.py::test_cancellation_while_ownership_is_busy_discards_completed_checkout 
+[gw0] [  4%] SKIPPED tests/unit/test_host_push_retention.py::test_a_job_without_host_push_whose_git_is_a_directory_is_still_kept 
+tests/unit/test_host_push_store_completion_pr183.py::test_one_transient_ownership_write_error_does_not_freeze_all_detached_admission 
+[gw3] [  5%] SKIPPED tests/unit/test_host_push_store_interleavings.py::test_cancellation_while_ownership_is_busy_discards_completed_checkout 
+tests/unit/test_host_push_store_interleavings.py::test_restart_finds_unrecorded_completion_after_busy_ownership[False] 
+[gw2] [  5%] PASSED tests/unit/test_prune_217.py::test_the_release_daemon_and_prune_share_the_lifetime_lock 
+tests/unit/test_prune_217.py::test_a_pre_prune_archive_stays_readable_and_restorable 
+[gw2] [  5%] PASSED tests/unit/test_prune_217.py::test_a_pre_prune_archive_stays_readable_and_restorable 
+tests/unit/test_prune_217.py::test_audit_kind_is_readable_and_does_not_change_job_answers 
+[gw0] [  6%] SKIPPED tests/unit/test_host_push_store_completion_pr183.py::test_one_transient_ownership_write_error_does_not_freeze_all_detached_admission 
+tests/unit/test_host_push_store_completion_pr183.py::test_generated_preparation_pass_completion_cancel_restart_interleavings 
+[gw2] [  6%] PASSED tests/unit/test_prune_217.py::test_audit_kind_is_readable_and_does_not_change_job_answers 
+tests/unit/test_prune_217.py::test_after_vacuum_proof_checks_the_added_audit_rows 
+[gw2] [  6%] PASSED tests/unit/test_prune_217.py::test_after_vacuum_proof_checks_the_added_audit_rows 
+tests/unit/test_prune_217.py::test_schema_zero_is_refused_before_writer_initialization[False] 
+[gw2] [  7%] PASSED tests/unit/test_prune_217.py::test_schema_zero_is_refused_before_writer_initialization[False] 
+tests/unit/test_prune_217.py::test_schema_zero_is_refused_before_writer_initialization[True] 
+[gw3] [  7%] SKIPPED tests/unit/test_host_push_store_interleavings.py::test_restart_finds_unrecorded_completion_after_busy_ownership[False] 
+tests/unit/test_host_push_store_interleavings.py::test_restart_finds_unrecorded_completion_after_busy_ownership[True] 
+[gw2] [  7%] PASSED tests/unit/test_prune_217.py::test_schema_zero_is_refused_before_writer_initialization[True] 
+tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check] 
+[gw3] [  8%] SKIPPED tests/unit/test_host_push_store_interleavings.py::test_restart_finds_unrecorded_completion_after_busy_ownership[True] 
+tests/unit/test_host_push_store_interleavings.py::test_busy_refusal_notice_retains_failed_build_until_notice_is_durable 
+[gw3] [  8%] SKIPPED tests/unit/test_host_push_store_interleavings.py::test_busy_refusal_notice_retains_failed_build_until_notice_is_durable 
+tests/unit/test_host_push_store_interleavings.py::test_permanent_ownership_error_survives_a_busy_failure_notice 
+[gw3] [  8%] SKIPPED tests/unit/test_host_push_store_interleavings.py::test_permanent_ownership_error_survives_a_busy_failure_notice 
+[gw0] [  9%] PASSED tests/unit/test_host_push_store_completion_pr183.py::test_generated_preparation_pass_completion_cancel_restart_interleavings 
+tests/unit/test_host_push_store_interleavings.py::test_busy_store_completion_cancel_pass_restart_interleavings 
+tests/unit/test_host_push_store_interleavings.py::test_busy_deferral_write_does_not_spend_the_build_retry_budget 
+[gw3] [  9%] SKIPPED tests/unit/test_host_push_store_interleavings.py::test_busy_deferral_write_does_not_spend_the_build_retry_budget 
+tests/unit/test_host_push_store_interleavings.py::test_busy_preparing_write_does_not_prevent_an_ordinary_job_placing 
+[gw3] [  9%] SKIPPED tests/unit/test_host_push_store_interleavings.py::test_busy_preparing_write_does_not_prevent_an_ordinary_job_placing 
+tests/unit/test_host_push_store_interleavings.py::test_generated_busy_completions_leave_real_detached_admission_live 
+[gw3] [ 10%] SKIPPED tests/unit/test_host_push_store_interleavings.py::test_generated_busy_completions_leave_real_detached_admission_live 
+tests/unit/test_host_push_store_interleavings.py::test_permanent_preparing_error_keeps_running_build_slot_until_cleanup[False] 
+[gw0] [ 10%] PASSED tests/unit/test_host_push_store_interleavings.py::test_busy_store_completion_cancel_pass_restart_interleavings 
+tests/unit/test_host_push_store_interleavings.py::test_busy_completion_write_rolls_back_and_retries_without_rebuilding[begin-5] 
+[gw0] [ 10%] SKIPPED tests/unit/test_host_push_store_interleavings.py::test_busy_completion_write_rolls_back_and_retries_without_rebuilding[begin-5] 
+tests/unit/test_host_push_store_interleavings.py::test_busy_completion_write_rolls_back_and_retries_without_rebuilding[begin-6] 
+[gw3] [ 11%] SKIPPED tests/unit/test_host_push_store_interleavings.py::test_permanent_preparing_error_keeps_running_build_slot_until_cleanup[False] 
+tests/unit/test_host_push_store_interleavings.py::test_permanent_preparing_error_keeps_running_build_slot_until_cleanup[True] 
+[gw0] [ 11%] SKIPPED tests/unit/test_host_push_store_interleavings.py::test_busy_completion_write_rolls_back_and_retries_without_rebuilding[begin-6] 
+tests/unit/test_host_push_store_interleavings.py::test_busy_completion_write_rolls_back_and_retries_without_rebuilding[begin-517] 
+[gw2] [ 11%] PASSED tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check] 
+tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[after-the-commit] 
+[gw3] [ 12%] SKIPPED tests/unit/test_host_push_store_interleavings.py::test_permanent_preparing_error_keeps_running_build_slot_until_cleanup[True] 
+tests/unit/test_pr192_review_r2.py::test_one_changed_backup_row_at_identical_counts_is_refused[service_notices-text-changed] 
+[gw3] [ 12%] PASSED tests/unit/test_pr192_review_r2.py::test_one_changed_backup_row_at_identical_counts_is_refused[service_notices-text-changed] 
+tests/unit/test_pr192_review_r2.py::test_one_changed_backup_row_at_identical_counts_is_refused[review_evidence-payload-\xff\x00] 
+[gw0] [ 12%] SKIPPED tests/unit/test_host_push_store_interleavings.py::test_busy_completion_write_rolls_back_and_retries_without_rebuilding[begin-517] 
+tests/unit/test_host_push_store_interleavings.py::test_busy_completion_write_rolls_back_and_retries_without_rebuilding[update-5] 
+[gw3] [ 13%] PASSED tests/unit/test_pr192_review_r2.py::test_one_changed_backup_row_at_identical_counts_is_refused[review_evidence-payload-\xff\x00] 
+tests/unit/test_pr192_review_r2.py::test_one_changed_backup_row_at_identical_counts_is_refused[service_notices-text-\x00\xff] 
+[gw3] [ 13%] PASSED tests/unit/test_pr192_review_r2.py::test_one_changed_backup_row_at_identical_counts_is_refused[service_notices-text-\x00\xff] 
+tests/unit/test_pr192_review_r2.py::test_one_changed_backup_row_at_identical_counts_is_refused[review_evidence-payload-blob:00ff] 
+[gw3] [ 13%] PASSED tests/unit/test_pr192_review_r2.py::test_one_changed_backup_row_at_identical_counts_is_refused[review_evidence-payload-blob:00ff] 
+tests/unit/test_pr192_review_r2.py::test_table_added_after_planning_is_refused_before_delete 
+[gw3] [ 14%] PASSED tests/unit/test_pr192_review_r2.py::test_table_added_after_planning_is_refused_before_delete 
+tests/unit/test_pr192_review_r2.py::test_vacuum_changed_audit_payload_is_refused 
+[gw0] [ 14%] SKIPPED tests/unit/test_host_push_store_interleavings.py::test_busy_completion_write_rolls_back_and_retries_without_rebuilding[update-5] 
+tests/unit/test_host_push_store_interleavings.py::test_busy_completion_write_rolls_back_and_retries_without_rebuilding[update-6] 
+[gw3] [ 14%] PASSED tests/unit/test_pr192_review_r2.py::test_vacuum_changed_audit_payload_is_refused 
+tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_with_salvage_retires_with_its_salvage_bundled 
+[gw0] [ 15%] SKIPPED tests/unit/test_host_push_store_interleavings.py::test_busy_completion_write_rolls_back_and_retries_without_rebuilding[update-6] 
+tests/unit/test_host_push_store_interleavings.py::test_busy_completion_write_rolls_back_and_retries_without_rebuilding[update-517] 
+[gw0] [ 15%] SKIPPED tests/unit/test_host_push_store_interleavings.py::test_busy_completion_write_rolls_back_and_retries_without_rebuilding[update-517] 
+tests/unit/test_host_push_store_interleavings.py::test_busy_completion_write_rolls_back_and_retries_without_rebuilding[event-5] 
+[gw0] [ 15%] SKIPPED tests/unit/test_host_push_store_interleavings.py::test_busy_completion_write_rolls_back_and_retries_without_rebuilding[event-5] 
+tests/unit/test_host_push_store_interleavings.py::test_busy_completion_write_rolls_back_and_retries_without_rebuilding[event-6] 
+[gw0] [ 16%] SKIPPED tests/unit/test_host_push_store_interleavings.py::test_busy_completion_write_rolls_back_and_retries_without_rebuilding[event-6] 
+tests/unit/test_host_push_store_interleavings.py::test_busy_completion_write_rolls_back_and_retries_without_rebuilding[event-517] 
+[gw0] [ 16%] SKIPPED tests/unit/test_host_push_store_interleavings.py::test_busy_completion_write_rolls_back_and_retries_without_rebuilding[event-517] 
+tests/unit/test_host_push_store_interleavings.py::test_busy_completion_write_rolls_back_and_retries_without_rebuilding[commit-5] 
+[gw0] [ 16%] SKIPPED tests/unit/test_host_push_store_interleavings.py::test_busy_completion_write_rolls_back_and_retries_without_rebuilding[commit-5] 
+tests/unit/test_host_push_store_interleavings.py::test_busy_completion_write_rolls_back_and_retries_without_rebuilding[commit-6] 
+[gw0] [ 17%] SKIPPED tests/unit/test_host_push_store_interleavings.py::test_busy_completion_write_rolls_back_and_retries_without_rebuilding[commit-6] 
+tests/unit/test_host_push_store_interleavings.py::test_busy_completion_write_rolls_back_and_retries_without_rebuilding[commit-517] 
+[gw2] [ 17%] PASSED tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[after-the-commit] 
+tests/unit/test_retention_81_notes.py::test_a_hard_link_whose_ctime_moved_only_because_its_sibling_went_is_deleted 
+[gw0] [ 17%] SKIPPED tests/unit/test_host_push_store_interleavings.py::test_busy_completion_write_rolls_back_and_retries_without_rebuilding[commit-517] 
+tests/unit/test_host_push_store_interleavings.py::test_permanent_ownership_failure_fails_only_its_job_with_one_notice[readonly] 
+[gw0] [ 18%] SKIPPED tests/unit/test_host_push_store_interleavings.py::test_permanent_ownership_failure_fails_only_its_job_with_one_notice[readonly] 
+tests/unit/test_retention_archive.py::test_a_remote_on_this_machine_is_no_network_remote 
+[gw0] [ 18%] PASSED tests/unit/test_retention_archive.py::test_a_remote_on_this_machine_is_no_network_remote 
+tests/unit/test_retention_archive.py::test_network_url_classification 
+[gw0] [ 18%] PASSED tests/unit/test_retention_archive.py::test_network_url_classification 
+tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[wrong-bytes] 
+[gw3] [ 19%] PASSED tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_with_salvage_retires_with_its_salvage_bundled 
+tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_whose_registration_was_pruned_is_found_by_its_salvage_refs 
