@@ -161,20 +161,31 @@ def test_private_overlay_bytes_remain_the_original_reviewed_pair():
     to r8 (2026-10-26 to 2026-10-29) closed the hub's reviews r3 to r7,
     and D-SEARCH-REL1 (2026-11-05) embedded the Claude hook's analyzer,
     unscoped_search.py, byte for byte, which judges relative roots and cd
-    against the cwd after the regex judgment (hook e869dd4c… before it);
-    TRUST pins those bytes. That TRUST is the installed one of
-    2026-09-29 (b3193b97…, the codex-cli 0.159.0 pin; with hook a60d1c51… it
-    is the rollback) with the new hook hash and four dated provenance
-    additions appended (D-LANE-SCOPE1's three sentences, r2's one, r3's one
-    and r3b's one, whose mount clause r3c corrected).
+    against the cwd after the regex judgment (hook e869dd4c… before it).
+    The guard sync (2026-11-11) replaced the [keychain-dump] block's last
+    sentence, which advised the bare `security find-generic-password` read
+    the agent-secrets skill bars (tests/unit/test_guard_sync.py), and its
+    r2 (2026-11-14) pasted the Claude hook's [axiom-brief-regime] and
+    [hand-authored-rulespec] blocks byte for byte and re-copied its
+    prefilter line. Both were built on hook e869dd4c… and merged on
+    2026-11-14 (hook ed31bcac…). The guard sync fix r1 (2026-11-15) pinned
+    core.fsmonitor off for the hook's git calls, batched the rulespec index
+    reads and rewrote both Axiom blocks' command parsing (hook 324d2a84…),
+    and its fix r2 (2026-11-17) resolved each folder before git runs, bounded
+    the rulespec git work by a 15 s budget and read staged names raw (hook
+    7c96811e…); TRUST pins those bytes. That TRUST is the
+    installed one of 2026-09-29 (b3193b97…, the codex-cli 0.159.0 pin; with
+    hook a60d1c51… it is the rollback) with the new hook hash and eight dated provenance
+    additions appended (D-LANE-SCOPE1's three sentences, r2's one, r3's one,
+    r3b's one, whose mount clause r3c corrected, and the guard sync's four).
     The 2026-09-05 TRUST (0b9d688e…) pins codex-cli 0.153.3 and must never be
     staged. Any other edit fails here; tests/unit/test_guard_subfleet_root.py
     rebuilds the original from this one."""
     repo = Path(__file__).resolve().parents[2]
     directory = repo / "private/guard"
     expected = {
-        "never-rules-hook.sh": "af5e723943b1f7462c19a4cbc5007e70b3c228c050c30f470f204d2f81c1398f",
-        "TRUST": "4ff9cb8603f9e84e3fe1870a07c71a7616b08384909b2bc4900035054607cf14",
+        "never-rules-hook.sh": "7c96811e0c0ff0a90b4d9a62fee4fc55a69c2018e2d44ef59c78915499b2b213",
+        "TRUST": "d284687f16ab6fac7fccf08f457013afff3f761d243ad97246aa8de95ba0dee6",
     }
     for name, digest in expected.items():
         assert hashlib.sha256((directory / name).read_bytes()).hexdigest() == digest

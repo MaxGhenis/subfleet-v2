@@ -13,7 +13,8 @@ removed afterwards.
 The mutants (a)-(f) are the brief's; (g) is this change's own (the loader's alarm).
 (c) and (e) edit the regex judgment's last statement, outside the parser block,
 so the r12d rebuild (which undoes only this change's text) no longer hashes to
-R12D_HOOK_SHA256: their named tests are ones that do not rebuild r12d.
+the hook before this change (GS2_HOOK_SHA256 since the merge into the guard sync,
+2026-11-14): their named tests are ones that do not rebuild r12d.
 """
 from __future__ import annotations
 

@@ -611,14 +611,135 @@ parser comes here in one reviewed step, between the heredoc's lines, with `hook_
 The rollback is the previous pair: hook `e869dd4cac5402112c3a135531de861c84089290ee31779f52145474f678dfed` with TRUST
 `36267abbee6e414805defd0672138f0be9b8dd2fd8675f739c77df90332bafc0`.
 
+### The guard sync (2026-11-11) and its r2 (2026-11-14)
+
+The guard sync (2026-11-11, the hub's instruction audit) changed one sentence outside the
+unscoped-search region: the `[keychain-dump]` block's last sentence now reads "Read one secret
+with 'agent-secret get <service>'; 'agent-secret search <query>' finds its name. A bare 'security
+find-generic-password' on the agent-secrets keychain raises a password dialog while that keychain
+stays locked." The old sentence advised that bare read, which the agent-secrets skill bars. The
+rule's logic did not move, and the hub edits the Claude hook's block to the same sentence at
+install, so the block stays byte-identical on both sides (`tests/unit/test_guard_sync.py`).
+
+The guard sync r2 (2026-11-14, the hub's brief of 2026-11-11) ported two rules the Claude hook
+enforced and the overlay let through. `[axiom-brief-regime]` denies a `subfleet run` into
+`TheAxiomFoundation` whose brief names RuleSpec or encoding but carries no `ENCODING REGIME`
+block. `[hand-authored-rulespec]` denies a `git commit` in a `TheAxiomFoundation/rulespec-*`
+checkout that stages rule YAML with no encoder apply manifest. The hub cut both blocks from the
+Claude hook; they sit in the overlay byte for byte, between trust-root and corpus-squash as in
+the Claude hook, and the first prefilter literal is again the Claude hook's prefilter line, whose
+`subfleet run` and `git [-C <dir>] commit` terms let them run. `tests/unit/test_guard_sync.py`
+pins the blocks and the line (`tests/fixtures/guard/claude-blocks/`) and checks that both hooks
+reach the same decisions. Before the merge below, its rollback was the guard sync's pair (hook
+`34682488…3983`, TRUST `680f864e…12d9`). That hook has no D-SEARCH-REL1 parser, so it is no rollback
+after the merge; the merged pair's and the fix r1's sections below give the rollbacks since.
+
+The overlay now denies eleven rules, as its header lists them: nine Bash rule blocks copied byte
+for byte from the Claude hook, in its order (tg-getupdates, keychain-dump, trust-root,
+axiom-brief-regime, hand-authored-rulespec, corpus-squash, corpus-push, stash-shared and
+local-main), the unscoped-search region with its parser, and the hf-dest adapter.
+
+### The merged pair (2026-11-14)
+
+D-SEARCH-REL1 (on release/217) and the guard sync (#303) were each built on hook `e869dd4c…`, and
+release/217 at `82d3dd819` was merged into the guard sync on 2026-11-14. The merged hook is that
+hook with both lines' edits and nothing else: removing the parser and undoing its other edits gives
+#303's hook (`6c1beb64…`), and undoing the guard sync's two steps gives release/217's (`af5e7239…`)
+(`tests/unit/test_guard_subfleet_root.py`, the `test_gs_undoing_…` and `test_merge_undoing_…` tests).
+The two lines touch no common state:
+
+- The two Axiom blocks run before the region. They read `$command`, `$cwd` and `$HOME`, assign
+  their own names (at the merge `seg`, `wd`, `pf`, `gdir`, `origin_url`, `missing`, `f`, `m` and the
+  `_abs` forms; since the fix r1 `ab_list`, `pf_abs`, `hr_list`, `hr_d`, `hr_gd`, `gdir`,
+  `origin_url`, `hr_files` and `missing`; since the fix r2 also `ab_many`, `ab_n`, `ab_i`, `ab_p`,
+  `ab_dir`, `ab_files`, `hr_t0`, `hr_late`, `hr_n`, `hr_i`, `hr_dirs` and `hr_gds`), and never change `$command` or `$cwd`. Release/217 changed only header comments before
+  them, so they run on the code they ran on in #303. `corpus-push` assigns `seg` and `origin_url`
+  before it reads them.
+- The parser block reads `$command`, `$cwd`, `$HOME`, `$SHELL` and the region's own `us_*` and
+  `pw_*` names. Every region function that uses `f` or `m` declares it `local`.
+- The parser runs only when `pw_named` sets `us_ask`. `pw_named`'s four terms are the prefilter's
+  third to sixth terms, which neither line changed, so a command that reaches the parser passes
+  the prefilter under the old first literal and the Claude line alike. The wider first literal
+  lets more commands (`git commit`, `pgrep`, `subfleet run`, `fd`) reach the Bash branch. Each
+  such command the rule blocks allow pays for the region's walk as well as the heredoc's parse,
+  though it starts no Python unless `pw_named` names a searcher. Review r1 of #303 measured the
+  hook's CPU per call, base (`af5e7239…`) to merged, 8 runs each at a load of about 120:
+  `pgrep -f codex` 70 to 137 ms, `fd -H x /` 75 to 143 ms and `git commit -m x` 68 to 182 ms,
+  while `echo hello`, which the prefilter still stops, stayed at 73 and 69 ms. A command an Axiom
+  block denies never reaches the parser, as with every earlier rule block.
+
+`test_guard_search_rel.py`'s "r12d hook" (the hook before the parser) is #303's hook on this line, so
+its fallback comparison holds the guard sync's denials constant. Rolling back the guard sync alone
+restores release/217's pair (hook `af5e7239…`, TRUST `4ff9cb86…`). Rolling back the parser alone
+restores #303's pair (hook `6c1beb64…`, TRUST `2955f02b…`). Either also drops the fix r1 below.
+
+### The guard sync fix r1 (2026-11-15)
+
+Review r1 of #303 found that the `[hand-authored-rulespec]` block read the index of whatever folder
+the command named, and reading an index makes git run that repository's `core.fsmonitor` command,
+here on the host, outside the lane sandbox. Both hooks now export `GIT_CONFIG_COUNT=1
+GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=false` right after reading their input, outside
+the byte-identical blocks (`tests/fixtures/guard/claude-blocks/git-config-pin.txt`). Command-scope
+config outranks the system, global and repository files; only `GIT_CONFIG_PARAMETERS`, which the
+launcher sets and a lane's commands cannot change, is read after it. No other git call in the hook
+reads an index or runs a configured command: in a scratch repository whose fsmonitor, hooks path,
+external diff, pager and textconv each wrote a marker, `remote get-url`, `branch --show-current`,
+`worktree list` and `show-ref` ran none of them, and the hook never gives git a terminal.
+
+The block also read two manifests per staged rule file, about 0.1 s each at load, so 700 staged
+files passed the 60 s hook timeout, which allows. One `git cat-file --batch-check` now reads every
+manifest, so the block's git processes per checkout stay at three, whatever the index holds. Both
+Axiom blocks now walk the command's words: every `git … commit`, through git's global options
+(`-c`, `--no-pager`, `-C`, `--git-dir` and the rest) and a `GIT_DIR=` before git, and every
+`subfleet run`, with every `-C` and `-p`, attached or not. Each is judged from every folder the
+shell can be in there: the payload cwd and each `cd` or `pushd` target before it, a relative one
+resolved against the folder before it. The fix r1 refused a command with more than 16 folders or
+briefs to check, to keep the work under the timeout; review r2 found that the 16 counted path
+strings, not folders, and did not bound the time (the fix r2 below). The first prefilter literal's git term widened to
+`git[[:space:]].*(commit|\\$)` so those forms reach the block. The hub makes the same three edits
+in the Claude hook; the fixtures hold the text (`<rule>.sh`, `prefilter.txt` and
+`git-config-pin.txt`; the hub's 2026-11-11 cut stays as `<rule>.before.sh` and
+`prefilter.before.txt`). Its pair is hook `324d2a84…` with TRUST `cc26c421…`, and its rollback
+the merged pair (hook `ed31bcac…`, TRUST `990dcbb8…`): undoing its step gives that hook byte for
+byte (`test_fix_r1_undoing_its_step_gives_the_merged_hook`).
+
+### The guard sync fix r2 (2026-11-17)
+
+Review r2 of #303 found two gaps in the `[hand-authored-rulespec]` block, on both sides. The fix
+r1's bound of 16 places counted path strings: `cd .; cd ./.; …` gave 16 keys for one checkout,
+each costing three git processes and a pass over the whole index, and with 3,000 staged files the
+review's command took 128 to 150 s, past the 60 s hook timeout, which allows. Both Axiom blocks
+now drop `.` and empty components from each path and resolve each folder (`cd -P`, `pwd -P`)
+before they use it, comparing the resolved keys whole, so every spelling of one checkout or brief
+is checked once, and a folder that is not there starts no git process. Either block refuses more
+than 64 paths to resolve, and the brief block more than 16 distinct briefs. The hand block checks
+its first two folders in full, the payload cwd and the one a command names; before each git call
+for a later folder it denies once 15 s have passed since it began, and it never allows a folder it
+did not check. The bound is when the block starts its last git call, not how long the first two
+folders or that call take: one or two checkouts with a large index under heavy load can still
+carry the hook past 60 s. At a load of 250 to 285, one `cat-file --batch-check` over 6,000
+manifests took 7 to 31 s for 0.4 s of CPU, and the whole hook took 44.5 s for one 3,000-file
+checkout. At a load of about 320, a budget that also covered the first folder refused a commit
+from one checkout with one staged file, so the first two are exempt.
+
+The block also read git's quoted names. `git diff --cached --name-only` quotes a name holding a
+non-ASCII byte, a double quote, a backslash or a control character, the anchor never matched the
+quote, and such a rule file got through. The diff now runs with `-z` and `--no-relative`, and a
+`tr` turns its NULs into newlines and a newline inside a name into `\001`. Each name under the
+anchor is looked up with its own bytes, a name holding `\001` (a newline) is denied whatever is
+staged, and a checkout's `diff.relative` no longer hides files from a subfolder. The hub makes the
+same block edits in the Claude hook (`<rule>.sh`); the fix r1's text stays as
+`claude-blocks/fix-r1/<rule>.sh`. Its rollback is the fix r1 pair: undoing its step gives that
+hook and TRUST byte for byte (`test_fix_r2_undoing_its_step_gives_the_fix_r1_pair`).
+
 | File | SHA-256 |
 | --- | --- |
-| `never-rules-hook.sh` | `af5e723943b1f7462c19a4cbc5007e70b3c228c050c30f470f204d2f81c1398f` |
-| `TRUST` | `4ff9cb8603f9e84e3fe1870a07c71a7616b08384909b2bc4900035054607cf14` |
+| `never-rules-hook.sh` | `7c96811e0c0ff0a90b4d9a62fee4fc55a69c2018e2d44ef59c78915499b2b213` |
+| `TRUST` | `d284687f16ab6fac7fccf08f457013afff3f761d243ad97246aa8de95ba0dee6` |
 
 TRUST is the installed TRUST of 2026-09-29 (`b3193b97…`), changing only `hook_sha256` and
-appending four dated provenance additions (D-LANE-SCOPE1's three sentences, r2's one, r3's one
-and r3b's one, whose mount clause r3c corrected); `hooks_trust_hash` and
+appending eight dated provenance additions (D-LANE-SCOPE1's three sentences, r2's one, r3's one,
+r3b's one, whose mount clause r3c corrected, and the guard sync's four); `hooks_trust_hash` and
 `override` hash the hook's identity, not its bytes, and do not move. The staging helper above
 refuses to replace a different overlay in place, so this revision is staged into a fresh state
 root and swapped in; `tests/unit/test_guard_subfleet_root.py` states and checks the rule's
