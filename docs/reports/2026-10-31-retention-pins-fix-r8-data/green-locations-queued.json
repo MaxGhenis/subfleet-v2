@@ -1,0 +1,9 @@
+{
+  "queued": "2026-10-31T07:12:49.142504+00:00",
+  "args": [
+    "tests/unit/test_retention_location_inputs.py",
+    "tests/unit/test_retention_locations.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/link-tmp/green-locations",
+  "linked": true
+}

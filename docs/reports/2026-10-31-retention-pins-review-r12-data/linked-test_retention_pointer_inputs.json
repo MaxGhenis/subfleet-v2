@@ -1,0 +1,36 @@
+{
+  "name": "linked-test_retention_pointer_inputs",
+  "start": "2026-10-31T20:05:15.174354+00:00",
+  "load": [
+    97.18408203125,
+    87.9658203125,
+    84.5771484375
+  ],
+  "pytest_pid": 35781,
+  "failure_root": "/private/tmp/sf-r272r12/failed-keep",
+  "args": [
+    "tests/unit/test_retention_pointer_inputs.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.2432000420012628,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+    "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-154518-pr272-review-r12/subfleet/dependencies.py",
+  "product_sha256": "71066920a6f158ab189ac0b931ef62e774314276df23cb28855f0edcb0bdd4bc",
+  "end": "2026-10-31T20:06:14.507114+00:00",
+  "seconds": 59.332376625003235,
+  "peak_rss_mib": 126.34375,
+  "exit": 2
+}

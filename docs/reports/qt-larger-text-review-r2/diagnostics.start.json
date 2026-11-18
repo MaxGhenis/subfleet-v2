@@ -1,0 +1,19 @@
+{
+  "name": "diagnostics",
+  "start": "2026-10-31T06:51:04.992576+00:00",
+  "load": [
+    40.84130859375,
+    38.8193359375,
+    36.96044921875
+  ],
+  "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+  "args": [
+    "-p",
+    "tests.conftest",
+    "docs/reports/qt-larger-text-review-r2/diagnostics.py",
+    "-s",
+    "-k",
+    "six_release_sensitive"
+  ],
+  "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+}

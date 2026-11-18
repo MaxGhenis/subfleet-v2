@@ -15,6 +15,7 @@ from pathlib import Path
 
 from .adapters.base import AdapterError
 from .contracts import GIT_LOCATION_ENV, GIT_PATHSPEC_ENV
+from .launch_env import build_environment
 from .sessions.transcripts import open_regular
 
 #: One git call's wall-clock cap when the caller names none. The 15 s this
@@ -36,7 +37,8 @@ TRANSIENT_ERRNOS = frozenset({
 #: `strerror`, and sometimes omits the errno: an index or ref lock file it
 #: could not finish writing, an allocation failure, or a held reftable lock.
 #: These all get bounded retries (C-6.8, C-13.1). `cannot lock ref` alone also
-#: covers a ref that exists or a name that conflicts, which no retry changes.
+#: covers existing refs or conflicting names, not host pressure. `_hold` handles
+#: a create-only write losing a race to another snapshot separately.
 #: Read only under the C locale (`_git_env`), on git's own `error:` and `fatal:`
 #: lines, and at a line's end, so a file name quoted earlier in a line or
 #: ending a `hint:` or `warning:` line is not read as an error. `strerror`
@@ -161,7 +163,7 @@ def _git_env(env: dict[str, str] | None) -> dict[str, str]:
     c20ee3d0, P3).
     """
     own = env is None
-    env = dict(os.environ if own else env)
+    env = build_environment() if own else dict(env)
     for name in GIT_LOCATION_ENV + GIT_PATHSPEC_ENV + (("GIT_INDEX_FILE",) if own else ()):
         env.pop(name, None)
     for name in [name for name in env if name.startswith("GIT_TRACE")]:
@@ -273,6 +275,14 @@ def git_toplevel(workdir: str | Path, *, timeout_s: float | None = None) -> str 
     return os.path.realpath(top) if top else None
 
 
+def git_common_dir(workdir: str | Path, *, timeout_s: float | None = None) -> str | None:
+    """C-6.20: the real path of the common directory of the repository that holds
+    ``workdir``, or None outside one, a folder that has gone included."""
+    raw = _git_bytes(workdir, "rev-parse", "--git-common-dir", timeout_s=timeout_s)
+    common = os.fsdecode(raw[:-1] if raw and raw.endswith(b"\n") else raw or b"")
+    return os.path.realpath(os.path.join(workdir, common)) if common else None
+
+
 def git_tree(workdir: str | Path, commit: str, *, timeout_s: float | None = None) -> str | None:
     """The tree of ``commit``, or None when the repository cannot name it."""
     return _git(workdir, "rev-parse", "--verify", f"{commit}^{{tree}}", optional=True,
@@ -332,13 +342,13 @@ def snapshot_tree(workdir: str | Path, baseline_commit: str, *,
     gitdir = _git(workdir, "rev-parse", "--absolute-git-dir", timeout_s=timeout_s)
     with tempfile.TemporaryDirectory(prefix="subfleet-salvage-", dir=gitdir) as temporary:
         index = Path(temporary) / "index"
-        env = {**os.environ, "GIT_INDEX_FILE": str(index)}
+        env = build_environment({"GIT_INDEX_FILE": str(index)})
         if _seeded(workdir, index, env, baseline_commit, timeout_s=timeout_s):
             return _record(workdir, env, timeout_s=timeout_s)
     # A fresh directory: whatever a failed seeding step left (the copy, a
     # crashed git's `index.lock`) is gone with the first.
     with tempfile.TemporaryDirectory(prefix="subfleet-salvage-", dir=gitdir) as temporary:
-        env = {**os.environ, "GIT_INDEX_FILE": str(Path(temporary) / "index")}
+        env = build_environment({"GIT_INDEX_FILE": str(Path(temporary) / "index")})
         _git(workdir, "read-tree", baseline_commit, env=env, timeout_s=timeout_s)
         return _record(workdir, env, timeout_s=timeout_s)
 
@@ -662,23 +672,34 @@ def _hold(workdir: str | Path, ref: str, tree: str, parent: str, message: str, *
 
     A ref that already holds `tree` on `parent` (a replay) is reused. One that
     holds other bytes is never overwritten: the snapshot goes beside it, under
-    `<ref>-<first 12 of the tree>`, and `update-ref` creates only (its old value
-    is all zeros), so a ref another writer made meanwhile fails the call."""
-    previous = _git(workdir, "rev-parse", "--verify", ref, optional=True, timeout_s=timeout_s)
-    if previous:
+    `<ref>-<first 12 of the tree>`. Each name is created only (the old value is
+    all zeros). If another writer creates it first, read it once more and apply
+    the same replay/conflict rule. A collision at the sibling can only replay;
+    a different snapshot there, or any other git failure, still raises."""
+    commit = None
+    for candidate in (ref, f"{ref}-{tree[:12]}"):
+        previous = _git(workdir, "rev-parse", "--verify", candidate,
+                        optional=True, timeout_s=timeout_s)
+        if not previous:
+            if commit is None:
+                commit = _git(workdir, "-c", "user.name=subfleet", "-c", "user.email=subfleet@localhost",
+                              "commit-tree", tree, "-p", parent, "-m", message, timeout_s=timeout_s)
+            try:
+                _git(workdir, "update-ref", candidate, commit, "0" * 40, timeout_s=timeout_s)
+            except SalvageError as exc:
+                # `_git` fixes the locale. Only a lost create race permits this
+                # reread; timeouts, held lock files and I/O errors still raise.
+                if exc.transient or not str(exc).endswith(": reference already exists"):
+                    raise
+                previous = _git(workdir, "rev-parse", "--verify", candidate,
+                                optional=True, timeout_s=timeout_s)
+                if not previous:
+                    raise
+            else:
+                return candidate, commit
         previous_tree = _git(workdir, "rev-parse", f"{previous}^{{tree}}", timeout_s=timeout_s)
         previous_parent = _git(workdir, "rev-parse", f"{previous}^", optional=True, timeout_s=timeout_s)
         if previous_tree == tree and previous_parent == parent:
-            return ref, previous
-        # Never overwrite a previous snapshot with different bytes.
-        ref = f"{ref}-{tree[:12]}"
-    commit = _git(workdir, "-c", "user.name=subfleet", "-c", "user.email=subfleet@localhost",
-                  "commit-tree", tree, "-p", parent, "-m", message, timeout_s=timeout_s)
-    existing = _git(workdir, "rev-parse", "--verify", ref, optional=True, timeout_s=timeout_s)
-    if existing:
-        if (_git(workdir, "rev-parse", f"{existing}^{{tree}}", timeout_s=timeout_s) == tree
-                and _git(workdir, "rev-parse", f"{existing}^", timeout_s=timeout_s) == parent):
-            return ref, existing
-        raise SalvageError("salvage reference already names a different snapshot")
-    _git(workdir, "update-ref", ref, commit, "0" * 40, timeout_s=timeout_s)
-    return ref, commit
+            return candidate, previous
+        if candidate != ref:
+            raise SalvageError("salvage reference already names a different snapshot")

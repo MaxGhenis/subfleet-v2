@@ -58,24 +58,47 @@ struct ApprovalNotificationTarget: Codable, Equatable {
     }
 }
 
+extension NotificationIntent {
+    /// What the posted notification carries: its conversation and kind, and for a
+    /// tool approval that Allow once can answer, that one request, so the click
+    /// still reads its conversation and kind (`NotificationTarget`).
+    func userInfo(allowing target: ApprovalNotificationTarget?) -> [String: String] {
+        guard let target else { return userInfo }
+        return userInfo.merging(target.userInfo) { _, exact in exact }
+    }
+}
+
 #if !SUBFLEET_MODEL_TEST || SUBFLEET_UI_MODEL_TEST
 import UserNotifications
 
+/// The notification center's delegate, for every notification the app posts
+/// (C-29.9): its response (a click, Allow once on a tool approval) and whether
+/// one arriving while the app is frontmost shows.
 final class ApprovalNotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
     static let categoryID = "org.maxghenis.subfleet.tool-approval"
     static let allowOnceID = "org.maxghenis.subfleet.allow-once"
-    private let receive: @MainActor (String, [AnyHashable: Any]) -> Void
+    /// The action, the request identifier and the userInfo.
+    private let receive: @MainActor (String, String, [AnyHashable: Any]) -> Void
+    /// Whether to show it while the app is frontmost, from its identifier and userInfo.
+    private let shows: @MainActor (String, [AnyHashable: Any]) -> Bool
 
-    init(receive: @escaping @MainActor (String, [AnyHashable: Any]) -> Void) {
+    init(receive: @escaping @MainActor (String, String, [AnyHashable: Any]) -> Void,
+         present: @escaping @MainActor (String, [AnyHashable: Any]) -> Bool) {
         self.receive = receive
+        self.shows = present
+    }
+
+    /// A tool approval's notifications carry this category: one action, Allow once,
+    /// which brings the app forward.
+    static var category: UNNotificationCategory {
+        let action = UNNotificationAction(identifier: allowOnceID, title: "Allow once", options: [.foreground])
+        return UNNotificationCategory(identifier: categoryID, actions: [action], intentIdentifiers: [], options: [])
     }
 
     func register() {
         let center = UNUserNotificationCenter.current()
         center.delegate = self
-        let action = UNNotificationAction(identifier: Self.allowOnceID, title: "Allow once", options: [.foreground])
-        let category = UNNotificationCategory(identifier: Self.categoryID, actions: [action],
-                                               intentIdentifiers: [], options: [])
+        let category = Self.category
         center.getNotificationCategories { existing in
             var categories = existing.filter { $0.identifier != Self.categoryID }
             categories.insert(category)
@@ -85,11 +108,34 @@ final class ApprovalNotificationDelegate: NSObject, UNUserNotificationCenterDele
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
-        let action = response.actionIdentifier
-        let userInfo = response.notification.request.content.userInfo
+        let request = response.notification.request
+        respond(action: response.actionIdentifier, requestID: request.identifier, userInfo: request.content.userInfo,
+                completion: completionHandler)
+    }
+
+    /// Without this the system shows nothing while the app is frontmost.
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        let request = notification.request
+        present(requestID: request.identifier, userInfo: request.content.userInfo, completion: completionHandler)
+    }
+
+    /// A response, as the center hands it over (a probe calls this in its place):
+    /// the model gets the action, the request and its userInfo, then the center
+    /// is told it was handled.
+    func respond(action: String, requestID: String, userInfo: [AnyHashable: Any], completion: @escaping () -> Void) {
         Task { @MainActor in
-            receive(action, userInfo)
-            completionHandler()
+            receive(action, requestID, userInfo)
+            completion()
+        }
+    }
+
+    /// How to present one arriving while the app is frontmost: as a banner and in
+    /// the list, or not at all.
+    func present(requestID: String, userInfo: [AnyHashable: Any],
+                 completion: @escaping (UNNotificationPresentationOptions) -> Void) {
+        Task { @MainActor in
+            completion(shows(requestID, userInfo) ? [.banner, .list] : [])
         }
     }
 }

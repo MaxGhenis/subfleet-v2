@@ -15,11 +15,8 @@ from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime, timedelta
 from typing import Any
 
-from .status_json import dispatchable, instant, lane_verdict, timestamp
-
-
-def _home(lane: Mapping[str, Any]) -> str:
-    return str(lane.get("home") or lane.get("credential_ref") or lane["lane_id"])
+from .render import _held_text, lane_home as _home
+from .status_json import CREDENTIAL_VERDICTS, dispatchable, instant, lane_verdict, timestamp
 
 
 def _login(lane: Mapping[str, Any]) -> str:
@@ -49,8 +46,7 @@ def evaluate_conditions(snapshot: Mapping[str, Any], *, now: str | datetime | No
         email = lane.get("email") or str(lane.get("account_key", home)).removeprefix(f"{provider}:")
         if lane.get("enabled", True) or lane.get("duplicate_of") or lane.get("identity_status") == "non-canonical":
             groups[(provider, str(lane.get("account_key", lane["lane_id"])))].append(lane)
-        if verdict in {"auth-dead", "auth-revoked", "revoked", "no-auth", "auth-suspect",
-                       "token-invalid", "secret-missing", "no-token", "expired-token", "free-plan"}:
+        if verdict in CREDENTIAL_VERDICTS:
             if provider == "codex":
                 kind = ("noauth" if verdict == "no-auth" else "suspect" if verdict in {"auth-suspect", "expired-token"}
                         else "free-plan" if verdict == "free-plan" else "revoked")
@@ -75,7 +71,10 @@ def evaluate_conditions(snapshot: Mapping[str, Any], *, now: str | datetime | No
                         f"{home} has provider-observed unused weekly capacity that resets at {reset_at}. "
                         "Queue Codex work before that reset; inspect with subfleet status.", home=home, daily=True)
         for closure in lane.get("closures", ()):
-            if closure.get("reason") == "auth-dead":
+            # D-STATUS-SRC1: an operator hold is the operator's own act, and
+            # `status` shows it; a dead credential has its alert above. Only a
+            # limit is called limited.
+            if closure.get("reason") in ("auth-dead", "operator-hold"):
                 continue
             scope = str(closure.get("scope", "account"))
             until = closure.get("until_at") or "unknown"
@@ -97,9 +96,12 @@ def evaluate_conditions(snapshot: Mapping[str, Any], *, now: str | datetime | No
         available = [lane for lane in members if dispatchable(lane)]
         if members and not available:
             key = "codex-fleet-empty" if provider == "codex" else "claude-lanes-empty"
-            add(key, "critical" if provider == "codex" else "warn", f"{provider}: no dispatchable lanes",
-                "All enrolled lanes are exhausted, unavailable, or unknown. Run: subfleet status",
-                home=f"fleet:{provider}")
+            causes = fleet_causes(members)
+            # D-STATUS-SRC1: a fleet the operators hold is their own act.
+            held_only = len(causes["held"]) == len(members)
+            add(key, "warn" if held_only or provider != "codex" else "critical",
+                f"{provider}: no dispatchable lanes", fleet_empty_body(provider, causes),
+                home=f"fleet:{provider}", causes={cause: len(rows) for cause, rows in causes.items()})
         elif provider == "codex" and len(available) == 1:
             add("codex-fleet-low", "warn", "codex: only one dispatchable lane",
                 f"Only {_home(available[0])} has observed headroom. Run: subfleet status", home="fleet:codex")
@@ -119,6 +121,63 @@ def evaluate_conditions(snapshot: Mapping[str, Any], *, now: str | datetime | No
             f"More than one observed weekly window of capacity is projected to expire unused by {reset}. "
             "Queue Codex work before the reset; inspect with subfleet status.", home="fleet:codex", daily=True)
     return list(conditions.values())
+
+
+#: D-STATUS-SRC1: why a fleet has no dispatchable lane, one cause per lane, in
+#: the order the fleet-empty alert names them.
+FLEET_CAUSES = ("held", "limited", "credential", "disabled", "other")
+
+
+def fleet_causes(members: Iterable[Mapping[str, Any]]) -> dict[str, list[Mapping[str, Any]]]:
+    """Each of a fleet's lanes under the one cause its verdict names (`lane_verdict`)."""
+    causes: dict[str, list[Mapping[str, Any]]] = {cause: [] for cause in FLEET_CAUSES}
+    for lane in members:
+        verdict = lane_verdict(lane)
+        cause = ("held" if verdict == "held" else "limited" if verdict == "limited"
+                 else "credential" if verdict in CREDENTIAL_VERDICTS
+                 else "disabled" if not lane.get("enabled", True) else "other")
+        causes[cause].append(lane)
+    return causes
+
+
+def _last_end(lane: Mapping[str, Any], held: bool) -> datetime | None:
+    """When the lane's holds (or its account limits) end: the latest end of them, unparseable ones left out."""
+    ends = []
+    for row in lane.get("closures", ()):
+        if (row.get("reason") == "operator-hold" if held
+                else row.get("scope") == "account" and row.get("reason") not in ("operator-hold", "auth-dead")):
+            try:
+                ends.append(instant(row["until_at"]))
+            except (AttributeError, KeyError, TypeError, ValueError):
+                continue
+    return max(ends, default=None)
+
+
+def _earliest(lanes: Iterable[Mapping[str, Any]], held: bool) -> str | None:
+    ends = [end for lane in lanes if (end := _last_end(lane, held)) is not None]
+    return timestamp(min(ends)) if ends else None
+
+
+def fleet_empty_body(provider: str, causes: Mapping[str, list[Mapping[str, Any]]]) -> str:
+    """D-STATUS-SRC1: the fleet-empty alert's body, naming each cause with its count.
+
+    Only provider-limited lanes are called limited. Held lanes carry their
+    operators' notes and latest release bounds through the shared hold renderer."""
+    parts = []
+    held = causes.get("held") or []
+    if held:
+        details = [_held_text(row, home=_home(lane)) for lane in held for row in lane.get("closures", ())
+                   if row.get("reason") == "operator-hold"]
+        parts.append(f"{len(held)} held (" + "; ".join(details) + ")")
+    limited = causes.get("limited") or []
+    if limited:
+        reset = _earliest(limited, held=False)
+        parts.append(f"{len(limited)} provider-limited" + (f" (earliest reset {reset})" if reset else ""))
+    for cause, words in (("credential", "credential-blocked"), ("disabled", "disabled"),
+                         ("other", "otherwise unavailable")):
+        if causes.get(cause):
+            parts.append(f"{len(causes[cause])} {words}")
+    return f"No {provider} lane is dispatchable: {', '.join(parts)}. Run: subfleet status"
 
 
 def _when(value: Any, now: datetime) -> str:

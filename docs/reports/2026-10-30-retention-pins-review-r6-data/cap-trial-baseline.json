@@ -1,0 +1,44 @@
+{
+  "label": "cap-trial-baseline",
+  "start": "2026-10-30T20:09:06.541941+00:00",
+  "loads": [
+    50.28076171875,
+    51.50244140625,
+    51.11669921875
+  ],
+  "seconds": 11.192586624994874,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.7188295000087237
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]"
+  ],
+  "all_nodes": [
+    "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]"
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {},
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original_sha256": "3f6bcf87c8d78f26047f70f2e1d836796b3613d84917fe8f0ea3b88d026b9b0e",
+      "baseline_sha256": "3f6bcf87c8d78f26047f70f2e1d836796b3613d84917fe8f0ea3b88d026b9b0e",
+      "mutated_sha256": "28fcd9bcd95cacfdf937e53bc17b9e67a193c5c529576ddc2472e5aa299b7a18"
+    }
+  ],
+  "rss": 119488512
+}

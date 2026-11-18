@@ -1,0 +1,569 @@
+[
+  {
+    "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmprss3vky4/checkout"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmprss3vky4/stable/container/admin",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmprss3vky4/stable/container/admin/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmprss3vky4/owner/hop0"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmprss3vky4/stable/container/admin",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmprss3vky4/stable/container/admin/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmprss3vky4/owner/hop0"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmprss3vky4/stable/container/admin",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmprss3vky4/stable/container/admin/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmprss3vky4/owner/hop0"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp9et0d_zw/checkout"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp9et0d_zw/stable/container/admin",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp9et0d_zw/stable/container/admin/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp9et0d_zw/owner/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp9et0d_zw/stable/entry"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp9et0d_zw/stable/container/admin",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp9et0d_zw/stable/container/admin/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp9et0d_zw/owner/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp9et0d_zw/stable/entry"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp9et0d_zw/stable/container/admin",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp9et0d_zw/stable/container/admin/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp9et0d_zw/owner/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp9et0d_zw/stable/entry"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpizn9lnil/checkout"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpizn9lnil/stable/container/admin",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpizn9lnil/stable/container/admin/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpizn9lnil/owner/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpizn9lnil/owner/hop1",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpizn9lnil/owner/hop2",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpizn9lnil/stable/entry"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpizn9lnil/stable/container/admin",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpizn9lnil/stable/container/admin/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpizn9lnil/owner/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpizn9lnil/owner/hop1",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpizn9lnil/owner/hop2",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpizn9lnil/stable/entry"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpizn9lnil/stable/container/admin",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpizn9lnil/stable/container/admin/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpizn9lnil/owner/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpizn9lnil/owner/hop1",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpizn9lnil/owner/hop2",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpizn9lnil/stable/entry"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpchfn2p5e/checkout"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpchfn2p5e/stable/container/admin",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpchfn2p5e/stable/container/admin/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpchfn2p5e/owner/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpchfn2p5e/stable/entry"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpchfn2p5e/stable/container/admin",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpchfn2p5e/stable/container/admin/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpchfn2p5e/owner/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpchfn2p5e/stable/entry"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpchfn2p5e/stable/container/admin",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpchfn2p5e/stable/container/admin/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpchfn2p5e/owner/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpchfn2p5e/stable/entry"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpmbbm8ovh/checkout"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpmbbm8ovh/stable/container/worktrees/slot",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpmbbm8ovh/stable/container",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpmbbm8ovh/stable/container/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpmbbm8ovh/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpmbbm8ovh/owner/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpmbbm8ovh/stable/entry"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpmbbm8ovh/stable/container/worktrees/slot",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpmbbm8ovh/stable/container",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpmbbm8ovh/stable/container/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpmbbm8ovh/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpmbbm8ovh/owner/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpmbbm8ovh/stable/entry"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpmbbm8ovh/stable/container/worktrees/slot",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpmbbm8ovh/stable/container",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpmbbm8ovh/stable/container/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpmbbm8ovh/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpmbbm8ovh/owner/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpmbbm8ovh/stable/entry"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpd00c50il/checkout"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpd00c50il/stable/container/worktrees/slot",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpd00c50il/stable/container",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpd00c50il/stable/container/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpd00c50il/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpd00c50il/owner/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpd00c50il/stable/entry"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpd00c50il/stable/container/worktrees/slot",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpd00c50il/stable/container",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpd00c50il/stable/container/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpd00c50il/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpd00c50il/owner/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpd00c50il/stable/entry"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpd00c50il/stable/container/worktrees/slot",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpd00c50il/stable/container",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpd00c50il/stable/container/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpd00c50il/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpd00c50il/owner/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpd00c50il/stable/entry"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp6xhnlxn9/checkout"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp6xhnlxn9/stable/container/worktrees/slot",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp6xhnlxn9/stable/container",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp6xhnlxn9/stable/container/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp6xhnlxn9/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp6xhnlxn9/owner/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp6xhnlxn9/stable/entry"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp6xhnlxn9/stable/container/worktrees/slot",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp6xhnlxn9/stable/container",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp6xhnlxn9/stable/container/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp6xhnlxn9/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp6xhnlxn9/owner/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp6xhnlxn9/stable/entry"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp6xhnlxn9/stable/container/worktrees/slot",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp6xhnlxn9/stable/container",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp6xhnlxn9/stable/container/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp6xhnlxn9/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp6xhnlxn9/owner/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp6xhnlxn9/stable/entry"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps_4tfsgo/checkout"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps_4tfsgo/stable/container/admin",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps_4tfsgo/stable/container/admin/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps_4tfsgo/owner/pointer",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps_4tfsgo/stable/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps_4tfsgo/stable/hop1"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps_4tfsgo/stable/container/admin",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps_4tfsgo/stable/container/admin/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps_4tfsgo/owner/pointer",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps_4tfsgo/stable/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps_4tfsgo/stable/hop1"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps_4tfsgo/stable/container/admin",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps_4tfsgo/stable/container/admin/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps_4tfsgo/owner/pointer",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps_4tfsgo/stable/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps_4tfsgo/stable/hop1"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpt02cyf71/checkout"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpt02cyf71/stable/container/worktrees/slot",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpt02cyf71/stable/container",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpt02cyf71/stable/container/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpt02cyf71/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpt02cyf71/owner/hop0"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpt02cyf71/stable/container/worktrees/slot",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpt02cyf71/stable/container",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpt02cyf71/stable/container/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpt02cyf71/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpt02cyf71/owner/hop0"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpt02cyf71/stable/container/worktrees/slot",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpt02cyf71/stable/container",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpt02cyf71/stable/container/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpt02cyf71/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpt02cyf71/owner/hop0"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpa46ixy45/checkout"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpa46ixy45/stable/container/admin",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpa46ixy45/stable/common",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpa46ixy45/stable/common/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpa46ixy45/owner/pointer",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpa46ixy45/stable/hop0"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpa46ixy45/stable/container/admin",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpa46ixy45/stable/common",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpa46ixy45/stable/common/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpa46ixy45/owner/pointer",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpa46ixy45/stable/hop0"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpa46ixy45/stable/container/admin",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpa46ixy45/stable/common",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpa46ixy45/stable/common/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpa46ixy45/owner/pointer",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpa46ixy45/stable/hop0"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps2ro8xmy/checkout"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps2ro8xmy/stable/container/worktrees/slot",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps2ro8xmy/stable/common",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps2ro8xmy/stable/common/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps2ro8xmy/owner/pointer",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps2ro8xmy/stable/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps2ro8xmy/stable/hop1",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps2ro8xmy/stable/hop2"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps2ro8xmy/stable/container/worktrees/slot",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps2ro8xmy/stable/common",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps2ro8xmy/stable/common/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps2ro8xmy/owner/pointer",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps2ro8xmy/stable/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps2ro8xmy/stable/hop1",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps2ro8xmy/stable/hop2"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps2ro8xmy/stable/container/worktrees/slot",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps2ro8xmy/stable/common",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps2ro8xmy/stable/common/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps2ro8xmy/owner/pointer",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps2ro8xmy/stable/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps2ro8xmy/stable/hop1",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmps2ro8xmy/stable/hop2"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp23myd0ey/checkout"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp23myd0ey/stable/container/worktrees/slot",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp23myd0ey/stable/container",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp23myd0ey/stable/container/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp23myd0ey/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp23myd0ey/stable/source/.git/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp23myd0ey/owner/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp23myd0ey/owner/hop1",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp23myd0ey/stable/object-info",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp23myd0ey/stable/object-info/alternates"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp23myd0ey/stable/container/worktrees/slot",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp23myd0ey/stable/container",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp23myd0ey/stable/container/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp23myd0ey/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp23myd0ey/stable/source/.git/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp23myd0ey/owner/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp23myd0ey/owner/hop1",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp23myd0ey/stable/object-info",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp23myd0ey/stable/object-info/alternates"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp23myd0ey/stable/container/worktrees/slot",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp23myd0ey/stable/container",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp23myd0ey/stable/container/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp23myd0ey/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp23myd0ey/stable/source/.git/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp23myd0ey/owner/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp23myd0ey/owner/hop1",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp23myd0ey/stable/object-info",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp23myd0ey/stable/object-info/alternates"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpj9ty99dc/checkout"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpj9ty99dc/stable/container/admin",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpj9ty99dc/stable/container/admin/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpj9ty99dc/stable/source/.git/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpj9ty99dc/owner/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpj9ty99dc/owner/hop1",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpj9ty99dc/stable/object-info",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpj9ty99dc/stable/object-info/alternates"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpj9ty99dc/stable/container/admin",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpj9ty99dc/stable/container/admin/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpj9ty99dc/stable/source/.git/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpj9ty99dc/owner/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpj9ty99dc/owner/hop1",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpj9ty99dc/stable/object-info",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpj9ty99dc/stable/object-info/alternates"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpj9ty99dc/stable/container/admin",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpj9ty99dc/stable/container/admin/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpj9ty99dc/stable/source/.git/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpj9ty99dc/owner/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpj9ty99dc/owner/hop1",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpj9ty99dc/stable/object-info",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmpj9ty99dc/stable/object-info/alternates"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp7jr0fd2f/checkout"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp7jr0fd2f/stable/container/worktrees/slot",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp7jr0fd2f/stable/container",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp7jr0fd2f/stable/container/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp7jr0fd2f/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp7jr0fd2f/stable/source/.git/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp7jr0fd2f/owner/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp7jr0fd2f/owner/hop1",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp7jr0fd2f/owner/hop2",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp7jr0fd2f/stable/object-info",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp7jr0fd2f/stable/object-info/alternates"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp7jr0fd2f/stable/container/worktrees/slot",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp7jr0fd2f/stable/container",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp7jr0fd2f/stable/container/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp7jr0fd2f/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp7jr0fd2f/stable/source/.git/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp7jr0fd2f/owner/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp7jr0fd2f/owner/hop1",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp7jr0fd2f/owner/hop2",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp7jr0fd2f/stable/object-info",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp7jr0fd2f/stable/object-info/alternates"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp7jr0fd2f/stable/container/worktrees/slot",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp7jr0fd2f/stable/container",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp7jr0fd2f/stable/container/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp7jr0fd2f/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp7jr0fd2f/stable/source/.git/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp7jr0fd2f/owner/hop0",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp7jr0fd2f/owner/hop1",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp7jr0fd2f/owner/hop2",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp7jr0fd2f/stable/object-info",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp7jr0fd2f/stable/object-info/alternates"
+      ]
+    },
+    "dropped": []
+  },
+  {
+    "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+    "args": [
+      "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp_n9h7zg4/checkout"
+    ],
+    "kwargs": {},
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp_n9h7zg4/stable/container/worktrees/slot",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp_n9h7zg4/stable/container",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp_n9h7zg4/stable/container/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp_n9h7zg4/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp_n9h7zg4/owner/pointer",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp_n9h7zg4/stable/hop0"
+      ]
+    },
+    "r10": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp_n9h7zg4/stable/container/worktrees/slot",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp_n9h7zg4/stable/container",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp_n9h7zg4/stable/container/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp_n9h7zg4/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp_n9h7zg4/owner/pointer",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp_n9h7zg4/stable/hop0"
+      ]
+    },
+    "actual": {
+      "git": [
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp_n9h7zg4/stable/container/worktrees/slot",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp_n9h7zg4/stable/container",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp_n9h7zg4/stable/container/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp_n9h7zg4/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp_n9h7zg4/owner/pointer",
+        "/private/tmp/sf-r272r12/tmp/normal-test_retention_location_inputs/tmp_n9h7zg4/stable/hop0"
+      ]
+    },
+    "dropped": []
+  }
+]

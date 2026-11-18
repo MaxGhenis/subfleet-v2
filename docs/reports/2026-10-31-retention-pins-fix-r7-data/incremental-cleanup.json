@@ -1,0 +1,163 @@
+{
+  "time": "2026-10-31T04:18:28.974651+00:00",
+  "before_kib": 298220,
+  "after_kib": 22548,
+  "homes": [
+    {
+      "name": "dependency-properties-0",
+      "removed": true
+    },
+    {
+      "name": "green-r7",
+      "removed": true
+    },
+    {
+      "name": "mutant-r2-post-read-identity-check-dropped",
+      "removed": true
+    },
+    {
+      "name": "mutant-r2-terminal-legacy-incomplete-dropped",
+      "removed": true
+    },
+    {
+      "name": "mutant-r3-census-moved-after-recovery",
+      "removed": true
+    },
+    {
+      "name": "mutant-r3-final-path-check-dropped",
+      "removed": true
+    },
+    {
+      "name": "mutant-r3-post-traversal-alias-check-dropped",
+      "removed": true
+    },
+    {
+      "name": "mutant-r3-terminal-census-live-only",
+      "removed": true
+    },
+    {
+      "name": "mutant-r3-write-metadata-check-dropped",
+      "removed": true
+    },
+    {
+      "name": "mutant-r4-initial-objects-recording-dropped",
+      "removed": true
+    },
+    {
+      "name": "mutant-r4-initial-objects-revalidation-dropped",
+      "removed": true
+    },
+    {
+      "name": "mutant-r5-commondir-whitespace-stripping-restored",
+      "removed": true
+    },
+    {
+      "name": "mutant-r5-gitfile-whitespace-stripping-restored",
+      "removed": true
+    },
+    {
+      "name": "mutant-r6-dangling-pointer-treated-as-missing",
+      "removed": true
+    },
+    {
+      "name": "mutant-r6-oversized-pointer-treated-as-missing",
+      "removed": true
+    },
+    {
+      "name": "mutant-r6-parent-common-fallback-restored",
+      "removed": true
+    },
+    {
+      "name": "mutant-r7-own-objects-revalidation-dropped",
+      "removed": true
+    },
+    {
+      "name": "mutant-r7-parent-objects-recording-dropped",
+      "removed": true
+    },
+    {
+      "name": "mutant-r7-unused-parent-pointer-probing-restored",
+      "removed": true
+    },
+    {
+      "name": "parent-hint-corrected",
+      "removed": true
+    },
+    {
+      "name": "parent-hint",
+      "removed": true
+    },
+    {
+      "name": "pointer-original",
+      "removed": true
+    },
+    {
+      "name": "red-r7",
+      "removed": true
+    },
+    {
+      "name": "test_retention_alternates",
+      "removed": true
+    },
+    {
+      "name": "test_retention_dependency_aliases",
+      "removed": true
+    },
+    {
+      "name": "test_retention_dependency_review_r1",
+      "removed": true
+    },
+    {
+      "name": "test_retention_dependency_review_r3",
+      "removed": true
+    },
+    {
+      "name": "test_retention_dependency_review_r4",
+      "removed": true
+    },
+    {
+      "name": "test_retention_dependency_review_r5",
+      "removed": true
+    },
+    {
+      "name": "test_retention_dependency_review_r6",
+      "removed": true
+    },
+    {
+      "name": "test_retention_dependency_spelling",
+      "removed": true
+    },
+    {
+      "name": "test_retention_job_dependencies",
+      "removed": true
+    },
+    {
+      "name": "test_retention_pointer_failures",
+      "removed": true
+    },
+    {
+      "name": "test_retention_pointer_inputs",
+      "removed": true
+    },
+    {
+      "name": "test_retention_pointer_whitespace",
+      "removed": true
+    },
+    {
+      "name": "test_state_contract",
+      "removed": true
+    },
+    {
+      "name": "test_turn_retention_cwd",
+      "removed": true
+    },
+    {
+      "name": "test_turn_retention_cwd_properties",
+      "removed": true
+    },
+    {
+      "name": "test_turn_retention_job_properties",
+      "removed": true
+    }
+  ]
+}

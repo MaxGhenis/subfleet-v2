@@ -1,0 +1,48 @@
+{
+  "start": "2026-10-28T22:47:21.517585+00:00",
+  "load": [
+    101.29052734375,
+    111.29052734375,
+    99.42919921875
+  ],
+  "pid": 71799,
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 25.379114874987863
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.48150495800655335
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0021505419863387942
+    }
+  ],
+  "hypothesis_profile": "normal",
+  "all_collected": [
+    "tests/unit/test_retention_dependency_units.py::test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends"
+  ],
+  "collected": [
+    "tests/unit/test_retention_dependency_units.py::test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends"
+  ],
+  "exit": 0,
+  "seconds": 70.39861258301244,
+  "maxrss": 116490240,
+  "capped": false,
+  "cap_seconds": null,
+  "lock": "locked",
+  "command": [
+    "tests/unit/test_retention_dependency_units.py::test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends"
+  ],
+  "admission_utc": "2026-10-28T22:47:12.288523+00:00",
+  "wall_seconds": 101.642,
+  "queue_seconds": 10.085
+}

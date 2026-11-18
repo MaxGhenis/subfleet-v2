@@ -442,6 +442,33 @@ def test_c25_7_the_daemon_finishes_a_claimed_start_after_a_restart(people, monke
         after.close()
 
 
+def test_d_env1_a_resumed_start_carries_the_daemon_policy_to_its_git(people, repo, monkeypatch):
+    """Review r2 of #222, P3: the file pool's thread inherits no helper scope, so the
+    resumed start's `git worktree add` must establish the daemon's policy itself."""
+    from subfleet.launch_env import helper_policy
+    svc = people
+    svc.daemon.policy["env"] = {"pass": ["GIT_CONFIG_GLOBAL"]}       # the repo fixture set it
+    sid = suggest(svc, workspace=str(repo / "pkg"), worktree=True)["suggestion"]["suggestion_id"]
+    svc.suggestions.claim(sid, by="the Subfleet app", conversation=svc._start_fields(svc.suggestions.get(sid), {}))
+    real, seen = service_module.subprocess.run, []
+
+    def recording(argv, **kwargs):
+        if list(argv[:1]) == ["git"] and "worktree" in argv and "add" in argv:
+            seen.append(sorted((kwargs.get("env") or {}).keys()))
+        return real(argv, **kwargs)
+    monkeypatch.setattr(service_module.subprocess, "run", recording)
+    monkeypatch.setattr(service_module, "SUGGESTION_RESUME_AFTER_S", 0.0)
+    with helper_policy(svc.daemon.policy):                    # as the control tick holds it
+        svc._resume_suggestions()
+    deadline = time.monotonic() + 60
+    while svc._resuming.get(sid, (0, None))[1] is None and time.monotonic() < deadline:
+        time.sleep(0.05)
+    row = svc.suggestions.get(sid)
+    assert row["state"] == "started"
+    assert svc.store.conversation(row["started_conversation_id"])["workspace_kind"] == "worktree"
+    assert seen and all("GIT_CONFIG_GLOBAL" in names for names in seen)
+
+
 def test_c25_7_a_retry_while_the_message_was_accepted_records_started(people):
     """A start cut short after the message's transaction: no such state exists
     (`started` commits with the message), and no caller but the start itself can

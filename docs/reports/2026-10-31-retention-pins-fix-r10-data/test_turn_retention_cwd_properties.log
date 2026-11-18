@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 14:28:33Z slot A load 
+.                                                                        [100%]
+1 passed in 35.98s
+{"name": "test_turn_retention_cwd_properties", "start": "2026-10-31T14:28:39.691539+00:00", "load": [57.2216796875, 67.7646484375, 68.7998046875], "seconds": 40.797193166996294, "exit": 0}

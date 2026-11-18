@@ -9,6 +9,7 @@ helpers now drop every `GIT_TRACE*` variable and switch Trace2's three targets o
 (review at c20ee3d0, P3). Adapted from the reviewer's probe `probe_rediscovery_config.py`.
 """
 
+import json
 import os
 from pathlib import Path
 
@@ -17,6 +18,7 @@ import pytest
 from subfleet import folders
 from subfleet import salvage as salvage_module
 from subfleet.cli import daemon_env
+from subfleet.launch_env import helper_policy
 from tests.fake.test_admission_latency import fleet_daemon, measure
 from tests.fake.test_admission_liveness import CODEX, _checkout, _live
 from tests.unit.retention_world import snapshot
@@ -24,6 +26,14 @@ from tests.unit.test_retention_rediscovery import overtaken
 from tests.unit.test_retention_shared_folders import ctimes, git_spawns, retiring_tree
 
 TRACES = ["GIT_TRACE", "GIT_TRACE_SETUP", "GIT_TRACE2", "GIT_TRACE2_EVENT", "GIT_TRACE2_PERF"]
+
+
+def authorize_environment(daemon, *names):
+    """Exercise Git's mandatory controls even with exact policy authority."""
+    path = daemon.root / "policy.json"
+    policy = json.loads(path.read_text())
+    policy["env"] = daemon.policy["env"] = {"pass": list(names)}
+    path.write_text(json.dumps(policy))
 
 
 @pytest.mark.parametrize("name", TRACES)
@@ -52,11 +62,14 @@ def test_configured_trace2_target_does_not_write_into_a_fenced_tree(tmp_path, wr
         config.write_text("[trace2]\n" + "".join(f"\t{key} = {path}\n" for key, path in targets.items()))
         patch.setenv("GIT_CONFIG_GLOBAL", str(config))
         patch.setenv("GIT_TRACE2_EVENT", "0")           # inherited, and dropped with every GIT_TRACE*
+        authorize_environment(daemon, "GIT_CONFIG_GLOBAL", "GIT_TRACE2_EVENT")
+        assert daemon_env(daemon.root)["GIT_CONFIG_GLOBAL"] == str(config)
         before = (snapshot(Path(tree)), ctimes(Path(tree)))
         real_workspace, prepared = daemon._workspace, []
         patch.setattr(daemon, "_workspace", lambda job: prepared.append(job["job_id"]) or real_workspace(job))
         spawned = git_spawns(patch)
-        daemon._admit_turns()
+        with helper_policy(daemon.policy):
+            daemon._admit_turns()
         hold = daemon._holds.get(turn) or {}
         assert not _live(daemon, turn) and prepared == []
         assert hold.get("reason") == "lease-held" and hold.get("leases") == [fence], hold
@@ -78,13 +91,15 @@ def test_ambient_trace_does_not_write_into_a_fenced_tree(tmp_path, writable, tra
         assert daemon.store.acquire_lease(fence, "retention:review")
         trace = Path(tree) / "ambient-trace.txt"
         patch.setenv(trace_variable, str(trace))
-        # The daemon's own environment still carries it: the guarantee comes from git's.
+        authorize_environment(daemon, trace_variable)
+        # Policy carries it into the daemon; Git still has to remove it.
         assert daemon_env(daemon.root)[trace_variable] == str(trace)
         before = (snapshot(Path(tree)), ctimes(Path(tree)))
         real_workspace, prepared = daemon._workspace, []
         patch.setattr(daemon, "_workspace", lambda job: prepared.append(job["job_id"]) or real_workspace(job))
         spawned = git_spawns(patch)
-        daemon._admit_turns()
+        with helper_policy(daemon.policy):
+            daemon._admit_turns()
         hold = daemon._holds.get(turn) or {}
         assert not _live(daemon, turn) and prepared == []
         assert hold.get("reason") == "lease-held" and hold.get("leases") == [fence], hold

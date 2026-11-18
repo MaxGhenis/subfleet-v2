@@ -22,9 +22,11 @@ from typing import Any
 from .alerts import LATCH_QUERY, active_alerts, load_latches
 from .client import same_process
 from .contracts import READING_TTL_S, Exit, JobState
+from . import task_holds
 from .quota_projection import weekly_projections
+from .status_json import closure_row, decision_rows
 from .store import SCHEMA_VERSION as KNOWN_SCHEMA_VERSION
-from .store import WEEKLY_HISTORY_SQL, notice_rows, weekly_history_params
+from .store import WEEKLY_HISTORY_SQL, cancel_info, job_flags, notice_rows, shell_flags, weekly_history_params
 
 STORE_NAME = "state.sqlite3"
 RECEIPTS = ("start", "exit")            # C-5.2 receipts beside the store (C-17.5)
@@ -251,7 +253,12 @@ class Offline:
             if row is None:
                 raise LookupError(f"no job {job_id!r} in {self.store_path}")
             job = self._job_dict(row)
-            job["attempts"] = [dict(item) for item in conn.execute(
+            cancel = conn.execute("SELECT ts,data_json FROM events WHERE job_id=? "
+                                  "AND kind='job.cancel_requested' AND event_id>COALESCE((SELECT MAX(event_id) "
+                                  "FROM events WHERE job_id=? AND kind='job.wall_cancel_superseded'),0) "
+                                  "ORDER BY event_id DESC LIMIT 1", (job_id, job_id)).fetchone()
+            job["cancel"] = cancel_info(cancel["ts"], cancel["data_json"]) if cancel and job["cancel_requested_at"] else None
+            job["attempts"] = [shell_flags(item) for item in conn.execute(
                 "SELECT * FROM attempts WHERE job_id = ? ORDER BY seq", (job_id,))]
             ids = [attempt["attempt_id"] for attempt in job["attempts"]]
             job["artifacts"] = []
@@ -268,6 +275,12 @@ class Offline:
                 key=lambda item: item.get("attempt_id") != accepted)
             job["notices"] = [dict(item) for item in conn.execute(
                 "SELECT * FROM notices WHERE job_id = ? ORDER BY notice_id", (job_id,))]
+            submitted = conn.execute("SELECT data_json FROM events WHERE job_id=? AND +kind='job.submitted' "
+                                     "ORDER BY event_id LIMIT 1", (job_id,)).fetchone()
+            try:
+                job["uncommitted"] = json.loads(submitted["data_json"] or "{}").get("uncommitted") if submitted else None
+            except (json.JSONDecodeError, TypeError, AttributeError):
+                job["uncommitted"] = None
             job["pushes"] = ([dict(item) for item in conn.execute(
                 "SELECT * FROM job_pushes WHERE job_id=?", (job_id,))]
                 if conn.execute("SELECT 1 FROM sqlite_master WHERE name='job_pushes'").fetchone() else [])
@@ -278,7 +291,8 @@ class Offline:
         job["decision"] = None
         if decisions is not None:
             try:
-                job["decision"] = json.loads(decisions["decision_json"])
+                # C-9.6 (review r2 of #263, P3-2): a hold's source as every reader shows it.
+                job["decision"] = decision_rows(json.loads(decisions["decision_json"]))
             except (json.JSONDecodeError, TypeError):
                 job["decision"] = None
         for attempt in job["attempts"]:
@@ -302,7 +316,10 @@ class Offline:
 
     @staticmethod
     def _job_dict(row: sqlite3.Row) -> dict[str, Any]:
-        job = {key: row[key] for key in row.keys()}
+        # The daemon's boolean launch fields (C-12.4), for `show` and `list` alike
+        # (#221 review r1b, P3-4): offline JSON gave 1 where the daemon gave true.
+        # D-QOS-BOOKED1: and a job's requested provider QoS, `utility` from a store before the column.
+        job = job_flags({key: row[key] for key in row.keys()})
         job["duration_s"] = _duration_s(job.get("started_at"), job.get("finished_at"))
         job["model"] = job.get("model_served") or job.get("model_requested")
         job["family"] = job.get("provider")
@@ -340,7 +357,8 @@ class Offline:
                                                     x.reading_id DESC
                                            LIMIT 1)
                     ORDER BY r.lane_id, r.window""")] if "readings" in tables else []
-            closures = [dict(row) for row in conn.execute(
+            # D-STATUS-SRC1: with `kind` and `note`, as `daemon.status` shows them.
+            closures = [closure_row(dict(row)) for row in conn.execute(
                 "SELECT * FROM closures WHERE released_at IS NULL"
                 " ORDER BY lane_id, until_at")] if "closures" in tables else []
             weekly_samples = [dict(row) for row in conn.execute(
@@ -353,11 +371,25 @@ class Offline:
                         f" WHERE state IN ({marks}) GROUP BY lane_id",
                         LIVE_ATTEMPT_STATES):
                     in_flight[row["lane_id"]] = row["n"]
+            restricted = []
+            if "attempts" in tables and "capability" in {row["name"] for row in conn.execute("PRAGMA table_info(attempts)")}:
+                from .store import RESTRICTED_RUNS_SQL, restricted_window
+                restricted = [row["job_id"] for row in conn.execute(RESTRICTED_RUNS_SQL, restricted_window(at))]
             version = self.schema_version(conn)
             # C-18.4: the alerts in force, from their latches, in the words they
             # last fired with (no cycle runs without the daemon).
             latches = (load_latches(conn.execute(LATCH_QUERY).fetchall())
                        if "events" in tables else {})
+            # C-11.10: the operator's task holds in force, read as the daemon reads them.
+            holds = (task_holds.in_force([dict(row) for row in conn.execute(
+                task_holds.ROWS_SQL, task_holds.ROWS_PARAMS)], at) if "leases" in tables else {})
+            if "leases" in tables:
+                holds.update(task_holds.in_force([dict(row) for row in conn.execute(
+                    task_holds.ROWS_SQL, task_holds.SANDBOX_ROWS_PARAMS)], at))
+            # Each hold's count of the jobs it keeps waiting, over every row: the job list
+            # below shows 50, and a count read from it would stop there (C-17.4).
+            held_jobs = (task_holds.waiting_counts(conn.execute(task_holds.WAITING_SQL).fetchall())
+                         if holds and "jobs" in tables else {})
         for lane in lanes:
             lane["in_flight"] = in_flight.get(lane.get("lane_id"), 0)
         for reading in readings:
@@ -372,6 +404,7 @@ class Offline:
             "now": at.isoformat().replace("+00:00", "Z"),
             "state_root": str(self.root),
             "schema_version": version,
+            "restricted_runs_24h": restricted,
             "lanes": lanes,
             "readings": readings,
             "weekly_samples": weekly_samples,
@@ -381,6 +414,7 @@ class Offline:
             "turns": self.list_jobs(running=True, last=50, kind="turn"),
             "alerts": active_alerts(latches),
             "claude_cards": self._cards_view(),     # C-9.10: the last snapshot the daemon wrote
+            "task_holds": task_holds.listing(holds, waiting=held_jobs),
         }
 
     def _cards_view(self) -> dict[str, Any]:

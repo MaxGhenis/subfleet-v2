@@ -27,7 +27,7 @@ from subfleet.ids import payload_digest
 from subfleet.offline import Offline
 from subfleet.policy import DEFAULT_POLICY_PATH, PUSH_DEFAULTS, PolicyError, load_policy
 from subfleet.procs import Containment
-from subfleet.store import Store
+from subfleet.store import SCHEMA_VERSION, Store
 
 
 # Repository setup can wait on macOS filesystem flushes under load. This
@@ -180,7 +180,7 @@ def drain(world, job=None):
     return world.core._job(job)
 
 
-def accept(world, job=None, bundle=True, include_base=False, settle=True):
+def accept(world, job=None, bundle=True, include_base=False, settle=True, capability=None):
     job = world.job_id = job or world.job_id
     core = world.core
     attempt_id = job + "/a1"
@@ -193,7 +193,7 @@ def accept(world, job=None, bundle=True, include_base=False, settle=True):
     # completion that the daemon checks before accepting (C-9.2).
     (directory / "stream.jsonl").write_text('{"type":"turn.completed"}\n')
     core.store.add_attempt(attempt_id=attempt_id, job_id=job, seq=1, lane_id="test-lane",
-                           model_requested="astra", state="running", evidence_json="{}")
+                           model_requested="astra", state="running", evidence_json="{}", capability=capability)
     with core.store.transaction("test.running") as tx:
         tx.execute("UPDATE jobs SET state='running' WHERE job_id=?", (job,))
     core._finalize(core.store.get_attempt(attempt_id))
@@ -236,6 +236,20 @@ def test_new_branch_push_is_non_forcing_non_deleting_and_reexport_is_idempotent(
         assert world.core.store.query("SELECT * FROM job_owned_branches")[0]["sha"] == sha
         assert "[succeeded]" in cli._format_job(world.core.dispatch("show", {"job_id": world.job_id}))
         assert Offline(world.core.root).show_job(world.job_id)["pushes"][0]["sha"] == sha
+
+
+@pytest.mark.parametrize("bundle", [False, True])
+def test_push_result_precedes_the_final_capability_line(worlds, bundle):
+    with worlds() as world:
+        submit(world, "jobs/capability-order")
+        commit(world.repo)
+        accept(world, bundle=bundle, capability="writable")
+        notice, = world.core.store.list_notices()
+        lines = notice["text"].splitlines()
+        assert lines[1].startswith("attempt a1: ok")
+        # A writable build carries no capability line (P3-3): its push result is last.
+        assert lines[-1].startswith("pushed " if bundle else "push failed:")
+        assert not any(line.startswith("ran ") for line in lines)
 
 
 #: Review P2-2: every spelling of a protected name, compared casefolded and
@@ -665,7 +679,7 @@ def test_schema_six_migration_preserves_jobs_without_authorizing_push(tmp_path):
         assert store.get_job("legacy")["push_branch"] is None
         assert store.query("SELECT * FROM job_pushes") == []
         assert store.query("SELECT * FROM job_owned_branches") == []
-        assert store.one("SELECT max(version) AS version FROM schema_version")["version"] == 7
+        assert store.one("SELECT max(version) AS version FROM schema_version")["version"] == SCHEMA_VERSION
 
 
 def test_git_timeout_stops_the_transport_process_group(tmp_path, monkeypatch):

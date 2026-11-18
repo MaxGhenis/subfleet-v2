@@ -1,0 +1,91 @@
+{
+  "name": "test_detached_retention_fence-2",
+  "start": "2026-10-29T11:11:41.542001+00:00",
+  "load": [
+    36.0771484375,
+    38.638671875,
+    31.22900390625
+  ],
+  "args": [
+    "tests/fake/test_detached_retention_fence.py",
+    "-k",
+    "test_c6_11_a_worktree_lease_another_job_holds_is_never_called_retentions or test_c8_4_a_fence_on_an_in_place_writers_own_folder_after_the_early_look_is_named_once or test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction or test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes"
+  ],
+  "results": [
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c6_11_a_worktree_lease_another_job_holds_is_never_called_retentions",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_an_in_place_writers_own_folder_after_the_early_look_is_named_once",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[read-only-tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[read-only-nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[worktree-tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[worktree-nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[read-only-early]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[read-only-transaction]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[worktree-early]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[worktree-transaction]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    }
+  ],
+  "collected": [
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_worktree_lease_another_job_holds_is_never_called_retentions",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_an_in_place_writers_own_folder_after_the_early_look_is_named_once",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[read-only-tree]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[read-only-nested]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[worktree-tree]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[worktree-nested]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[read-only-early]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[read-only-transaction]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[worktree-early]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[worktree-transaction]"
+  ],
+  "seconds": 28.387998042002437,
+  "max_rss_bytes": 126091264,
+  "end": "2026-10-29T11:12:09.931892+00:00"
+}

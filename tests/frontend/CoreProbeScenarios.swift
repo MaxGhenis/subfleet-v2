@@ -9,8 +9,11 @@ final class ProbeClock {
 
 /// Daemon-produced response lines without a listening socket, for restricted
 /// test environments. The real client still encodes and decodes every exchange.
+/// With a clock, an exchange may take time on it: `cost` seconds before its answer, or
+/// `"timeout": true` for no answer at all, which takes the whole timeout the client gave.
 final class ScriptedProbeTransport: DaemonTransport {
     var exchanges: [[String: Any]]
+    var clock: ProbeClock?
 
     init(_ data: Data) throws {
         guard let exchanges = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
@@ -25,8 +28,15 @@ final class ScriptedProbeTransport: DaemonTransport {
             throw DaemonClientError.malformed("no scripted exchange remains")
         }
         let next = exchanges.removeFirst()
-        guard next["op"] as? String == request["op"] as? String,
-              var answer = next["answer"] as? [String: Any] else {
+        guard next["op"] as? String == request["op"] as? String else {
+            throw DaemonClientError.malformed("unexpected scripted operation")
+        }
+        if next["timeout"] as? Bool == true {
+            clock?.now.addTimeInterval(timeout)
+            throw DaemonClientError.timedOut(op: request["op"] as? String ?? "", seconds: timeout)
+        }
+        clock?.now.addTimeInterval(next["cost"] as? Double ?? 0)
+        guard var answer = next["answer"] as? [String: Any] else {
             throw DaemonClientError.malformed("unexpected scripted operation")
         }
         // A recorded answer is this request's; one the daemon gives before reading a
@@ -101,7 +111,17 @@ func project(_ outcome: OutboxSender.WithdrawOutcome) -> [String: Any] {
 /// `outbox <socket> <journal> <steps.json>`: run outbox steps against a daemon socket.
 /// `@conv:<request id>` names the conversation that create made; `@draft:<request id>` its draft key.
 func runOutbox(socket: String, journal: String, stepsData: Data) throws -> [String: Any] {
-    let client = DaemonClient(transport: try probeTransport(socket))
+    let clock = ProbeClock()
+    let transport = try probeTransport(socket)
+    // A scripted daemon's exchanges take time on the probe's clock, so `settle-steer` bounds
+    // them by its deadline on that clock, as the live step does on the wall clock. A socket's
+    // take none on it, and are left as they are.
+    var bounded: DeadlineTransport?
+    if let scripted = transport as? ScriptedProbeTransport {
+        scripted.clock = clock
+        bounded = DeadlineTransport(scripted, now: { clock.now })
+    }
+    let client = DaemonClient(transport: bounded ?? transport)
     client.baseTimeout = 3
     var calls: [String] = []
     client.onExchange = { op, request, response in
@@ -111,11 +131,12 @@ func runOutbox(socket: String, journal: String, stepsData: Data) throws -> [Stri
         calls.append([op, key, after.map { "after=" + $0 } ?? "", response == nil ? "no-answer" : "answered"]
             .filter { !$0.isEmpty }.joined(separator: " "))
     }
-    let clock = ProbeClock()
     let url = URL(fileURLWithPath: journal)
     var outbox = try Outbox(url: url, now: { clock.now })
     var sender = OutboxSender(outbox: outbox, client: client)
     var results: [Any] = []
+    /// Where the step the next `settle-steer` belongs to began (`step-start`).
+    var stepStarted: Date?
 
     func resolve(_ value: String?) -> String {
         guard let value else { return "" }
@@ -204,6 +225,33 @@ func runOutbox(socket: String, journal: String, stepsData: Data) throws -> [Stri
                 results.append(["do": action])
             case "sendable":
                 results.append(["do": action, "keys": outbox.sendable().map(\.key)])
+            case "client-timeout":
+                // The client's answer deadline (the app's is 15 s; these steps use 3 s).
+                client.baseTimeout = step["seconds"]?.double ?? client.baseTimeout
+                results.append(["do": action])
+            case "step-start":
+                stepStarted = clock.now
+                results.append(["do": action])
+            case "settle-steer":
+                // The live probe's step 14 (CoreProbeLive.swift): the app's pump until the steer is
+                // answered for good or `deadline` seconds pass since the step began (`step-start`;
+                // without one, from here), waiting on this clock, then its check. `step_s` is the
+                // time on this clock since the step began.
+                let engine = ConversationEngine(client: client, outbox: outbox)
+                let began = stepStarted ?? clock.now
+                var pauses: [Double] = []
+                let wait = step["deadline"]?.double ?? steerStepDeadline(answerTimeout: client.baseTimeout)
+                let settling = settleSteer(resolve(step["key"]?.string), outbox: outbox,
+                                           deadline: began.addingTimeInterval(wait), now: { clock.now },
+                                           pause: { pauses.append($0); clock.now = clock.now.addingTimeInterval($0) },
+                                           pump: { until in
+                                               bounded?.deadline = until
+                                               defer { bounded?.deadline = nil }
+                                               _ = engine.pump()
+                                           })
+                results.append(["do": action, "taken": steerTaken(settling.steer), "steer": steerDetail(settling.steer),
+                                "pumps": settling.pumps, "waited_s": settling.waited, "deadline_s": wait,
+                                "step_s": clock.now.timeIntervalSince(began), "pauses": pauses])
             case "engine-pump":
                 // The app's pump: send, then keep only the newest `keep` closed entries.
                 let engine = ConversationEngine(client: client, outbox: outbox)
@@ -286,7 +334,93 @@ func project(_ action: StopAction) -> [String: Any] {
     }
 }
 
-/// `store <input.json>`: fold a sequence of daemon answers into the store state.
+// MARK: - Notification clicks (C-29.9)
+
+/// A userInfo after a property-list round trip, standing in for delivery (a
+/// probe cannot post a notification).
+func delivered(_ userInfo: [String: String]) -> [AnyHashable: Any] {
+    let data = try! PropertyListSerialization.data(fromPropertyList: userInfo, format: .binary, options: 0)
+    return try! PropertyListSerialization.propertyList(from: data, format: nil) as! [AnyHashable: Any]
+}
+
+/// What clicking a posted intent's notification reads back.
+func clicked(_ intent: NotificationIntent) -> NotificationTarget? {
+    NotificationTarget(requestID: intent.id, userInfo: delivered(intent.userInfo))
+}
+
+func project(_ target: NotificationTarget?, onScreen: String?) -> Any {
+    guard let target else { return NSNull() }
+    return ["conversation": target.conversationID, "kind": target.kind?.rawValue as Any? ?? NSNull(),
+            "reveals": target.revealsApproval,
+            "shows_while_frontmost": target.showsWhileFrontmost(onScreenConversationID: onScreen)]
+}
+
+/// `notification-targets <input.json>`: `{"cases": [{"request_id", "user_info", "on_screen"}]}`, each
+/// read back as a clicked notification is (`on_screen`: the conversation on screen, or null), and one
+/// intent of every kind made,
+/// round-tripped and read back; `before_kind` is its notification as a build that
+/// put only `conversation_id` in the userInfo posted it.
+func runNotificationTargets(_ data: Data) throws -> [String: Any] {
+    guard let input = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        throw DaemonClientError.malformed("expected an object")
+    }
+    let cases = (input["cases"] as? [[String: Any]] ?? []).map { item -> Any in
+        project(NotificationTarget(requestID: item["request_id"] as? String ?? "",
+                                   userInfo: item["user_info"] as? [AnyHashable: Any] ?? [:]),
+                onScreen: item["on_screen"] as? String)
+    }
+    let intents = NotificationIntent.Kind.allCases.map { kind -> Any in
+        let intent = NotificationIntent(kind: kind, subject: "42", conversationID: "cv-\(kind.rawValue)", messageID: "m-42",
+                                        title: "Title", body: "Body")
+        return ["kind": kind.rawValue, "id": intent.id, "user_info": intent.userInfo,
+                "clicked": project(clicked(intent), onScreen: nil),
+                "before_kind": project(NotificationTarget(requestID: intent.id,
+                                                          userInfo: delivered(["conversation_id": intent.conversationID])),
+                                       onScreen: nil)]
+    }
+    return ["cases": cases, "intents": intents]
+}
+
+/// `clicks <input.json>`: `{"steps": [{"click": {"request_id", "user_info"}} | {"navigate": true} |
+/// {"create": true} | {"baseline": true} | {"pending": {"<conversation>": n}}]}`, driven as `UIModel` drives
+/// `NotificationClicks`: what each click and the baseline open (null: nothing).
+func runClicks(_ data: Data) throws -> [String: Any] {
+    guard let input = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        throw DaemonClientError.malformed("expected an object")
+    }
+    var clicks = NotificationClicks()
+    var baselined = false
+    var navigation = 0
+    var pending: [String: Int] = [:]
+    var opened: [Any] = []
+    func project(_ opening: NotificationOpening?) -> Any {
+        opening.map { ["conversation": $0.conversationID, "reveals_card": $0.revealsCard] } ?? NSNull()
+    }
+    for step in input["steps"] as? [[String: Any]] ?? [] {
+        if let counts = step["pending"] as? [String: Int] { pending = counts }
+        if step["navigate"] as? Bool == true { navigation += 1 }
+        if step["create"] as? Bool == true { clicks.drop() }
+        if let click = step["click"] as? [String: Any] {
+            // A notification naming no conversation never reaches the model.
+            let target = NotificationTarget(requestID: click["request_id"] as? String ?? "",
+                                            userInfo: click["user_info"] as? [AnyHashable: Any] ?? [:])
+            opened.append(project(target.flatMap {
+                clicks.click($0, baselined: baselined, navigation: navigation, pendingApprovals: pending)
+            }))
+        }
+        if step["baseline"] as? Bool == true {
+            // `connect` lands its baseline once.
+            opened.append(baselined ? NSNull() : project(clicks.baselineLanded(navigation: navigation,
+                                                                              pendingApprovals: pending)))
+            baselined = true
+        }
+    }
+    return ["opened": opened, "held": clicks.held?.conversationID as Any? ?? NSNull()]
+}
+
+/// `store <input.json>`: fold a sequence of daemon answers into the store state. Besides the
+/// daemon's answers, a step can focus a conversation (`{"focus": id | null}`) or say whether the
+/// focused one is on screen (`{"on_screen": bool}`, as UIModel reads it from AppKit; false until one says).
 func runStore(_ data: Data) throws -> [String: Any] {
     let input = try JSONValue.parse(data)
     var state = ConversationStoreState()
@@ -303,10 +437,30 @@ func runStore(_ data: Data) throws -> [String: Any] {
         }
         if let open = step["open"] { state.apply(open: try open.decode(ConversationOpenResult.self)); log.append("open") }
         if let page = step["events"], let cid = step["conversation_id"]?.string {
-            log.append(pageResult(state.apply(events: try page.decode(EventsPage.self), conversationID: cid)))
+            let decoded = try page.decode(EventsPage.self)
+            if let socket = step["refresh_socket"]?.string {
+                let client = DaemonClient(transport: try probeTransport(socket))
+                let engine = ConversationEngine(client: client, outbox: try Outbox(url: nil))
+                let receipts = try engine.unknownReceipts(in: decoded, knownMessageIDs: state.knownMessageIDs(in: cid))
+                state.apply(receipts: receipts, conversationID: cid)
+            }
+            log.append(pageResult(state.apply(events: decoded, conversationID: cid)))
         }
         if let page = step["watch"] {
-            switch state.apply(watch: try page.decode(WatchPage.self)) {
+            let decoded = try page.decode(WatchPage.self)
+            let folded: ConversationStoreState.WatchResult
+            if let socket = step["refresh_socket"]?.string {
+                let client = DaemonClient(transport: try probeTransport(socket))
+                let journal = URL(fileURLWithPath: socket).deletingLastPathComponent().appendingPathComponent("watch-outbox.json")
+                let engine = ConversationEngine(client: client, outbox: try Outbox(url: journal))
+                let update = try engine.refreshing(decoded, after: state.watchCursor,
+                                                  focusedConversationID: state.focusedConversationID,
+                                                  knownMessageIDs: state.focusedConversationID.map { state.knownMessageIDs(in: $0) } ?? [])
+                folded = state.apply(update: update)
+            } else {
+                folded = state.apply(watch: decoded)
+            }
+            switch folded {
             case .applied(let count): log.append("watch:\(count)")
             case .superseded: log.append("watch:superseded")
             }
@@ -316,6 +470,7 @@ func runStore(_ data: Data) throws -> [String: Any] {
             log.append("status")
         }
         if step["focus"] != nil { state.focus(step["focus"]?.string); log.append("focus") }
+        if let onScreen = step["on_screen"]?.bool { state.focusedOnScreen = onScreen; log.append("on_screen") }
         if let receipts = step["receipts"] {
             // Receipts as the outbox or `message.status` hand them over (C-24.9 states included).
             for receipt in try receipts.decode([Receipt].self) { state.apply(receipt: receipt) }
@@ -343,9 +498,12 @@ func runStore(_ data: Data) throws -> [String: Any] {
         "sidebar": state.sidebar(now: now, calendar: calendar).map { ["title": $0.title, "entries": $0.entries.map(project)] },
         "badge": state.pendingApprovalCount,
         "notifications": state.notifications.map { ["id": $0.id, "kind": $0.kind.rawValue, "conversation": $0.conversationID,
-                                                     "title": $0.title, "body": $0.body] },
+                                                     "title": $0.title, "body": $0.body,
+                                                     // Read back as its click would be, with what is on screen now (C-29.9).
+                                                     "clicked": project(clicked($0), onScreen: state.onScreenConversationID)] },
         "watch_cursor": state.watchCursor, "watch_baselined": state.watchBaselined,
         "focused": state.focusedConversationID as Any? ?? NSNull(),
+        "on_screen": state.onScreenConversationID as Any? ?? NSNull(),
         "conversations": state.conversations.map { ["id": $0.conversation_id, "active": $0.active,
                                                      "pending": $0.pending_approvals,
                                                      "last_state": $0.last_message?.state as Any? ?? NSNull()] as [String: Any] },
@@ -361,8 +519,10 @@ func runStore(_ data: Data) throws -> [String: Any] {
     var steerHints: [String: Any] = [:]
     var items: [String: Any] = [:]
     var projected: [String: Any] = [:]
+    var layouts: [String: Any] = [:]
     for conversation in state.conversations {
         let id = conversation.conversation_id
+        layouts[id] = state.layout(conversationID: id).map(project) ?? NSNull()
         composer[id] = state.composerOptions(for: id).map(project) ?? NSNull()
         // C-26.8 (review of 0eac67b4, P2): the composer's options follow a model
         // picked but not yet saved, so its efforts and default are that model's.
@@ -410,6 +570,12 @@ func runStore(_ data: Data) throws -> [String: Any] {
     out["steer_hints"] = steerHints
     out["items"] = items
     out["timeline"] = projected
+    out["layouts"] = layouts
+    var withdrawals: [String: Any] = [:]
+    for timeline in state.timelines.values {
+        for turn in timeline.turns.values { withdrawals[turn.messageID] = project(turn.queuedWithdrawal) }
+    }
+    out["queued_withdrawals"] = withdrawals
     return out
 }
 
@@ -449,8 +615,8 @@ func runWatchLoop(socket: String, journal: String, turns: Int) throws -> [String
                   left -= 1
                   return left >= 0 ? after : nil
               },
-              deliver: { page in
-                  after = page.next
+              deliver: { update in
+                  after = update.page.next
                   log.append("page")
               },
               lost: { error in
@@ -520,6 +686,10 @@ func extraCommand(_ arguments: [String]) throws -> Any? {
     case "suggestions":
         // suggestions <input.json>: the Suggested section and the timeline's cards (C-29.14)
         return try runSuggestions(readFile(arguments[2]))
+    case "notification-targets":
+        return try runNotificationTargets(readFile(arguments[2]))
+    case "clicks":
+        return try runClicks(readFile(arguments[2]))
     case "stage":
         // stage <image> <directory>
         do {

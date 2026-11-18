@@ -1,0 +1,15 @@
+hold 22:58:45Z slot A load { 61.76 58.54 58.99 }
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____________ test_routine_records_are_exactly_unchanged[worktree] _____________
+tests/unit/test_retention_locations.py:152: in test_routine_records_are_exactly_unchanged
+    assert recorded == expected
+E   AssertionError: assert {'git': ['/pr...d/commondir']} == {'git': ['/pr...git/objects']}
+E     
+E     Differing items:
+E     {'git': ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r8-routine-skip-dropped/pytest-...skip-dropped/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository/.git/worktrees/linked/commondir']} != {'git': ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r8-routine-skip-dropped/pytest-...eal/mut-r8-routine-skip-dropped/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository/.git/objects']}
+E     Use -v to get more diff
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]
+1 failed in 42.26s
+MUTANT {"name": "r8-routine-skip-dropped", "rc": 1, "failed": 1, "killed": true, "same_as_fix_r12": true, "assertions": [["assert recorded == expected"]]}

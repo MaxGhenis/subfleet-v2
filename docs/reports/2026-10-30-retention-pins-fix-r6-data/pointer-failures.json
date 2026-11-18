@@ -1,0 +1,128 @@
+{
+  "label": "pointer-failures",
+  "start": "2026-10-30T22:15:05.446063+00:00",
+  "loads": [
+    29.974609375,
+    19.310546875,
+    18.55419921875
+  ],
+  "seconds": 38.243032000013045,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[dangling]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.952981958995224,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[oversized]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.3210905419982737,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[permission]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.19662420800887048,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[oserror]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.14111862500431016,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[value]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.18113591699511744,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/fake/test_retention_pointer_failures.py::test_stale_gitfile_with_vanished_target_still_retires",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.394600083003752,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/fake/test_retention_pointer_failures.py::test_pointer_beneath_a_file_is_missing_evidence",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0007231249910546467,
+      "properties": []
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[dangling]",
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[oversized]",
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[permission]",
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[oserror]",
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[value]",
+    "tests/fake/test_retention_pointer_failures.py::test_stale_gitfile_with_vanished_target_still_retires",
+    "tests/fake/test_retention_pointer_failures.py::test_pointer_beneath_a_file_is_missing_evidence"
+  ],
+  "all_nodes": [
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[dangling]",
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[oversized]",
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[permission]",
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[oserror]",
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[value]",
+    "tests/fake/test_retention_pointer_failures.py::test_stale_gitfile_with_vanished_target_still_retires",
+    "tests/fake/test_retention_pointer_failures.py::test_pointer_beneath_a_file_is_missing_evidence"
+  ],
+  "phases": {
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[dangling]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[oversized]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[permission]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[oserror]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[value]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_pointer_failures.py::test_stale_gitfile_with_vanished_target_still_retires": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_pointer_failures.py::test_pointer_beneath_a_file_is_missing_evidence": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {},
+  "loaded": [],
+  "rss": 123863040
+}

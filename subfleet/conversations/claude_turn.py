@@ -20,7 +20,7 @@ import base64
 import json
 from typing import Any, Callable
 
-from ..adapters.claude import model_matches_requested
+from ..adapters.claude import lane_settings_args, model_matches_requested
 from ..adapters.claude_stream import is_synthetic_api_error
 from . import redact
 from .reconcile import SETTINGS_FRAME
@@ -134,6 +134,7 @@ def argv(spec: TurnSpec, *, claude_bin: str = "claude", read_only_flags: tuple[s
         command += ["--session-id", spec.new_session_id]
     else:
         raise ValueError("a Claude turn needs a session to resume or a new session id")
+    settings: dict[str, Any] = {}
     if spec.permission == "read-only":
         command += list(read_only_flags)
     elif spec.permission in PERMISSION_FLAGS:
@@ -141,19 +142,18 @@ def argv(spec: TurnSpec, *, claude_bin: str = "claude", read_only_flags: tuple[s
         command += ["--disallowedTools", ",".join(DISALLOWED_TOOLS)]
         # Command-line settings outrank project and local settings, so a workspace
         # file cannot switch the user's never-rules hook off (C-26.11).
-        settings: dict[str, Any] = {"disableAllHooks": False}
-        if spec.fast:
-            settings["fastMode"] = True
-        if ultracode:
-            # C-26.8: the orchestration half of ultracode. Read-only turns get only
-            # its effort: their tool set has no Workflow tool to orchestrate with.
-            settings["ultracode"] = True
-        command += ["--settings", json.dumps(settings, separators=(",", ":"))]
+        settings["disableAllHooks"] = False
     else:
         raise ValueError(f"unknown permission {spec.permission!r}")
-    if spec.permission == "read-only" and spec.fast:
-        command += ["--settings", json.dumps({"fastMode": True}, separators=(",", ":"))]
-    return command
+    if spec.fast:
+        settings["fastMode"] = True
+    if ultracode and spec.permission != "read-only":
+        # C-26.8: the orchestration half of ultracode. Read-only turns get only
+        # its effort: their tool set has no Workflow tool to orchestrate with.
+        settings["ultracode"] = True
+    # One `--settings` for every permission, with Claude Code's retry watchdog
+    # off (C-26.11, d1031), intended to end a turn at its plan's ceiling rather than wait.
+    return command + lane_settings_args(settings)
 
 
 def environment() -> dict[str, str]:
@@ -220,7 +220,7 @@ class ClaudeTurn(SteerTracking):
         self.phase = "initializing"
         request = {"type": "control_request", "request_id": INIT_REQUEST_ID,
                    "request": {"subtype": "initialize"}}
-        return Step(frames=[Frame("init", "write", _line(request))],
+        return Step(frames=[Frame("init", "write", _line(request), stops=False)],
                     events=[Event("status", {"phase": "starting-provider"}, "cmd:start")])
 
     def interrupt(self) -> Step:
@@ -233,7 +233,7 @@ class ClaudeTurn(SteerTracking):
             return self._end(INTERRUPTED, "stopped-before-send", source="cmd:interrupt")
         request = {"type": "control_request", "request_id": INTERRUPT_REQUEST_ID,
                    "request": self._interrupt_request()}
-        return Step(frames=[Frame("interrupt", "write", _line(request))],
+        return Step(frames=[Frame("interrupt", "write", _line(request), stops=True)],
                     events=[Event("status", {"phase": "stopping"}, "cmd:interrupt")])
 
     def _interrupt_request(self) -> dict:
@@ -261,7 +261,7 @@ class ClaudeTurn(SteerTracking):
         message = {"type": "user", "uuid": message_id, "priority": "next", "parent_tool_use_id": None,
                    "session_id": self.spec.native_session_id or self.spec.new_session_id,
                    "message": {"role": "user", "content": content}}
-        return Step(frames=[Frame(f"steer:{message_id}", "write", _line(message))],
+        return Step(frames=[Frame(f"steer:{message_id}", "write", _line(message), stops=False)],
                     events=[Event("steer.sent", {"message_id": message_id}, f"cmd:steer:{message_id}")])
 
     def drop_steer(self, message_id: str, detail: str) -> Step:
@@ -308,7 +308,7 @@ class ClaudeTurn(SteerTracking):
     def _cancel_frame(mid: str) -> Frame:
         request = {"type": "control_request", "request_id": f"cancel-steer:{mid}",
                    "request": {"subtype": "cancel_async_message", "message_uuid": mid}}
-        return Frame(f"cancel-steer:{mid}", "write", _line(request))
+        return Frame(f"cancel-steer:{mid}", "write", _line(request), stops=False)
 
     def interrupted_earlier(self) -> None:
         """Replay (C-26.6): the relay's log shows an interrupt an earlier runner
@@ -337,7 +337,7 @@ class ClaudeTurn(SteerTracking):
                 # that sweeps queued steers. Its own tag still deduplicates it.
                 step.frames.append(Frame("interrupt", "write", _line({
                     "type": "control_request", "request_id": INTERRUPT_REQUEST_ID,
-                    "request": self._interrupt_request()})))
+                    "request": self._interrupt_request()}), stops=True))
         return step
 
     def respond(self, request_id: str, decision: str, message: str | None = None,
@@ -365,13 +365,13 @@ class ClaudeTurn(SteerTracking):
             result["toolUseID"] = request["tool_use_id"]
         response = {"type": "control_response",
                     "response": {"subtype": "success", "request_id": request_id, "response": result}}
-        frames = [Frame(f"approval:{request_id}", "write", _line(response))]
+        frames = [Frame(f"approval:{request_id}", "write", _line(response), stops=decision == "cancel-turn")]
         if decision == "cancel-turn" and self._steer_pending:
             # The permission reply aborts only the active turn. A separate SDK
             # interrupt must sweep queued messages, or the CLI runs them next.
             frames.append(Frame("interrupt", "write", _line({
                 "type": "control_request", "request_id": INTERRUPT_REQUEST_ID,
-                "request": self._interrupt_request()})))
+                "request": self._interrupt_request()}), stops=True))
         return Step(frames=frames,
                     resolved=[request_id],
                     events=[Event("approval.resolved", {"request_id": request_id, "decision": decision},
@@ -525,13 +525,13 @@ class ClaudeTurn(SteerTracking):
             message = {"type": "user", "uuid": self.spec.message_id, "parent_tool_use_id": None,
                        "session_id": self.spec.native_session_id or self.spec.new_session_id,
                        "message": {"role": "user", "content": content}}
-            frames.append(Frame("user-message", "write", _line(message)))
+            frames.append(Frame("user-message", "write", _line(message), stops=False))
         # Replay the state transition and events without reconstructing a payload
         # the relay already wrote. Its attachment may have been removed since.
         # C-26.8: `get_settings` follows the message; the runner drops it when an
         # earlier runner sent the message.
         ask = {"type": "control_request", "request_id": SETTINGS_REQUEST_ID, "request": {"subtype": "get_settings"}}
-        frames.append(Frame(SETTINGS_FRAME, "write", _line(ask)))
+        frames.append(Frame(SETTINGS_FRAME, "write", _line(ask), stops=False))
         return Step(frames=frames,
                     events=[Event("served", served, source.next()),
                             Event("status", {"phase": "sent"}, source.next())])
@@ -590,7 +590,7 @@ class ClaudeTurn(SteerTracking):
         # Anything else (authentication refreshes, hooks, MCP messages) is refused (C-27.4).
         response = {"type": "control_response",
                     "response": {"subtype": "error", "request_id": request_id, "error": UNSUPPORTED}}
-        return Step(frames=[Frame(f"refuse:{request_id}", "write", _line(response))] if request_id else [],
+        return Step(frames=[Frame(f"refuse:{request_id}", "write", _line(response), stops=False)] if request_id else [],
                     events=[Event("error", {"message": f"refused unsupported provider request {subtype!r}"},
                                   source.next())])
 
@@ -872,7 +872,7 @@ class ClaudeTurn(SteerTracking):
             return Step()
         # C-26.8: stop at once; a turn on the wrong model is not the turn asked for.
         step = Step(frames=[] if self.interrupt_requested else [Frame("interrupt", "write", _line(
-            {"type": "control_request", "request_id": INTERRUPT_REQUEST_ID, "request": self._interrupt_request()}))])
+            {"type": "control_request", "request_id": INTERRUPT_REQUEST_ID, "request": self._interrupt_request()}), stops=True)])
         self.interrupt_requested = True
         return step.extend(self._end(FAILED, "model-mismatch", detail=f"asked for {self.spec.model_id}, served {model}",
                                      source=source.next()))
@@ -888,7 +888,7 @@ class ClaudeTurn(SteerTracking):
         self.pending.clear()
         data = {"state": state, "reason": reason, "detail": detail, "served_model": self.served_model,
                 **(extra or {})}
-        return Step(frames=[Frame("close", "close")], resolved=withdrawn, outcome=self.outcome,
+        return Step(frames=[Frame("close", "close", stops=True)], resolved=withdrawn, outcome=self.outcome,
                     events=[Event("turn.completed", data, source)])
 
 

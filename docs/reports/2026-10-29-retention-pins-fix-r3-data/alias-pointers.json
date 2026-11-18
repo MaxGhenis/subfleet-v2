@@ -1,0 +1,77 @@
+{
+  "label": "alias-pointers",
+  "start": "2026-10-29T20:12:37.720187+00:00",
+  "loads": [
+    20.4072265625,
+    19.1318359375,
+    14.876953125
+  ],
+  "seconds": 8.794712917000197,
+  "exit": 0,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.13049374999991414
+    },
+    {
+      "nodeid": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[gitdir]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.002498250000371627
+    },
+    {
+      "nodeid": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[commondir]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0021032079998803965
+    },
+    {
+      "nodeid": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[common-target]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.004054167000049347
+    },
+    {
+      "nodeid": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[alternate]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.003139542000099027
+    },
+    {
+      "nodeid": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[folder]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0030629580001004797
+    },
+    {
+      "nodeid": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[directory]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0032086670003081963
+    },
+    {
+      "nodeid": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[vanished]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.002908333000050334
+    },
+    {
+      "nodeid": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[stable]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.002544166999996378
+    }
+  ],
+  "rss": 113377280
+}

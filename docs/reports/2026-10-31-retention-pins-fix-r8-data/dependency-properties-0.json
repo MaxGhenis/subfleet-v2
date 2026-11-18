@@ -1,0 +1,46 @@
+{
+  "name": "dependency-properties-0",
+  "start": "2026-10-31T07:28:25.896442+00:00",
+  "load": [
+    33.67041015625,
+    34.4443359375,
+    34.1396484375
+  ],
+  "args": [
+    "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.030619000001024688,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 43.508692708001035,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005032499975641258,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-030606-pr272-fix-r8/subfleet/dependencies.py",
+  "product_sha256": "1ed48486e59e3857dd906e46104e798bc1d3e963359fd636ea08a45acfae82ac",
+  "end": "2026-10-31T07:29:17.495049+00:00",
+  "seconds": 51.597654959001375,
+  "peak_rss_mib": 126.65625,
+  "exit": 0
+}

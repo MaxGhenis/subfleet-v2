@@ -1,0 +1,51 @@
+{
+  "name": "test_turn_retention_job_properties",
+  "start": "2026-10-31T18:46:16.134326+00:00",
+  "load": [
+    72.29296875,
+    65.30322265625,
+    62.1259765625
+  ],
+  "pytest_pid": 42925,
+  "failure_root": "/private/tmp/sf-fix272r11/failed-keep",
+  "args": [
+    "tests/fake/test_turn_retention_job_properties.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.4728066669995314,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 162.4020669169986,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.03080845899967244,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-140216-pr272-fix-r11/subfleet/dependencies.py",
+  "product_sha256": "71066920a6f158ab189ac0b931ef62e774314276df23cb28855f0edcb0bdd4bc",
+  "end": "2026-10-31T18:49:54.024633+00:00",
+  "seconds": 217.88654787500127,
+  "peak_rss_mib": 123.21875,
+  "exit": 0
+}

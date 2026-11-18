@@ -1,0 +1,7 @@
+{
+  "reveals": 2,
+  "current_regression": "passed order, landing and follow behavior",
+  "old_exact_one": "rejected",
+  "old_release_count": 41,
+  "real_release_count": 1
+}

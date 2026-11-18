@@ -1,0 +1,70 @@
+{
+  "label": "turn-cwd-property",
+  "start": "2026-10-31T05:55:55.339825+00:00",
+  "loads": [
+    32.2724609375,
+    29.56103515625,
+    29.5458984375
+  ],
+  "seconds": 42.90985275000094,
+  "exit": 0,
+  "locked": false,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_turn_retention_cwd_properties.py::test_t1_t3_actual_cwd_fences_hold_reservation_and_name_the_folder",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0649764169993432,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/fake/test_turn_retention_cwd_properties.py::test_t1_t3_actual_cwd_fences_hold_reservation_and_name_the_folder",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 31.571310249999442,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/fake/test_turn_retention_cwd_properties.py::test_t1_t3_actual_cwd_fences_hold_reservation_and_name_the_folder",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0005551670001295861,
+      "properties": [],
+      "failure": null
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_turn_retention_cwd_properties.py::test_t1_t3_actual_cwd_fences_hold_reservation_and_name_the_folder"
+  ],
+  "all_nodes": [
+    "tests/fake/test_turn_retention_cwd_properties.py::test_t1_t3_actual_cwd_fences_hold_reservation_and_name_the_folder"
+  ],
+  "property_settings": {
+    "tests/fake/test_turn_retention_cwd_properties.py::test_t1_t3_actual_cwd_fences_hold_reservation_and_name_the_folder": {
+      "max_examples": 40,
+      "derandomize": true,
+      "database_none": true,
+      "explicit_examples": 5,
+      "phases": [
+        "Phase.explicit",
+        "Phase.reuse",
+        "Phase.generate",
+        "Phase.target",
+        "Phase.shrink",
+        "Phase.explain"
+      ],
+      "digest": "4812df9571f74cdf22db0657609a9f64235f708d6d44664e5730f03d8da587423e5313e7590b7a9c117ef51ddab7dfbc"
+    }
+  },
+  "loaded": [],
+  "dependency_source": {
+    "file": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/subfleet/dependencies.py",
+    "sha256": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d"
+  },
+  "rss": 125812736
+}

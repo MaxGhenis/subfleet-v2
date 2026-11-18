@@ -1,0 +1,27 @@
+{
+  "name": "mutant-git-storage-gitfile-relative-to-cwd",
+  "start": "2026-10-29T06:25:46.449146+00:00",
+  "load": [
+    19.9619140625,
+    18.53662109375,
+    21.0361328125
+  ],
+  "exitstatus": 1,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_dependency_units.py::test_d1_a_separate_git_dir_and_a_relative_gitfile"
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_units.py::test_d1_a_separate_git_dir_and_a_relative_gitfile": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": "git-storage-gitfile-relative-to-cwd",
+  "loaded": [
+    "subfleet.dependencies"
+  ]
+}

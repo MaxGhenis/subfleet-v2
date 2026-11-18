@@ -1,0 +1,33 @@
+{
+  "name": "units-property-3",
+  "start": "2026-10-29T05:38:19.162498+00:00",
+  "load": [
+    21.0029296875,
+    22.92919921875,
+    25.6552734375
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-011712-pr272-fix-r1",
+  "collected": [
+    "tests/unit/test_retention_dependency_units.py::test_d4_a_job_that_has_not_ended_never_releases_a_pin_and_ending_one_never_adds_one"
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_units.py::test_d4_a_job_that_has_not_ended_never_releases_a_pin_and_ending_one_never_adds_one": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [
+    {
+      "nodeid": "tests/unit/test_retention_dependency_units.py::test_d4_a_job_that_has_not_ended_never_releases_a_pin_and_ending_one_never_adds_one",
+      "valid": 60,
+      "invalid": 0,
+      "calls": 64,
+      "settings_max": 60
+    }
+  ],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

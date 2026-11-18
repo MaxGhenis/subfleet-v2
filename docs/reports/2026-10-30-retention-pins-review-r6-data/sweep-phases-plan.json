@@ -1,0 +1,16 @@
+[
+  [
+    "retention_sweep_race-explicit",
+    [
+      "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree",
+      "-s"
+    ]
+  ],
+  [
+    "retention_sweep_race-generated",
+    [
+      "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree",
+      "-s"
+    ]
+  ]
+]

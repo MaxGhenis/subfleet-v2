@@ -1,0 +1,274 @@
+{
+  "name": "test_turn_retention_quarantine",
+  "start": "2026-10-31T09:22:55.947779+00:00",
+  "load": [
+    37.2626953125,
+    35.3251953125,
+    39.3994140625
+  ],
+  "args": [
+    "tests/fake/test_turn_retention_quarantine.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_turn_retention_quarantine.py::test_t2_readonly_turn_in_quarantine_keeps_its_live_cwd[nested-worktree-commit]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.23759741600224515,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_quarantine.py::test_t2_readonly_turn_in_quarantine_keeps_its_live_cwd[nested-worktree-commit]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.390896959001111,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_quarantine.py::test_t2_readonly_turn_in_quarantine_keeps_its_live_cwd[nested-worktree-commit]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006417500007955823,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_quarantine.py::test_t2_readonly_turn_in_quarantine_keeps_its_live_cwd[nested-worktree-holder-rollback]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0032183329967665486,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_quarantine.py::test_t2_readonly_turn_in_quarantine_keeps_its_live_cwd[nested-worktree-holder-rollback]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.1443813329969998,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_quarantine.py::test_t2_readonly_turn_in_quarantine_keeps_its_live_cwd[nested-worktree-holder-rollback]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00045416600187309086,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_quarantine.py::test_t2_readonly_turn_in_quarantine_keeps_its_live_cwd[worktree-commit]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0027097499987576157,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_quarantine.py::test_t2_readonly_turn_in_quarantine_keeps_its_live_cwd[worktree-commit]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.869646292001562,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_quarantine.py::test_t2_readonly_turn_in_quarantine_keeps_its_live_cwd[worktree-commit]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000580750001972774,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_quarantine.py::test_t2_readonly_turn_in_quarantine_keeps_its_live_cwd[worktree-holder-rollback]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0054405419978138525,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_quarantine.py::test_t2_readonly_turn_in_quarantine_keeps_its_live_cwd[worktree-holder-rollback]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.0086591670005873,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_quarantine.py::test_t2_readonly_turn_in_quarantine_keeps_its_live_cwd[worktree-holder-rollback]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006986250009504147,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_quarantine.py::test_t2_readonly_turn_in_quarantine_keeps_its_live_cwd[job-directory-commit]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.013907042000937508,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_quarantine.py::test_t2_readonly_turn_in_quarantine_keeps_its_live_cwd[job-directory-commit]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.7694629170000553,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_quarantine.py::test_t2_readonly_turn_in_quarantine_keeps_its_live_cwd[job-directory-commit]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005836670025018975,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_quarantine.py::test_t2_readonly_turn_in_quarantine_keeps_its_live_cwd[job-directory-holder-rollback]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0056381249996775296,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_quarantine.py::test_t2_readonly_turn_in_quarantine_keeps_its_live_cwd[job-directory-holder-rollback]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.8390062079997733,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_quarantine.py::test_t2_readonly_turn_in_quarantine_keeps_its_live_cwd[job-directory-holder-rollback]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00048337499902118,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_quarantine.py::test_turn_arriving_after_quarantine_cleanup_fence_waits[False-commit]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.1141802079982881,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_quarantine.py::test_turn_arriving_after_quarantine_cleanup_fence_waits[False-commit]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.0689270840011886,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_quarantine.py::test_turn_arriving_after_quarantine_cleanup_fence_waits[False-commit]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00047650000124122016,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_quarantine.py::test_turn_arriving_after_quarantine_cleanup_fence_waits[False-holder-rollback]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0030979580005805474,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_quarantine.py::test_turn_arriving_after_quarantine_cleanup_fence_waits[False-holder-rollback]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7692646250034159,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_quarantine.py::test_turn_arriving_after_quarantine_cleanup_fence_waits[False-holder-rollback]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005029579988331534,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_quarantine.py::test_turn_arriving_after_quarantine_cleanup_fence_waits[True-commit]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.05115233399919816,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_quarantine.py::test_turn_arriving_after_quarantine_cleanup_fence_waits[True-commit]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.7134708340017824,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_quarantine.py::test_turn_arriving_after_quarantine_cleanup_fence_waits[True-commit]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004870830016443506,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_quarantine.py::test_turn_arriving_after_quarantine_cleanup_fence_waits[True-holder-rollback]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0047950000007404014,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_quarantine.py::test_turn_arriving_after_quarantine_cleanup_fence_waits[True-holder-rollback]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.8876262909980142,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_quarantine.py::test_turn_arriving_after_quarantine_cleanup_fence_waits[True-holder-rollback]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004840830006287433,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/fake/test_turn_retention_quarantine.py::test_t2_readonly_turn_in_quarantine_keeps_its_live_cwd[nested-worktree-commit]",
+    "tests/fake/test_turn_retention_quarantine.py::test_t2_readonly_turn_in_quarantine_keeps_its_live_cwd[nested-worktree-holder-rollback]",
+    "tests/fake/test_turn_retention_quarantine.py::test_t2_readonly_turn_in_quarantine_keeps_its_live_cwd[worktree-commit]",
+    "tests/fake/test_turn_retention_quarantine.py::test_t2_readonly_turn_in_quarantine_keeps_its_live_cwd[worktree-holder-rollback]",
+    "tests/fake/test_turn_retention_quarantine.py::test_t2_readonly_turn_in_quarantine_keeps_its_live_cwd[job-directory-commit]",
+    "tests/fake/test_turn_retention_quarantine.py::test_t2_readonly_turn_in_quarantine_keeps_its_live_cwd[job-directory-holder-rollback]",
+    "tests/fake/test_turn_retention_quarantine.py::test_turn_arriving_after_quarantine_cleanup_fence_waits[False-commit]",
+    "tests/fake/test_turn_retention_quarantine.py::test_turn_arriving_after_quarantine_cleanup_fence_waits[False-holder-rollback]",
+    "tests/fake/test_turn_retention_quarantine.py::test_turn_arriving_after_quarantine_cleanup_fence_waits[True-commit]",
+    "tests/fake/test_turn_retention_quarantine.py::test_turn_arriving_after_quarantine_cleanup_fence_waits[True-holder-rollback]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/subfleet/dependencies.py",
+  "product_sha256": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+  "end": "2026-10-31T09:23:22.481544+00:00",
+  "seconds": 26.53340679199755,
+  "peak_rss_mib": 122.984375,
+  "exit": 0
+}

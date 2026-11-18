@@ -1,0 +1,41 @@
+{
+  "name": "recovery-probe",
+  "start": "2026-10-29T13:50:57.878565+00:00",
+  "load": [
+    23.802734375,
+    22.91796875,
+    23.0185546875
+  ],
+  "phases": {
+    "recovery.py::test_recovery_sees_incomplete_before_quarantine[live-legacy]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    },
+    "recovery.py::test_recovery_sees_incomplete_before_quarantine[live-recorded]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "recovery.py::test_recovery_sees_incomplete_before_quarantine[exporting-legacy]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    },
+    "recovery.py::test_recovery_sees_incomplete_before_quarantine[exporting-recorded]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "recovery.py::test_recovery_sees_incomplete_before_quarantine[live-legacy]",
+    "recovery.py::test_recovery_sees_incomplete_before_quarantine[live-recorded]",
+    "recovery.py::test_recovery_sees_incomplete_before_quarantine[exporting-legacy]",
+    "recovery.py::test_recovery_sees_incomplete_before_quarantine[exporting-recorded]"
+  ],
+  "loaded": [],
+  "rc": 1,
+  "seconds": 25.110092874994734,
+  "rss": 113803264
+}

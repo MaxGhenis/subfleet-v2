@@ -1,0 +1,33 @@
+{
+  "label": "test_module_names",
+  "start": "2026-10-29T20:57:59.070548+00:00",
+  "loads": [
+    54.95361328125,
+    57.98828125,
+    51.82373046875
+  ],
+  "seconds": 6.7506925839998075,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.5798890409996602
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own"
+  ],
+  "phases": {
+    "tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 114966528
+}

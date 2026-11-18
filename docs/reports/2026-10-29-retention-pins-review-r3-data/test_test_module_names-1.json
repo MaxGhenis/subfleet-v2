@@ -1,0 +1,23 @@
+{
+  "name": "test_test_module_names-1",
+  "start": "2026-10-29T14:42:57.795592+00:00",
+  "load": [
+    15.40625,
+    26.60302734375,
+    32.4404296875
+  ],
+  "phases": {
+    "tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 5.164668291006819,
+  "rss": 111968256
+}

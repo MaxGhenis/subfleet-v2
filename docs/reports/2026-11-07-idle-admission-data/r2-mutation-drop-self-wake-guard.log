@@ -1,0 +1,31 @@
+bringing up nodes...
+bringing up nodes...
+
+.F..F.                                                                   [100%]
+=================================== FAILURES ===================================
+_ test_only_the_pass_threads_own_queue_transition_is_ignored[own-thread-requeue] _
+[gw1] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpM5mLAt/bin/python
+tests/fake/test_idle_admission_self_wake.py:85: in test_only_the_pass_threads_own_queue_transition_is_ignored
+    assert (service._admission_rest_until > clock.now) is resting
+E   assert (0.0 > 1000.1) is True
+E    +  where 0.0 = <subfleet.daemon.Daemon object at 0x109cdba10>._admission_rest_until
+E    +  and   1000.1 = namespace(now=1000.1, duration=0.1, placed=0, error=False, during=<function test_only_the_pass_threads_own_queue_trans...during at 0x10a2b1850>, starts=[1000.0], ends=[1000.1], turns=[], offer=<function paced.<locals>.offer at 0x10a2b1220>).now
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4459444752:daemon.py:999 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4459444752:daemon.py:1092 reset credits: automatic redemption off; no-reset marker absent
+_____ test_a_real_pass_requeuing_its_own_job_still_rests[workspace-ready] ______
+[gw0] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpM5mLAt/bin/python
+tests/fake/test_idle_admission_self_wake.py:52: in test_a_real_pass_requeuing_its_own_job_still_rests
+    assert service._admission_rest_until > daemon_module.time.monotonic()
+E   AssertionError: assert 0.0 > 45974.092591375
+E    +  where 0.0 = <subfleet.daemon.Daemon object at 0x10a000590>._admission_rest_until
+E    +  and   45974.092591375 = <built-in function monotonic>()
+E    +    where <built-in function monotonic> = <module 'time' (built-in)>.monotonic
+E    +      where <module 'time' (built-in)> = daemon_module.time
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4462740880:daemon.py:999 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4462740880:daemon.py:1092 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_idle_admission_self_wake.py::test_only_the_pass_threads_own_queue_transition_is_ignored[own-thread-requeue]
+FAILED tests/fake/test_idle_admission_self_wake.py::test_a_real_pass_requeuing_its_own_job_still_rests[workspace-ready]
+2 failed, 4 passed in 18.91s

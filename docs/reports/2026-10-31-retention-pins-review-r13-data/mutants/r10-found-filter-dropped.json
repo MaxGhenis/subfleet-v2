@@ -1,0 +1,36 @@
+{
+ "name": "r10-found-filter-dropped",
+ "start": "2026-10-31T23:05:05Z",
+ "load": [
+  55.8896484375,
+  58.02880859375,
+  59.42138671875
+ ],
+ "rc": 1,
+ "killers": [
+  "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-self-suffix]"
+ ],
+ "hashes": [
+  {
+   "original": "3d013f755b9b045e4104c7be192f027125d12991be2c191a3a315e4228c4f728",
+   "mutated": "51ea29de8e40707886917a61abfe273448a239938802deeaf3027781675ed786"
+  }
+ ],
+ "failed": 1,
+ "other_failures": 0,
+ "killed": true,
+ "assertions": [
+  [
+   "assert os.path.join(folders.canonical(os.path.dirname(place)), os.path.basename(place)) == place, place"
+  ]
+ ],
+ "fix_r12_assertions": [
+  [
+   "assert os.path.join(folders.canonical(os.path.dirname(place)), os.path.basename(place)) == place, place"
+  ]
+ ],
+ "same_as_fix_r12": true,
+ "failures": [
+  "tests/unit/test_retention_location_cycles.py:92: in test_cycle_routes_keep_spelling_and_evidence\n    links = assert_location_spelling(checkout, recorded.get(\"git\", []))\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\ntests/unit/test_retention_location_spelling.py:64: in assert_location_spelling\n    assert os.path.join(folders.canonical(os.path.dirname(place)), os.path.basename(place)) == place, place\nE   AssertionError: /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r10-found-filter-dropped/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\nE   assert '/private/var...ail/tail/tail' == '/private/var...ail/tail/tail'\nE     \nE     Skipping 481 identical leading characters in diff, use -v to show\nE     - l/tail/tail\nE     + l/tail/tail/tail\nE     ?            +++++"
+ ]
+}

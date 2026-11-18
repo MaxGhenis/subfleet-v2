@@ -179,7 +179,8 @@ def test_completed_success_survives_premerge_auth_receipt(state_daemon, monkeypa
             daemon._finalize(finalizing)
         assert daemon.store.get_attempt(attempt["attempt_id"])["state"] == "finalizing"
         assert (adir / "deliverable.md").read_bytes() == b"Finished."
-        assert (adir / "stream.jsonl").read_bytes() == (adir / "stdout").read_bytes()
+        frozen_stream = daemon._freeze_stream(adir, launch)
+        assert frozen_stream.read_bytes() == (adir / "stdout").read_bytes()
         (adir / "stdout").write_text('{"type":"turn.failed"}\n')
         (adir / "last.md").write_bytes(b" \n")
         monkeypatch.setattr(daemon, "_salvage", salvage)

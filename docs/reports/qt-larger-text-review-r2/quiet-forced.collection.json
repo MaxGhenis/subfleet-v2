@@ -1,0 +1,3 @@
+[
+  "tests/frontend/test_review_pr284_pin.py::test_quiet_landing_rule_rejects_a_measured_missed_growth"
+]

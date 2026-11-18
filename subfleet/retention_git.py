@@ -27,16 +27,21 @@ import hashlib
 import os
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import tempfile
 import threading
 import time
 import unicodedata
+from contextlib import contextmanager
+from contextvars import ContextVar
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
+from .launch_env import build_environment
+from .contracts import GIT_LOCATION_ENV, GIT_PATHSPEC_ENV
 from . import retention_fs as rfs
 from . import retention_qos as rqos
 
@@ -63,8 +68,46 @@ class Cancelled(Exception):
     pass
 
 
+_COMMAND_GUARD: ContextVar[tuple[Callable, dict[str, str], Path | None] | None] = ContextVar(
+    "retention_git_command_guard", default=None)
+
+
+@contextmanager
+def command_guard(check: Callable, *, env: dict[str, str] | None = None, cwd: Path | None = None):
+    """A caller-local read boundary, checked before Git starts.
+
+    The delete path uses this for its stricter excluded-repository contract.
+    Other threads and callers retain their existing environment and behavior.
+    """
+    token = _COMMAND_GUARD.set((check, dict(env or {}), cwd))
+    try:
+        yield
+    finally:
+        _COMMAND_GUARD.reset(token)
+
+
+def active_command_guard():
+    """The calling context's read checker, or None outside a guarded caller."""
+    guarded = _COMMAND_GUARD.get()
+    return guarded[0] if guarded is not None else None
+
+
+def check_read(*, git_dir: Path | None = None, cwd: Path | None = None) -> None:
+    """Apply the active boundary before a helper reads Git metadata in Python."""
+    guarded = _COMMAND_GUARD.get()
+    if guarded is not None:
+        check, _, default_cwd = guarded
+        check(("read-metadata",), git_dir, cwd or default_cwd)
+
+
 def environment(extra: dict[str, str] | None = None) -> dict[str, str]:
-    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env = build_environment()
+    for name in GIT_LOCATION_ENV + GIT_PATHSPEC_ENV + ("GIT_INDEX_FILE", "LANGUAGE"):
+        env.pop(name, None)
+    for name in list(env):
+        if name.startswith("GIT_TRACE"):
+            env.pop(name)
+    env.update(GIT_TRACE2="0", GIT_TRACE2_EVENT="0", GIT_TRACE2_PERF="0", LC_ALL="C")
     env.update(GIT_OPTIONAL_LOCKS="0", GIT_NO_LAZY_FETCH="1", GIT_TERMINAL_PROMPT="0",
                GIT_NO_REPLACE_OBJECTS="1", GIT_ASKPASS="/usr/bin/false", SSH_ASKPASS="/usr/bin/false")
     if extra:
@@ -75,14 +118,28 @@ def environment(extra: dict[str, str] | None = None) -> dict[str, str]:
 def run(args: Iterable[str], *, git_dir: Path | None = None, cwd: Path | None = None,
         stdin: bytes | None = None, timeout: float = 120, cancel: threading.Event | None = None,
         env: dict[str, str] | None = None, ok: Iterable[int] = (0,), stdin_file=None) -> subprocess.CompletedProcess:
-    """One git command with a wall cap; cancellation kills it and raises `Cancelled`."""
+    """One git command with a wall cap; cancellation kills its process group.
+
+    A wrapper or Git child can retain the output pipes after its parent dies.
+    Kill the whole session's group and bound the final drain as well.
+    """
+    args = tuple(args)
+    guarded = _COMMAND_GUARD.get()
+    if guarded is not None:
+        check, forced_environment, default_cwd = guarded
+        if cwd is None and git_dir is None:
+            cwd = default_cwd
+        check(args, git_dir, cwd)
+        env = {**(env or {}), **forced_environment}
+        if args and args[0] == "init" and not any(a == "--template" or a.startswith("--template=") for a in args):
+            args = ("init", "--template=", *args[1:])
     argv = ["git", *GIT_CONFIG]
     if git_dir is not None:
         argv.append(f"--git-dir={git_dir}")
     argv.extend(args)
     process = subprocess.Popen(rqos.argv(argv), cwd=cwd, env=environment(env),
                                stdin=stdin_file if stdin_file is not None else (subprocess.PIPE if stdin is not None else subprocess.DEVNULL),
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     deadline = time.monotonic() + timeout
     first = True
     while True:
@@ -93,8 +150,19 @@ def run(args: Iterable[str], *, git_dir: Path | None = None, cwd: Path | None = 
         except subprocess.TimeoutExpired:
             first = False
             if (cancel is not None and cancel.is_set()) or time.monotonic() >= deadline:
-                process.kill()
-                process.communicate()
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                try:
+                    process.communicate(timeout=1.0)
+                except subprocess.TimeoutExpired:
+                    # Even a descendant that escaped the group must not hold
+                    # this caller past its deadline by retaining these pipes.
+                    for pipe in (process.stdin, process.stdout, process.stderr):
+                        if pipe is not None:
+                            pipe.close()
+                    process.poll()
                 if cancel is not None and cancel.is_set():
                     raise Cancelled(f"git {argv[len(GIT_CONFIG) + 1]} cancelled") from None
                 raise GitError(f"git {' '.join(list(args)[:2])} timed out after {timeout:g} s") from None
@@ -103,6 +171,51 @@ def run(args: Iterable[str], *, git_dir: Path | None = None, cwd: Path | None = 
         tail = err.decode("utf-8", "replace").strip()[-400:]
         raise GitError(f"git {' '.join(list(args)[:2])} exited {result.returncode}: {tail}")
     return result
+
+
+def ambient_plain(*, timeout: float = 60, cancel: threading.Event | None = None) -> bool:
+    """Whether the census may discover repositories without reading ambient config.
+
+    Includes can select different config for each checkout, so any include
+    leaves every path to Git. A template-free fresh repository with its local
+    config emptied catches ambient values that `config --list` prints but
+    repository startup rejects, without a template or init's local overrides.
+    Git ignores ambient core.repositoryformatversion at startup, so any such
+    key is refused rather than independently parsing a value Git has not checked.
+    These three processes are a constant cost once per census, under retention's
+    selected environment rather than the caller's unfiltered environment.
+    """
+    deadline = time.monotonic() + timeout
+
+    def probe(args: list[str], cwd: Path) -> subprocess.CompletedProcess:
+        if cancel is not None and cancel.is_set():
+            raise Cancelled("ambient Git config probe cancelled")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise GitError("ambient Git config probe deadline")
+        return run(args, cwd=cwd, timeout=remaining, cancel=cancel)
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="subfleet-retention-git-",
+                                         dir=environment().get("TMPDIR")) as folder:
+            outside = Path(folder)
+            config = probe(["config", "--list", "--show-scope"], outside).stdout.decode("utf-8", "surrogateescape")
+            for line in config.splitlines():
+                _, separator, setting = line.partition("\t")
+                if not separator:
+                    return False
+                key = setting.partition("=")[0].lower()
+                if key.startswith(("include.", "includeif.")):
+                    return False
+                if key == "core.repositoryformatversion":
+                    return False
+            repository = outside / "repository"
+            probe(["init", "--quiet", "--template=", str(repository)], outside)
+            (repository / ".git" / "config").write_bytes(b"")
+            probe(["rev-parse", "--git-common-dir"], repository)
+    except (GitError, OSError):
+        return False
+    return True
 
 
 # --- the registration ------------------------------------------------------------
@@ -130,7 +243,7 @@ def gitfile_admin(tree: Path) -> tuple[Path | None, bytes, str | None]:
     except (IsADirectoryError, OSError) as exc:
         return None, b"", f"gitfile-unreadable: {exc}"
     text = gitfile.decode("utf-8", "surrogateescape").strip()
-    if not text.startswith("gitdir:"):
+    if not text.startswith("gitdir:") or "\0" in text:      # no path holds a NUL: realpath raises on one
         return None, b"", "gitfile-malformed"
     return _resolve(tree, text[len("gitdir:"):].strip()), gitfile, None
 
@@ -208,6 +321,272 @@ def common_dir(path: Path, timeout: float = 60, cancel: threading.Event | None =
     except (GitError, OSError):
         return None
     return _resolve(path, out.decode("utf-8", "surrogateescape").strip())
+
+
+def _git_discovery_overrides() -> bool:
+    """An explicit helper policy can admit Git settings the default env drops."""
+    ignored = frozenset(GIT_LOCATION_ENV + GIT_PATHSPEC_ENV + (
+        "GIT_INDEX_FILE", "GIT_OPTIONAL_LOCKS", "GIT_NO_LAZY_FETCH", "GIT_TERMINAL_PROMPT",
+        "GIT_NO_REPLACE_OBJECTS", "GIT_ASKPASS",
+    ))
+    candidates = {name for name in os.environ
+                  if name.startswith("GIT_") and not name.startswith("GIT_TRACE") and name not in ignored}
+    # The ordinary census only scans names; construct the selected environment
+    # when an ambient variable could actually have been passed through.
+    return bool(candidates and candidates.intersection(environment()))
+
+
+#: `_plain_common_dir`: the walk reached the root and found no repository.
+_NO_REPOSITORY = object()
+_TRUE = frozenset({"true", "yes", "on", "1"})
+_BOOLEANS = _TRUE | {"false", "no", "off", "0"}
+#: `rev-parse` itself parses config, and a value it rejects fails the command:
+#: core.compression=abc, user.useconfigonly=maybe, index.sparse=maybe and
+#: push.default=bogus all do, under Git 2.55. So only names known to be safe
+#: pass, each one tried with bad values against real Git; the rest go to Git.
+_PLAIN_CORE_BOOLEANS = frozenset({"bare", "filemode", "logallrefupdates", "ignorecase", "precomposeunicode",
+                                  "symlinks", "sparsecheckout", "sparsecheckoutcone"})
+_PLAIN_CORE_ANY = frozenset({"hookspath", "untrackedcache"})
+#: These subsection settings are read lazily by Git, after repository startup.
+#: Every admitted section has differential cases with bad values on several
+#: keys; an unrecognised section may instead hold a startup-validated setting.
+_PLAIN_SUBSECTIONS = frozenset({"remote", "branch", "submodule"})
+_PLAIN_SECTION_KEYS = {
+    "blame": frozenset({"ignorerevsfile"}),
+    "gc": frozenset({"auto", "reflogexpire", "reflogexpireunreachable"}),
+    "http": frozenset({"postbuffer", "version"}),
+    "pull": frozenset({"ff", "rebase"}),
+    "rerere": frozenset({"enabled"}),
+    "submodule": frozenset({"active"}),
+    "user": frozenset({"name", "email"}),
+}
+CONFIG_LIMIT = 1 << 20
+
+
+def _plain_config(path: Path, common: Path, worktree: Path, *, repository: bool = True) -> bool | None:
+    """Whether ordinary config turns per-worktree config on; None leaves it to Git.
+
+    Discovery reads config too: a directory with HEAD/objects/refs can still
+    be rejected for malformed config or an unsupported repository extension.
+    This deliberately accepts less than Git rather than duplicating its parser.
+    `repository` is False for a `config.worktree`, where only core settings a
+    checkout may keep belong.
+    """
+    try:
+        text = rfs.read_regular(path, limit=CONFIG_LIMIT).decode("utf-8")
+    except (OSError, UnicodeError):
+        return None
+    if not text.isascii() or any(ord(c) < 32 and c not in "\t\r\n" for c in text):
+        return None
+    section, subsection, per_worktree = "", False, False
+    for line in text.split("\n"):
+        line = line.strip()
+        if not line or line.startswith(("#", ";")):
+            continue
+        if line.startswith("["):
+            match = re.fullmatch(r'\[([A-Za-z0-9-]+)( "[^"\\\x00-\x1f]*")?\]', line)
+            if match is None:
+                return None
+            section, subsection = match[1].lower(), match[2] is not None
+            if section in {"include", "includeif"}:
+                return None
+            if subsection and (not repository or section not in _PLAIN_SUBSECTIONS):
+                return None
+            if not subsection and section not in ({"core", "extensions", *_PLAIN_SECTION_KEYS} if repository
+                                                   else {"core"}):
+                return None
+            continue
+        match = re.fullmatch(r'([A-Za-z][A-Za-z0-9-]*)[ \t]*=[ \t]*([^#;"\\\x00-\x08\x0b-\x1f]*|"[^"\\\x00-\x1f]*")', line)
+        if not section or match is None:
+            return None
+        key, value = match[1].lower(), match[2].strip()
+        if value.startswith('"') and section in {"core", "extensions"}:
+            # Git strips the quotes before reading a value; only values this
+            # parser never reads, such as gh's branch notes, may be quoted.
+            return None
+        if section == "core":
+            if key in _PLAIN_CORE_BOOLEANS:
+                if value.lower() not in _BOOLEANS or (key == "bare" and not repository and value.lower() in _TRUE):
+                    return None
+            elif key == "repositoryformatversion":
+                if not repository or value not in {"0", "1"}:
+                    return None
+            elif key == "worktree":
+                if not repository or not value or _resolve(common, value) != worktree:
+                    return None
+            elif key not in _PLAIN_CORE_ANY:
+                return None
+        elif section == "extensions":
+            if key == "worktreeconfig":
+                if value.lower() not in _BOOLEANS:
+                    return None
+                per_worktree = value.lower() in _TRUE
+            elif key != "partialclone" or not value:
+                return None
+        elif not subsection and key not in _PLAIN_SECTION_KEYS[section]:
+            return None
+    return per_worktree
+
+
+def _plain_common_dir(path: Path, checkpoint: Callable[[], None]) -> object | None:
+    """A certain answer for an ordinary directory: its common directory, or
+    `_NO_REPOSITORY` when none is above it. None means ask Git instead."""
+    current = Path(os.path.realpath(path))
+    if not current.is_dir():
+        return None
+    device = current.stat().st_dev
+    while True:
+        checkpoint()
+        candidate = current / ".git"
+        try:
+            candidate_st = os.lstat(candidate)
+        except FileNotFoundError:
+            # A bare repository can precede a containing checkout during Git
+            # discovery, including when cwd is inside its admin directory.
+            if os.path.lexists(current / "HEAD"):
+                return None
+            parent = current.parent
+            if parent == current:
+                return _NO_REPOSITORY
+            if parent.stat().st_dev != device:
+                return None
+            current = parent
+            continue
+        if candidate_st.st_uid != os.geteuid():
+            return None
+        if stat.S_ISDIR(candidate_st.st_mode):
+            admin = candidate
+        elif stat.S_ISREG(candidate_st.st_mode):
+            data = rfs.read_regular(candidate, limit=65536)
+            if not data.startswith(b"gitdir: "):
+                return None
+            pointer = data[len(b"gitdir: "):].removesuffix(b"\n").removesuffix(b"\r")
+            if not pointer or pointer != pointer.strip() or any(c in pointer for c in (b"\0", b"\n", b"\r")):
+                return None
+            admin = _resolve(current, os.fsdecode(pointer))
+        else:
+            return None
+        checkpoint()
+        admin_st = os.lstat(admin)
+        if not stat.S_ISDIR(admin_st.st_mode) or admin_st.st_uid != os.geteuid() or current.stat().st_uid != os.geteuid():
+            return None
+        head = rfs.read_regular(admin / "HEAD", limit=4096)
+        if re.fullmatch(rb"(?:ref: refs/[^\x00-\x20\x7f]+|[0-9a-fA-F]{40})\n?", head) is None:
+            return None
+        try:
+            pointer = rfs.read_regular(admin / "commondir", limit=65536)
+        except FileNotFoundError:
+            common = admin
+        else:
+            pointer = pointer.removesuffix(b"\n").removesuffix(b"\r")
+            if not pointer or pointer != pointer.strip() or any(c in pointer for c in (b"\0", b"\n", b"\r")):
+                return None
+            common = _resolve(admin, os.fsdecode(pointer))
+        common_st = os.lstat(common)
+        if (not stat.S_ISDIR(common_st.st_mode) or common_st.st_uid != os.geteuid()
+                or str(common) != str(common).strip()):
+            return None
+        if not all((common / name).is_dir() and os.access(common / name, os.X_OK) for name in ("objects", "refs")):
+            return None
+        per_worktree = _plain_config(common / "config", common, current)
+        if per_worktree is None:
+            return None
+        if per_worktree and os.path.lexists(admin / "config.worktree") and _plain_config(
+                admin / "config.worktree", common, current, repository=False) is None:
+            return None
+        checkpoint()
+        return Path(os.path.realpath(common))
+
+
+def fast_common_dir(path: Path, timeout: float = 60, cancel: threading.Event | None = None, *,
+                    checkpoint: Callable[[], None] | None = None,
+                    deadline: float | None = None, clock: Callable[[], float] = time.monotonic) -> Path | None:
+    """Resolve ordinary checkouts without a process; ask Git for every doubt.
+
+    This is only for retention's repository census. ``common_dir`` remains the
+    authority and retains its behavior for every other caller. A caller's
+    checkpoint propagates, and even a fallback subprocess gets only the time
+    left in this pass; a partial/expired census must never become an answer.
+    """
+    def check() -> None:
+        if checkpoint is not None:
+            checkpoint()
+        if cancel is not None and cancel.is_set():
+            raise Cancelled("repository discovery cancelled")
+        if deadline is not None and clock() >= deadline:
+            raise GitError("repository discovery deadline")
+
+    check()
+    try:
+        common = None if _git_discovery_overrides() else _plain_common_dir(path, check)
+    except (OSError, ValueError):
+        common = None
+    check()
+    if common is _NO_REPOSITORY:
+        return None
+    if common is None:
+        remaining = timeout if deadline is None else min(timeout, deadline - clock())
+        if remaining <= 0:
+            raise GitError("repository discovery deadline")
+        common = common_dir(path, timeout=remaining, cancel=cancel)
+        check()
+    return common
+
+
+#: Larger than any packed-refs a census should read in passing; Git answers it.
+PACKED_REFS_LIMIT = 64 << 20
+
+# A deliberately narrow subset of the files backend's packed format. Do not
+# reproduce Git's refname parser: a name is any run of printable ASCII after
+# `refs/`, so dotted tags count, while spaces, control bytes, non-ASCII,
+# unfamiliar headers and other lines need Git.
+# Possessive repeats keep validation in the regex engine with no per-line
+# Python work or backtracking stack proportional to a large packed-refs file.
+# EOF is admitted here so the separate final-LF check remains explicit.
+_PACKED_REFS_EOL = rb"(?:\n|\Z)"
+_PACKED_REFS_HEADER = rb"(?:# pack-refs with:(?: peeled)?(?: fully-peeled)?(?: sorted)? " + _PACKED_REFS_EOL + rb")?+"
+_PACKED_REFS_NAME = rb"refs/[!-~]++"
+_PACKED_REFS_SEPARATOR = rb" "
+_PACKED_REFS_FORMATS = tuple(
+    re.compile(_PACKED_REFS_HEADER
+               + rb"(?:" + oid + _PACKED_REFS_SEPARATOR + _PACKED_REFS_NAME + _PACKED_REFS_EOL
+               + rb"(?:\^" + oid + _PACKED_REFS_EOL + rb")?+)*+")
+    for oid in (rb"[0-9a-f]{40}", rb"[0-9a-f]{64}")
+)
+
+
+def no_refs_under(common: Path, prefix: str) -> bool:
+    """True when the files ref store proves no ref starts with `prefix`.
+
+    `prefix` may be a whole ref name. Only ever a negative, and False only means
+    ask `refs_under`: a loose folder, a packed line, a reftable store or any
+    unreadable file all leave it to Git. So do a common directory redirect,
+    prefixes outside `refs/` (which Git may parse as options), non-ASCII
+    spelling (Git may normalize it), and Git's pattern characters.
+    Packed refs must use a supported exact format, including one ASCII space
+    between oid and name and a final LF. A job's salvage search asks this of
+    every repository in the census, where a `for-each-ref` for each would take
+    most of the pass.
+    """
+    if not prefix.startswith("refs/"):
+        return False
+    if not prefix.isascii() or any(character in prefix for character in "*?[\\"):
+        return False
+    try:
+        if (os.path.lexists(common / "commondir") or os.path.lexists(common / "reftable")
+                or os.path.lexists(common / prefix.rstrip("/"))):
+            return False
+        try:
+            packed = rfs.read_regular(common / "packed-refs", limit=PACKED_REFS_LIMIT)
+        except FileNotFoundError:
+            return True
+    except (OSError, ValueError):
+        return False
+    if not packed.endswith(b"\n"):
+        return False
+    if not any(pattern.fullmatch(packed) is not None for pattern in _PACKED_REFS_FORMATS):
+        return False
+    return (" " + prefix).encode() not in packed
 
 
 def find_registration(repository: Path, tree: Path, timeout: float = 60,
@@ -310,15 +689,41 @@ def repository_near(path: Path, timeout: float = 60, cancel: threading.Event | N
     return None
 
 
-def refs_under(common: Path, prefix: str, *, cancel: threading.Event | None = None) -> dict[str, str]:
+def refs_under(common: Path, prefix: str, *, timeout: float = 120,
+               cancel: threading.Event | None = None) -> dict[str, str]:
     """ref -> object id of every ref under `prefix` (one `for-each-ref`)."""
     out = run(["for-each-ref", "--format=%(refname) %(objectname)", prefix], git_dir=common,
-              cancel=cancel).stdout.decode("utf-8", "surrogateescape")
+              timeout=timeout, cancel=cancel).stdout.decode("utf-8", "surrogateescape")
     return dict(line.split(" ", 1) for line in out.splitlines() if " " in line)
 
 
+def registration_of(common: str | os.PathLike, tree: str | os.PathLike) -> Path | None:
+    """`tree`'s registration in the repository whose common directory is `common`: the admin
+    directory directly under ``<common>/worktrees`` whose ``gitdir`` backlink names ``tree/.git``,
+    or None. The repository answers, not the tree: a gitfile can be missing or name somewhere
+    else (C-6.20). A backlink that cannot be read, or holds a NUL, names no tree. A ``worktrees``
+    folder that cannot be read raises OSError, not None."""
+    wanted = os.path.realpath(Path(tree) / ".git")
+    try:
+        admins = sorted((Path(common) / "worktrees").iterdir())
+    except FileNotFoundError:
+        return None
+    for admin in admins:
+        if admin.is_symlink() or not admin.is_dir():
+            continue       # never follow a link out of the repository
+        try:
+            backlink = rfs.read_regular(admin / "gitdir", limit=65536).decode("utf-8", "surrogateescape").strip()
+        except OSError:
+            continue
+        if "\0" in backlink:
+            continue       # corrupt: no path holds a NUL, and realpath raises ValueError on one
+        if os.path.realpath(_resolve(admin, backlink)) == wanted:
+            return admin
+    return None
+
+
 def discard_registration(repository: str | os.PathLike, tree: str | os.PathLike, *,
-                         timeout: float = 60) -> Path | None:
+                         timeout: float = 60, common: str | os.PathLike | None = None) -> Path | None:
     """Remove `tree`'s own registration from `repository`, and nothing else.
 
     Only the admin directory directly under ``<common>/worktrees`` whose
@@ -329,28 +734,23 @@ def discard_registration(repository: str | os.PathLike, tree: str | os.PathLike,
     its HEAD and reflogs hold (d635: never run a repository-wide prune). Best
     effort, for callers about to re-add the tree: returns the directory
     removed, or None.
+
+    `common`, when the caller has it, is the repository's common directory, and
+    git does not run. Git cannot always run there: a submodule's enters its
+    `core.worktree`, which can have gone with its checkout, and a bare repository
+    is refused under `safe.bareRepository=explicit` (C-6.20).
     """
     try:
-        out = run(["rev-parse", "--git-common-dir"], cwd=Path(repository), timeout=timeout).stdout
-        common = _resolve(Path(repository), out.decode("utf-8", "surrogateescape").strip())
-        wanted = os.path.realpath(Path(tree) / ".git")
-        admins = sorted((common / "worktrees").iterdir())
+        if common is None:
+            out = run(["rev-parse", "--git-common-dir"], cwd=Path(repository), timeout=timeout).stdout
+            common = _resolve(Path(repository), out.decode("utf-8", "surrogateescape").strip())
+        admin = registration_of(common, tree)
     except (GitError, OSError):
         return None
-    for admin in admins:
-        if admin.is_symlink() or not admin.is_dir():
-            continue       # never follow a link out of the repository
-        try:
-            backlink = rfs.read_regular(admin / "gitdir", limit=65536).decode("utf-8", "surrogateescape").strip()
-        except OSError:
-            continue
-        if os.path.realpath(_resolve(admin, backlink)) != wanted:
-            continue
-        if os.path.lexists(admin / "locked"):
-            return None
-        shutil.rmtree(admin, ignore_errors=True)
-        return admin
-    return None
+    if admin is None or os.path.lexists(admin / "locked"):
+        return None
+    shutil.rmtree(admin, ignore_errors=True)
+    return admin
 
 
 def object_format(common: Path, cancel: threading.Event | None = None) -> str:
@@ -453,7 +853,9 @@ def history_bytes(git_dir: Path, heads: Iterable[str], held: list[str], *, timeo
 
 def temp_roots() -> set[str]:
     """Directories whose contents the system or a person may delete at any time."""
-    return {os.path.realpath(p) for p in (*TEMP_ROOTS, tempfile.gettempdir(), os.environ.get("TMPDIR") or "/tmp")}
+    from .home_paths import checked_override
+    return {os.path.realpath(p) for p in (*TEMP_ROOTS, tempfile.gettempdir(),
+                                          checked_override("TMPDIR", os.environ.get("TMPDIR")) or "/tmp")}
 
 
 def scratch_reason(common: Path, state_root: Path, remotes: dict[str, str],
@@ -591,11 +993,17 @@ class ObjectReader:
     def __init__(self, common: Path, fmt: str, cancel: threading.Event | None = None):
         self.fmt = fmt
         self.cancel = cancel
+        self.common = common
         self.argv = ["git", *GIT_CONFIG, f"--git-dir={common}", "cat-file", "--batch"]
         self.process = self._start()
 
     def _start(self) -> subprocess.Popen:
-        return subprocess.Popen(rqos.argv(self.argv), env=environment(), stdin=subprocess.PIPE,
+        guarded = _COMMAND_GUARD.get()
+        extra = None
+        if guarded is not None:
+            check, extra, _ = guarded
+            check(("cat-file", "--batch"), self.common, None)
+        return subprocess.Popen(rqos.argv(self.argv), env=environment(extra), stdin=subprocess.PIPE,
                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
     def verify(self, oid: str, expect_type: str = "blob") -> bool:
@@ -668,26 +1076,33 @@ def admin_objects(admin: Path, fmt: str, *, timeout: float = 300,
     the per-worktree refs, HEAD and its reflog (for the reftable backend), and
     the index (``ls-files --stage``; a gitlink's commit lives in the submodule).
     """
+    check_read(git_dir=admin)
+    strict = active_command_guard() is not None
     tokens: set[str] = set()
     pattern = _token_pattern(fmt)
-    fd = os.open(admin, rfs.O_DIR)
-    try:
-        for rel, st, parent, name in rfs.walk(fd):
-            if not rel or rel == "index" or rel.split("/")[0] == "modules" or not stat.S_ISREG(st.st_mode):
-                continue
-            if st.st_size > 256 * 1024 * 1024:
-                continue
-            try:
-                handle = os.open(name, rfs.O_FILE, dir_fd=parent)
-            except OSError:
-                continue
-            try:
-                data = b"".join(iter(lambda: os.read(handle, rfs.CHUNK), b""))
-            finally:
-                os.close(handle)
-            tokens.update(m.decode() for m in pattern.findall(data))
-    finally:
-        os.close(fd)
+    with rfs._cleanup([None]) as owner:
+        owner.resources[0] = os.open(admin, rfs.O_DIR)
+        fd = owner.resources[0]
+        iterator = rfs.walk(fd)
+        with rfs._cleanup((iterator,), close=lambda it: it.close()):
+            for rel, st, parent, name in iterator:
+                if not rel or rel == "index" or rel.split("/")[0] == "modules" or not stat.S_ISREG(st.st_mode):
+                    continue
+                if st.st_size > 256 * 1024 * 1024:
+                    if strict:
+                        raise GitError(f"admin metadata exceeds the complete-read bound: {admin / rel}")
+                    continue
+                try:
+                    handle = os.open(name, rfs.O_FILE, dir_fd=parent)
+                except OSError as exc:
+                    if strict:
+                        raise GitError(f"admin metadata could not be read whole: {admin / rel}") from exc
+                    continue
+                try:
+                    data = b"".join(iter(lambda: os.read(handle, rfs.CHUNK), b""))
+                finally:
+                    os.close(handle)
+                tokens.update(m.decode() for m in pattern.findall(data))
     refs = run(["for-each-ref", "--format=%(objectname)", *WORKTREE_REF_PREFIXES], git_dir=admin, ok=(0, 1),
                timeout=timeout, cancel=cancel).stdout.decode().split()
     tokens.update(refs)

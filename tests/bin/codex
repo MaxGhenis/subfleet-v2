@@ -15,6 +15,8 @@ import time
 ENV_KEYS = (
     "CODEX_HOME", "SUBFLEET_JOB", "SUBFLEET_ATTEMPT",
     "CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
+    # A review launch's own variables (C-12.4); none holds a secret.
+    "GIT_ALLOW_PROTOCOL", "GIT_CONFIG_PARAMETERS", "SUBFLEET_PUBLISH_DENIED",
 )
 
 
@@ -140,6 +142,7 @@ def main() -> int:
         "cwd": os.getcwd(),
         "stdin": stdin.decode("utf-8", "replace"),
         "env": {key: os.environ.get(key) for key in ENV_KEYS},
+        "env_keys": sorted(os.environ),
     }
     if scenario == "nested-setsid":
         diagnostics["nested_grandchild_pid"] = nested_grandchild()

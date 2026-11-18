@@ -1,0 +1,34 @@
+from pathlib import Path
+import pytest
+from subfleet import retention_archive as rarch
+from tests.fake.test_retention_dependency_review_r2 import world, maintain
+
+@pytest.mark.parametrize('recorded',[False,True],ids=['legacy','recorded'])
+@pytest.mark.parametrize('state',['running','succeeded'],ids=['live','exporting'])
+def test_recovery_sees_incomplete_before_quarantine(world,monkeypatch,recorded,state):
+    tree=world.job('owner')
+    outside=world.base/'outside'
+    alternate=outside/'.git'/'objects'/'info'/'alternates'
+    alternate.parent.mkdir(parents=True);alternate.write_bytes(b'# valid\n')
+    def insert(data):
+        world.store.add_job(job_id='borrower',request_id='borrower',payload_digest='d',kind='dispatch',state=state,sandbox='read-only',workdir=str(outside),prompt_path='/p')
+        world.store.add_event('job.submitted',job_id='borrower',data=data)
+        if state=='succeeded':world.store.acquire_lease('out:/outside/result','borrower')
+    if not recorded:insert({})
+    original=rarch.Retirement.quarantine
+    class Crash(BaseException):pass
+    def crash(self):raise Crash()
+    with monkeypatch.context() as patch:
+        patch.setattr(rarch.Retirement,'quarantine',crash)
+        with pytest.raises(Crash):maintain(world)
+    assert tree.is_dir()
+    alternate.write_bytes(b'"bad\\z"\n')
+    if recorded:insert({'depends':{'incomplete':[{'file':str(alternate),'reason':'invalid Git C escape'}]}})
+    observations=[]
+    def observing(self):
+        try:return original(self)
+        finally:observations.append(tree.is_dir())
+    monkeypatch.setattr(rarch.Retirement,'quarantine',observing)
+    result=maintain(world)
+    assert tree.is_dir() and 'owner' not in result['pruned'],result
+    assert observations==[True], (observations,result)

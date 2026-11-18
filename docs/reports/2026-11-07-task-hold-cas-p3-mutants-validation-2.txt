@@ -1,0 +1,12 @@
+Running old-conditional-action-encoding: tests/unit/test_task_hold_cas_cli.py::test_condition_uses_refusable_action_without_capability_preflight
+old-conditional-action-encoding: KILLED; restored bytes checked
+Running hold-if-ignores-condition: tests/fake/test_task_hold_cas.py::test_foreign_hold_refuses_without_changing_any_row_or_event
+hold-if-ignores-condition: KILLED; restored bytes checked
+Running json-refusal-without-details-is-silent: tests/unit/test_task_hold_cas_cli.py::test_json_condition_refusal_without_details_prints_null
+json-refusal-without-details-is-silent: KILLED; restored bytes checked
+Running daemon-accepts-spaced-prefix: tests/fake/test_task_hold_cas.py::test_raw_protocol_spaced_prefix_is_refused_without_changes_for_both_encodings
+daemon-accepts-spaced-prefix: KILLED; restored bytes checked
+Running absent-release-drops-other-holds: tests/fake/test_task_hold_cas.py::test_conditional_release_with_no_row_is_successful_and_writes_nothing
+absent-release-drops-other-holds: KILLED; restored bytes checked
+Running invalid-action-always-means-old-daemon: tests/unit/test_task_hold_cas_cli.py::test_invalid_conditional_request_keeps_original_refusal_when_v2_is_advertised
+invalid-action-always-means-old-daemon: KILLED; restored bytes checked

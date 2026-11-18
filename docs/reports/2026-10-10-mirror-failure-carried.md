@@ -258,7 +258,7 @@ For the three the full pass's record keeps:
 
 ## Verification
 
-`tests/unit/test_sessions_mirror_failure_carried.py`, 45 tests.
+`tests/unit/test_sessions_mirror_failure_carried.py`, 46 tests.
 
 - Example tests: the pass after a failed one, by RuntimeError and by OSError,
   read by `Mirror.health()`, `--status`, `--status --json` and `doctor`'s row
@@ -277,7 +277,8 @@ For the three the full pass's record keeps:
   progress record that keeps `last_ok_at`, the hot record and the split
   report; a hot record that failed its read not counted as recorded; a copy
   this process keeps not used after another process's pass; the embedded hot
-  worker keeping the shared copy current; a FIFO, a socket, a denied read
+  worker keeping the shared copy current, also when its record is the last
+  write before the end's read fails; a FIFO, a socket, a denied read
   and a document nested too deep where the sidecar belongs; a read that
   never works, by EIO and by EMFILE, which neither this process nor a new
   one lets stop recording for longer than `UNREADABLE_KEEP_S`; the hang
@@ -312,10 +313,17 @@ For the three the full pass's record keeps:
   C21 and missed C22 (a negative count). Both had been caught only by a
   random draw, as had C09, C11 and C26, so each now has a fixed case. After
   the first review: 35, each caught (C31 got its test after one run missed
-  it). After the second review's findings: MUTANTR3 Four more cover the rule (undone;
-  every pass in flight `stalled`; only a run of two or more; not after a
-  pass that recorded no end), and a fifth, from the second review (a
-  cancelled pass before it reads `running`), is now a test. Each review's own mutants
+  it). After the second review's findings: 44, of which 43 were caught. C41
+  (the embedded hot worker keeps a copy of its own) survived: in the test of
+  that worker, the full pass's own `complete` record is the last write before
+  the failed read, so the shared copy is never the one used.
+  `test_an_end_read_that_fails_right_after_a_hot_record_still_knows_the_file`
+  makes the worker's record that last write; it has not yet been run against
+  C41 (no local test runs while the host's disk is short). Four more cover
+  the rule (undone; every pass in flight `stalled`; only a run of two or more;
+  not after a pass that recorded no end), and a fifth, from the second review
+  (a cancelled pass before it reads `running`), is now a test; all five were
+  caught. Each review's own mutants
   are tests now: the first's R01–R03 (a snapshot taken after the first write,
   a pass known by its start, the hang limit's boundary) and the second's
   R02, R03, R04, R06 and R07 (hot sampling moved before the read, a run with

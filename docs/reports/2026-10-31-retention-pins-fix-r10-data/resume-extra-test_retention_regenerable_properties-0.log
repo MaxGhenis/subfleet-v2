@@ -1,0 +1,10 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 15:30:44Z slot B load 
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! KeyboardInterrupt !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/docs/reports/2026-10-31-retention-pins-fix-r10-data/run.py:177: KeyboardInterrupt
+(to show a full traceback on KeyboardInterrupt use --full-trace)
+no tests ran in 546.93s (0:09:06)
+{"name": "resume-extra-test_retention_regenerable_properties-0", "start": "2026-10-31T15:31:22.419704+00:00", "load": [144.05029296875, 121.193359375, 101.33984375], "seconds": 566.4590608340004, "exit": 2}

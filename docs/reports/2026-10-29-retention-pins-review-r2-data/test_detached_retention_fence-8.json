@@ -1,0 +1,113 @@
+{
+  "name": "test_detached_retention_fence-8",
+  "start": "2026-10-29T06:44:38.505041+00:00",
+  "load": [
+    16.1806640625,
+    20.53955078125,
+    22.103515625
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[read-only-early]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[read-only-transaction]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[worktree-early]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[worktree-transaction]"
+  ],
+  "phases": {
+    "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[read-only-early]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[read-only-transaction]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[worktree-early]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[worktree-transaction]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[read-only-early]": {
+      "setup": {
+        "duration": 0.0295702080038609,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.4626157089951448,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0003615420137066394,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[read-only-transaction]": {
+      "setup": {
+        "duration": 0.0025490419939160347,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.3007919590017991,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.002413207999779843,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[worktree-early]": {
+      "setup": {
+        "duration": 0.002476833004038781,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.4739099169964902,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00037879199953749776,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[worktree-transaction]": {
+      "setup": {
+        "duration": 0.002655332995345816,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.2834849170030793,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0004494159948080778,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

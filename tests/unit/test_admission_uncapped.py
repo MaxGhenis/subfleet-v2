@@ -23,7 +23,8 @@ import pytest
 from hypothesis import HealthCheck, assume, given, settings, strategies as st
 
 from subfleet import scheduler
-from subfleet.policy import DEFAULT_POLICY_PATH, MACHINE_GUARD_PROPOSAL, load_policy
+from subfleet.policy import DEFAULT_POLICY_PATH, load_policy
+from tests.machine_guard_reference import LEGACY_GUARD
 from tests.admission_model import run_pass
 from tests.caps import capped
 from tests.routing_strategies import BASE_POLICY, NOW, event, policies, route_jobs, stores, view_of
@@ -56,7 +57,7 @@ def guarded() -> dict:
     """The shipped policy with the machine guard on at its proposed thresholds
     (C-6.13; off by default since 2026-09-28)."""
     policy = load_policy(DEFAULT_POLICY_PATH)
-    policy["admission"]["machine_guard"] = copy.deepcopy(MACHINE_GUARD_PROPOSAL)
+    policy["admission"]["machine_guard"] = copy.deepcopy(LEGACY_GUARD)
     return policy
 
 
@@ -361,7 +362,7 @@ def test_the_guard_never_holds_a_turn_and_holds_more_only_as_load_rises(reading,
     for klass in ("session", "background"):
         if scheduler.machine_hold(policy, reading, klass):
             assert scheduler.machine_hold(policy, heavier, klass)
-    # A class held is held at every class below it, with the proposed thresholds.
+    # A class held is held at every class below it, with the legacy thresholds.
     if scheduler.machine_hold(policy, reading, "session"):
         assert scheduler.machine_hold(policy, reading, "background")
     off = {**policy, "admission": {**policy["admission"], "machine_guard": None}}
@@ -369,7 +370,7 @@ def test_the_guard_never_holds_a_turn_and_holds_more_only_as_load_rises(reading,
 
 
 def test_the_guard_at_the_2026_09_27_evening_load():
-    """With the proposed guard on: at 20:26 EDT the averages were 93 and 112 on 18
+    """With the legacy load guard on: at 20:26 EDT the averages were 93 and 112 on 18
     CPUs, pressure normal, so background work is held at the 5-minute average (6.2
     per CPU) and session work is not. Off (the default), nothing is held."""
     policy = guarded()
@@ -390,7 +391,7 @@ def test_the_guard_at_the_2026_09_27_evening_load():
 @given(passes(), READINGS)
 def test_the_guard_holds_detached_jobs_at_the_door_and_never_a_turn(case, reading):
     policy, store, jobs = case
-    policy["admission"]["machine_guard"] = copy.deepcopy(MACHINE_GUARD_PROPOSAL)
+    policy["admission"]["machine_guard"] = copy.deepcopy(LEGACY_GUARD)
     result = run_pass(policy, view_of(store, NOW), jobs, live=LIVE, machine=reading)
     for outcome in result.outcomes:
         if outcome.hold == "machine-busy":

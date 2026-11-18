@@ -1,0 +1,15 @@
+import json,os,subprocess,sys
+from pathlib import Path
+scratch=Path(__file__).parent
+definitions=json.loads((scratch/'mutant-definitions.json').read_text())
+results=[]
+for name,d in definitions.items():
+    env=os.environ.copy();env['SF_MUTANT']=name
+    result=subprocess.run([sys.executable,str(scratch/'hold.py'),'mutant-'+name,*d['tests'],'-x','--hypothesis-seed=217'],env=env)
+    data=json.loads((scratch/('mutant-'+name+'.json')).read_text())
+    failure=any(p.get('call')=='failed' and p.get('teardown')=='passed' for p in data['phases'].values())
+    verdict='KILLED' if result.returncode==1 and failure and len(data['loaded'])==1 else 'SURVIVED' if result.returncode==0 else 'ERROR'
+    results.append(dict(name=name,verdict=verdict,rc=result.returncode,loaded=data['loaded'],start=data['start'],load=data['load'],phases=data['phases']))
+    (scratch/'mutants.json').write_text(json.dumps(results,indent=2)+'\n')
+    print(name,verdict,flush=True)
+raise SystemExit(any(r['verdict']!='KILLED' for r in results))

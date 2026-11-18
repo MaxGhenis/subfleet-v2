@@ -1,0 +1,34 @@
+import json, os, subprocess, tempfile, sys
+from pathlib import Path
+sys.path.insert(0, os.getcwd())
+from subfleet import dependencies
+root = Path(tempfile.mkdtemp(prefix="git-probe-", dir=os.environ["TMPDIR"]))
+os.environ["HOME"] = str(root / "home")
+for key in list(os.environ):
+    if key.startswith("GIT_"): os.environ.pop(key)
+def git(*args, data=None):
+    return subprocess.run(["git", *map(str,args)], input=data, capture_output=True, timeout=30)
+rows=[]
+for case in ["gitfile-spaces", "gitfile-no-space", "gitfile-empty", "gitfile-crlf", "commondir-spaces", "commondir-only-spaces", "commondir-empty", "commondir-crlf"]:
+    base=root/case; base.mkdir()
+    owner=base/"owner.git"
+    assert git("init", "-q", "--bare", owner).returncode == 0
+    blob=git("--git-dir",owner,"hash-object","-w","--stdin",data=b"owner-only\n").stdout.strip()
+    checkout=base/"checkout"; checkout.mkdir()
+    admin=checkout/".git"
+    name="   " if case == "commondir-only-spaces" else " metadata "
+    if case.startswith("gitfile"):
+        alias=checkout/name; alias.symlink_to(owner, target_is_directory=True)
+        target=os.fsencode(name)
+        prefix=b"gitdir:" if case=="gitfile-no-space" else b"gitdir: "
+        if case=="gitfile-empty": target=b""
+        admin.write_bytes(prefix+target+(b"\r\n" if case.endswith("crlf") else b"\n"))
+    else:
+        admin.mkdir(); (admin/"HEAD").write_text("ref: refs/heads/main\n")
+        alias=admin/name; alias.symlink_to(owner,target_is_directory=True)
+        target=b"" if case=="commondir-empty" else os.fsencode(name)
+        (admin/"commondir").write_bytes(target+(b"\r\n" if case.endswith("crlf") else b"\n"))
+    result=git("-C",checkout,"cat-file","-p",os.fsdecode(blob))
+    found=dependencies.record(str(checkout))
+    rows.append(dict(case=case, git_exit=result.returncode, git_stdout=result.stdout.decode(),git_stderr=result.stderr.decode(), discovery=found, actual_objects=str(owner/"objects")))
+print(json.dumps(dict(git=git("--version").stdout.decode().strip(),cases=rows),indent=2))

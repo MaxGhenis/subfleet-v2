@@ -1,0 +1,14 @@
+{
+  "queued": "2026-10-31T16:25:59.686061+00:00",
+  "args": [
+    "-p",
+    "tests.conftest",
+    "review-r11-data/transaction_probes.py",
+    "-k",
+    "terminal_gone or recorded_link_entry or unused_link_width or r8_owner"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/transaction-controls",
+  "linked": false,
+  "driver_pid": 45319,
+  "lock_process_group": 45637
+}

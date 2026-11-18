@@ -1,0 +1,1120 @@
+# The restore recipe's fence survives any path, and a test session keeps inherited credentials out of its reports (D-PRR1)
+
+Build on `fix/prune-restore-recipe-217`, cut from `release/217` at `2eacd5806`. Initial work began on 2026-10-22 at 04:34 UTC; this continuation resumed checkpoint `8c2e9de04` at 07:51 UTC. Report reconciled at 2026-10-22 09:29 UTC. Fix round 1 (#244 review r1, 2026-10-23 UTC) has its own section at the end; it narrows this report's claims to what the session guarantees. The initial phase observed host load averages of 60–223; this continuation's managed sandbox denies host process and kernel queries. The caller's branch remains in its own checkout, so this job retains the supplied detached history. Nothing was pushed.
+
+## What went wrong on 2026-10-21
+
+**The flake.** `tests/unit/test_prune_restore.py::test_restore_recipe_preserves_backup_and_displaced_files` failed under `--hypothesis-seed=18`. This build reproduced it at `2eacd5806`. Hypothesis shrank it to `rows=[]`, `suffix='```'`, `wal=None`, `shm=None`. The backup path then holds three backticks. `_run_recipe` cut the recipe at the first triple backtick after the opening fence, which was inside the quoted path. So `/bin/sh` received a script that ended in an unterminated quote (`backup='…backup '"'"' $ ; `) and failed with `CalledProcessError`.
+
+**The product side.** `RESTORE_RECIPE` opened its block with a fixed three-backtick fence. A CommonMark reader ends a fenced block only at a line holding nothing but a backtick run at least as long as the opening, so seed 18's mid-line run does not end it for a CommonMark renderer. But it does end it for any reader that looks for the next triple backtick, as the harness did. A path that holds a newline and then a line of three backticks ends it early for CommonMark too. At `2eacd5806`, `_restore_fix("/backups/state\n```\n…")` reads as a shell block cut off in the middle of `backup=…`, followed by a second, unclosed block (regression B2 below).
+
+**The leak.** The failure's traceback printed the subprocess environment, a lane's token with it. `_run_recipe` passed `env={**os.environ, "state_root": …}` to `subprocess.run`.
+
+## Decision 1: a fence no path can close
+
+`subfleet/prune_decisions.py`:
+
+- `RESTORE_SCRIPT` (`:113`) is now the shell block's own template, with `{copy_path}`.
+- `RESTORE_RECIPE` (`:129`) holds `{fence}sh`, `{script}` and `{fence}`.
+- `_restore_fix` (`:364`) quotes the path with `shlex.quote`, fills in the script, and fences it with `code_fence(script)` (`:384`).
+- `code_fence` returns a backtick run one longer than the longest run in the body, and never shorter than three. No line inside the block can then be a closing fence, whatever the path holds: a closing fence must be at least as long as the opening.
+- The migration guide's copy between the `prune-restore` markers is unchanged and still equals `_restore_fix("<backup copy>")` (`test_documented_restore_matches_error_recipe`). Its placeholder holds no backtick, so its fence is still three.
+
+### The sweep: operator-facing fenced blocks that embed a runtime value
+
+Searched `subfleet/` and `docs/` for backtick and tilde fences (`` ``` ``, `~~~`), for fences built in code (`"`" * n`, `chr(96)`, `\x60`), and for code that writes Markdown into `docs/`.
+
+| Where | What it embeds | Can a value close it? | Done |
+| --- | --- | --- | --- |
+| `subfleet/prune_decisions.py` `RESTORE_RECIPE` through `_restore_fix`. It is printed as the `fix:` of `PruneStopped` (`:935`) and of both `PruneVerificationError`s (`:1171`, `:1207`), by `_fail` (`:1225`). | the backup copy's path | yes | fixed: `code_fence` |
+| `docs/migration.md`, between `<!-- prune-restore:start -->` and `<!-- prune-restore:end -->` | `_restore_fix("<backup copy>")`, a fixed placeholder | no: the placeholder holds no backtick | unchanged; the existing test keeps it equal to the code |
+| Every other fence under `subfleet/` | none: the recipe is the only one | — | — |
+| `tools/soak_report.py`, which writes `docs/soak/<date>.md` from the store | job data | no fences in the writer | — |
+| The other 120 files under `docs/` with fences | hand-written text | no runtime value | — |
+
+There is one adjacent class, which is not fenced and was not changed. Fourteen f-strings in four modules put a value inside a single-backtick code span of terminal text. Nine of them embed a runtime value: `subfleet/compat.py:434` (a dropped token), `:689` and `:782` (an unknown verb), `subfleet/sessions/client.py:124` (a protocol op), and `subfleet/doctor.py:163`, `:169`, `:170`, `:335` and `:477` (a found binary's path). The five in `subfleet/cli.py` embed constants. These messages go to a terminal, not a Markdown renderer. A backtick in the value makes a span ambiguous to a reader but cannot hide a command. They are listed for the hub; no change was made.
+
+## Decision 2: the harness reads the block as a reader does
+
+- `tests/markdown_fences.py` reads backtick fences by CommonMark 0.31's section 4.5:
+  - An opening fence has up to three spaces of indentation, three or more backticks, and an info string without a backtick.
+  - The block ends at the first later line of up to three spaces, then at least as many backticks, then only spaces or tabs; otherwise at the end of the document.
+  - Lines end at LF, CR LF or CR. Content keeps its line endings.
+  - `test_the_fence_reader_follows_commonmark` holds six cases of these rules.
+- `_run_recipe` takes the one closed `sh` block with `shell_block` and asserts that it is exactly `RESTORE_SCRIPT.format(copy_path=shlex.quote(path))` plus its final newline. A truncated extraction fails there, by name, not as a shell syntax error.
+- `tests/unit/test_prune_217.py` had the same naive split, and now uses `shell_block` too.
+- The restore property gained four `@example`s:
+  - seed 18's shrunk case, `suffix="```"`;
+  - `"````"` with both sidecars;
+  - backticks mixed with the alphabet's other characters, `"a```$;'b````\"(!&"`;
+  - `"\n```\n"`, a run on a line of its own, which executes a restore through a path that ends a three-backtick fence for CommonMark.
+
+## Decision 3: keep inherited credentials out of test reports
+
+### The mechanism
+
+To establish it, a scratch test forced `_run_recipe` to fail at `2eacd5806`, through a backup path holding three backticks. Each child pytest ran in an `env -i` environment holding only `PATH`, `HOME`, `TMPDIR`, `LANG`, Hypothesis's storage directory and `SUBFLEET_DUMMY_TOKEN=SECRET7prr1`. The dummy was placed first in the environment in one run and fifteenth, after fourteen others, in another. Output went to scratch only. The software was pytest 9.1.1, Hypothesis 6.168.1 and Python 3.14.7.
+
+| Options | Dummy first | Dummy fifteenth | Where it printed |
+| --- | --- | --- | --- |
+| `-q` (default `--tb=auto`) | printed once | not printed | the `kwargs = {'env': {…` argument line of the `subprocess.run` entry |
+| `--tb=long`, `--full-trace` | printed once | not printed | the same line |
+| `-vvv` | printed once | not printed | the same line, untruncated in length |
+| `-l`, with or without `-q` | printed twice | not printed | the same argument line, plus the same frame's `kwargs` local |
+| `-l -vv` | printed twice | printed once | the locals, pretty-printed in full: the whole environment |
+| `--tb=short`, `--tb=native` | not printed | not printed | — |
+
+- **The frame** is `subprocess.run` (`Lib/subprocess.py:578`, where it raises `CalledProcessError`). Its `**kwargs` holds `env`. `_run_recipe` holds no copy of its own, because the dict is an argument expression.
+- **Arguments in the default traceback.** pytest maps `--tb=auto` to `long` for a test's failure (`Function.repr_failure`), and `Node._repr_failure_py` asks for `funcargs=True`. So every long-style entry prints its function's arguments through `saferepr`. That cuts the text to 240 characters, and its `reprlib` base cuts a dict after four entries. The first variable or two of `os.environ`, in the order the process inherited them, therefore print in full.
+- **Locals.** `-l` adds `repr_locals` for the same frame. Verbosity above 1 turns off locals truncation and uses `safeformat`, a full pretty-print, which is why `-l -vv` prints every variable wherever it sits. Verbosity above 2 lifts the 240-character cap on arguments, but `reprlib`'s four-entry cut still applies.
+- **What did not print it.** Not `CalledProcessError`'s text, which holds the command (the truncated script) and the status. Not Hypothesis's report: re-running seed 18 itself showed its `Failing test case: …(rows=[], suffix='```', …)` block holding only draws.
+- **Which applied on 2026-10-21.** Not known: the builder's options and its environment's order are gone. In the initial build environment the first credential-shaped name sat 14th, so the default and `-l` reports would not have shown one here, while `-l -vv` would have shown all of them. The class fix covers every option.
+
+Exact probe options, after `python -m pytest -p no:cacheprovider tests/unit/test_zz_prr1_probe.py`, were `-q`; `-q --tb=short`; `-q --tb=native`; `-q --tb=long`; `-q -l`; `-l`; `-vv -l`; `-vvv`; and `-q --full-trace`. Each was run with the dummy first and fifteenth. The seed-18 reproduction additionally used `-q --hypothesis-seed=18` and `-q -l --hypothesis-seed=18` on the original restore property, plus a late-position `-q --hypothesis-seed=18` run.
+
+### The local fix
+
+`_run_recipe` builds its child's environment from nothing, in `_recipe_environment`. It holds `PATH`, the session's temporary `HOME`, `TMPDIR`, `LANG` and `LC_ALL` when set, and `state_root`.
+
+`test_run_recipe_gives_the_shell_only_the_variables_it_needs` puts a stand-in `sqlite3` first on `PATH`. The stand-in records the names, never the values, of the environment the recipe's shell gives it. The test asserts that they are exactly those, less what the shell and interpreter set for themselves (`PWD`, `OLDPWD`, `SHLVL`, `_`, `__CF_USER_TEXT_ENCODING`, `__PYVENV_LAUNCHER__`).
+
+### The class fix
+
+- **The pattern.** `subfleet/home_paths.py` holds `CREDENTIAL_ENV_PATTERN`, beside `SAFE_ENV_REMOVALS`. It matches names ending in `_TOKEN`, `_KEY`, `_SECRET`, `_PASSWORD` or `_COOKIE`, and names holding `CREDENTIAL` or `_AUTH`, ignoring case. The ASCII case-folding follows `launch_env.CREDENTIAL_PATTERN`'s precedent, and catches npm-style lower-case names like `npm_config__auth`. `credential_shaped(name)` never matches the session's markers (`PYTEST_MARKER`, `PYTEST_SESSION`, `PYTEST_SESSION_ID`). `remove_credentials(environ)` deletes the matching variables and returns them; `restore_credentials(environ, removed)` puts them back.
+- **Configure.** `tests/conftest.py`'s `pytest_configure` calls `remove_credentials(os.environ)` before collection and keeps the result on `config`. The call comes after the existing baseline snapshot, so both snapshots hold the true originals. `CLAUDE_LANE_AGENT_SECRET` and `SUBFLEET_AGENT_SECRET` match the pattern and are in both, so they come back with the same value whichever restore runs last.
+- **Unconfigure.** `pytest_unconfigure` restores them after the baseline's own restore.
+- **What the removal guarantees.** On a POSIX build, `os.environ` deletes through to the C environment, and the interpreter's startup snapshot is the same dict. A check in this job on macOS, printing booleans only, confirmed three things:
+  - `os.environ._data is posix.environ`;
+  - a deleted name is gone from `posix.environ`;
+  - an inheriting `/bin/sh` child does not see it.
+
+  So while the session lives, a credential it inherited is in neither the test process's environment nor an inheriting child's. That is all the removal guarantees. Review r1 found a test that printed one anyway, from the session's own store of removed values; fix round 1, at the end of this report, makes the stores show names only and states the limit.
+- **Out of the pattern's scope.** A credential in a variable whose name does not look like one: for example `OTEL_EXPORTER_OTLP_HEADERS`, or a URL with a password in it.
+
+**What a lane's environment loses.** These are the names the pattern removes from the initial checkpoint phase's environment. The audit displayed names only; it displayed no values.
+
+| Name | What it is for |
+| --- | --- |
+| `SSH_AUTH_SOCK` | The ssh-agent's socket. It is not a secret itself, but a test child that inherits it can use the person's SSH keys through the agent. `subfleet/host_push.py` already drops it under pytest. `launch_env.CREDENTIAL_EXCEPTIONS` admits it for production launches, which this change does not touch. |
+| `CALLME_PHONE_AUTH_TOKEN` | Judged by its name: an auth token for a phone-call integration ("CallMe"). Nothing in this repository reads it. |
+| `CALLME_OPENAI_API_KEY` | Judged by its name: that integration's OpenAI key. Nothing in this repository reads it. |
+| `CALLME_NGROK_AUTHTOKEN` | Judged by its name: that integration's ngrok tunnel token. Nothing in this repository reads it. |
+| `CLAUDE_CODE_MESSAGING_TOKEN` | Judged by its name: a Claude Code session's messaging token. Nothing in this repository reads it. |
+
+The continuation inherited 21 matching names, listed below. Together with the initial phase's five names, these are 25 distinct names. Purposes are inferred from names unless the repository establishes them; no service was contacted and no credential value was displayed.
+
+| Name | Purpose |
+| --- | --- |
+| `ANTHROPIC_API_KEY` | Anthropic API access. |
+| `ATTIO_API_KEY` | Attio CRM API access. |
+| `CENSUS_API_KEY` | Census API access; consumer inferred from the name. |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code OAuth authentication. |
+| `CLOUDFLARE_AXIOM_TOKEN` | Cloudflare API access for the Axiom integration. |
+| `CLOUDFLARE_FARNESS_TOKEN` | Cloudflare API access for the Farness integration. |
+| `CLOUDFLARE_GLOBAL_API_KEY` | Cloudflare account API access. |
+| `GEMINI_API_KEY` | Gemini API access. |
+| `GOOGLE_API_KEY` | Google API access; exact API not established by this audit. |
+| `GRANOLA_API_KEY` | Granola integration API access. |
+| `HUGGING_FACE_TOKEN` | Hugging Face service authentication. |
+| `OC_PERSONAL_TOKEN` | A personal token for an OC integration; exact consumer unverified. |
+| `OPENAI_API_KEY` | OpenAI API access. |
+| `OPENROUTER_API_KEY` | OpenRouter API access. |
+| `POLICYENGINE_SUPABASE_SERVICE_KEY` | PolicyEngine Supabase service access. |
+| `POPULACE_SUPABASE_SECRET_KEY` | Populace Supabase service access. |
+| `SSH_AUTH_SOCK` | The ssh-agent socket, also present in the initial phase. |
+| `SUPABASE_ACCESS_TOKEN` | Supabase account or management API access. |
+| `SUPABASE_GRANTKIT_SERVICE_KEY` | GrantKit Supabase service access. |
+| `XAI_API_KEY` | xAI API access. |
+| `ZENODO_TOKEN` | Zenodo API access. |
+
+**Tests changed because they needed such a variable.** In `tests/unit/test_live_store_guard_round3.py`, the `agent` case of `test_host_credentials_after_configure_and_fixture_undo` and `test_host_credentials_accept_explicit_fixture_configs`.
+
+- Both check that `host_push._environment` drops `SSH_AUTH_SOCK` under pytest. The first set the socket before its nested `pytest_configure`, which now removes it; the second relied on whatever the environment held.
+- Either would now pass without reaching `host_push`'s drop. So each sets a socket path itself, and the drop is exercised everywhere, CI included.
+- No other test reads a credential-shaped variable it does not set. Every absence check found (`GH_TOKEN`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` and others) sets its own value first. The fake providers read `CLAUDE_CODE_OAUTH_TOKEN` from the environment their launcher gives them.
+
+**The sweep.** The requested patterns (`{**os.environ`, `dict(os.environ` and `os.environ.copy()`) match 72 lines in 42 files at `2eacd5806`, and 74 lines in 42 files in the final tree. This raw count includes non-launch copies. Following those copies through direct subprocess calls, launch helpers and blocked launch attempts gives **46 child-environment copy sites in 35 files**, both before and after the change: the old restore harness's site is replaced by the deliberate failing child fixture's site.
+
+The 28 remaining final-tree matches are synthetic audit-event inputs, assertion or report snapshots, mocked runner observations, the quoted v1 source line in `tests/fixtures/compat/cases.json`, and two deliberate report channels in `tests/credential_leak_child.py` (captured printing and Hypothesis's example). They do not pass a copied environment toward a child launch. In particular, `refuses` and `audit` in the guard tests synthesize audit events; `refused` attempts `subprocess.run` and is counted as a launch site.
+
+No retained child-copy site was rewritten. The session removal protects their inherited environment; tests that introduce credentials do so with their own dummies. The new failing child fixture intentionally copies the already-sanitized environment to exercise the report regression.
+
+| File | Raw pattern hits | Child-environment copy sites |
+| --- | ---: | ---: |
+| `tests/credential_leak_child.py` | 3 | 1 |
+| `tests/fake/conftest.py` | 1 | 1 |
+| `tests/fake/interactive_claude.py` | 1 | 1 |
+| `tests/fake/test_daemon_stacks.py` | 2 | 2 |
+| `tests/fake/test_enrollment_guardian.py` | 1 | 1 |
+| `tests/fake/test_gate_end_to_end.py` | 2 | 2 |
+| `tests/fake/test_launch_gates_above_stdio.py` | 2 | 2 |
+| `tests/fake/test_resume_cli.py` | 1 | 1 |
+| `tests/fake/test_routing_end_to_end.py` | 1 | 1 |
+| `tests/fixtures/compat/cases.json` | 1 | 0 |
+| `tests/frontend/test_core_suggestions_r1b.py` | 1 | 1 |
+| `tests/nonblocking.py` | 1 | 1 |
+| `tests/process/test_census_responsibility_process.py` | 1 | 0 |
+| `tests/process/test_claude_isolation.py` | 1 | 1 |
+| `tests/process/test_pipe_above_stdio.py` | 1 | 1 |
+| `tests/unit/test_capacity_steer_mutations.py` | 1 | 1 |
+| `tests/unit/test_ci_retry_known_flakes.py` | 1 | 1 |
+| `tests/unit/test_compat.py` | 1 | 1 |
+| `tests/unit/test_conversation_catalog_lifecycle.py` | 1 | 1 |
+| `tests/unit/test_conversation_fifo_reads.py` | 1 | 1 |
+| `tests/unit/test_host_push.py` | 1 | 1 |
+| `tests/unit/test_launch_env_allowlist.py` | 1 | 0 |
+| `tests/unit/test_launch_env_helpers.py` | 3 | 0 |
+| `tests/unit/test_legacy_hold.py` | 1 | 1 |
+| `tests/unit/test_live_store_guard.py` | 1 | 0 |
+| `tests/unit/test_live_store_guard_round10.py` | 8 | 3 |
+| `tests/unit/test_live_store_guard_round10_mutations.py` | 1 | 1 |
+| `tests/unit/test_live_store_guard_round6.py` | 3 | 3 |
+| `tests/unit/test_live_store_guard_round7.py` | 1 | 1 |
+| `tests/unit/test_live_store_guard_round7_mutations.py` | 1 | 1 |
+| `tests/unit/test_live_store_guard_round8.py` | 1 | 0 |
+| `tests/unit/test_live_store_guard_round8_mutations.py` | 1 | 1 |
+| `tests/unit/test_live_store_guard_round9.py` | 11 | 1 |
+| `tests/unit/test_live_store_guard_round9_mutations.py` | 1 | 1 |
+| `tests/unit/test_prune_217.py` | 1 | 1 |
+| `tests/unit/test_rediscovery_git_trace.py` | 1 | 0 |
+| `tests/unit/test_salvage.py` | 1 | 1 |
+| `tests/unit/test_salvage_optional_transient.py` | 1 | 1 |
+| `tests/unit/test_salvage_unindexable.py` | 6 | 4 |
+| `tests/unit/test_soak_tools.py` | 1 | 1 |
+| `tests/unit/test_stop_alarm.py` | 2 | 2 |
+| `tests/unit/test_suggestion_secret_properties.py` | 1 | 1 |
+
+## Decision 4: the contract
+
+- **C-11.5** is the one-off prune pass's clause, and it points at `docs/migration.md`. It covered the pass and its backups but not the recipe's text. It gains one sentence: the recipe fences its shell block with a run longer than any inside it, and never shorter than three.
+- **C-20.6** is the test-isolation clause that defines `tests/conftest.py`'s session baseline. It gains the credential removal, with the pattern, the markers' exemption, the restore at cleanup, and "a test that needs such a variable sets a dummy itself".
+- One change-log entry covers both: C-11.5 and C-20.6, 2026-10-22, D-PRR1.
+
+## The invariants
+
+1. **The block is whole.** For every backup path, the recipe's fenced block, read by CommonMark's fence rule, is exactly `RESTORE_SCRIPT` with `shlex.quote(path)` substituted. Its fence is longer than any run inside the block and at least three, and the prose around it is the prose every path gets.
+   - `test_restore_fix_block_is_the_template_script_for_every_path`: a property over paths drawn from backtick runs of 0 to 6, `'`, `"`, `$`, LF, CR, CR LF, tab, `/`, `;`, non-ASCII, and arbitrary text. 200 examples plus three explicit ones.
+   - `test_restore_fix_fences_its_block_beyond_every_backtick_run_in_the_path`, on four paths.
+2. **The restore still works.** For every drawn path and sidecar combination, the store's content equals the backup's, the displaced files are byte-identical and kept together, and the backup is unchanged.
+   - `test_restore_recipe_preserves_backup_and_displaced_files`: 30 examples plus the four new `@example`s.
+   - The two hot-WAL tests; `test_prune_217`'s executed restore.
+3. **No credential in test output.** With dummy credential-shaped variables set before the session starts, a failing test's whole report holds no part of any value: the whole value, its fixed prefix, or any ten characters of its random tail.
+   - `test_c20_6_a_failing_session_prints_no_part_of_an_inherited_credential` covers it under `-l --tb=long` and under `-l --tb=long -vv`.
+   - It runs `tests/credential_leak_child.py` in a child session with nine dummies, the first of them first in the environment, and one of them empty.
+   - The child fails through each channel, and the test checks that each channel printed: a frame's arguments, `-l` locals, captured output, an assertion's operands and Hypothesis's falsifying example.
+4. **Restored after the session.** `pytest_unconfigure` puts every removed variable back exactly as it was, an empty value included.
+   - The same child test hashes each dummy before `pytest.main` and after it returns.
+   - `test_c20_6_unconfigure_puts_back_exactly_what_configure_removed` checks the session's own hook.
+   - `test_c20_6_removal_takes_exactly_the_credentials_and_restore_puts_each_back` is a property over plain mappings, whatever the session sets or drops.
+
+## Regressions at `2eacd5806` and mutations
+
+Each case ran in an exported tree, in a minimal environment, with output in scratch.
+
+| Case | Tree | Failed | Passed |
+| --- | --- | --- | --- |
+| B1: seed 18's shape as an `@example` | `2eacd5806` with only the `@example` added | `test_restore_recipe_preserves_backup_and_displaced_files`, with `CalledProcessError` from the truncated script | 0 |
+| B2: the direct fence test | `2eacd5806` with the new test file | all 4 `test_restore_fix_fences_its_block_beyond_every_backtick_run_in_the_path` paths: `3 > 3`, `3 > 4`, and two `['sh', '']` (the block ended early) | 0 |
+| B3: the child session | `2eacd5806` with the new test file and child | both `test_c20_6_a_failing_session_prints_no_part_of_an_inherited_credential` options: the dummies reached the report | 0 |
+| M1: a fixed three-backtick fence | this build | the restore property (its `\n```\n` example), all 4 fence tests, 2 `test_run_recipe_hands_the_shell_the_whole_block` paths and the invariant 1 property | 2 |
+| M2: the harness splits at the first triple backtick | this build | the restore property (seed 18's example) and all 4 `test_run_recipe_hands_the_shell_the_whole_block` paths | 1 |
+| M3: `_run_recipe` copies `os.environ` | this build | `test_run_recipe_gives_the_shell_only_the_variables_it_needs` | 4 |
+| M4: the session's removal dropped | this build | `test_c20_6_this_session_holds_no_inherited_credential` and both child-session options | 27 |
+| M5: unconfigure does not restore | this build | `test_c20_6_unconfigure_puts_back_exactly_what_configure_removed` and both child-session options | 27 |
+
+The first run of B3 and M4 failed on the child's outcome line, because a session that keeps its dummies also fails the child's own presence check. The leak check now runs first (commit `8c2e9de04`). Rerun after that commit, both cases fail on it directly: under both options, all 8 non-empty dummies are named as leaked (`assert ['SUBFLEET_DUMMY_TOKEN', …] == []`, "Left contains 8 more items"). M4's `test_c20_6_this_session_holds_no_inherited_credential` fails as before.
+
+## Test counts
+
+All target regressions and invariants pass. Whole-directory coverage is incomplete: the brief's cutoff for starting holds was 09:04 UTC (04:34 UTC start plus 4 h 30 m), and the last hold was submitted at 09:03:40 UTC. No holds were started after that cutoff. The tables name every unrun file and show every partial file.
+
+Counts below use the latest completed outcome per pytest node ID, rather than adding repeated executions. Hypothesis examples are not counted as separate pytest tests. The baseline regression and mutation failures are separate experiments and are not included in these totals.
+
+| Directory | Passed | Failed | Skipped | Xfailed | Complete files | Partial files | Unrun files | Unrun cases |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `tests/unit` | 8,630 | 3 | 10 | 0 | 222 | 1 | 103 | 4,582 |
+| `tests/fake` | 452 | 0 | 0 | 2 | 17 | 1 | 88 | 1,518 |
+
+Three unexpected failures remain, all in files unchanged from `2eacd580605e`:
+
+- `tests/unit/test_daemon_qos_tools.py::test_thread_priorities_reads_every_thread_of_a_clamped_process`: `PermissionError: [Errno 1] Operation not permitted: '/bin/ps'`.
+- `tests/unit/test_descriptors.py::test_c16_6_the_kernel_ceiling_is_read_on_macos`: the kernel-ceiling query returns `None` in this sandbox; the test requires a positive integer. The sandbox also denies `sysctl`.
+- `tests/unit/test_hooks.py::test_the_hook_command_with_the_daemons_markers_spawns_nothing_and_surfaces_only_jobs`: the same `/bin/ps` permission denial.
+
+These are sandbox-dependent failures, not failures of the restore or credential regressions. They were not skipped or rewritten. Their files have no diff against the base.
+
+### Holds and repeated executions
+
+| Hold | Passed | Failed | Skipped | Xfailed | Pytest seconds (excludes lock wait) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `h1-prune` | 144 | 1 | 0 | 0 | 186.463 |
+| `h2-guard` | 1245 | 0 | 0 | 0 | 712.968 |
+| `chunk0` | 261 | 0 | 0 | 0 | 705.648 |
+| `resume-focused` | 205 | 0 | 0 | 0 | 181.578 |
+| `resume-all1` | 206 | 0 | 0 | 2 | 958.010 |
+| `resume-all2` | 2179 | 2 | 3 | 0 | 950.288 |
+| `resume-all3` | 1607 | 0 | 0 | 0 | 1016.310 |
+| `resume-all4` | 3582 | 1 | 7 | 0 | 952.761 |
+
+- `h1-prune`'s one failure was the new test expecting `-l -vv` locals on one line. Commit `b43b4f191` fixed the test to read the multiline representation. Both child-report variants passed in later runs.
+- `h2-guard` covers the requested `test_live_store_guard*` and `test_launch_env*` files selected by the original build; `test_live_store_guard_round3.py` was additionally verified after its dummy-socket adjustment.
+- `chunk0` is the first whole-suite batch from the checkpoint.
+- `resume-focused` passed all 205 distinct tests. Although two filename patterns overlapped, pytest collected the 48 tests in `test_prune_decisions.py` once; the XML contains 48 distinct names and no repetitions.
+- Each broad `resume-all*` hold ended through the budget hook or its timer, returning status 2 for interruption. Every hold's pytest runtime stayed below 20 minutes; lock waits occurred before the pytest timer started. Partial files remained eligible for the next hold.
+- All holds used the existing scratch venv, the hub's suite wrapper, scratch-local `TMPDIR` and Hypothesis storage, and `HYPOTHESIS_PROFILE=ci`. The final hold additionally selected `--hypothesis-profile=ci --hypothesis-seed=18` explicitly and ran `test_prune_restore.py` (20 passed) and `test_session_credential_env.py` (30 passed) first. No deep profile was used.
+- The prior setup used the hub's uv setup wrapper once; the continuation reused the venv with `uv run --no-sync` and performed no installation or network operation.
+- Process census was attempted before writing these deliverables with `pgrep -fl 'suite_hold.sh|pytest|lockf'`. This sandbox returned status 3, “Cannot get process list.” All task-started foreground hold commands had already returned; no detached task process was started. Other jobs were left alone.
+- Scratch logs, probe trees, venv, storage and caches are removed after committing the reports. No logs, JSON evidence or bundles are staged.
+
+Partial files: `tests/fake/test_capacity_steer_daemon.py`, `tests/unit/test_retention_81_notes.py`.
+
+### Every test file in tests/unit
+
+| File | Passed | Failed | Skipped | Xfailed | Collected | Status |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `tests/unit/test_admission_uncapped.py` | 0 | 0 | 0 | 0 | 27 | unrun |
+| `tests/unit/test_agent_secret_credentials.py` | 0 | 0 | 0 | 0 | 7 | unrun |
+| `tests/unit/test_app_cutover_daemon.py` | 13 | 0 | 0 | 0 | 13 | complete |
+| `tests/unit/test_approval_commit.py` | 6 | 0 | 0 | 0 | 6 | complete |
+| `tests/unit/test_approval_resolution.py` | 33 | 0 | 0 | 0 | 33 | complete |
+| `tests/unit/test_boot_identity.py` | 10 | 0 | 0 | 0 | 10 | complete |
+| `tests/unit/test_capacity_desktop.py` | 0 | 0 | 0 | 0 | 20 | unrun |
+| `tests/unit/test_capacity_steer_mutations.py` | 10 | 0 | 0 | 0 | 10 | complete |
+| `tests/unit/test_capacity_steer_route.py` | 0 | 0 | 0 | 0 | 22 | unrun |
+| `tests/unit/test_capacity_view.py` | 0 | 0 | 0 | 0 | 20 | unrun |
+| `tests/unit/test_census_counted.py` | 5 | 0 | 0 | 0 | 5 | complete |
+| `tests/unit/test_census_identity_uncertainty.py` | 8 | 0 | 0 | 0 | 8 | complete |
+| `tests/unit/test_census_procargs.py` | 52 | 0 | 0 | 0 | 52 | complete |
+| `tests/unit/test_census_recycled_pid.py` | 25 | 0 | 0 | 0 | 25 | complete |
+| `tests/unit/test_census_responsibility_failures.py` | 20 | 0 | 0 | 0 | 20 | complete |
+| `tests/unit/test_census_responsibility_identity.py` | 17 | 0 | 0 | 0 | 17 | complete |
+| `tests/unit/test_census_responsibility_races.py` | 34 | 0 | 0 | 0 | 34 | complete |
+| `tests/unit/test_census_survivors_review.py` | 0 | 0 | 0 | 0 | 14 | unrun |
+| `tests/unit/test_ci_retry_known_flakes.py` | 72 | 0 | 0 | 0 | 72 | complete |
+| `tests/unit/test_ci_shard_plugin.py` | 48 | 0 | 0 | 0 | 48 | complete |
+| `tests/unit/test_claude_adapter.py` | 0 | 0 | 0 | 0 | 170 | unrun |
+| `tests/unit/test_claude_attest.py` | 19 | 0 | 0 | 0 | 19 | complete |
+| `tests/unit/test_claude_cards.py` | 0 | 0 | 0 | 0 | 96 | unrun |
+| `tests/unit/test_claude_cards_wiring.py` | 15 | 0 | 0 | 0 | 15 | complete |
+| `tests/unit/test_claude_conversation_mcp_scope.py` | 0 | 0 | 0 | 0 | 8 | unrun |
+| `tests/unit/test_claude_identity.py` | 0 | 0 | 0 | 0 | 30 | unrun |
+| `tests/unit/test_claude_large_stream.py` | 30 | 0 | 0 | 0 | 30 | complete |
+| `tests/unit/test_claude_mcp.py` | 32 | 0 | 0 | 0 | 32 | complete |
+| `tests/unit/test_claude_mcp_launch.py` | 11 | 0 | 0 | 0 | 11 | complete |
+| `tests/unit/test_claude_stream.py` | 60 | 0 | 0 | 0 | 60 | complete |
+| `tests/unit/test_claude_synthetic_error.py` | 63 | 0 | 0 | 0 | 63 | complete |
+| `tests/unit/test_claude_turn.py` | 61 | 0 | 0 | 0 | 61 | complete |
+| `tests/unit/test_claude_usage.py` | 0 | 0 | 0 | 0 | 28 | unrun |
+| `tests/unit/test_claude_v1_parity.py` | 6 | 0 | 0 | 0 | 6 | complete |
+| `tests/unit/test_cli.py` | 0 | 0 | 0 | 0 | 222 | unrun |
+| `tests/unit/test_cli_batch.py` | 18 | 0 | 0 | 0 | 18 | complete |
+| `tests/unit/test_cli_turns.py` | 23 | 0 | 0 | 0 | 23 | complete |
+| `tests/unit/test_codex_adapter.py` | 0 | 0 | 0 | 0 | 172 | unrun |
+| `tests/unit/test_codex_ca_bundle.py` | 0 | 0 | 0 | 0 | 46 | unrun |
+| `tests/unit/test_codex_ca_bundle_provider.py` | 6 | 0 | 0 | 0 | 6 | complete |
+| `tests/unit/test_codex_probe.py` | 0 | 0 | 0 | 0 | 55 | unrun |
+| `tests/unit/test_codex_shim.py` | 0 | 0 | 0 | 0 | 31 | unrun |
+| `tests/unit/test_codex_turn.py` | 58 | 0 | 0 | 0 | 58 | complete |
+| `tests/unit/test_codex_turn_completed.py` | 41 | 0 | 0 | 0 | 41 | complete |
+| `tests/unit/test_compat.py` | 1615 | 0 | 0 | 0 | 1615 | complete |
+| `tests/unit/test_continuation_r2.py` | 11 | 0 | 0 | 0 | 11 | complete |
+| `tests/unit/test_conversation_catalog.py` | 15 | 0 | 0 | 0 | 15 | complete |
+| `tests/unit/test_conversation_catalog_lifecycle.py` | 21 | 0 | 0 | 0 | 21 | complete |
+| `tests/unit/test_conversation_connections.py` | 9 | 0 | 0 | 0 | 9 | complete |
+| `tests/unit/test_conversation_diff.py` | 39 | 0 | 0 | 0 | 39 | complete |
+| `tests/unit/test_conversation_fifo_reads.py` | 0 | 0 | 0 | 0 | 26 | unrun |
+| `tests/unit/test_conversation_handoff.py` | 48 | 0 | 0 | 0 | 48 | complete |
+| `tests/unit/test_conversation_handoff_briefs.py` | 28 | 0 | 0 | 0 | 28 | complete |
+| `tests/unit/test_conversation_handoff_dispatch_races.py` | 9 | 0 | 0 | 0 | 9 | complete |
+| `tests/unit/test_conversation_history.py` | 22 | 0 | 0 | 0 | 22 | complete |
+| `tests/unit/test_conversation_peers_attachments.py` | 44 | 0 | 0 | 0 | 44 | complete |
+| `tests/unit/test_conversation_reconcile.py` | 36 | 0 | 0 | 0 | 36 | complete |
+| `tests/unit/test_conversation_redact.py` | 9 | 0 | 0 | 0 | 9 | complete |
+| `tests/unit/test_conversation_service.py` | 0 | 0 | 0 | 0 | 98 | unrun |
+| `tests/unit/test_conversation_state_reads.py` | 18 | 0 | 0 | 0 | 18 | complete |
+| `tests/unit/test_conversation_status.py` | 9 | 0 | 0 | 0 | 9 | complete |
+| `tests/unit/test_conversation_steer_service.py` | 45 | 0 | 0 | 0 | 45 | complete |
+| `tests/unit/test_conversation_store.py` | 32 | 0 | 0 | 0 | 32 | complete |
+| `tests/unit/test_conversation_stream_assertion.py` | 13 | 0 | 0 | 0 | 13 | complete |
+| `tests/unit/test_conversation_titles.py` | 89 | 0 | 0 | 0 | 89 | complete |
+| `tests/unit/test_conversation_waits.py` | 9 | 0 | 0 | 0 | 9 | complete |
+| `tests/unit/test_conversation_wakes.py` | 0 | 0 | 0 | 0 | 22 | unrun |
+| `tests/unit/test_cpu_scaling.py` | 2 | 0 | 0 | 0 | 2 | complete |
+| `tests/unit/test_daemon_accept.py` | 5 | 0 | 0 | 0 | 5 | complete |
+| `tests/unit/test_daemon_connections.py` | 31 | 0 | 0 | 0 | 31 | complete |
+| `tests/unit/test_daemon_fifo_reads.py` | 27 | 0 | 0 | 0 | 27 | complete |
+| `tests/unit/test_daemon_init_release.py` | 2 | 0 | 0 | 0 | 2 | complete |
+| `tests/unit/test_daemon_inspection_load.py` | 22 | 0 | 0 | 0 | 22 | complete |
+| `tests/unit/test_daemon_inspection_properties.py` | 4 | 0 | 0 | 0 | 4 | complete |
+| `tests/unit/test_daemon_integration.py` | 0 | 0 | 0 | 0 | 7 | unrun |
+| `tests/unit/test_daemon_log_scrubbing.py` | 0 | 0 | 0 | 0 | 86 | unrun |
+| `tests/unit/test_daemon_qos_tools.py` | 3 | 1 | 0 | 0 | 4 | complete, failed |
+| `tests/unit/test_daemon_refusals_cli.py` | 8 | 0 | 0 | 0 | 8 | complete |
+| `tests/unit/test_daemon_settle.py` | 61 | 0 | 0 | 0 | 61 | complete |
+| `tests/unit/test_daemon_verbs.py` | 0 | 0 | 0 | 0 | 20 | unrun |
+| `tests/unit/test_decision_horizon.py` | 7 | 0 | 0 | 0 | 7 | complete |
+| `tests/unit/test_descriptor_review_fixes.py` | 56 | 0 | 0 | 0 | 56 | complete |
+| `tests/unit/test_descriptors.py` | 15 | 1 | 0 | 0 | 16 | complete, failed |
+| `tests/unit/test_descriptors_desktop.py` | 8 | 0 | 0 | 0 | 8 | complete |
+| `tests/unit/test_desktop_account_cache.py` | 3 | 0 | 0 | 0 | 3 | complete |
+| `tests/unit/test_desktop_in_use.py` | 13 | 0 | 0 | 0 | 13 | complete |
+| `tests/unit/test_desktop_ledger.py` | 4 | 0 | 0 | 0 | 4 | complete |
+| `tests/unit/test_disk_admission.py` | 27 | 0 | 0 | 0 | 27 | complete |
+| `tests/unit/test_disk_floor.py` | 60 | 0 | 0 | 0 | 60 | complete |
+| `tests/unit/test_doctor.py` | 0 | 0 | 0 | 0 | 44 | unrun |
+| `tests/unit/test_doctor_ca_bundle.py` | 0 | 0 | 0 | 0 | 16 | unrun |
+| `tests/unit/test_doctor_identity.py` | 13 | 0 | 0 | 0 | 13 | complete |
+| `tests/unit/test_empty_provider_results.py` | 334 | 0 | 0 | 0 | 334 | complete |
+| `tests/unit/test_enrollment_runner.py` | 7 | 0 | 0 | 0 | 7 | complete |
+| `tests/unit/test_fake_codex_http.py` | 7 | 0 | 0 | 0 | 7 | complete |
+| `tests/unit/test_filesystem_identity_agreement.py` | 37 | 0 | 3 | 0 | 40 | complete |
+| `tests/unit/test_folders.py` | 23 | 0 | 0 | 0 | 23 | complete |
+| `tests/unit/test_forget_paced.py` | 2 | 0 | 0 | 0 | 2 | complete |
+| `tests/unit/test_fresh_until.py` | 1 | 0 | 0 | 0 | 1 | complete |
+| `tests/unit/test_frozen_provider_streams.py` | 217 | 0 | 0 | 0 | 217 | complete |
+| `tests/unit/test_gate_admission.py` | 24 | 0 | 0 | 0 | 24 | complete |
+| `tests/unit/test_gate_merge.py` | 0 | 0 | 0 | 0 | 59 | unrun |
+| `tests/unit/test_gate_replay.py` | 23 | 0 | 0 | 0 | 23 | complete |
+| `tests/unit/test_gate_revision.py` | 16 | 0 | 0 | 0 | 16 | complete |
+| `tests/unit/test_gate_service.py` | 0 | 0 | 0 | 0 | 25 | unrun |
+| `tests/unit/test_gate_verdict.py` | 45 | 0 | 0 | 0 | 45 | complete |
+| `tests/unit/test_guard_overlay.py` | 22 | 0 | 0 | 0 | 22 | complete |
+| `tests/unit/test_guard_trust.py` | 0 | 0 | 0 | 0 | 98 | unrun |
+| `tests/unit/test_guardian.py` | 0 | 0 | 0 | 0 | 12 | unrun |
+| `tests/unit/test_guardian_qos.py` | 14 | 0 | 0 | 0 | 14 | complete |
+| `tests/unit/test_handler_refusals.py` | 317 | 0 | 0 | 0 | 317 | complete |
+| `tests/unit/test_held_waiter_holdback.py` | 0 | 0 | 0 | 0 | 6 | unrun |
+| `tests/unit/test_hidden_environment.py` | 7 | 0 | 0 | 0 | 7 | complete |
+| `tests/unit/test_hook_cost.py` | 3 | 0 | 0 | 0 | 3 | complete |
+| `tests/unit/test_hooks.py` | 66 | 1 | 0 | 0 | 67 | complete, failed |
+| `tests/unit/test_hooks_native_guard.py` | 18 | 0 | 0 | 0 | 18 | complete |
+| `tests/unit/test_host_push.py` | 0 | 0 | 0 | 0 | 118 | unrun |
+| `tests/unit/test_host_push_admission.py` | 15 | 0 | 0 | 0 | 15 | complete |
+| `tests/unit/test_host_push_build.py` | 10 | 0 | 1 | 0 | 11 | complete |
+| `tests/unit/test_host_push_build_budget.py` | 15 | 0 | 0 | 0 | 15 | complete |
+| `tests/unit/test_host_push_cli.py` | 7 | 0 | 0 | 0 | 7 | complete |
+| `tests/unit/test_host_push_config_cost.py` | 7 | 0 | 0 | 0 | 7 | complete |
+| `tests/unit/test_host_push_copy.py` | 11 | 0 | 0 | 0 | 11 | complete |
+| `tests/unit/test_host_push_export.py` | 0 | 0 | 0 | 0 | 10 | unrun |
+| `tests/unit/test_host_push_intake.py` | 13 | 0 | 0 | 0 | 13 | complete |
+| `tests/unit/test_host_push_metadata.py` | 33 | 0 | 0 | 0 | 33 | complete |
+| `tests/unit/test_host_push_mutations.py` | 0 | 0 | 0 | 0 | 24 | unrun |
+| `tests/unit/test_host_push_names.py` | 0 | 0 | 0 | 0 | 13 | unrun |
+| `tests/unit/test_host_push_quarantine_restart.py` | 8 | 0 | 0 | 0 | 8 | complete |
+| `tests/unit/test_host_push_restart.py` | 4 | 0 | 0 | 0 | 4 | complete |
+| `tests/unit/test_host_push_retention.py` | 2 | 0 | 0 | 0 | 2 | complete |
+| `tests/unit/test_host_push_storage_recovery.py` | 2 | 0 | 0 | 0 | 2 | complete |
+| `tests/unit/test_host_push_storage_retry_budget.py` | 60 | 0 | 0 | 0 | 60 | complete |
+| `tests/unit/test_host_push_store_completion_pr183.py` | 2 | 0 | 0 | 0 | 2 | complete |
+| `tests/unit/test_host_push_store_interleavings.py` | 26 | 0 | 0 | 0 | 26 | complete |
+| `tests/unit/test_host_push_trees.py` | 5 | 0 | 0 | 0 | 5 | complete |
+| `tests/unit/test_host_push_validated_top.py` | 0 | 0 | 0 | 0 | 8 | unrun |
+| `tests/unit/test_importer.py` | 0 | 0 | 0 | 0 | 148 | unrun |
+| `tests/unit/test_inspection_pacing_properties.py` | 1 | 0 | 0 | 0 | 1 | complete |
+| `tests/unit/test_invariants_index.py` | 25 | 0 | 0 | 0 | 25 | complete |
+| `tests/unit/test_keychain_exec_guard_properties.py` | 3 | 0 | 0 | 0 | 3 | complete |
+| `tests/unit/test_lane_answers.py` | 27 | 0 | 0 | 0 | 27 | complete |
+| `tests/unit/test_lanes_transfer.py` | 0 | 0 | 0 | 0 | 79 | unrun |
+| `tests/unit/test_launch_env_allowlist.py` | 27 | 0 | 0 | 0 | 27 | complete |
+| `tests/unit/test_launch_env_helpers.py` | 20 | 0 | 0 | 0 | 20 | complete |
+| `tests/unit/test_launch_env_mutations.py` | 41 | 0 | 0 | 0 | 41 | complete |
+| `tests/unit/test_launch_env_policy.py` | 26 | 0 | 0 | 0 | 26 | complete |
+| `tests/unit/test_launch_env_round2.py` | 67 | 0 | 0 | 0 | 67 | complete |
+| `tests/unit/test_launch_env_round3.py` | 67 | 0 | 0 | 0 | 67 | complete |
+| `tests/unit/test_launch_env_round4.py` | 40 | 0 | 0 | 0 | 40 | complete |
+| `tests/unit/test_launch_env_round5.py` | 39 | 0 | 0 | 0 | 39 | complete |
+| `tests/unit/test_lease_waiter_selection.py` | 0 | 0 | 0 | 0 | 6 | unrun |
+| `tests/unit/test_legacy_hold.py` | 50 | 0 | 6 | 0 | 56 | complete |
+| `tests/unit/test_limit_from_model_text.py` | 0 | 0 | 0 | 0 | 95 | unrun |
+| `tests/unit/test_live_store_guard.py` | 324 | 0 | 0 | 0 | 324 | complete |
+| `tests/unit/test_live_store_guard_round10.py` | 60 | 0 | 0 | 0 | 60 | complete |
+| `tests/unit/test_live_store_guard_round10_mutations.py` | 13 | 0 | 0 | 0 | 13 | complete |
+| `tests/unit/test_live_store_guard_round3.py` | 22 | 0 | 0 | 0 | 22 | complete |
+| `tests/unit/test_live_store_guard_round4.py` | 8 | 0 | 0 | 0 | 8 | complete |
+| `tests/unit/test_live_store_guard_round5.py` | 11 | 0 | 0 | 0 | 11 | complete |
+| `tests/unit/test_live_store_guard_round6.py` | 112 | 0 | 0 | 0 | 112 | complete |
+| `tests/unit/test_live_store_guard_round7.py` | 50 | 0 | 0 | 0 | 50 | complete |
+| `tests/unit/test_live_store_guard_round7_mutations.py` | 23 | 0 | 0 | 0 | 23 | complete |
+| `tests/unit/test_live_store_guard_round8.py` | 100 | 0 | 0 | 0 | 100 | complete |
+| `tests/unit/test_live_store_guard_round8_mutations.py` | 4 | 0 | 0 | 0 | 4 | complete |
+| `tests/unit/test_live_store_guard_round9.py` | 89 | 0 | 0 | 0 | 89 | complete |
+| `tests/unit/test_live_store_guard_round9_mutations.py` | 12 | 0 | 0 | 0 | 12 | complete |
+| `tests/unit/test_live_store_guard_state_root.py` | 22 | 0 | 0 | 0 | 22 | complete |
+| `tests/unit/test_lockwatch.py` | 0 | 0 | 0 | 0 | 20 | unrun |
+| `tests/unit/test_mcp_cli_contract.py` | 6 | 0 | 0 | 0 | 6 | complete |
+| `tests/unit/test_mcp_scheduler_contract.py` | 5 | 0 | 0 | 0 | 5 | complete |
+| `tests/unit/test_mirror_flags_faults.py` | 29 | 0 | 0 | 0 | 29 | complete |
+| `tests/unit/test_mirror_flags_model.py` | 12 | 0 | 0 | 0 | 12 | complete |
+| `tests/unit/test_mirror_flags_stateful.py` | 2 | 0 | 0 | 0 | 2 | complete |
+| `tests/unit/test_native_operations.py` | 28 | 0 | 0 | 0 | 28 | complete |
+| `tests/unit/test_notice_rendering.py` | 21 | 0 | 0 | 0 | 21 | complete |
+| `tests/unit/test_notify_push.py` | 31 | 0 | 0 | 0 | 31 | complete |
+| `tests/unit/test_offline.py` | 33 | 0 | 0 | 0 | 33 | complete |
+| `tests/unit/test_operator_hold_closures.py` | 15 | 0 | 0 | 0 | 15 | complete |
+| `tests/unit/test_operator_notices.py` | 0 | 0 | 0 | 0 | 79 | unrun |
+| `tests/unit/test_outcome_unknown.py` | 58 | 0 | 0 | 0 | 58 | complete |
+| `tests/unit/test_person_boundary.py` | 97 | 0 | 0 | 0 | 97 | complete |
+| `tests/unit/test_person_boundary_identity.py` | 0 | 0 | 0 | 0 | 25 | unrun |
+| `tests/unit/test_picker.py` | 0 | 0 | 0 | 0 | 39 | unrun |
+| `tests/unit/test_placement_ramp.py` | 26 | 0 | 0 | 0 | 26 | complete |
+| `tests/unit/test_policy.py` | 178 | 0 | 0 | 0 | 178 | complete |
+| `tests/unit/test_policy_disk.py` | 57 | 0 | 0 | 0 | 57 | complete |
+| `tests/unit/test_policy_ramp.py` | 46 | 0 | 0 | 0 | 46 | complete |
+| `tests/unit/test_policy_support.py` | 0 | 0 | 0 | 0 | 14 | unrun |
+| `tests/unit/test_policy_tier_preferences.py` | 15 | 0 | 0 | 0 | 15 | complete |
+| `tests/unit/test_pr124_fixes.py` | 10 | 0 | 0 | 0 | 10 | complete |
+| `tests/unit/test_pr124_review_r2_fixes.py` | 0 | 0 | 0 | 0 | 6 | unrun |
+| `tests/unit/test_pr192_review_r1.py` | 21 | 0 | 0 | 0 | 21 | complete |
+| `tests/unit/test_pr192_review_r2.py` | 9 | 0 | 0 | 0 | 9 | complete |
+| `tests/unit/test_procs.py` | 0 | 0 | 0 | 0 | 47 | unrun |
+| `tests/unit/test_protocol_secrecy.py` | 322 | 0 | 0 | 0 | 322 | complete |
+| `tests/unit/test_provider_active_cap.py` | 50 | 0 | 0 | 0 | 50 | complete |
+| `tests/unit/test_prune_217.py` | 9 | 0 | 0 | 0 | 9 | complete |
+| `tests/unit/test_prune_decision_backup_verification.py` | 23 | 0 | 0 | 0 | 23 | complete |
+| `tests/unit/test_prune_decision_fingerprints.py` | 15 | 0 | 0 | 0 | 15 | complete |
+| `tests/unit/test_prune_decisions.py` | 48 | 0 | 0 | 0 | 48 | complete |
+| `tests/unit/test_prune_restore.py` | 20 | 0 | 0 | 0 | 20 | complete |
+| `tests/unit/test_quota_projection.py` | 28 | 0 | 0 | 0 | 28 | complete |
+| `tests/unit/test_rank_review_report.py` | 3 | 0 | 0 | 0 | 3 | complete |
+| `tests/unit/test_reap_liveness.py` | 7 | 0 | 0 | 0 | 7 | complete |
+| `tests/unit/test_rediscovery_git_trace.py` | 17 | 0 | 0 | 0 | 17 | complete |
+| `tests/unit/test_relay.py` | 24 | 0 | 0 | 0 | 24 | complete |
+| `tests/unit/test_render.py` | 0 | 0 | 0 | 0 | 20 | unrun |
+| `tests/unit/test_render_quota_projection.py` | 0 | 0 | 0 | 0 | 23 | unrun |
+| `tests/unit/test_reserve_authorization_plumbing.py` | 5 | 0 | 0 | 0 | 5 | complete |
+| `tests/unit/test_reset_credit_claim_timing.py` | 2 | 0 | 0 | 0 | 2 | complete |
+| `tests/unit/test_reset_credit_demand.py` | 68 | 0 | 0 | 0 | 68 | complete |
+| `tests/unit/test_reset_credit_properties.py` | 0 | 0 | 0 | 0 | 11 | unrun |
+| `tests/unit/test_reset_credit_review_r1.py` | 0 | 0 | 0 | 0 | 22 | unrun |
+| `tests/unit/test_reset_credit_review_r2.py` | 0 | 0 | 0 | 0 | 52 | unrun |
+| `tests/unit/test_reset_credit_review_r3.py` | 23 | 0 | 0 | 0 | 23 | complete |
+| `tests/unit/test_reset_credit_review_r3_mutants.py` | 12 | 0 | 0 | 0 | 12 | complete |
+| `tests/unit/test_resource_identity.py` | 10 | 0 | 0 | 0 | 10 | complete |
+| `tests/unit/test_retention_81_notes.py` | 28 | 0 | 0 | 0 | 38 | partial |
+| `tests/unit/test_retention_archive.py` | 0 | 0 | 0 | 0 | 109 | unrun |
+| `tests/unit/test_retention_archive_properties.py` | 0 | 0 | 0 | 0 | 2 | unrun |
+| `tests/unit/test_retention_case_alias.py` | 0 | 0 | 0 | 0 | 56 | unrun |
+| `tests/unit/test_retention_nested_leases.py` | 27 | 0 | 0 | 0 | 27 | complete |
+| `tests/unit/test_retention_ordinary_trees.py` | 0 | 0 | 0 | 0 | 4 | unrun |
+| `tests/unit/test_retention_qos.py` | 0 | 0 | 0 | 0 | 8 | unrun |
+| `tests/unit/test_retention_readback.py` | 37 | 0 | 0 | 0 | 37 | complete |
+| `tests/unit/test_retention_rediscovery.py` | 17 | 0 | 0 | 0 | 17 | complete |
+| `tests/unit/test_retention_regenerable.py` | 0 | 0 | 0 | 0 | 26 | unrun |
+| `tests/unit/test_retention_regenerable_properties.py` | 0 | 0 | 0 | 0 | 1 | unrun |
+| `tests/unit/test_retention_salvage_properties.py` | 2 | 0 | 0 | 0 | 2 | complete |
+| `tests/unit/test_retention_shared_folders.py` | 0 | 0 | 0 | 0 | 62 | unrun |
+| `tests/unit/test_retention_sweep_race.py` | 0 | 0 | 0 | 0 | 13 | unrun |
+| `tests/unit/test_retention_turn_contract.py` | 2 | 0 | 0 | 0 | 2 | complete |
+| `tests/unit/test_retention_turn_workdirs.py` | 1 | 0 | 0 | 0 | 1 | complete |
+| `tests/unit/test_retention_turns.py` | 7 | 0 | 0 | 0 | 7 | complete |
+| `tests/unit/test_retention_worktrees.py` | 0 | 0 | 0 | 0 | 15 | unrun |
+| `tests/unit/test_review130_pass.py` | 21 | 0 | 0 | 0 | 21 | complete |
+| `tests/unit/test_review_pr127_fixes.py` | 12 | 0 | 0 | 0 | 12 | complete |
+| `tests/unit/test_review_pr127_history.py` | 6 | 0 | 0 | 0 | 6 | complete |
+| `tests/unit/test_review_pr127_pr_wakes.py` | 7 | 0 | 0 | 0 | 7 | complete |
+| `tests/unit/test_review_pr127_report.py` | 1 | 0 | 0 | 0 | 1 | complete |
+| `tests/unit/test_review_pr127_requests.py` | 17 | 0 | 0 | 0 | 17 | complete |
+| `tests/unit/test_review_pr127_service.py` | 0 | 0 | 0 | 0 | 8 | unrun |
+| `tests/unit/test_review_r2_repro.py` | 0 | 0 | 0 | 0 | 31 | unrun |
+| `tests/unit/test_review_r3_measure.py` | 6 | 0 | 0 | 0 | 6 | complete |
+| `tests/unit/test_review_r3_repro.py` | 12 | 0 | 0 | 0 | 12 | complete |
+| `tests/unit/test_review_r4_repro.py` | 27 | 0 | 0 | 0 | 27 | complete |
+| `tests/unit/test_review_r5_repro.py` | 17 | 0 | 0 | 0 | 17 | complete |
+| `tests/unit/test_review_r6_probes.py` | 30 | 0 | 0 | 0 | 30 | complete |
+| `tests/unit/test_review_r6_restart.py` | 5 | 0 | 0 | 0 | 5 | complete |
+| `tests/unit/test_round10_refusal_context.py` | 0 | 0 | 0 | 0 | 59 | unrun |
+| `tests/unit/test_route_check.py` | 0 | 0 | 0 | 0 | 24 | unrun |
+| `tests/unit/test_salvage.py` | 0 | 0 | 0 | 0 | 31 | unrun |
+| `tests/unit/test_salvage_optional_transient.py` | 0 | 0 | 0 | 0 | 15 | unrun |
+| `tests/unit/test_salvage_unindexable.py` | 0 | 0 | 0 | 0 | 86 | unrun |
+| `tests/unit/test_scheduler.py` | 0 | 0 | 0 | 0 | 97 | unrun |
+| `tests/unit/test_scheduler_priority_callers.py` | 9 | 0 | 0 | 0 | 9 | complete |
+| `tests/unit/test_scheduler_split.py` | 3 | 0 | 0 | 0 | 3 | complete |
+| `tests/unit/test_scheduler_tier_preferences.py` | 9 | 0 | 0 | 0 | 9 | complete |
+| `tests/unit/test_scheduler_turns.py` | 10 | 0 | 0 | 0 | 10 | complete |
+| `tests/unit/test_scheduler_weekly.py` | 0 | 0 | 0 | 0 | 33 | unrun |
+| `tests/unit/test_scoped_stream_capacity.py` | 17 | 0 | 0 | 0 | 17 | complete |
+| `tests/unit/test_scrub_key_order.py` | 0 | 0 | 0 | 0 | 70 | unrun |
+| `tests/unit/test_session_credential_env.py` | 30 | 0 | 0 | 0 | 30 | complete |
+| `tests/unit/test_sessions_cli.py` | 0 | 0 | 0 | 0 | 142 | unrun |
+| `tests/unit/test_sessions_handoff.py` | 0 | 0 | 0 | 0 | 117 | unrun |
+| `tests/unit/test_sessions_handoff_excerpts.py` | 0 | 0 | 0 | 0 | 153 | unrun |
+| `tests/unit/test_sessions_headless_properties.py` | 5 | 0 | 0 | 0 | 5 | complete |
+| `tests/unit/test_sessions_mirror.py` | 41 | 0 | 0 | 0 | 41 | complete |
+| `tests/unit/test_sessions_mirror_cache_coherence.py` | 4 | 0 | 0 | 0 | 4 | complete |
+| `tests/unit/test_sessions_mirror_fifo.py` | 0 | 0 | 0 | 0 | 49 | unrun |
+| `tests/unit/test_sessions_mirror_hot_health.py` | 6 | 0 | 0 | 0 | 6 | complete |
+| `tests/unit/test_sessions_mirror_hot_progress.py` | 0 | 0 | 0 | 0 | 16 | unrun |
+| `tests/unit/test_sessions_mirror_hot_regressions.py` | 0 | 0 | 0 | 0 | 22 | unrun |
+| `tests/unit/test_sessions_mirror_inventory.py` | 8 | 0 | 0 | 0 | 8 | complete |
+| `tests/unit/test_sessions_mirror_load_gap.py` | 0 | 0 | 0 | 0 | 85 | unrun |
+| `tests/unit/test_sessions_mirror_safety.py` | 0 | 0 | 0 | 0 | 28 | unrun |
+| `tests/unit/test_sessions_mirror_write_churn.py` | 0 | 0 | 0 | 0 | 3 | unrun |
+| `tests/unit/test_sessions_nudge.py` | 0 | 0 | 0 | 0 | 44 | unrun |
+| `tests/unit/test_sessions_registry.py` | 24 | 0 | 0 | 0 | 24 | complete |
+| `tests/unit/test_sessions_revive.py` | 0 | 0 | 0 | 0 | 45 | unrun |
+| `tests/unit/test_sessions_revive_reads.py` | 0 | 0 | 0 | 0 | 10 | unrun |
+| `tests/unit/test_sessions_transcripts.py` | 71 | 0 | 0 | 0 | 71 | complete |
+| `tests/unit/test_settle_properties.py` | 129 | 0 | 0 | 0 | 129 | complete |
+| `tests/unit/test_soak_tools.py` | 0 | 0 | 0 | 0 | 49 | unrun |
+| `tests/unit/test_status_json.py` | 0 | 0 | 0 | 0 | 56 | unrun |
+| `tests/unit/test_steer_invariants.py` | 248 | 0 | 0 | 0 | 248 | complete |
+| `tests/unit/test_stop_alarm.py` | 0 | 0 | 0 | 0 | 2 | unrun |
+| `tests/unit/test_stop_watchdog.py` | 0 | 0 | 0 | 0 | 29 | unrun |
+| `tests/unit/test_store_contention_queries.py` | 0 | 0 | 0 | 0 | 212 | unrun |
+| `tests/unit/test_store_ids.py` | 27 | 0 | 0 | 0 | 27 | complete |
+| `tests/unit/test_store_migration_2.py` | 10 | 0 | 0 | 0 | 10 | complete |
+| `tests/unit/test_store_properties.py` | 3 | 0 | 0 | 0 | 3 | complete |
+| `tests/unit/test_store_readers.py` | 0 | 0 | 0 | 0 | 26 | unrun |
+| `tests/unit/test_store_snapshot_plans.py` | 4 | 0 | 0 | 0 | 4 | complete |
+| `tests/unit/test_suggest_cli.py` | 0 | 0 | 0 | 0 | 7 | unrun |
+| `tests/unit/test_suggest_hint.py` | 0 | 0 | 0 | 0 | 10 | unrun |
+| `tests/unit/test_suggestion_error_boundaries.py` | 0 | 0 | 0 | 0 | 22 | unrun |
+| `tests/unit/test_suggestion_properties.py` | 1 | 0 | 0 | 0 | 1 | complete |
+| `tests/unit/test_suggestion_secret_properties.py` | 0 | 0 | 0 | 0 | 7 | unrun |
+| `tests/unit/test_suggestion_structural_errors.py` | 0 | 0 | 0 | 0 | 40 | unrun |
+| `tests/unit/test_suggestions.py` | 30 | 0 | 0 | 0 | 30 | complete |
+| `tests/unit/test_suggestions_r1b_adversarial.py` | 0 | 0 | 0 | 0 | 30 | unrun |
+| `tests/unit/test_suggestions_r3_channels.py` | 0 | 0 | 0 | 0 | 14 | unrun |
+| `tests/unit/test_suggestions_review_boundaries.py` | 7 | 0 | 0 | 0 | 7 | complete |
+| `tests/unit/test_suggestions_review_multiline.py` | 6 | 0 | 0 | 0 | 6 | complete |
+| `tests/unit/test_suggestions_review_response.py` | 3 | 0 | 0 | 0 | 3 | complete |
+| `tests/unit/test_test_module_names.py` | 1 | 0 | 0 | 0 | 1 | complete |
+| `tests/unit/test_tick_prefilter.py` | 30 | 0 | 0 | 0 | 30 | complete |
+| `tests/unit/test_timers_alerts.py` | 0 | 0 | 0 | 0 | 17 | unrun |
+| `tests/unit/test_timers_busy_read.py` | 0 | 0 | 0 | 0 | 115 | unrun |
+| `tests/unit/test_timers_daemon.py` | 0 | 0 | 0 | 0 | 4 | unrun |
+| `tests/unit/test_timers_keepalive.py` | 14 | 0 | 0 | 0 | 14 | complete |
+| `tests/unit/test_timers_probe.py` | 0 | 0 | 0 | 0 | 35 | unrun |
+| `tests/unit/test_timers_reset_credits.py` | 0 | 0 | 0 | 0 | 47 | unrun |
+| `tests/unit/test_timers_retention.py` | 20 | 0 | 0 | 0 | 20 | complete |
+| `tests/unit/test_title_review_regressions.py` | 4 | 0 | 0 | 0 | 4 | complete |
+| `tests/unit/test_turn_attachment_replay.py` | 13 | 0 | 0 | 0 | 13 | complete |
+| `tests/unit/test_turn_overlap.py` | 10 | 0 | 0 | 0 | 10 | complete |
+| `tests/unit/test_turn_replay.py` | 33 | 0 | 0 | 0 | 33 | complete |
+| `tests/unit/test_turn_runner.py` | 76 | 0 | 0 | 0 | 76 | complete |
+| `tests/unit/test_ultracode_effort.py` | 39 | 0 | 0 | 0 | 39 | complete |
+| `tests/unit/test_unadmittable_pin.py` | 0 | 0 | 0 | 0 | 12 | unrun |
+| `tests/unit/test_wait_hub.py` | 44 | 0 | 0 | 0 | 44 | complete |
+| `tests/unit/test_wake_cli.py` | 0 | 0 | 0 | 0 | 2 | unrun |
+| `tests/unit/test_weekly_rank_vs_base.py` | 0 | 0 | 0 | 0 | 26 | unrun |
+
+### Every test file in tests/fake
+
+| File | Passed | Failed | Skipped | Xfailed | Collected | Status |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `tests/fake/test_admission_disk.py` | 27 | 0 | 0 | 0 | 27 | complete |
+| `tests/fake/test_admission_held_waiters.py` | 1 | 0 | 0 | 0 | 1 | complete |
+| `tests/fake/test_admission_latency.py` | 14 | 0 | 0 | 0 | 14 | complete |
+| `tests/fake/test_admission_lease_waiters.py` | 16 | 0 | 0 | 0 | 16 | complete |
+| `tests/fake/test_admission_liveness.py` | 32 | 0 | 0 | 0 | 32 | complete |
+| `tests/fake/test_admission_priority.py` | 0 | 0 | 0 | 0 | 32 | unrun |
+| `tests/fake/test_admission_properties.py` | 27 | 0 | 0 | 1 | 28 | complete |
+| `tests/fake/test_admission_ramp.py` | 19 | 0 | 0 | 0 | 19 | complete |
+| `tests/fake/test_admission_ramp_retention.py` | 0 | 0 | 0 | 0 | 11 | unrun |
+| `tests/fake/test_admission_route_isolation.py` | 93 | 0 | 0 | 0 | 93 | complete |
+| `tests/fake/test_admission_stateful.py` | 16 | 0 | 0 | 0 | 16 | complete |
+| `tests/fake/test_admission_visibility.py` | 43 | 0 | 0 | 0 | 43 | complete |
+| `tests/fake/test_batch_label.py` | 9 | 0 | 0 | 0 | 9 | complete |
+| `tests/fake/test_canonical_identity.py` | 24 | 0 | 0 | 0 | 24 | complete |
+| `tests/fake/test_canonical_identity_fix2.py` | 21 | 0 | 0 | 0 | 21 | complete |
+| `tests/fake/test_canonical_identity_fix3.py` | 17 | 0 | 0 | 1 | 18 | complete |
+| `tests/fake/test_canonical_identity_fix4.py` | 11 | 0 | 0 | 0 | 11 | complete |
+| `tests/fake/test_canonical_identity_fix5.py` | 0 | 0 | 0 | 0 | 14 | unrun |
+| `tests/fake/test_capacity_steer_daemon.py` | 36 | 0 | 0 | 0 | 54 | partial |
+| `tests/fake/test_capacity_wait_backoff.py` | 0 | 0 | 0 | 0 | 30 | unrun |
+| `tests/fake/test_census_escapers_daemon.py` | 0 | 0 | 0 | 0 | 9 | unrun |
+| `tests/fake/test_census_recycled_pid_daemon.py` | 0 | 0 | 0 | 0 | 29 | unrun |
+| `tests/fake/test_codex_ca_bundle_fake.py` | 0 | 0 | 0 | 0 | 6 | unrun |
+| `tests/fake/test_codex_turn_completed_fake.py` | 0 | 0 | 0 | 0 | 109 | unrun |
+| `tests/fake/test_conversation_pools.py` | 0 | 0 | 0 | 0 | 2 | unrun |
+| `tests/fake/test_conversation_wakes_fake.py` | 0 | 0 | 0 | 0 | 4 | unrun |
+| `tests/fake/test_crash_matrix.py` | 0 | 0 | 0 | 0 | 9 | unrun |
+| `tests/fake/test_daemon_contract.py` | 0 | 0 | 0 | 0 | 21 | unrun |
+| `tests/fake/test_daemon_descriptors.py` | 0 | 0 | 0 | 0 | 13 | unrun |
+| `tests/fake/test_daemon_launch.py` | 9 | 0 | 0 | 0 | 9 | complete |
+| `tests/fake/test_daemon_stacks.py` | 0 | 0 | 0 | 0 | 6 | unrun |
+| `tests/fake/test_descriptor_exhaustion.py` | 0 | 0 | 0 | 0 | 2 | unrun |
+| `tests/fake/test_detached_cwd_pins.py` | 0 | 0 | 0 | 0 | 18 | unrun |
+| `tests/fake/test_detached_retention_fence.py` | 0 | 0 | 0 | 0 | 89 | unrun |
+| `tests/fake/test_enrollment_guardian.py` | 0 | 0 | 0 | 0 | 1 | unrun |
+| `tests/fake/test_fake_provider.py` | 0 | 0 | 0 | 0 | 13 | unrun |
+| `tests/fake/test_finalization_replay.py` | 0 | 0 | 0 | 0 | 10 | unrun |
+| `tests/fake/test_folder_spelling.py` | 0 | 0 | 0 | 0 | 7 | unrun |
+| `tests/fake/test_frozen_stream_nonregular.py` | 0 | 0 | 0 | 0 | 140 | unrun |
+| `tests/fake/test_gate_end_to_end.py` | 0 | 0 | 0 | 0 | 11 | unrun |
+| `tests/fake/test_identity_rollback.py` | 0 | 0 | 0 | 0 | 5 | unrun |
+| `tests/fake/test_idle_cost.py` | 0 | 0 | 0 | 0 | 2 | unrun |
+| `tests/fake/test_interactive_claude_titles.py` | 0 | 0 | 0 | 0 | 6 | unrun |
+| `tests/fake/test_interactive_steer.py` | 0 | 0 | 0 | 0 | 13 | unrun |
+| `tests/fake/test_lane_fault.py` | 0 | 0 | 0 | 0 | 20 | unrun |
+| `tests/fake/test_lane_pilot.py` | 0 | 0 | 0 | 0 | 24 | unrun |
+| `tests/fake/test_lanes_enroll.py` | 0 | 0 | 0 | 0 | 15 | unrun |
+| `tests/fake/test_lanes_reenroll.py` | 0 | 0 | 0 | 0 | 19 | unrun |
+| `tests/fake/test_lanes_reenroll_keychain.py` | 0 | 0 | 0 | 0 | 1 | unrun |
+| `tests/fake/test_launch_env_daemon.py` | 0 | 0 | 0 | 0 | 49 | unrun |
+| `tests/fake/test_launch_env_providers.py` | 0 | 0 | 0 | 0 | 6 | unrun |
+| `tests/fake/test_launch_gates_above_stdio.py` | 0 | 0 | 0 | 0 | 9 | unrun |
+| `tests/fake/test_lost_acknowledgement.py` | 0 | 0 | 0 | 0 | 3 | unrun |
+| `tests/fake/test_main_refusal_write_dir.py` | 0 | 0 | 0 | 0 | 5 | unrun |
+| `tests/fake/test_mcp_job_contract.py` | 0 | 0 | 0 | 0 | 12 | unrun |
+| `tests/fake/test_native_maintenance_startup.py` | 0 | 0 | 0 | 0 | 41 | unrun |
+| `tests/fake/test_notice_delivery.py` | 0 | 0 | 0 | 0 | 15 | unrun |
+| `tests/fake/test_notice_header.py` | 0 | 0 | 0 | 0 | 23 | unrun |
+| `tests/fake/test_picker_native.py` | 0 | 0 | 0 | 0 | 3 | unrun |
+| `tests/fake/test_policy_sandbox.py` | 0 | 0 | 0 | 0 | 25 | unrun |
+| `tests/fake/test_probe_cancel.py` | 0 | 0 | 0 | 0 | 24 | unrun |
+| `tests/fake/test_probe_recovery.py` | 0 | 0 | 0 | 0 | 9 | unrun |
+| `tests/fake/test_probe_turn.py` | 0 | 0 | 0 | 0 | 43 | unrun |
+| `tests/fake/test_prompt_seam.py` | 0 | 0 | 0 | 0 | 8 | unrun |
+| `tests/fake/test_provider_active_cap_fake.py` | 0 | 0 | 0 | 0 | 60 | unrun |
+| `tests/fake/test_provider_cap_review_evidence.py` | 0 | 0 | 0 | 0 | 5 | unrun |
+| `tests/fake/test_provider_qos.py` | 0 | 0 | 0 | 0 | 2 | unrun |
+| `tests/fake/test_record_secrecy.py` | 0 | 0 | 0 | 0 | 44 | unrun |
+| `tests/fake/test_request_routing.py` | 0 | 0 | 0 | 0 | 3 | unrun |
+| `tests/fake/test_reserve_authorization.py` | 0 | 0 | 0 | 0 | 12 | unrun |
+| `tests/fake/test_reserve_authorization_validation.py` | 0 | 0 | 0 | 0 | 11 | unrun |
+| `tests/fake/test_reset_credit_incident.py` | 0 | 0 | 0 | 0 | 19 | unrun |
+| `tests/fake/test_resume_cli.py` | 0 | 0 | 0 | 0 | 1 | unrun |
+| `tests/fake/test_resume_contract.py` | 0 | 0 | 0 | 0 | 23 | unrun |
+| `tests/fake/test_retention_dormant.py` | 0 | 0 | 0 | 0 | 7 | unrun |
+| `tests/fake/test_review130_ab.py` | 0 | 0 | 0 | 0 | 12 | unrun |
+| `tests/fake/test_review_r185_adversarial.py` | 0 | 0 | 0 | 0 | 1 | unrun |
+| `tests/fake/test_route_view.py` | 0 | 0 | 0 | 0 | 8 | unrun |
+| `tests/fake/test_routing_end_to_end.py` | 0 | 0 | 0 | 0 | 16 | unrun |
+| `tests/fake/test_routing_tier_preferences.py` | 0 | 0 | 0 | 0 | 5 | unrun |
+| `tests/fake/test_salvage_adversarial.py` | 0 | 0 | 0 | 0 | 8 | unrun |
+| `tests/fake/test_salvage_finalization.py` | 0 | 0 | 0 | 0 | 47 | unrun |
+| `tests/fake/test_sessions_end_to_end.py` | 0 | 0 | 0 | 0 | 33 | unrun |
+| `tests/fake/test_state_contract.py` | 37 | 0 | 0 | 0 | 37 | complete |
+| `tests/fake/test_state_fixture_processes.py` | 0 | 0 | 0 | 0 | 4 | unrun |
+| `tests/fake/test_status_payload.py` | 0 | 0 | 0 | 0 | 2 | unrun |
+| `tests/fake/test_suggestions_fake.py` | 0 | 0 | 0 | 0 | 1 | unrun |
+| `tests/fake/test_tier_hold_by_demand.py` | 0 | 0 | 0 | 0 | 27 | unrun |
+| `tests/fake/test_timers_busy_admission.py` | 0 | 0 | 0 | 0 | 1 | unrun |
+| `tests/fake/test_timers_end_to_end.py` | 0 | 0 | 0 | 0 | 7 | unrun |
+| `tests/fake/test_turn_listing.py` | 0 | 0 | 0 | 0 | 9 | unrun |
+| `tests/fake/test_turn_retention_cwd.py` | 0 | 0 | 0 | 0 | 6 | unrun |
+| `tests/fake/test_turn_retention_cwd_properties.py` | 0 | 0 | 0 | 0 | 1 | unrun |
+| `tests/fake/test_turn_retention_job_directory.py` | 0 | 0 | 0 | 0 | 2 | unrun |
+| `tests/fake/test_turn_retention_job_properties.py` | 0 | 0 | 0 | 0 | 1 | unrun |
+| `tests/fake/test_turn_retention_quarantine.py` | 0 | 0 | 0 | 0 | 10 | unrun |
+| `tests/fake/test_turn_trees.py` | 0 | 0 | 0 | 0 | 18 | unrun |
+| `tests/fake/test_turn_wait_reasons.py` | 0 | 0 | 0 | 0 | 7 | unrun |
+| `tests/fake/test_unadmittable_pin_admission.py` | 0 | 0 | 0 | 0 | 24 | unrun |
+| `tests/fake/test_unadmittable_pin_rereview.py` | 0 | 0 | 0 | 0 | 6 | unrun |
+| `tests/fake/test_unadmittable_pin_review.py` | 0 | 0 | 0 | 0 | 7 | unrun |
+| `tests/fake/test_workspace_contract.py` | 0 | 0 | 0 | 0 | 8 | unrun |
+| `tests/fake/test_workspace_enospc.py` | 0 | 0 | 0 | 0 | 1 | unrun |
+| `tests/fake/test_workspace_transient.py` | 0 | 0 | 0 | 0 | 24 | unrun |
+| `tests/fake/test_writable_fanout.py` | 0 | 0 | 0 | 0 | 28 | unrun |
+| `tests/fake/test_writer_retention_fence.py` | 0 | 0 | 0 | 0 | 23 | unrun |
+
+
+## Commits
+
+- `08dc3eb13` — test: the restore recipe's block stays whole and no report prints a credential (D-PRR1)
+- `5362f6317` — fix: fence the restore recipe's block with a run no backup path can close (D-PRR1)
+- `c90fbfb0c` — fix: a test session removes credential-shaped variables until cleanup (D-PRR1)
+- `0b186e1ec` — docs: C-11.5 and C-20.6 cover the recipe's fence and the session's credential removal (D-PRR1)
+- `b43b4f191` — test: read -vv's pretty-printed locals over several lines (D-PRR1)
+- `b06b7b66c` — test: round-three host-push checks set their own agent socket (D-PRR1)
+- `8c2e9de04` — test: check the child report for leaks before its outcome (D-PRR1)
+
+The shared index rejected staging with “Operation not permitted.” As authorized in the brief, the final documentation commit uses workspace-local Git metadata at `.prr1-git/`, on the local branch `fix/prune-restore-recipe-217`, with history descended from checkpoint `8c2e9de04`. The supplied shared detached HEAD is unchanged. Review the complete history with `git --git-dir=.prr1-git log --oneline 2eacd580605e..HEAD`. This metadata remains in the assigned workspace; the scratch cleanup does not remove it.
+
+Documentation commit `77ecaa595` records the reconciled report and PR body; a follow-up corrects their formatting and count explanation. Every commit uses the requested co-author trailer. No history was rewritten and nothing was pushed.
+
+## Fix round 1: the session's stores show names only (#244 review r1)
+
+Fix round on head `e824c6a0b`, begun 2026-10-23 at 02:03 UTC. Review r1 requested changes for one P1 and passed everything else: the fence, the local recipe leak, the session hooks, the report's inventory. This round fixes the P1, closes two more paths of the same kind that its audit found, and narrows the claims above to what the session guarantees.
+
+### The merge
+
+GitHub reported the PR conflicting with `release/217`. The brief named release at `4f5983f4c` (#212, #223, #232, #238). The hub's last fetch, which this round merged without fetching, holds `origin/release/217` at `e345f0803`: `4f5983f4c` plus #243 (the salvage ref race). Merge commit `973857899`.
+
+- **One conflict,** in the contract's change log: both sides added entries at its head. Every entry is kept, newest first: this PR's D-PRR1 entry (2026-10-22), then release's, in release's order. No clause conflicted.
+- **Release changed none of this PR's files** (`subfleet/home_paths.py`, `subfleet/prune_decisions.py`, `tests/conftest.py` and the changed tests), and neither C-11.5 nor C-20.6: both clauses were byte-identical at `2eacd5806` and `e345f0803`.
+- **Release's 56 new or changed test files under `tests/unit` and `tests/fake`** had never run with this PR's session removal. No added line in them, or in release's `tests/*.py` and conftest files, reads or sets a credential-shaped variable. Seven are briefed files (`test_state_contract.py` and six `test_launch_env*.py`) and ran whole below; the rest are left to CI, except those in review r1's unrun list.
+
+### The cause
+
+- **Review r1's case.** `test_c20_6_this_session_holds_no_inherited_credential` bound `removed = request.config._subfleet_removed_credentials`, the store `remove_credentials` returned: a `dict` of name to value. Review r1 ran it with an inherited `SUBFLEET_DUMMY_TOKEN` and a second dummy, `PRR1_LATE_TOKEN`, set after configure. The sanity check `present <= set(SAFE_HOME_PATHS)` then failed, and `-l` printed `removed`, value included.
+- **Why `-l` prints a whole local.** pytest 9.1.1's `repr_locals` (`_pytest/_code/code.py:1040`) prints each local through `saferepr`, cut to 240 characters, at verbosity 1 or less, and through `safeformat`, a whole `pprint.pformat`, above it (`_pytest/nodes.py:430`). `-q -vvv` is verbosity 2. Cut or whole, a dict's first entries print.
+- **A second store held values: the baseline snapshot.** `pytest_configure` snapshots `HOME`, `PATH`, the markers, `SAFE_HOME_PATHS` and `SAFE_ENV_REMOVALS` into `config._subfleet_original_home_env` before it removes credentials. Two of those names are credential-shaped, `CLAUDE_LANE_AGENT_SECRET` and `SUBFLEET_AGENT_SECRET`, so the snapshot held their inherited values (the build's report noted they were "in both"). A test that bound the snapshot and failed printed them: the regression's `test_binds_the_baseline_snapshot` did so at the tests-first commit.
+- **A `Mapping` store would still print values.** The brief suggested a `Mapping` subclass with a redacting `repr`. But pytest 9.1.1 explains a failing `==` between any two `collections.abc.Mapping`s item by item (`_pytest/assertion/_compare_any.py` dispatches on `ismapping`). `_compare_eq_mapping` (`_pytest/assertion/_compare_mapping.py`) prints `{k: left[k]}` for each differing key, and pretty-prints every extra key with its value. So `assert store == {}` would print every value whatever the `repr`. Mutation M8 below executes this.
+
+### The fix
+
+- **The check binds names only:** `removed = set(request.config._subfleet_removed_credentials)`.
+- **The store shows names only.** `home_paths.RemovedCredentials` keeps what `remove_credentials` took.
+  - Its `repr` and `str` are `<RemovedCredentials names=['A_TOKEN', 'B_KEY'], values withheld>`, with the names sorted.
+  - Each report printer reaches that `repr`: pytest's `saferepr` (`SafeRepr.repr_instance`), `safeformat` and its assertion-diff printer (`_pytest/_io/pprint.py`), which call `repr` for a type with its own, and Hypothesis's `pretty`, which registers no printer for the class or for `object`, so it falls back to `_repr_pprint`.
+  - It is not a `Mapping`, so a failing comparison falls to pytest's iterable diff, which pretty-prints each side whole, the store through its `repr`.
+  - A value is read by name only. `keys()` and `[name]` serve `MutableMapping.update`'s `keys()` branch, which `os.environ.update` takes, and `dict()`. Iteration, `len` and `in` give names. `__slots__` leaves no `__dict__` for `vars()` to show.
+  - `restore_credentials` is unchanged: `environ.update(removed)`.
+- **The snapshot holds no credential value.** It records a credential-shaped name as absent (`None`). At cleanup it pops the name, and the store then puts back its value, if it had one. The store is taken right after the snapshot, so a name is in the store exactly when the snapshot saw it set, and with the same value. Cleanup therefore restores exactly what it did before; the regressions' before-and-after digests check both names.
+- **Absolute claims removed.** "No test, child or report can print one" is gone from C-20.6, the earlier change-log entry, `home_paths`, `conftest.py`, the test module's docstring, this report and the PR body. The guarantee is stated below, with its limit.
+
+### What is guaranteed, and the limit
+
+- **Credential-shaped variables are absent from the test process's environment for the session.** `pytest_configure` removes every one it inherited, before collection, from `os.environ` and so from the C environment and every child that inherits it. `pytest_unconfigure` puts each back exactly, an empty value included. No module copies the environment at import, before configure runs. An AST scan of the code outside function bodies, over the 144 modules under `subfleet/`, the helpers in `tests/` and every conftest, finds two reads: `credentials.py:653` tests two marker names' presence, and `client.py:258` reads `PATH`.
+- **The stores show names only.** The removed-credentials store's text is its sorted names. The baseline snapshot holds no credential-shaped value.
+- **Tests bind names only.** The audit below lists every local in this PR's tests that holds a value, and none holds an inherited one.
+- **The limit** (as fix round 2 states it, below). A test that reads a value out of the store (by name, `dict()`, `_values` or `__getstate__`) or copies one by hand can still print it. Pickling or copying the store raises `TypeError`, so neither carries a value. So can a test that prints a variable set after configure, by itself or a plugin, since the session removes only what it inherited. The kernel also keeps the environment the process started with, which `KERN_PROCARGS2` returns, so after the removal `ps -E`, and `peers.process_chain` on the test process itself, still read every inherited value (fix round 2). A credential under a name that is not credential-shaped, such as a URL holding a password, is out of scope, as before.
+
+### The audit: locals that hold a value
+
+Every test and helper in this PR, and every use of `_subfleet_removed_credentials` under `tests/`. "Own dummy" means a value the test itself makes, never one the session inherited.
+
+| Where | Local or argument | What it holds | Verdict |
+| --- | --- | --- | --- |
+| `test_session_credential_env.py`, `test_c20_6_this_session_holds_no_inherited_credential` | `removed` | was the store's `dict` of inherited values; now a `set` of names | **the P1, fixed** |
+| same | `present` | names | names only |
+| same, `test_c20_6_unconfigure_puts_back_exactly_what_configure_removed` | `removed`, `config` | own dummies (`SECRET7prr1-restore`, empty), and a store over them | own dummy |
+| same, `test_c20_6_removal_takes_exactly_the_credentials_and_restore_puts_each_back` | `environ`, `changes`, `original`, `removed`, `session` | values Hypothesis draws | own dummy |
+| same, `test_c20_6_the_store_of_removed_credentials_shows_names_only` | `values`, `environ`, `store`, `twin` | values Hypothesis draws, and stores over them | own dummy |
+| same, `_child_session`, `_dummies`, `_leaks`, `_digests`, `_leaked` | `inherited`, `late`, `environment`, `value`, `dummies` | own dummies, and the child's `PATH`, `HOME`, `TMPDIR`, `LANG`, `LC_ALL` | own dummy |
+| same, the three child-session tests | `inherited`, `late`, `report`, `outcome` | own dummies; the child's report, searched for them before any later assertion; digests | own dummy |
+| same, the name tests | `name` | a name | names only |
+| `tests/credential_leak_child.py` (run only as a child) | `values`, `env={**os.environ}`, the drawn `environment` | the child session's own environment, copied by hand | by design: it probes that the environment holds no inherited dummy |
+| `tests/credential_store_child.py` (run only as a child) | `store`, `snapshot`, `_check`'s `store`, the drawn `store` | the store and the snapshot themselves | by design: it probes that they print no value |
+| `tests/conftest.py`, `pytest_configure` | `config._subfleet_removed_credentials`, `config._subfleet_original_home_env` | the store; the snapshot, which held `CLAUDE_LANE_AGENT_SECRET`'s and `SUBFLEET_AGENT_SECRET`'s values | **snapshot fixed**; store shows names |
+| `tests/conftest.py`, `pytest_unconfigure` | `removed`, `original`, `name`, `value` | the store; the snapshot and its entries | names only, after the snapshot fix |
+| `tests/unit/test_prune_restore.py`, `_recipe_environment`, `_run_recipe` | `environment`, `subprocess.run`'s `kwargs` | `PATH`, `HOME`, `TMPDIR`, `LANG`, `LC_ALL`, `state_root` | no credential-shaped name |
+| same, `test_run_recipe_gives_the_shell_only_the_variables_it_needs` | `PRR1_CANARY_TOKEN`, set with `monkeypatch` | own dummy, bound to no local | own dummy |
+| same, the fence and recipe tests | `path`, `recipe`, `block`, `script`, `launched` | backup paths and recipe text | no value |
+| `tests/markdown_fences.py` | text and fences | Markdown text | no value |
+| `tests/unit/test_prune_217.py:166` | `subprocess.run`'s `kwargs`: `env={**os.environ, …}` | a copy of the session's environment, which holds no inherited credential | unchanged (the build's sweep); a variable set during the session would print if this failed |
+| `tests/unit/test_live_store_guard_round3.py`, the two changed tests | `SSH_AUTH_SOCK`, set with `monkeypatch`; `launches`' `env` | own dummy socket paths; `host_push`'s child environment | own dummy |
+| The tests that run a nested `conftest.pytest_configure` (`test_live_store_guard.py`, `_round3`, `_round6`, `_round7`, `_round7_mutations`, `_round8`, `_round8_mutations`) | the nested config's store and snapshot | what the session's environment holds then: no inherited credential | names only |
+
+### The invariants
+
+1. **No credential in test output.** With dummy credential-shaped variables set before the session (`CLAUDE_LANE_AGENT_SECRET` and `SUBFLEET_AGENT_SECRET` among them) and one set after configure, a failing test's whole report holds no part of either kind: not the whole value, its fixed prefix, or any ten characters of its random tail. That covers the plain traceback, `-l` locals cut and whole, `--tb=long`, `-vv` and Hypothesis's report, including when the test holds the store or the snapshot. pytest's default `--tb=auto` is `long` for a test's failure, so the plain report is the `-l` report less its locals.
+   - `test_c20_6_the_session_check_failing_prints_no_part_of_a_dummy`, under `-q -l --tb=long -vvv` (review r1's options) and `-l --tb=long`: review r1's case, failing at the sanity check on the late dummy's name.
+   - `test_c20_6_a_test_holding_the_store_prints_no_part_of_a_dummy`, under the same two: `tests/credential_store_child.py`'s six tests hold the store or the snapshot and fail through a local, a helper's argument, captured output, an assertion's operand, a comparison with a dict and a Hypothesis draw. The test checks that each channel printed the store.
+   - The build's `test_c20_6_a_failing_session_prints_no_part_of_an_inherited_credential`, unchanged in substance.
+2. **The store's text holds names only.** For every mapping of credential-shaped names to dummy values, `repr` and `str` of the store contain no value.
+   - `test_c20_6_the_store_of_removed_credentials_shows_names_only`, 100 examples: names are drawn stems with every credential suffix, and each value is a dummy, empty, or a part of a name, its own or another's.
+   - It asserts `repr(store) == str(store)`, the exact names-only text. For eleven printers (`repr`, `str`, `format`, `ascii`, pytest's `saferepr` cut and not, `safeformat` and assertion-diff printer, Hypothesis's `pretty`, `pprint.pformat`, `reprlib.repr`), it asserts the text equals that of a store with the same names and other values. A value that is empty or part of a name occurs in any names-only text, so a substring search cannot decide it; this differential does. Every other value must be absent outright.
+3. **Restored after the session.** Unchanged from the build. `pytest_unconfigure` puts every removed variable back exactly, an empty value included.
+   - `test_c20_6_unconfigure_puts_back_exactly_what_configure_removed`, now through a `RemovedCredentials`.
+   - Each of the three child-session tests hashes every inherited dummy before `pytest.main` and after it returns; the store-holding test's dummies include the snapshot's two names.
+   - `test_c20_6_removal_takes_exactly_the_credentials_and_restore_puts_each_back`.
+4. **The fence still holds.** The build's invariants 1 and 2 hold: `test_restore_fix_block_is_the_template_script_for_every_path`, the fence tests and the restore property all pass, and mutations M1 and M2 still fail them.
+
+### Regressions at the tests-first commit, and mutations
+
+The regressions were committed first, in `5cf14fffc`, on the merged head; release changed none of their files, so that tree is `e824c6a0b` plus the new tests. All six new tests failed there; the other 29 tests in the module passed.
+
+| Case | Failed at `5cf14fffc` |
+| --- | --- |
+| R1: review r1's case, `test_c20_6_the_session_check_failing_prints_no_part_of_a_dummy`, under `-q -l --tb=long -vvv` and `-l --tb=long` | both: the dummies reached the report (`Left contains 9 more items, first extra item: 'SUBFLEET_DUMMY_TOKEN'`) |
+| R2: a test holding the store or the snapshot, `test_c20_6_a_test_holding_the_store_prints_no_part_of_a_dummy`, under the same two | both: the dummies reached the report (11 named) |
+| Invariant 2's property, `test_c20_6_the_store_of_removed_credentials_shows_names_only` | `repr(store)` was `{}` for the shrunk `values={}` |
+| `test_c20_6_unconfigure_puts_back_exactly_what_configure_removed`, now through the store | `home_paths` had no `RemovedCredentials` |
+
+`_leaks` names every dummy once any of them leaks, because each holds the shared prefix it searches for; the counts say the report leaked, not how many values it held.
+
+Each mutant ran in a scratch copy of the head, one pytest at a time, in one hold. The build's five mutants ran on whole `test_prune_restore.py`; the session mutants ran on the tests expected to kill them (`-k`), since group 1 had already run the whole module.
+
+| Mutant | Selection | Failed | Passed |
+| --- | --- | --- | ---: |
+| M0: none (the head, after the channel-check fix) | `holding_the_store` | — | 2 |
+| M6: the session check binds `dict(store)` again | `session_check_failing` | both `test_c20_6_the_session_check_failing_prints_no_part_of_a_dummy` options | 0 |
+| M6b: the session check binds the store itself | `session_check_failing` | none: the store's `repr` covers it. An intended survivor, the defence in depth working | 2 |
+| M7: the store's `__repr__` shows its values | `shows_names_only or holding_the_store` | the invariant 2 property and both store-holding options | 0 |
+| M8: the store is a `collections.abc.Mapping` | `shows_names_only or holding_the_store` | both store-holding options, through the comparison tests | 1: the property, which renders but does not compare |
+| M9: the baseline snapshot keeps values | `holding_the_store` | `-q -l --tb=long -vvv`, where `-l` prints whole locals | 1: under `-l` alone the cut `repr` stops after four entries, before the two names |
+| M1: a fixed three-backtick fence | whole file | the restore property, all 4 fence tests, 2 `test_run_recipe_hands_the_shell_the_whole_block` paths and the invariant 1 property | 12 |
+| M2: the harness splits at the first triple backtick | whole file | the restore property and all 4 `test_run_recipe_hands_the_shell_the_whole_block` paths | 15 |
+| M3: `_run_recipe` copies `os.environ` | whole file | `test_run_recipe_gives_the_shell_only_the_variables_it_needs` | 19 |
+| M4: the session's removal dropped | `this_session_holds or holding_the_store` | `test_c20_6_this_session_holds_no_inherited_credential` and both store-holding options | 0 |
+| M5: unconfigure does not restore | `unconfigure or holding_the_store` | `test_c20_6_unconfigure_puts_back_exactly_what_configure_removed` and both store-holding options | 0 |
+
+M1 to M5 fail the same tests as in the build. M4's session check fails because every hold set a dummy, `PRR1_HOLD_TOKEN`, for the session to remove.
+
+### How the holds ran
+
+- **Environment.** One venv, built once through the hub's setup wrapper, on Python 3.14.7 (GIL) with pytest 9.1.1 and Hypothesis 6.168.1. Holds ran `<venv>/bin/python` directly, as `uv run` would, without its sync check. Each pytest ran in-process under a 1,140-second alarm, with `-q -p no:cacheprovider`, `HYPOTHESIS_PROFILE=ci`, and `TMPDIR` and Hypothesis's storage in scratch.
+- **Credentials.** Every hold started with the job's inherited credential-shaped variables unset (`env -u`, five names: `SSH_AUTH_SOCK` and four integration tokens), and with one dummy set, `PRR1_HOLD_TOKEN=SECRET7…`, for the session to remove. No log of any hold or mutant holds any part of that dummy. The only `SECRET7` text in any log is two tests' own dummies, which mutants M3 and M5 printed on failing: `test_run_recipe_gives_the_shell_only_the_variables_it_needs`'s source line setting its canary, and the unconfigure test's assertion diff showing its own `PRR1_RESTORE_TOKEN`.
+- **Holds, serially, each through the suite wrapper.** The lock was contended: the first three holds waited 29, 75 and 86 minutes for a slot.
+
+| Hold | Tree | What ran | Result | Pytest time |
+| --- | --- | --- | --- | ---: |
+| `base-r1` | `5cf14fffc` (tests first) | `test_session_credential_env.py` | 29 passed, 6 failed (the regressions) | 163 s |
+| `g1-prune` | `2415e397d` (the fix) | group 1: `test_session_credential_env.py`, `test_prune_restore.py`, `test_prune_decision*.py`, `test_prune_217.py` | 149 passed, 1 failed (below) | 122 s |
+| `mutants` | `e2ded7d12`, then the worktree at `4748c6211` | M0 to M9 as above; then groups 3 and 2, merged, and the first wider files, one pytest | mutants as above; 1,266 passed, 0 failed, stopped by the alarm | 1,133 s in all |
+| `wider2` | `4748c6211` | the rest of review r1's 95 unrun files, from `test_record_secrecy.py` on | 421 passed, 0 failed, stopped by the alarm | 1,145 s |
+
+- **`g1-prune`'s one failure** was the new store-holding test's own channel check, under `-l` alone: it looked for `assert <RemovedCredentials names=[`, but below `-vv` pytest cuts an assertion's operand to 30 characters (`assertrepr_compare`), so the report read `<RemovedCrede...es withheld>`. Its leak check, which runs first, had passed under both options. `e2ded7d12` loosens the check to `assert (not )?<RemovedCred`; M0 then passed both options.
+- **Groups 2 and 3 ran as one pytest,** with the first wider files after them, inside the mutation hold. Each later hold waited over an hour for a slot, and the brief's last start was 06:33 UTC.
+- **One withdrawn submission.** The first `wider2` submission, at 06:02:59 UTC, computed no names to unset, because its script read them from inside a scratch folder already removed. It was withdrawn at 06:14 UTC while still waiting for a slot, before any test ran, and resubmitted at 06:14:30 UTC with the five names unset.
+
+### Test counts
+
+The latest outcome per test, on the final test code. Every briefed file ran whole.
+
+| File | Passed | Failed | Skipped | Status |
+| --- | ---: | ---: | ---: | --- |
+| `tests/unit/test_session_credential_env.py` | 35 | 0 | 0 | complete (34 in `g1-prune`; the corrected test's two options in M0) |
+| `tests/unit/test_prune_restore.py` | 20 | 0 | 0 | complete |
+| `tests/unit/test_prune_decisions.py` | 48 | 0 | 0 | complete |
+| `tests/unit/test_prune_decision_backup_verification.py` | 23 | 0 | 0 | complete |
+| `tests/unit/test_prune_decision_fingerprints.py` | 15 | 0 | 0 | complete |
+| `tests/unit/test_prune_217.py` | 9 | 0 | 0 | complete |
+| `tests/unit/test_live_store_guard.py` | 324 | 0 | 0 | complete |
+| `tests/unit/test_live_store_guard_round3.py` | 22 | 0 | 0 | complete |
+| `tests/unit/test_live_store_guard_round4.py` | 8 | 0 | 0 | complete |
+| `tests/unit/test_live_store_guard_round5.py` | 11 | 0 | 0 | complete |
+| `tests/unit/test_live_store_guard_round6.py` | 112 | 0 | 0 | complete |
+| `tests/unit/test_live_store_guard_round7.py` | 50 | 0 | 0 | complete |
+| `tests/unit/test_live_store_guard_round7_mutations.py` | 23 | 0 | 0 | complete |
+| `tests/unit/test_live_store_guard_round8.py` | 100 | 0 | 0 | complete |
+| `tests/unit/test_live_store_guard_round8_mutations.py` | 4 | 0 | 0 | complete |
+| `tests/unit/test_live_store_guard_round9.py` | 89 | 0 | 0 | complete |
+| `tests/unit/test_live_store_guard_round9_mutations.py` | 12 | 0 | 0 | complete |
+| `tests/unit/test_live_store_guard_round10.py` | 60 | 0 | 0 | complete |
+| `tests/unit/test_live_store_guard_round10_mutations.py` | 13 | 0 | 0 | complete |
+| `tests/unit/test_live_store_guard_state_root.py` | 22 | 0 | 0 | complete |
+| `tests/unit/test_launch_env_allowlist.py` | 27 | 0 | 0 | complete |
+| `tests/unit/test_launch_env_helpers.py` | 20 | 0 | 0 | complete |
+| `tests/unit/test_launch_env_mutations.py` | 41 | 0 | 0 | complete |
+| `tests/unit/test_launch_env_policy.py` | 26 | 0 | 0 | complete |
+| `tests/unit/test_launch_env_round2.py` | 67 | 0 | 0 | complete |
+| `tests/unit/test_launch_env_round3.py` | 69 | 0 | 0 | complete |
+| `tests/unit/test_launch_env_round4.py` | 40 | 0 | 0 | complete |
+| `tests/unit/test_launch_env_round5.py` | 39 | 0 | 0 | complete |
+| `tests/fake/test_state_contract.py` | 37 | 0 | 0 | complete |
+| `tests/unit/test_test_module_names.py` | 1 | 0 | 0 | complete |
+| `tests/unit/test_suggestion_secret_properties.py` | 7 | 0 | 0 | complete (wider) |
+| `tests/fake/test_record_secrecy.py` | 44 | 0 | 0 | complete (wider) |
+| `tests/unit/test_salvage_unindexable.py` | 86 | 0 | 0 | complete (wider) |
+| `tests/unit/test_salvage.py` | 31 | 0 | 0 | complete (wider) |
+| `tests/unit/test_stop_alarm.py` | 2 | 0 | 0 | complete (wider) |
+| `tests/unit/test_soak_tools.py` | 49 | 0 | 0 | complete (wider) |
+| `tests/fake/test_gate_end_to_end.py` | 11 | 0 | 0 | complete (wider) |
+| `tests/fake/test_launch_gates_above_stdio.py` | 9 | 0 | 0 | complete (wider) |
+| `tests/fake/test_daemon_stacks.py` | 6 | 0 | 0 | complete (wider) |
+| `tests/fake/test_resume_cli.py` | 1 | 0 | 0 | complete (wider) |
+| `tests/fake/test_routing_end_to_end.py` | 16 | 0 | 0 | complete (wider) |
+| `tests/unit/test_retention_archive.py` | 109 | 0 | 0 | complete (wider) |
+| `tests/unit/test_retention_archive_properties.py` | 2 | 0 | 0 | complete (wider) |
+| `tests/unit/test_retention_case_alias.py` | 55 | 0 | 0 | partial: the hold's alarm stopped it (wider) |
+
+Briefed files: 30 files, 1,367 tests, all passed. `test_live_store_guard*`, which runs nested `pytest_configure` and `pytest_unconfigure` calls, passed whole with the snapshot change, and `_round8`, `_round9` and `_round10`'s checks of C-20.6's text passed on the rewritten clause.
+
+**Review r1's 95 unrun files (3,151 cases).** Ordered with the files that test secrecy, or hand a copied environment to a child, first. 13 ran whole (373 tests, all passed), among them `test_retention_archive.py`, which review r1 left at 31 of 109; `test_retention_case_alias.py` ran in part (55 passed) when the last hold's alarm stopped it. No test failed and none was skipped. These 81 files have no result in this round, and CI covers them:
+
+```text
+tests/unit/test_retention_ordinary_trees.py
+tests/unit/test_retention_regenerable.py
+tests/unit/test_retention_regenerable_properties.py
+tests/unit/test_retention_shared_folders.py
+tests/unit/test_retention_sweep_race.py
+tests/unit/test_retention_worktrees.py
+tests/unit/test_review_pr127_service.py
+tests/unit/test_review_r2_repro.py
+tests/unit/test_round10_refusal_context.py
+tests/unit/test_route_check.py
+tests/unit/test_scheduler.py
+tests/unit/test_scheduler_weekly.py
+tests/unit/test_sessions_cli.py
+tests/unit/test_sessions_handoff.py
+tests/unit/test_sessions_handoff_excerpts.py
+tests/unit/test_sessions_mirror_fifo.py
+tests/unit/test_sessions_mirror_hot_regressions.py
+tests/unit/test_sessions_mirror_load_gap.py
+tests/unit/test_sessions_mirror_safety.py
+tests/unit/test_sessions_mirror_write_churn.py
+tests/unit/test_sessions_nudge.py
+tests/unit/test_sessions_revive.py
+tests/unit/test_status_json.py
+tests/unit/test_stop_watchdog.py
+tests/unit/test_store_contention_queries.py
+tests/unit/test_suggestions_r1b_adversarial.py
+tests/unit/test_timers_alerts.py
+tests/unit/test_timers_busy_read.py
+tests/unit/test_timers_probe.py
+tests/unit/test_timers_reset_credits.py
+tests/unit/test_weekly_rank_vs_base.py
+tests/fake/test_admission_priority.py
+tests/fake/test_admission_ramp_retention.py
+tests/fake/test_canonical_identity_fix5.py
+tests/fake/test_capacity_wait_backoff.py
+tests/fake/test_census_escapers_daemon.py
+tests/fake/test_census_recycled_pid_daemon.py
+tests/fake/test_codex_turn_completed_fake.py
+tests/fake/test_crash_matrix.py
+tests/fake/test_daemon_contract.py
+tests/fake/test_daemon_descriptors.py
+tests/fake/test_descriptor_exhaustion.py
+tests/fake/test_detached_cwd_pins.py
+tests/fake/test_detached_retention_fence.py
+tests/fake/test_folder_spelling.py
+tests/fake/test_frozen_stream_nonregular.py
+tests/fake/test_identity_rollback.py
+tests/fake/test_idle_cost.py
+tests/fake/test_interactive_claude_titles.py
+tests/fake/test_interactive_steer.py
+tests/fake/test_lane_fault.py
+tests/fake/test_lane_pilot.py
+tests/fake/test_lost_acknowledgement.py
+tests/fake/test_native_maintenance_startup.py
+tests/fake/test_notice_delivery.py
+tests/fake/test_picker_native.py
+tests/fake/test_probe_cancel.py
+tests/fake/test_probe_turn.py
+tests/fake/test_provider_active_cap_fake.py
+tests/fake/test_provider_qos.py
+tests/fake/test_reset_credit_incident.py
+tests/fake/test_review130_ab.py
+tests/fake/test_review_r185_adversarial.py
+tests/fake/test_route_view.py
+tests/fake/test_salvage_adversarial.py
+tests/fake/test_salvage_finalization.py
+tests/fake/test_sessions_end_to_end.py
+tests/fake/test_status_payload.py
+tests/fake/test_suggestions_fake.py
+tests/fake/test_tier_hold_by_demand.py
+tests/fake/test_timers_busy_admission.py
+tests/fake/test_timers_end_to_end.py
+tests/fake/test_turn_retention_cwd_properties.py
+tests/fake/test_turn_retention_job_properties.py
+tests/fake/test_turn_trees.py
+tests/fake/test_turn_wait_reasons.py
+tests/fake/test_unadmittable_pin_admission.py
+tests/fake/test_workspace_transient.py
+tests/fake/test_writable_fanout.py
+tests/fake/test_writer_retention_fence.py
+tests/unit/test_suggestion_structural_errors.py
+```
+
+### Commits in this round
+
+- `973857899` — Merge release/217 (e345f0803: #212, #223, #232, #238, #243) into fix/prune-restore-recipe-217
+- `5cf14fffc` — test: a failing test that holds the credential store or its values prints neither (D-PRR1 r1)
+- `2415e397d` — fix: the session's credential stores show names only, and its check binds names (D-PRR1 r1)
+- `e2ded7d12` — test: find the store in an assertion's operand cut to 30 characters (D-PRR1 r1)
+- `4748c6211` — docs: C-20.6 states what the session guarantees, and its limit (D-PRR1 r1)
+- the report and PR body commits that add this section and its results
+
+Every commit was made on this job's detached checkout of the shared repository, through the shared Git metadata, with the requested co-author trailer. Nothing was pushed.
+
+## Fix round 2: review r2's three P3s (#244 review r2)
+
+Fix round on head `63d40ae42`, begun 2026-10-23 at 19:51 UTC. Review r2 requested changes at `783886d46`. Its P1 was the duplicated C-20.6 that the release merge left; the hub fixed it at `63d40ae42`, keeping one line with both sides' edits. This round confirms that fix and answers the three P3s. Nothing is pushed.
+
+### The P1, confirmed at the head
+
+- **One C-20.6.** `grep -o '^- \*\*C-[0-9]*\.[0-9]*\*\*' docs/acceptance-contract.md | sort | uniq -d` prints nothing, at `63d40ae42` and at every commit of this round.
+- **Release's test passes.** `test_live_store_guard_round10.py::test_r2_p3_docstring_and_contract_list_the_same_out_of_scope_items` passed at `63d40ae42` (hold 0, 1 passed), and again in hold 2 on this round's last code commit.
+
+### P3-1: the limit names reads out of the store, and pickling or copying raises
+
+- **The limit.** C-20.6 said the whole limit was a test that copies a value into a local by hand, plus variables set after configure. Review r2 printed inherited dummies through reads that bind no local: `dict(store)`, `store[name]`, `store._values`, `gc.get_referents(store)`, `pickle.dumps(store)` under `-vv`, and `store.__reduce_ex__(4)`. The clause now reads: "a test that reads a value out of the store (by name, `dict()`, `_values` or `__getstate__`) or copies one by hand can still print it, as can a test that prints a variable set after configure". This report's limit and the PR body say the same.
+- **The hardening.** `RemovedCredentials` defines `__reduce__` and `__reduce_ex__`, and both raise `TypeError("RemovedCredentials cannot be pickled or copied: it would carry the removed values (D-PRR1)")`. The message holds no name and no value.
+  - `test_c20_6_the_store_cannot_be_pickled_or_copied` executes it for eleven carriers: `pickle.dumps` at each protocol from 0 to 5, `copy.copy`, `copy.deepcopy`, `copy.deepcopy` of a dict holding the store, and direct calls to `__reduce__` and `__reduce_ex__`. Each raises that `TypeError`, and its message holds no part of either dummy.
+  - **Why `__getstate__` replaces "pickling" in the reviewer's wording.** With the hardening, pickling raises. But `object.__getstate__`, which the class does not override, still returns `(None, {"_values": …})` for a slotted instance, so a test that calls `store.__getstate__()` holds the values. `test_c20_6_a_value_read_out_of_the_store_by_hand_is_the_value_documented_limitation` executes the four reads the limit names (by name, `dict()`, `_values`, `__getstate__`) and asserts that each gives the value. It is marked `documented_limitation`, so closing one of them is a deliberate change to the test and the clause.
+- **No legitimate path breaks.** A search of `subfleet/`, `tests/`, `tools/`, `bin/` and `app/` for `deepcopy`, `copy.copy`, `copy.replace`, `pickle`, `__reduce`, `__getstate__`, `copyreg` and `multiprocessing` finds none applied to the store or to a config that holds it. The only users of `RemovedCredentials` are `remove_credentials`, `restore_credentials`, `tests/conftest.py` and `test_session_credential_env.py`. The seven `test_live_store_guard*` modules that run a nested `pytest_configure` and `pytest_unconfigure` passed whole in hold 2.
+
+### P3-2: the kernel's copy of the start-up environment
+
+C-20.6's limit gains one sentence: "The kernel also keeps the environment the process started with, which `KERN_PROCARGS2` returns, so after the removal `ps -E`, and `peers.process_chain` on the test process itself, still read every inherited value." No code changed.
+
+The probe (`probe_kern.py`, scratch only, run in hold 0) started a child Python whose whole environment was `PATH`, `HOME=/var/empty`, `LC_ALL=C` and one dummy, `PRR1F2_PROBE_TOKEN=SECRET7prr1f2probe…`. The child removed it with this tree's `home_paths.remove_credentials(os.environ)` and printed only booleans:
+
+| Read, after the removal | Holds the dummy |
+| --- | --- |
+| `os.environ` (and the store holds the name) | no |
+| libc `getenv` | no (`NULL`) |
+| `sysctl` `KERN_PROCARGS2` for its own pid | **yes** (the name too) |
+| `ps -wwE -p <own pid>` | **yes** |
+| `peers.process_chain(os.getpid())`, with the process table limited to the child itself, so no ancestor's environment was read | **yes**, in the one `Proc`'s `command` |
+| control: `KERN_PROCARGS2` of a process the child started after the removal | no |
+
+After the probe, `restore_credentials` put the dummy back. The probe's report held no part of the dummy.
+
+### P3-3: M9 is caught under `-l` alone
+
+- **The change.** `tests/credential_store_child.py` gains `test_compares_the_baseline_snapshot`: `assert pytestconfig._subfleet_original_home_env == {}`. It is a test of its own, beside `test_binds_the_baseline_snapshot` at line 26, because that test's `assert not snapshot` fails first, so an assertion after it would never run.
+- **Why it catches M9 without `-vv`.** pytest 9.1.1 explains a failing `==` between two dicts by listing the left's extra items, sorted by name, and below `-vv` it cuts the explanation after the first few. At the head the child's diff showed `'CLAUDE_CONFIG_DIR': None`, `'CLAUDE_LANE_AGENT_SECRET': None`, `'HOME': …`, `'PATH': …` and `'SUBFLEET_AGENT_SECRET': None` under `-l --tb=long`, then "Full output truncated (22 lines hidden)". With M9, the two credential entries print with their inherited values.
+- **The regression's checks.** `test_c20_6_a_test_holding_the_store_prints_no_part_of_a_dummy` now expects 7 failures, and checks that the diff printed (`Left contains N more items:`, `'CLAUDE_LANE_AGENT_SECRET': None,` and `'SUBFLEET_AGENT_SECRET': None,`), so the channel was searched.
+- **Executed in hold 0,** on scratch copies, with ten inherited dummies: at the head, both option sets printed no part of any dummy. With M9, `-l --tb=long` printed `CLAUDE_LANE_AGENT_SECRET`'s and `SUBFLEET_AGENT_SECRET`'s values, both inside `test_compares_the_baseline_snapshot`'s diff, and `-q -l --tb=long -vvv` printed them too.
+- **Executed in the final hold,** as mutants M9 and M9-before below: with M9, both options of the store-holding regression fail. On `63d40ae42`'s two test files, which lack the comparison, M9 fails the `review-r1` option only and the `showlocals` option passes, as review r2 found.
+
+### Regressions and mutations
+
+- **Regressions this round:**
+  - `test_c20_6_the_store_cannot_be_pickled_or_copied`, eleven cases (P3-1). With the hardening removed (M13) all eleven fail. Three fail on the message alone: pickle protocols 0 and 1 and a direct `__reduce__()` already raised Python's own `TypeError` ("a class that defines `__slots__` without defining `__getstate__` cannot be pickled"). The other eight did not raise at all: protocols 2 to 5, `copy`, both `deepcopy` cases and `__reduce_ex__`.
+  - `test_c20_6_a_test_holding_the_store_prints_no_part_of_a_dummy`, both options, through the new `test_compares_the_baseline_snapshot` (P3-3): M9 now fails both.
+- **The limit, executed:** `test_c20_6_a_value_read_out_of_the_store_by_hand_is_the_value_documented_limitation` passes at the head and under M13.
+- **Mutants,** on a scratch copy of `1ee08d4d4`, each run as one pytest of `test_session_credential_env.py` with the `-k` selection shown, one at a time, in the final hold. Each restored its files afterwards.
+
+| Mutant | Selection (`-k`) | Failed | Passed |
+| --- | --- | --- | ---: |
+| M0: none (the head) | `holding_the_store or pickled or by_hand or session_check_failing or shows_names_only` | — | 17 |
+| M9: the snapshot keeps values | `holding_the_store` | both options, `showlocals` and `review-r1` | 0 |
+| M9-before: M9 on `63d40ae42`'s `test_session_credential_env.py` and `credential_store_child.py` | `holding_the_store` | `review-r1` only | 1: `showlocals`, as review r2 found |
+| M6: the session check binds `dict(store)` | `session_check_failing` | both options of `test_c20_6_the_session_check_failing_prints_no_part_of_a_dummy` | 0 |
+| M7: the store's `__repr__` shows its values | `shows_names_only or holding_the_store` | the invariant 2 property and both store-holding options | 0 |
+| M8: the store is a `collections.abc.Mapping` | `shows_names_only or holding_the_store` | both store-holding options | 1: the property, which renders but does not compare, as in round 1 |
+| M13 (new): `__reduce__` and `__reduce_ex__` removed | `pickled or by_hand` | all eleven `test_c20_6_the_store_cannot_be_pickled_or_copied` cases | 1: the documented limitation, by design |
+
+M6, M7 and M8 fail the same tests as in round 1 and review r2.
+
+### How the holds ran
+
+- **Environment.** One venv, built once through the hub's setup wrapper: Python 3.14.7 (GIL), pytest 9.1.1, Hypothesis 6.168.1. Every pytest ran `<venv>/bin/python -m pytest -q -p no:cacheprovider` under a 1,140-second alarm, with `TMPDIR` and Hypothesis's storage in scratch.
+- **Credentials.** Every hold started with the job's five inherited credential-shaped variables unset (`env -u`: `SSH_AUTH_SOCK` and four integration tokens). One dummy, `PRR1_HOLD_TOKEN=SECRET7holdf2…`, was set for each session to remove. No log holds any part of it.
+- **Prune root.** A job-only plugin in the private venv (`-p sfr244f2_root`) pointed `tests/failed_keep.ROOT` at scratch for this job's own sessions, and for the exploration's child sessions, so they neither kept nor pruned anything under `/tmp/sf-failed`. The regressions' own child sessions run with a minimal environment and without the plugin, so they ran the session-start prune, as every session does (#247).
+- **Holds, serially, each through the suite wrapper.** The lock was heavily contended.
+
+| Hold | Tree | What ran | Wait for a slot | Result | Run time |
+| --- | --- | --- | ---: | --- | ---: |
+| 0 | `63d40ae42`; scratch copies of `9c751a3f2` plus the new child test, with and without M9 | step 0's test; the P3-3 exploration (four child pytests); the P3-2 probe | 58 min | 1 passed; as above | 17 s; 70 s; under 1 s |
+| 1, withdrawn | the worktree | hold 1's selection, submitted at 21:47:25 UTC and withdrawn at 23:30:49 UTC while still waiting, before any test ran | 103 min | — | — |
+| final | the worktree at `1ee08d4d4`; a scratch copy of it for the mutants | hold 1's pytest, then hold 2's pytest, then the mutants, one process at a time | 26 min | 162 passed; 899 passed; mutants as above | 174 s; 339 s; 352 s |
+
+- **How this differs from the brief.** The brief asked for one pytest per hold. Each of review r2's two selections did run as one pytest of its own, unsplit, but hold 1's ran in the same slot as hold 2's and the mutants, one after another. Hold 0 had waited 58 minutes and hold 1 103 minutes without a slot; two more waits like these would have passed the 4 h 30 m cutoff (00:21 UTC) with hold 2 and the mutants unrun. The slot was held for 14 min 34 s, under the 20-minute bound.
+
+### Test counts
+
+Every briefed selection ran whole: 1,061 tests, all passed, none skipped.
+
+| File | Passed | Failed | Skipped |
+| --- | ---: | ---: | ---: |
+| `tests/unit/test_session_credential_env.py` | 47 | 0 | 0 |
+| `tests/unit/test_prune_restore.py` | 20 | 0 | 0 |
+| `tests/unit/test_prune_decisions.py` | 48 | 0 | 0 |
+| `tests/unit/test_prune_decision_backup_verification.py` | 23 | 0 | 0 |
+| `tests/unit/test_prune_decision_fingerprints.py` | 15 | 0 | 0 |
+| `tests/unit/test_prune_217.py` | 9 | 0 | 0 |
+| `tests/unit/test_live_store_guard.py` | 324 | 0 | 0 |
+| `tests/unit/test_live_store_guard_round3.py` | 22 | 0 | 0 |
+| `tests/unit/test_live_store_guard_round4.py` | 8 | 0 | 0 |
+| `tests/unit/test_live_store_guard_round5.py` | 11 | 0 | 0 |
+| `tests/unit/test_live_store_guard_round6.py` | 112 | 0 | 0 |
+| `tests/unit/test_live_store_guard_round7.py` | 50 | 0 | 0 |
+| `tests/unit/test_live_store_guard_round7_mutations.py` | 23 | 0 | 0 |
+| `tests/unit/test_live_store_guard_round8.py` | 100 | 0 | 0 |
+| `tests/unit/test_live_store_guard_round8_mutations.py` | 4 | 0 | 0 |
+| `tests/unit/test_live_store_guard_round9.py` | 89 | 0 | 0 |
+| `tests/unit/test_live_store_guard_round9_mutations.py` | 12 | 0 | 0 |
+| `tests/unit/test_live_store_guard_round10.py` and `_round10_mutations.py`, together | 84 | 0 | 0 |
+| `tests/unit/test_live_store_guard_state_root.py` | 22 | 0 | 0 |
+| `tests/fake/test_state_contract.py` | 37 | 0 | 0 |
+| `tests/unit/test_test_module_names.py` | 1 | 0 | 0 |
+
+- **How the per-file counts were found.** The holds ran with `-q`, which prints totals only: 162 for hold 1 and 899 for hold 2. `test_session_credential_env.py` has round 1's 35 tests plus this round's twelve. Every other file in these selections is unchanged since round 1's `7323d6d1d` except the two `round10` files, which release's #245 changed; round 1's per-file counts give exactly 162 for hold 1. For hold 2 they give 815 for the other fourteen files, leaving 84 for the two `round10` files together (round 1: 60 and 13). Hold 2's 899 matches review r2's 898 passed and 1 failed.
+- **Not run this round:** review r1's 81 files left to CI in round 1, and the rest of the suite. This round changed `subfleet/home_paths.py`, two test files and the docs; the only code that uses `RemovedCredentials` is `home_paths` itself, `tests/conftest.py`, which every session runs, and `test_session_credential_env.py`, which ran whole.
+
+### Commits in this round
+
+- `9c751a3f2`: fix: the store cannot be pickled or copied, and C-20.6's limit names reads out of it (D-PRR1 r2)
+- `33a3661d0`: docs: C-20.6's limit names the kernel's copy of the start-up environment (D-PRR1 r2)
+- `1ee08d4d4`: test: comparing the baseline snapshot with a dict catches M9 under -l alone (D-PRR1 r2)
+- the commit that adds this section and updates the PR body
+
+Every commit was made on this job's detached checkout of the shared repository, through the shared Git metadata, with the requested co-author trailer. Nothing was pushed.

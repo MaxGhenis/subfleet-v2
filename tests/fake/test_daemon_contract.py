@@ -11,6 +11,7 @@ import threading
 
 import pytest
 
+from subfleet import procs
 from tests.caps import capped
 
 
@@ -183,28 +184,58 @@ def test_c5_6_c13_1_writable_kill_salvages_dirty_workspace_after_verified_contai
     assert not daemon.rows("SELECT * FROM leases WHERE holder IN (?,?)", (job_id, attempt["attempt_id"]))
 
 
-def test_c5_5_nested_setsid_quarantines_and_force_release_records_override(daemon):
-    """C-5.5, C-5.6, C-5.7 escaped writers quarantine; force-release preserves override evidence."""
+def test_c5_6_a_nested_setsid_escaper_is_contained_by_the_kill_protocol(daemon):
+    """C-5.5, C-5.6 (D-KILL4): the escaped marked writer is a census member, so the kill
+    protocol signals it and the attempt is interrupted with nothing left running."""
     daemon.start()
     job_id = daemon.submit("nested-setsid", out_path=str(daemon.root / "export.md"))
     daemon.attempt_state(job_id, "running")
     marker = daemon.root / "escaped.pid"
     daemon.until(lambda: marker.exists() and marker.read_text())
-    escaped = int(marker.read_text())
+    escaped = procs.identity(int(marker.read_text()))
+    assert escaped is not None
     daemon.call("kill", job_id=job_id)
-    attempt = daemon.attempt_state(job_id, "quarantined")
-    assert attempt["quarantine_reason"]
-    assert daemon.rows("SELECT * FROM leases WHERE lease_key=?",
-                       (f"out:{daemon.root / 'export.md'}",))
-    shown = daemon.call("show", job_id=job_id)
-    assert str(escaped) in json.dumps(shown)
-    os.kill(escaped, 0)
-    note = "test operator accepts escaped-fixture responsibility"
-    daemon.call("kill", job_id=job_id, force_release=True, operator_note=note)
-    daemon.until(lambda: not daemon.rows("SELECT * FROM leases WHERE holder IN (?,?)",
-                                        (job_id, attempt["attempt_id"])))
-    events = daemon.rows("SELECT * FROM events WHERE job_id=?", (job_id,))
-    assert note in json.dumps(events)
+    attempt = daemon.until(lambda: next((a for a in daemon.attempts(job_id)
+                                         if a["state"] in ("interrupted", "quarantined")), None), timeout=30)
+    assert attempt["state"] == "interrupted", json.loads(attempt["quarantine_reason"] or "{}")
+    assert procs.liveness(escaped.pid, escaped.boot_id, escaped.proc_start) == "dead"
+
+
+def test_c5_5_a_held_escaper_quarantines_and_force_release_records_override(daemon):
+    """C-5.5, C-5.6, C-5.7 an escaper the protocol may not signal quarantines; force-release
+    preserves override evidence. Since D-KILL4 that is a held parent: an uncounted shell loop
+    with hidden markers (`--hide-environment-of`), reparented to launchd outside any worktree,
+    whose marked child names it."""
+    marker = daemon.root / "driver.pid"
+    # No inspection before the loop is reparented, so none counts it (it would then be contained).
+    daemon.start("--hide-environment-of", str(marker), "--inspect-interval-s", "20")
+    args = daemon.submit_args(out_path=str(daemon.root / "export.md"))
+    Path(args["prompt_path"]).write_text(json.dumps({"scenario": "loop-driver-detached", "marker": str(marker)}))
+    job_id = daemon.call("submit", **args)["job_id"]
+    daemon.attempt_state(job_id, "running")
+    daemon.until(lambda: marker.exists() and marker.read_text(), timeout=30)
+    escaped = procs.identity(int(marker.read_text()))
+    assert escaped is not None
+    try:
+        daemon.until(lambda: any(row[0] == escaped.pid for row in procs.snapshot().rows.values()), timeout=30)
+        daemon.call("kill", job_id=job_id)
+        attempt = daemon.until(lambda: next((a for a in daemon.attempts(job_id) if a["state"] == "quarantined"),
+                                            None), timeout=30)
+        assert escaped.pid in json.loads(attempt["quarantine_reason"])["held_pids"]
+        assert daemon.rows("SELECT * FROM leases WHERE lease_key=?",
+                           (f"out:{daemon.root / 'export.md'}",))
+        shown = daemon.call("show", job_id=job_id)
+        assert str(escaped.pid) in json.dumps(shown)
+        os.kill(escaped.pid, 0)
+        note = "test operator accepts escaped-fixture responsibility"
+        daemon.call("kill", job_id=job_id, force_release=True, operator_note=note)
+        daemon.until(lambda: not daemon.rows("SELECT * FROM leases WHERE holder IN (?,?)",
+                                            (job_id, attempt["attempt_id"])))
+        events = daemon.rows("SELECT * FROM events WHERE job_id=?", (job_id,))
+        assert note in json.dumps(events)
+    finally:
+        procs.signal_process(escaped, signal.SIGKILL)
+        (daemon.root / "driver.pid.release").touch()
 
 
 def test_c7_2_cancel_before_acceptance_beats_provider_success(daemon):

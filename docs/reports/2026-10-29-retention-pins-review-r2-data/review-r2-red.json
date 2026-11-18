@@ -1,0 +1,49 @@
+{
+  "name": "review-r2-red",
+  "start": "2026-10-29T06:30:09.679937+00:00",
+  "load": [
+    22.56982421875,
+    23.93798828125,
+    23.10693359375
+  ],
+  "exitstatus": 1,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[rewrite]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_unlinked_open_alternates_is_incomplete",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[full-pass]"
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[rewrite]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_unlinked_open_alternates_is_incomplete": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[full-pass]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

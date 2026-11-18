@@ -223,7 +223,8 @@ This is the changed scanner, CPU time (`thread_time`), best of 3, at n = 4k / 16
 
 ### Tests run
 
-- **Pytest: none ran this round.** I made ten attempts on the shared suite lock between 14:15 and 15:44, 61 minutes of waiting in all. Each was a foreground `lockf` wait of 330 to 470 s, bounded so that the hold would fit in a 600 s tool call; none acquired the lock. The lock had 6 to 12 waiters, and one holder had been running pytest for over 11 minutes. The last attempt began at 15:38:08, just past the 4 h 30 m mark (15:37:52), and none was started after it.
+- **Since this round, per the hub:** the hub's host run at `89b9653ac` passed 1,273 tests in all the brief's groups (212, 748 and 313), and CI passed 10 of 10 checks at `b2dc9946b`. What follows is what this round's own session could run.
+- **Pytest: none ran in this round's session.** I made ten attempts on the shared suite lock between 14:15 and 15:44, 61 minutes of waiting in all. Each was a foreground `lockf` wait of 330 to 470 s, bounded so that the hold would fit in a 600 s tool call; none acquired the lock. The lock had 6 to 12 waiters, and one holder had been running pytest for over 11 minutes. The last attempt began at 15:38:08, just past the 4 h 30 m mark (15:37:52), and none was started after it.
 - **Direct calls:** this round's 101 new or changed cases ran as direct calls, not under pytest, in plain Python processes outside the lock. Each test function was called with its parameters, a temporary `tmp_path` and pytest's `MonkeyPatch`; the `svc` fixture was built as `test_conversation_service.py` builds it. The cases were 84 in `test_daemon_log_scrubbing.py`, 5 in `test_sessions_handoff.py` and 12 in `test_round10_refusal_context.py`.
   - Head: 101 passed.
   - Base: 53 passed, 48 failed.
@@ -245,11 +246,11 @@ This is the changed scanner, CPU time (`thread_time`), best of 3, at n = 4k / 16
 | `tests/fake/test_state_contract.py` | not run | none |
 | `tests/unit/test_test_module_names.py` | not run | none |
 
-The existing cases of every file the brief lists have not run against this round's code, and neither have the full suite and Python 3.12. CI or the hub must run them before this merges.
+This round's session ran none of the existing cases of the files the brief lists; the hub's run and CI, above, ran them before #225 merged.
 
 ### Follow-ups
 
-- **Review r1's P3: several daemon.log writers bypass the scrubber.** The hub opens this one: a handler-level `logging.Filter` running `scrubbed_line`, plus scrubbing `sys.excepthook` and `threading.excepthook`.
+- **Review r1's P3: several daemon.log writers bypass the scrubber.** The hub opens this one: a handler-level `logging.Filter` running `scrubbed_line`, plus scrubbing `sys.excepthook` and `threading.excepthook`. Done as D-LOG1: `docs/reports/2026-10-17-daemon-log-scrub.md`.
 - **A `Cookie:`/`Authorization:` header or `Bearer` takes a key whose value follows it.** Examples: `Cookie: x_auth-token :\n SECRET7c`, `Bearer PASSWORD=SECRET7b`, `Bearer \rclient-secret: SECRET7r`. This leaks at base and at head, in whole-text and excerpt mode, and in daemon.log for the `Bearer` forms. It is a rule-order question, since the token and header rules run before the assignment rules, and it is outside this round's items.
 
 ### Cleanup

@@ -1,0 +1,13 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 07:17:30Z slot B load 
+ADMITTED {"utc": "2026-10-28T07:17:47.906895+00:00", "load": [136.87255859375, 137.0166015625, 131.60595703125], "pid": 50960}
+.                                                                        [100%]
+============================= slowest 5 durations ==============================
+176.97s call     tests/fake/test_admission_held_waiters.py::test_c6_9_the_detached_pass_takes_the_pass_model_s_decisions_around_waiters_on_their_clock
+2.21s setup    tests/fake/test_admission_held_waiters.py::test_c6_9_the_detached_pass_takes_the_pass_model_s_decisions_around_waiters_on_their_clock
+
+(1 durations < 0.005s hidden.  Use -vv to show these durations.)
+1 passed in 254.27s (0:04:14)
+FINISHED {"utc": "2026-10-28T07:22:22.072675+00:00", "load": [79.51513671875, 113.486328125, 123.30322265625], "rc": 0, "seconds": 274.1629452920006, "rss": 126451712}

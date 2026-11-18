@@ -1,0 +1,2136 @@
+{
+  "label": "historical-controls",
+  "start": "2026-10-31T06:18:11.375658+00:00",
+  "loads": [
+    34.380859375,
+    32.3671875,
+    32.1240234375
+  ],
+  "seconds": 303.6282330840004,
+  "exit": 1,
+  "locked": false,
+  "tests": [
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/pointer_matrix.py::test_rejected_child_with_valid_parent[gitdir: \\n]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.7885297920001904,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/pointer_matrix.py::test_rejected_child_with_valid_parent[gitdir: \\n]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.1599411660008627,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/pointer_matrix.py::test_rejected_child_with_valid_parent[gitdir: \\n]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.025176042001476162,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/pointer_matrix.py::test_rejected_child_with_valid_parent[gitdir:metadata\\n]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.8620823330002167,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/pointer_matrix.py::test_rejected_child_with_valid_parent[gitdir:metadata\\n]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.8449242909991881,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/pointer_matrix.py::test_rejected_child_with_valid_parent[gitdir:metadata\\n]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.15711045799980639,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/pointer_matrix.py::test_rejected_child_with_valid_parent[]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.1875504999989062,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/pointer_matrix.py::test_rejected_child_with_valid_parent[]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.9944978749990696,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/pointer_matrix.py::test_rejected_child_with_valid_parent[]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.09045537500060163,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/pointer_matrix.py::test_rejected_child_with_valid_parent[\\n]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.0024370410010306,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/pointer_matrix.py::test_rejected_child_with_valid_parent[\\n]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.8972052919998532,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/pointer_matrix.py::test_rejected_child_with_valid_parent[\\n]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.015377000001535635,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/pointer_matrix.py::test_rejected_child_with_valid_parent[\\r\\n]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.1412627089994203,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/pointer_matrix.py::test_rejected_child_with_valid_parent[\\r\\n]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.687415874999715,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/pointer_matrix.py::test_rejected_child_with_valid_parent[\\r\\n]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.003574500000468106,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/journal_probes.py::test_old_journal_paths[quarantine]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.5553319579994422,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/journal_probes.py::test_old_journal_paths[quarantine]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.1350871249997,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/journal_probes.py::test_old_journal_paths[quarantine]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.004954624999299995,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/journal_probes.py::test_old_journal_paths[archive]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.8707061249988328,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/journal_probes.py::test_old_journal_paths[archive]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.894614958000602,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/journal_probes.py::test_old_journal_paths[archive]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0034967920000781305,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/journal_probes.py::test_old_journal_paths[final_check]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.0965949580004235,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/journal_probes.py::test_old_journal_paths[final_check]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.878956582999308,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/journal_probes.py::test_old_journal_paths[final_check]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.036718082999868784,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_archive_and_survey[admin-space]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.1092085420004878,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_archive_and_survey[admin-space]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.6414915829991514,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_archive_and_survey[admin-space]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0035279999992781086,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_archive_and_survey[admin-decoy]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.7960706659996504,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_archive_and_survey[admin-decoy]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 5.234102082999016,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_archive_and_survey[admin-decoy]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.07415179100098612,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_archive_and_survey[common-space]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.2078941250001662,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_archive_and_survey[common-space]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.3061855409996497,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_archive_and_survey[common-space]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.07920633299909241,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_nested_gitfile_reader[ ]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.7341028329992696,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_nested_gitfile_reader[ ]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 6.897184249999555,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_nested_gitfile_reader[ ]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.005245999998805928,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_nested_gitfile_reader[\\t]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.3843588340005226,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_nested_gitfile_reader[\\t]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.23455925000053,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_nested_gitfile_reader[\\t]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.13521366600070905,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_bundle_verifier_uses_stripped_common",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.0987180419997458,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_bundle_verifier_uses_stripped_common",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.3946451249994425,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_bundle_verifier_uses_stripped_common",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.014594665999538847,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_registration_discard_uses_stripped_common_output",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.8136945000005653,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_registration_discard_uses_stripped_common_output",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.38456795800084365,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_registration_discard_uses_stripped_common_output",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.013119540999468882,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_physical_common_folder_through_archive_and_survey",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.2206522500000574,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_physical_common_folder_through_archive_and_survey",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.2620525420006743,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_physical_common_folder_through_archive_and_survey",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.05853841600037413,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[same-size-running]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.5505196670001169,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[same-size-running]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 5.482423458000994,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[same-size-running]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0978669579999405,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[symlink-info-running]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.8584537499991711,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[symlink-info-running]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 5.404828625001755,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[symlink-info-running]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0028855830005340977,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[plain-base]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.7058198750000884,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[plain-base]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.8624134580004466,
+      "properties": [
+        [
+          "input",
+          "{\"layout\": \"plain\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep0/outside/.git\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep0/outside/.git/objects\"]}, \"result\": {\"added_bytes\": 9169, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9169, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"base\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[plain-base]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0026479999996809056,
+      "properties": [
+        [
+          "input",
+          "{\"layout\": \"plain\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep0/outside/.git\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep0/outside/.git/objects\"]}, \"result\": {\"added_bytes\": 9169, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9169, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"base\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[plain-head]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.6919193329995323,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[plain-head]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.033787292000852,
+      "properties": [
+        [
+          "input",
+          "{\"layout\": \"plain\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep1/outside/.git\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep1/outside/.git/objects\"]}, \"result\": {\"added_bytes\": 9169, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9169, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"head\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[plain-head]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.002644750000399654,
+      "properties": [
+        [
+          "input",
+          "{\"layout\": \"plain\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep1/outside/.git\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep1/outside/.git/objects\"]}, \"result\": {\"added_bytes\": 9169, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9169, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"head\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[worktree-base]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.6863246659995639,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[worktree-base]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.523430457998984,
+      "properties": [
+        [
+          "input",
+          "{\"layout\": \"worktree\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep2/independent/.git/worktrees/outside\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep2/independent/.git\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep2/independent/.git/objects\"]}, \"result\": {\"added_bytes\": 9169, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9169, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"base\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[worktree-base]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.007216334000986535,
+      "properties": [
+        [
+          "input",
+          "{\"layout\": \"worktree\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep2/independent/.git/worktrees/outside\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep2/independent/.git\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep2/independent/.git/objects\"]}, \"result\": {\"added_bytes\": 9169, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9169, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"base\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[worktree-head]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.785392874999161,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[worktree-head]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.5528054580008757,
+      "properties": [
+        [
+          "input",
+          "{\"layout\": \"worktree\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep3/independent/.git/worktrees/outside\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep3/independent/.git\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep3/independent/.git/objects\"]}, \"result\": {\"added_bytes\": 9169, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9169, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"head\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[worktree-head]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0024209170005633496,
+      "properties": [
+        [
+          "input",
+          "{\"layout\": \"worktree\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep3/independent/.git/worktrees/outside\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep3/independent/.git\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep3/independent/.git/objects\"]}, \"result\": {\"added_bytes\": 9169, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9169, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"head\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[shared-base]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.026061334001497,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[shared-base]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.2045422499995766,
+      "properties": [
+        [
+          "input",
+          "{\"layout\": \"shared\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep4/outside/.git\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep4/outside/.git/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep4/independent/.git/objects\"]}, \"result\": {\"added_bytes\": 9170, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9170, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"base\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[shared-base]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.003130625000267173,
+      "properties": [
+        [
+          "input",
+          "{\"layout\": \"shared\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep4/outside/.git\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep4/outside/.git/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep4/independent/.git/objects\"]}, \"result\": {\"added_bytes\": 9170, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9170, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"base\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[shared-head]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.956082292001156,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[shared-head]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.3979685840004095,
+      "properties": [
+        [
+          "input",
+          "{\"layout\": \"shared\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep5/outside/.git\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep5/outside/.git/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep5/independent/.git/objects\"]}, \"result\": {\"added_bytes\": 9168, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9168, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"head\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[shared-head]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.03192220799974166,
+      "properties": [
+        [
+          "input",
+          "{\"layout\": \"shared\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep5/outside/.git\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep5/outside/.git/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_routine_repositories_keep5/independent/.git/objects\"]}, \"result\": {\"added_bytes\": 9168, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9168, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"head\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[no-git-base]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.578509999999369,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[no-git-base]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.994870999998966,
+      "properties": [
+        [
+          "input",
+          "{\"layout\": \"no-git\", \"recorded\": {}, \"result\": {\"added_bytes\": 9167, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9167, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"base\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[no-git-base]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0034512080001150025,
+      "properties": [
+        [
+          "input",
+          "{\"layout\": \"no-git\", \"recorded\": {}, \"result\": {\"added_bytes\": 9167, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9167, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"base\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[no-git-head]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.8588646249991143,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[no-git-head]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.9108014589983213,
+      "properties": [
+        [
+          "input",
+          "{\"layout\": \"no-git\", \"recorded\": {}, \"result\": {\"added_bytes\": 9170, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9170, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"head\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[no-git-head]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.003725415999724646,
+      "properties": [
+        [
+          "input",
+          "{\"layout\": \"no-git\", \"recorded\": {}, \"result\": {\"added_bytes\": 9170, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9170, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"head\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-absent-objects]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.5693115829999442,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-absent-objects]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.6247232500008977,
+      "properties": [
+        [
+          "input",
+          "{\"common\": \"absent\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in '24278d9b42d83a4e922aca96ede2cf7ac67e90f2'\\n\", \"git_rc\": 128, \"parent\": \"absent-objects\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g0/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g0/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g0/container/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g0/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 22606, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22606, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-absent-objects]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.039186416999655194,
+      "properties": [
+        [
+          "input",
+          "{\"common\": \"absent\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in '24278d9b42d83a4e922aca96ede2cf7ac67e90f2'\\n\", \"git_rc\": 128, \"parent\": \"absent-objects\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g0/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g0/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g0/container/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g0/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 22606, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22606, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-ordinary]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.818296207999083,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-ordinary]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.634557124998537,
+      "properties": [
+        [
+          "input",
+          "{\"common\": \"absent\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in '76eef975430c311a27a5594151d19cf155fea316'\\n\", \"git_rc\": 128, \"parent\": \"ordinary\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g1/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g1/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g1/container/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g1/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 22606, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22606, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-ordinary]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.03070395800023107,
+      "properties": [
+        [
+          "input",
+          "{\"common\": \"absent\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in '76eef975430c311a27a5594151d19cf155fea316'\\n\", \"git_rc\": 128, \"parent\": \"ordinary\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g1/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g1/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g1/container/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g1/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 22606, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22606, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-common-pointer]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.7491929580010037,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-common-pointer]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.089114291999067,
+      "properties": [
+        [
+          "input",
+          "{\"common\": \"absent\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in '639638b0cf3c67c4f4f336e8e880bd815c52a142'\\n\", \"git_rc\": 128, \"parent\": \"common-pointer\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g2/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g2/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g2/container/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g2/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 22605, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22605, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-common-pointer]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.10695904200110817,
+      "properties": [
+        [
+          "input",
+          "{\"common\": \"absent\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in '639638b0cf3c67c4f4f336e8e880bd815c52a142'\\n\", \"git_rc\": 128, \"parent\": \"common-pointer\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g2/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g2/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g2/container/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g2/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 22605, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22605, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-linked-admin]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.1933428749998711,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-linked-admin]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 6.040721459001361,
+      "properties": [
+        [
+          "input",
+          "{\"common\": \"absent\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in '0ea21d67f92a12b5e0f4ea1c2d66435daefa68fb'\\n\", \"git_rc\": 128, \"parent\": \"linked-admin\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g3/independent/.git/worktrees/helper/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g3/independent/.git/worktrees/helper\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g3/independent/.git/worktrees/helper/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g3/independent/.git/worktrees/helper/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 24490, \"archived_bytes\": 49680, \"bytes_after\": 0, \"bytes_before\": 48951, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 24490, \"archived_bytes\": 49680, \"bytes_after\": 0, \"bytes_before\": 48951, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-linked-admin]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.1867612089990871,
+      "properties": [
+        [
+          "input",
+          "{\"common\": \"absent\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in '0ea21d67f92a12b5e0f4ea1c2d66435daefa68fb'\\n\", \"git_rc\": 128, \"parent\": \"linked-admin\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g3/independent/.git/worktrees/helper/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g3/independent/.git/worktrees/helper\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g3/independent/.git/worktrees/helper/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g3/independent/.git/worktrees/helper/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 24490, \"archived_bytes\": 49680, \"bytes_after\": 0, \"bytes_before\": 48951, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 24490, \"archived_bytes\": 49680, \"bytes_after\": 0, \"bytes_before\": 48951, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-absent-objects]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.5742250839994085,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-absent-objects]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.516253499999948,
+      "properties": [
+        [
+          "input",
+          "{\"common\": \"lf\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in '3593f247309c8c0debeadb84877f1ec870e409f0'\\n\", \"git_rc\": 128, \"parent\": \"absent-objects\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g4/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g4/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g4/container/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g4/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 22606, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22606, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-absent-objects]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0035636669999803416,
+      "properties": [
+        [
+          "input",
+          "{\"common\": \"lf\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in '3593f247309c8c0debeadb84877f1ec870e409f0'\\n\", \"git_rc\": 128, \"parent\": \"absent-objects\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g4/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g4/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g4/container/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g4/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 22606, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22606, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-ordinary]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.889192542001183,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-ordinary]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.525244250000469,
+      "properties": [
+        [
+          "input",
+          "{\"common\": \"lf\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in '0dc3f69afeffde4f740195ad7b84668c2015a5b2'\\n\", \"git_rc\": 128, \"parent\": \"ordinary\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g5/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g5/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g5/container/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g5/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 22607, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22607, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-ordinary]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.048578874999293475,
+      "properties": [
+        [
+          "input",
+          "{\"common\": \"lf\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in '0dc3f69afeffde4f740195ad7b84668c2015a5b2'\\n\", \"git_rc\": 128, \"parent\": \"ordinary\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g5/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g5/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g5/container/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g5/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 22607, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22607, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-common-pointer]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.7235932500007038,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-common-pointer]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.771816458000103,
+      "properties": [
+        [
+          "input",
+          "{\"common\": \"lf\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in '6da2dbaa2987975a41022ee7338aa5e768c58ccd'\\n\", \"git_rc\": 128, \"parent\": \"common-pointer\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g6/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g6/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g6/container/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g6/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 22607, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22607, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-common-pointer]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.04697045800094202,
+      "properties": [
+        [
+          "input",
+          "{\"common\": \"lf\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in '6da2dbaa2987975a41022ee7338aa5e768c58ccd'\\n\", \"git_rc\": 128, \"parent\": \"common-pointer\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g6/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g6/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g6/container/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g6/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 22607, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22607, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-linked-admin]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.8523272500005987,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-linked-admin]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 6.452400583999406,
+      "properties": [
+        [
+          "input",
+          "{\"common\": \"lf\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in 'da37828438f29068ead46d16385b34bf2567bfb2'\\n\", \"git_rc\": 128, \"parent\": \"linked-admin\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g7/independent/.git/worktrees/helper/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g7/independent/.git/worktrees/helper\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g7/independent/.git/worktrees/helper/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g7/independent/.git/worktrees/helper/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 24491, \"archived_bytes\": 49679, \"bytes_after\": 0, \"bytes_before\": 48950, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 24491, \"archived_bytes\": 49679, \"bytes_after\": 0, \"bytes_before\": 48950, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-linked-admin]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.014645999999629566,
+      "properties": [
+        [
+          "input",
+          "{\"common\": \"lf\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in 'da37828438f29068ead46d16385b34bf2567bfb2'\\n\", \"git_rc\": 128, \"parent\": \"linked-admin\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g7/independent/.git/worktrees/helper/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g7/independent/.git/worktrees/helper\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g7/independent/.git/worktrees/helper/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g7/independent/.git/worktrees/helper/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 24491, \"archived_bytes\": 49679, \"bytes_after\": 0, \"bytes_before\": 48950, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 24491, \"archived_bytes\": 49679, \"bytes_after\": 0, \"bytes_before\": 48950, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-absent-objects]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.8891669589993398,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-absent-objects]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 5.288122457999634,
+      "properties": [
+        [
+          "input",
+          "{\"common\": \"crlf\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in '515793e2924968e18ee117260944cb75d5fe0862'\\n\", \"git_rc\": 128, \"parent\": \"absent-objects\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g8/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g8/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g8/container/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g8/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 22607, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22607, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-absent-objects]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.006826707998698112,
+      "properties": [
+        [
+          "input",
+          "{\"common\": \"crlf\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in '515793e2924968e18ee117260944cb75d5fe0862'\\n\", \"git_rc\": 128, \"parent\": \"absent-objects\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g8/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g8/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g8/container/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g8/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 22607, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22607, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-ordinary]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.669516374999148,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-ordinary]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.763745415999438,
+      "properties": [
+        [
+          "input",
+          "{\"common\": \"crlf\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in 'e3c889881e99a071271e31957ebb6569066a7528'\\n\", \"git_rc\": 128, \"parent\": \"ordinary\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g9/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g9/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g9/container/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g9/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 22605, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22605, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-ordinary]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.015608749999955762,
+      "properties": [
+        [
+          "input",
+          "{\"common\": \"crlf\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in 'e3c889881e99a071271e31957ebb6569066a7528'\\n\", \"git_rc\": 128, \"parent\": \"ordinary\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g9/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g9/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g9/container/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g9/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 22605, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22605, \"archived_bytes\": 49358, \"bytes_after\": 0, \"bytes_before\": 48629, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-common-pointer]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.5172788330000913,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-common-pointer]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 6.268451042000379,
+      "properties": [
+        [
+          "input",
+          "{\"common\": \"crlf\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in 'e934edf63b94e9db83a81f1e14ced95e4615d1fd'\\n\", \"git_rc\": 128, \"parent\": \"common-pointer\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g10/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g10/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g10/container/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g10/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 22616, \"archived_bytes\": 49362, \"bytes_after\": 0, \"bytes_before\": 48632, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22616, \"archived_bytes\": 49362, \"bytes_after\": 0, \"bytes_before\": 48632, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-common-pointer]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.003074166999795125,
+      "properties": [
+        [
+          "input",
+          "{\"common\": \"crlf\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in 'e934edf63b94e9db83a81f1e14ced95e4615d1fd'\\n\", \"git_rc\": 128, \"parent\": \"common-pointer\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g10/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g10/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g10/container/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g10/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 22616, \"archived_bytes\": 49362, \"bytes_after\": 0, \"bytes_before\": 48632, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22616, \"archived_bytes\": 49362, \"bytes_after\": 0, \"bytes_before\": 48632, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-linked-admin]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.0357223750015692,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-linked-admin]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 8.384663000000728,
+      "properties": [
+        [
+          "input",
+          "{\"common\": \"crlf\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in 'efff0cf206f42788442dbd2612e8913f3621cb0e'\\n\", \"git_rc\": 128, \"parent\": \"linked-admin\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g11/independent/.git/worktrees/helper/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g11/independent/.git/worktrees/helper\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g11/independent/.git/worktrees/helper/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g11/independent/.git/worktrees/helper/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 24499, \"archived_bytes\": 49682, \"bytes_after\": 0, \"bytes_before\": 48952, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 24499, \"archived_bytes\": 49682, \"bytes_after\": 0, \"bytes_before\": 48952, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-linked-admin]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.19933237500117684,
+      "properties": [
+        [
+          "input",
+          "{\"common\": \"crlf\", \"git_error\": \"fatal: path 'owner-only.txt' does not exist in 'efff0cf206f42788442dbd2612e8913f3621cb0e'\\n\", \"git_rc\": 128, \"parent\": \"linked-admin\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g11/independent/.git/worktrees/helper/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g11/independent/.git/worktrees/helper\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g11/independent/.git/worktrees/helper/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_parent_pointer_is_not_a_g11/independent/.git/worktrees/helper/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 24499, \"archived_bytes\": 49682, \"bytes_after\": 0, \"bytes_before\": 48952, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 24499, \"archived_bytes\": 49682, \"bytes_after\": 0, \"bytes_before\": 48952, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_d_r7_1_predates_r6[base]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.1057469999996101,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_d_r7_1_predates_r6[base]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.8555172910000692,
+      "properties": [
+        [
+          "input",
+          "{\"bytes\": 1048577, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_d_r7_1_predates_r6_base_0/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_d_r7_1_predates_r6_base_0/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_d_r7_1_predates_r6_base_0/container/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_d_r7_1_predates_r6_base_0/container/objects/info/alternates\", \"reason\": \"line exceeds 1048576 bytes\"}]}, \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 20025, \"bytes_before\": 20025, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"dependency-incomplete: borrower: /private/tmp/sf-r272r8/cases-11565/pytest/test_d_r7_1_predates_r6_base_0/container/objects/info/alternates (line exceeds 1048576 bytes)\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 20025, \"bytes_before\": 20025, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}, \"revision\": \"base\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_d_r7_1_predates_r6[base]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.15598191600111022,
+      "properties": [
+        [
+          "input",
+          "{\"bytes\": 1048577, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_d_r7_1_predates_r6_base_0/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_d_r7_1_predates_r6_base_0/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_d_r7_1_predates_r6_base_0/container/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_d_r7_1_predates_r6_base_0/container/objects/info/alternates\", \"reason\": \"line exceeds 1048576 bytes\"}]}, \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 20025, \"bytes_before\": 20025, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"dependency-incomplete: borrower: /private/tmp/sf-r272r8/cases-11565/pytest/test_d_r7_1_predates_r6_base_0/container/objects/info/alternates (line exceeds 1048576 bytes)\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 20025, \"bytes_before\": 20025, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}, \"revision\": \"base\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_d_r7_1_predates_r6[head]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.7129992919999495,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_d_r7_1_predates_r6[head]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.809514083999602,
+      "properties": [
+        [
+          "input",
+          "{\"bytes\": 1048577, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_d_r7_1_predates_r6_head_0/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_d_r7_1_predates_r6_head_0/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_d_r7_1_predates_r6_head_0/container/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_d_r7_1_predates_r6_head_0/container/worktrees/slot/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_d_r7_1_predates_r6_head_0/container/objects/info/alternates\", \"reason\": \"line exceeds 1048576 bytes\"}]}, \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 20025, \"bytes_before\": 20025, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"dependency-incomplete: borrower: /private/tmp/sf-r272r8/cases-11565/pytest/test_d_r7_1_predates_r6_head_0/container/objects/info/alternates (line exceeds 1048576 bytes)\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 20025, \"bytes_before\": 20025, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}, \"revision\": \"head\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_d_r7_1_predates_r6[head]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.1561617080005817,
+      "properties": [
+        [
+          "input",
+          "{\"bytes\": 1048577, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_d_r7_1_predates_r6_head_0/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_d_r7_1_predates_r6_head_0/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_d_r7_1_predates_r6_head_0/container/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_d_r7_1_predates_r6_head_0/container/worktrees/slot/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_d_r7_1_predates_r6_head_0/container/objects/info/alternates\", \"reason\": \"line exceeds 1048576 bytes\"}]}, \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 20025, \"bytes_before\": 20025, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"dependency-incomplete: borrower: /private/tmp/sf-r272r8/cases-11565/pytest/test_d_r7_1_predates_r6_head_0/container/objects/info/alternates (line exceeds 1048576 bytes)\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 20025, \"bytes_before\": 20025, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}, \"revision\": \"head\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[absent]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.0017515830004413,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[absent]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.4396317499995348,
+      "properties": [
+        [
+          "input",
+          "{\"defect\": \"absent\", \"git_error\": \"\", \"git_rc\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga0/outside/.git\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga0/outside/.git/objects\"]}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[absent]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.052869958999508526,
+      "properties": [
+        [
+          "input",
+          "{\"defect\": \"absent\", \"git_error\": \"\", \"git_rc\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga0/outside/.git\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga0/outside/.git/objects\"]}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[dangling]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.1106942919996072,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[dangling]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 0.3714890410010412,
+      "properties": [],
+      "failure": "world = World(base=PosixPath('/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga1'), trusted=True, remot...-r272r8/cases-11565/pytest/test_pointer_failure_split_aga1/state'), store=<subfleet.store.Store object at 0x1082bb850>)\ndefect = 'dangling'\nrecord_property = <function record_property.<locals>.append_property at 0x1076eeb90>\n\n    @pytest.mark.parametrize('defect', ['absent', 'dangling', 'directory', 'permission', 'oversized'])\n    def test_pointer_failure_split_against_git(world, defect, record_property):\n        checkout = repo(world.base / 'outside')\n        pointer = checkout / '.git' / 'commondir'\n        if defect == 'dangling':\n            pointer.symlink_to(world.base / 'gone')\n        elif defect == 'directory':\n            pointer.mkdir()\n        elif defect == 'permission':\n            pointer.write_bytes(b'\\n')\n            pointer.chmod(0)\n        elif defect == 'oversized':\n            pointer.write_bytes(b'\\r\\n' * 35000)\n        try:\n            read = git('-C', checkout, 'show', 'HEAD:f.txt')\n            recorded = dependencies.record(str(checkout))\n        finally:\n            if defect == 'permission':\n                pointer.chmod(0o600)\n        assert bool(recorded.get('incomplete')) == (defect != 'absent'), recorded\n>       assert (read.returncode == 0) == (defect in ('absent', 'dangling', 'oversized')), read.stderr\nE       AssertionError: b'fatal: failed to read /private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga1/outside/.git/commondir: No such file or directory\nE         '\nE       assert (128 == 0) == ('dangling' in ('absent', 'dangling', 'oversized'))\nE        +  where 128 = CompletedProcess(args=['git', '-C', '/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga1/outside.../tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga1/outside/.git/commondir: No such file or directory\\n').returncode\n\ndocs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py:140: AssertionError"
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[dangling]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.009542916999635054,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[directory]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.2158362499994837,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[directory]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.1988970420006808,
+      "properties": [
+        [
+          "input",
+          "{\"defect\": \"directory\", \"git_error\": \"fatal: failed to read /private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga2/outside/.git/commondir: Is a directory\\n\", \"git_rc\": 128, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga2/outside/.git\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga2/outside/.git/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga2/outside/.git/commondir\", \"reason\": \"[Errno 22] not a regular file: '/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga2/outside/.git/commondir'\"}]}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[directory]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.005418333999841707,
+      "properties": [
+        [
+          "input",
+          "{\"defect\": \"directory\", \"git_error\": \"fatal: failed to read /private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga2/outside/.git/commondir: Is a directory\\n\", \"git_rc\": 128, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga2/outside/.git\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga2/outside/.git/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga2/outside/.git/commondir\", \"reason\": \"[Errno 22] not a regular file: '/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga2/outside/.git/commondir'\"}]}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[permission]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.9191974999994272,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[permission]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.6787453750002896,
+      "properties": [
+        [
+          "input",
+          "{\"defect\": \"permission\", \"git_error\": \"fatal: failed to read /private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga3/outside/.git/commondir: Permission denied\\n\", \"git_rc\": 128, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga3/outside/.git\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga3/outside/.git/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga3/outside/.git/commondir\", \"reason\": \"[Errno 13] Permission denied: '/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga3/outside/.git/commondir'\"}]}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[permission]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.006689292000373825,
+      "properties": [
+        [
+          "input",
+          "{\"defect\": \"permission\", \"git_error\": \"fatal: failed to read /private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga3/outside/.git/commondir: Permission denied\\n\", \"git_rc\": 128, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga3/outside/.git\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga3/outside/.git/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga3/outside/.git/commondir\", \"reason\": \"[Errno 13] Permission denied: '/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga3/outside/.git/commondir'\"}]}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[oversized]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.9116417919995001,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[oversized]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.5725775829996564,
+      "properties": [
+        [
+          "input",
+          "{\"defect\": \"oversized\", \"git_error\": \"\", \"git_rc\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga4/outside/.git\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga4/outside/.git/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga4/outside/.git/commondir\", \"reason\": \"[Errno 27] longer than 65536 bytes: '/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga4/outside/.git/commondir'\"}]}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[oversized]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.007209333998616785,
+      "properties": [
+        [
+          "input",
+          "{\"defect\": \"oversized\", \"git_error\": \"\", \"git_rc\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga4/outside/.git\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga4/outside/.git/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga4/outside/.git/commondir\", \"reason\": \"[Errno 27] longer than 65536 bytes: '/private/tmp/sf-r272r8/cases-11565/pytest/test_pointer_failure_split_aga4/outside/.git/commondir'\"}]}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_final_pointer_failure_cannot_hide_changed_storage[rewrite]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.9905627500011178,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_final_pointer_failure_cannot_hide_changed_storage[rewrite]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.3138704580014746,
+      "properties": [
+        [
+          "input",
+          "{\"change\": \"rewrite\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_final_pointer_failure_can0/initial-admin\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_final_pointer_failure_can0/initial-admin/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_final_pointer_failure_can0/outside/.git\", \"reason\": \"repository pointer changed during discovery\"}]}, \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48629, \"bytes_before\": 48629, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"dependency-incomplete: borrower: /private/tmp/sf-r272r8/cases-11565/pytest/test_final_pointer_failure_can0/outside/.git (repository pointer changed during discovery)\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48629, \"bytes_before\": 48629, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_final_pointer_failure_cannot_hide_changed_storage[rewrite]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0027212500008317875,
+      "properties": [
+        [
+          "input",
+          "{\"change\": \"rewrite\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_final_pointer_failure_can0/initial-admin\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_final_pointer_failure_can0/initial-admin/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_final_pointer_failure_can0/outside/.git\", \"reason\": \"repository pointer changed during discovery\"}]}, \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48629, \"bytes_before\": 48629, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"dependency-incomplete: borrower: /private/tmp/sf-r272r8/cases-11565/pytest/test_final_pointer_failure_can0/outside/.git (repository pointer changed during discovery)\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48629, \"bytes_before\": 48629, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_final_pointer_failure_cannot_hide_changed_storage[oversized]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.2216654580006434,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_final_pointer_failure_cannot_hide_changed_storage[oversized]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.8620616670013987,
+      "properties": [
+        [
+          "input",
+          "{\"change\": \"oversized\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_final_pointer_failure_can1/initial-admin\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_final_pointer_failure_can1/initial-admin/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_final_pointer_failure_can1/outside/.git\", \"reason\": \"repository pointer changed during discovery\"}]}, \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48630, \"bytes_before\": 48630, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"dependency-incomplete: borrower: /private/tmp/sf-r272r8/cases-11565/pytest/test_final_pointer_failure_can1/outside/.git (repository pointer changed during discovery)\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48630, \"bytes_before\": 48630, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_final_pointer_failure_cannot_hide_changed_storage[oversized]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.006126750000476022,
+      "properties": [
+        [
+          "input",
+          "{\"change\": \"oversized\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_final_pointer_failure_can1/initial-admin\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_final_pointer_failure_can1/initial-admin/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_final_pointer_failure_can1/outside/.git\", \"reason\": \"repository pointer changed during discovery\"}]}, \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48630, \"bytes_before\": 48630, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"dependency-incomplete: borrower: /private/tmp/sf-r272r8/cases-11565/pytest/test_final_pointer_failure_can1/outside/.git (repository pointer changed during discovery)\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48630, \"bytes_before\": 48630, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_final_pointer_failure_cannot_hide_changed_storage[unreadable]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.088680167000348,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_final_pointer_failure_cannot_hide_changed_storage[unreadable]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.0074788339989027,
+      "properties": [
+        [
+          "input",
+          "{\"change\": \"unreadable\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_final_pointer_failure_can2/initial-admin\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_final_pointer_failure_can2/initial-admin/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_final_pointer_failure_can2/outside/.git\", \"reason\": \"repository pointer changed during discovery\"}]}, \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48630, \"bytes_before\": 48630, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"dependency-incomplete: borrower: /private/tmp/sf-r272r8/cases-11565/pytest/test_final_pointer_failure_can2/outside/.git (repository pointer changed during discovery)\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48630, \"bytes_before\": 48630, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_final_pointer_failure_cannot_hide_changed_storage[unreadable]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.01969454199934262,
+      "properties": [
+        [
+          "input",
+          "{\"change\": \"unreadable\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_final_pointer_failure_can2/initial-admin\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_final_pointer_failure_can2/initial-admin/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_final_pointer_failure_can2/outside/.git\", \"reason\": \"repository pointer changed during discovery\"}]}, \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48630, \"bytes_before\": 48630, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"dependency-incomplete: borrower: /private/tmp/sf-r272r8/cases-11565/pytest/test_final_pointer_failure_can2/outside/.git (repository pointer changed during discovery)\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48630, \"bytes_before\": 48630, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_ended_job_with_gone_named_target_does_not_pin[False]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.3156236249997164,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_ended_job_with_gone_named_target_does_not_pin[False]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.982076291998965,
+      "properties": [
+        [
+          "input",
+          "{\"legacy\": false, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_ended_job_with_gone_named0/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_ended_job_with_gone_named0/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_ended_job_with_gone_named0/container/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_ended_job_with_gone_named0/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 11239, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 0, \"more\": false, \"pin_reasons\": {}, \"pools\": {\"detached\": {\"added_bytes\": 11239, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [], \"pruned\": [\"borrower\", \"owner\"], \"reclaimed\": [\"borrower\", \"owner\"], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_ended_job_with_gone_named_target_does_not_pin[False]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.008658624999952735,
+      "properties": [
+        [
+          "input",
+          "{\"legacy\": false, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_ended_job_with_gone_named0/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_ended_job_with_gone_named0/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_ended_job_with_gone_named0/container/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_ended_job_with_gone_named0/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 11239, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 0, \"more\": false, \"pin_reasons\": {}, \"pools\": {\"detached\": {\"added_bytes\": 11239, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [], \"pruned\": [\"borrower\", \"owner\"], \"reclaimed\": [\"borrower\", \"owner\"], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_ended_job_with_gone_named_target_does_not_pin[True]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.8713143340009992,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_ended_job_with_gone_named_target_does_not_pin[True]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 6.985993833999601,
+      "properties": [
+        [
+          "input",
+          "{\"legacy\": true, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_ended_job_with_gone_named1/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_ended_job_with_gone_named1/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_ended_job_with_gone_named1/container/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_ended_job_with_gone_named1/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 11239, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 0, \"more\": false, \"pin_reasons\": {}, \"pools\": {\"detached\": {\"added_bytes\": 11239, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [], \"pruned\": [\"borrower\", \"owner\"], \"reclaimed\": [\"borrower\", \"owner\"], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_ended_job_with_gone_named_target_does_not_pin[True]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.007412042001305963,
+      "properties": [
+        [
+          "input",
+          "{\"legacy\": true, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_ended_job_with_gone_named1/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_ended_job_with_gone_named1/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_ended_job_with_gone_named1/container/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_ended_job_with_gone_named1/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 11239, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 0, \"more\": false, \"pin_reasons\": {}, \"pools\": {\"detached\": {\"added_bytes\": 11239, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [], \"pruned\": [\"borrower\", \"owner\"], \"reclaimed\": [\"borrower\", \"owner\"], \"tmpdir_left\": []}}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_not_a_directory_pointer_has_no_git_reader",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.007358249999015243,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_not_a_directory_pointer_has_no_git_reader",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.11363224999877275,
+      "properties": [
+        [
+          "input",
+          "{\"git_error\": \"fatal: invalid gitfile format: /private/tmp/sf-r272r8/cases-11565/pytest/test_not_a_directory_pointer_h0/file\\n\", \"git_rc\": 128, \"incomplete\": [], \"pointer\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_not_a_directory_pointer_h0/file/commondir\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_not_a_directory_pointer_has_no_git_reader",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0024606659990240587,
+      "properties": [
+        [
+          "input",
+          "{\"git_error\": \"fatal: invalid gitfile format: /private/tmp/sf-r272r8/cases-11565/pytest/test_not_a_directory_pointer_h0/file\\n\", \"git_rc\": 128, \"incomplete\": [], \"pointer\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_not_a_directory_pointer_h0/file/commondir\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_unused_parent_without_objects_does_not_stop_retirement[absent-objects-base]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.9890869579994614,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_unused_parent_without_objects_does_not_stop_retirement[absent-objects-base]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 5.510127083000043,
+      "properties": [
+        [
+          "input",
+          "{\"parent\": \"absent-objects\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_unused_parent_without_obj0/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_unused_parent_without_obj0/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_unused_parent_without_obj0/container/objects\"]}, \"result\": {\"added_bytes\": 9170, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9170, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"base\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_unused_parent_without_objects_does_not_stop_retirement[absent-objects-base]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.006428625001717592,
+      "properties": [
+        [
+          "input",
+          "{\"parent\": \"absent-objects\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_unused_parent_without_obj0/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_unused_parent_without_obj0/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_unused_parent_without_obj0/container/objects\"]}, \"result\": {\"added_bytes\": 9170, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9170, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"base\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_unused_parent_without_objects_does_not_stop_retirement[absent-objects-head]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.587525499999174,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_unused_parent_without_objects_does_not_stop_retirement[absent-objects-head]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 5.22968687499997,
+      "properties": [
+        [
+          "input",
+          "{\"parent\": \"absent-objects\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_unused_parent_without_obj1/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_unused_parent_without_obj1/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_unused_parent_without_obj1/container/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_unused_parent_without_obj1/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 9169, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9169, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"head\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_unused_parent_without_objects_does_not_stop_retirement[absent-objects-head]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.018611542000144254,
+      "properties": [
+        [
+          "input",
+          "{\"parent\": \"absent-objects\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_unused_parent_without_obj1/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_unused_parent_without_obj1/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_unused_parent_without_obj1/container/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_unused_parent_without_obj1/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 9169, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9169, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"head\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_unused_parent_without_objects_does_not_stop_retirement[ordinary-base]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.0608294169996952,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_unused_parent_without_objects_does_not_stop_retirement[ordinary-base]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.588218541999595,
+      "properties": [
+        [
+          "input",
+          "{\"parent\": \"ordinary\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_unused_parent_without_obj2/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_unused_parent_without_obj2/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_unused_parent_without_obj2/container/objects\"]}, \"result\": {\"added_bytes\": 9169, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9169, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"base\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_unused_parent_without_objects_does_not_stop_retirement[ordinary-base]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.11094179199972132,
+      "properties": [
+        [
+          "input",
+          "{\"parent\": \"ordinary\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_unused_parent_without_obj2/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_unused_parent_without_obj2/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_unused_parent_without_obj2/container/objects\"]}, \"result\": {\"added_bytes\": 9169, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9169, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"base\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_unused_parent_without_objects_does_not_stop_retirement[ordinary-head]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.2582787920000555,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_unused_parent_without_objects_does_not_stop_retirement[ordinary-head]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.768326792000153,
+      "properties": [
+        [
+          "input",
+          "{\"parent\": \"ordinary\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_unused_parent_without_obj3/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_unused_parent_without_obj3/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_unused_parent_without_obj3/container/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_unused_parent_without_obj3/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 9169, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9169, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"head\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_unused_parent_without_objects_does_not_stop_retirement[ordinary-head]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.08137933400030306,
+      "properties": [
+        [
+          "input",
+          "{\"parent\": \"ordinary\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_unused_parent_without_obj3/container/worktrees/slot\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_unused_parent_without_obj3/container\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_unused_parent_without_obj3/container/objects\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_unused_parent_without_obj3/container/worktrees/slot/objects\"]}, \"result\": {\"added_bytes\": 9169, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 9169, \"archived_bytes\": 20755, \"bytes_after\": 0, \"bytes_before\": 20026, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"head\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_stable_pointer_alias_inside_retirable_tree_observation[admin-path-base]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.1068621249996795,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_stable_pointer_alias_inside_retirable_tree_observation[admin-path-base]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 7.208947666998938,
+      "properties": [
+        [
+          "input",
+          "{\"after_error\": \"fatal: not a git repository: (null)\\n\", \"after_rc\": 128, \"alias\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi0/state/worktrees/owner/storage-alias\", \"before_rc\": 0, \"checkout\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi0/outside\", \"commit\": \"152579a38cb36d86ae507dbdf2d712e2f45dcd5f\", \"health_rc\": 0, \"layout\": \"admin-path\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi0/independent-storage/.git\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi0/independent-storage/.git/objects\"]}, \"result\": {\"added_bytes\": 22707, \"archived_bytes\": 49359, \"bytes_after\": 0, \"bytes_before\": 48728, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22707, \"archived_bytes\": 49359, \"bytes_after\": 0, \"bytes_before\": 48728, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"base\", \"status\": \"\", \"status_rc\": 0, \"target\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi0/independent-storage/.git\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_stable_pointer_alias_inside_retirable_tree_observation[admin-path-base]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.08875704199999745,
+      "properties": [
+        [
+          "input",
+          "{\"after_error\": \"fatal: not a git repository: (null)\\n\", \"after_rc\": 128, \"alias\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi0/state/worktrees/owner/storage-alias\", \"before_rc\": 0, \"checkout\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi0/outside\", \"commit\": \"152579a38cb36d86ae507dbdf2d712e2f45dcd5f\", \"health_rc\": 0, \"layout\": \"admin-path\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi0/independent-storage/.git\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi0/independent-storage/.git/objects\"]}, \"result\": {\"added_bytes\": 22707, \"archived_bytes\": 49359, \"bytes_after\": 0, \"bytes_before\": 48728, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22707, \"archived_bytes\": 49359, \"bytes_after\": 0, \"bytes_before\": 48728, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"base\", \"status\": \"\", \"status_rc\": 0, \"target\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi0/independent-storage/.git\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_stable_pointer_alias_inside_retirable_tree_observation[admin-path-head]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.0079015419996722,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_stable_pointer_alias_inside_retirable_tree_observation[admin-path-head]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 9.09760812499917,
+      "properties": [
+        [
+          "input",
+          "{\"after_error\": \"fatal: not a git repository: (null)\\n\", \"after_rc\": 128, \"alias\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi1/state/worktrees/owner/storage-alias\", \"before_rc\": 0, \"checkout\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi1/outside\", \"commit\": \"205ef982ef1406d8ce7c2e9c859c0354152787a6\", \"health_rc\": 0, \"layout\": \"admin-path\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi1/independent-storage/.git\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi1/independent-storage/.git/objects\"]}, \"result\": {\"added_bytes\": 22873, \"archived_bytes\": 49359, \"bytes_after\": 0, \"bytes_before\": 48728, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22873, \"archived_bytes\": 49359, \"bytes_after\": 0, \"bytes_before\": 48728, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"head\", \"status\": \"\", \"status_rc\": 0, \"target\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi1/independent-storage/.git\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_stable_pointer_alias_inside_retirable_tree_observation[admin-path-head]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.010818624999956228,
+      "properties": [
+        [
+          "input",
+          "{\"after_error\": \"fatal: not a git repository: (null)\\n\", \"after_rc\": 128, \"alias\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi1/state/worktrees/owner/storage-alias\", \"before_rc\": 0, \"checkout\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi1/outside\", \"commit\": \"205ef982ef1406d8ce7c2e9c859c0354152787a6\", \"health_rc\": 0, \"layout\": \"admin-path\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi1/independent-storage/.git\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi1/independent-storage/.git/objects\"]}, \"result\": {\"added_bytes\": 22873, \"archived_bytes\": 49359, \"bytes_after\": 0, \"bytes_before\": 48728, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22873, \"archived_bytes\": 49359, \"bytes_after\": 0, \"bytes_before\": 48728, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"head\", \"status\": \"\", \"status_rc\": 0, \"target\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi1/independent-storage/.git\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_stable_pointer_alias_inside_retirable_tree_observation[gitfile-base]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.8504146250015765,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_stable_pointer_alias_inside_retirable_tree_observation[gitfile-base]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 8.021415166000224,
+      "properties": [
+        [
+          "input",
+          "{\"after_error\": \"fatal: not a git repository (or any of the parent directories): .git\\n\", \"after_rc\": 128, \"alias\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi2/state/worktrees/owner/storage-alias\", \"before_rc\": 0, \"checkout\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi2/outside\", \"commit\": \"aa8890487a225e5b4f12f8a7a117918ee8c332ca\", \"health_rc\": 0, \"layout\": \"gitfile\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi2/independent-storage/.git\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi2/independent-storage/.git/objects\"]}, \"result\": {\"added_bytes\": 22915, \"archived_bytes\": 49466, \"bytes_after\": 0, \"bytes_before\": 48737, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22915, \"archived_bytes\": 49466, \"bytes_after\": 0, \"bytes_before\": 48737, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"base\", \"status\": \"\", \"status_rc\": 0, \"target\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi2/independent-storage/.git\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_stable_pointer_alias_inside_retirable_tree_observation[gitfile-base]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.004237666998960776,
+      "properties": [
+        [
+          "input",
+          "{\"after_error\": \"fatal: not a git repository (or any of the parent directories): .git\\n\", \"after_rc\": 128, \"alias\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi2/state/worktrees/owner/storage-alias\", \"before_rc\": 0, \"checkout\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi2/outside\", \"commit\": \"aa8890487a225e5b4f12f8a7a117918ee8c332ca\", \"health_rc\": 0, \"layout\": \"gitfile\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi2/independent-storage/.git\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi2/independent-storage/.git/objects\"]}, \"result\": {\"added_bytes\": 22915, \"archived_bytes\": 49466, \"bytes_after\": 0, \"bytes_before\": 48737, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22915, \"archived_bytes\": 49466, \"bytes_after\": 0, \"bytes_before\": 48737, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"base\", \"status\": \"\", \"status_rc\": 0, \"target\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi2/independent-storage/.git\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_stable_pointer_alias_inside_retirable_tree_observation[gitfile-head]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.303529458000412,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_stable_pointer_alias_inside_retirable_tree_observation[gitfile-head]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 9.519108084001346,
+      "properties": [
+        [
+          "input",
+          "{\"after_error\": \"fatal: not a git repository (or any of the parent directories): .git\\n\", \"after_rc\": 128, \"alias\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi3/state/worktrees/owner/storage-alias\", \"before_rc\": 0, \"checkout\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi3/outside\", \"commit\": \"ab742d7ad6393a008090015dd4febba343584fb3\", \"health_rc\": 0, \"layout\": \"gitfile\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi3/independent-storage/.git\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi3/independent-storage/.git/objects\"]}, \"result\": {\"added_bytes\": 22916, \"archived_bytes\": 49465, \"bytes_after\": 0, \"bytes_before\": 48736, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22916, \"archived_bytes\": 49465, \"bytes_after\": 0, \"bytes_before\": 48736, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"head\", \"status\": \"\", \"status_rc\": 0, \"target\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi3/independent-storage/.git\"}"
+        ]
+      ],
+      "failure": null
+    },
+    {
+      "nodeid": "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_stable_pointer_alias_inside_retirable_tree_observation[gitfile-head]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.007797624999511754,
+      "properties": [
+        [
+          "input",
+          "{\"after_error\": \"fatal: not a git repository (or any of the parent directories): .git\\n\", \"after_rc\": 128, \"alias\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi3/state/worktrees/owner/storage-alias\", \"before_rc\": 0, \"checkout\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi3/outside\", \"commit\": \"ab742d7ad6393a008090015dd4febba343584fb3\", \"health_rc\": 0, \"layout\": \"gitfile\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi3/independent-storage/.git\", \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi3/independent-storage/.git/objects\"]}, \"result\": {\"added_bytes\": 22916, \"archived_bytes\": 49465, \"bytes_after\": 0, \"bytes_before\": 48736, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 22916, \"archived_bytes\": 49465, \"bytes_after\": 0, \"bytes_before\": 48736, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}, \"revision\": \"head\", \"status\": \"\", \"status_rc\": 0, \"target\": \"/private/tmp/sf-r272r8/cases-11565/pytest/test_stable_pointer_alias_insi3/independent-storage/.git\"}"
+        ]
+      ],
+      "failure": null
+    }
+  ],
+  "nodes": [
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/pointer_matrix.py::test_rejected_child_with_valid_parent[gitdir: \\n]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/pointer_matrix.py::test_rejected_child_with_valid_parent[gitdir:metadata\\n]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/pointer_matrix.py::test_rejected_child_with_valid_parent[]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/pointer_matrix.py::test_rejected_child_with_valid_parent[\\n]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/pointer_matrix.py::test_rejected_child_with_valid_parent[\\r\\n]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/journal_probes.py::test_old_journal_paths[quarantine]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/journal_probes.py::test_old_journal_paths[archive]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/journal_probes.py::test_old_journal_paths[final_check]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_archive_and_survey[admin-space]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_archive_and_survey[admin-decoy]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_archive_and_survey[common-space]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_nested_gitfile_reader[ ]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_nested_gitfile_reader[\\t]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_bundle_verifier_uses_stripped_common",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_registration_discard_uses_stripped_common_output",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_physical_common_folder_through_archive_and_survey",
+    "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[same-size-running]",
+    "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[symlink-info-running]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[plain-base]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[plain-head]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[worktree-base]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[worktree-head]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[shared-base]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[shared-head]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[no-git-base]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[no-git-head]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-absent-objects]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-ordinary]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-common-pointer]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-linked-admin]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-absent-objects]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-ordinary]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-common-pointer]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-linked-admin]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-absent-objects]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-ordinary]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-common-pointer]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-linked-admin]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_d_r7_1_predates_r6[base]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_d_r7_1_predates_r6[head]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[absent]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[dangling]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[directory]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[permission]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[oversized]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_final_pointer_failure_cannot_hide_changed_storage[rewrite]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_final_pointer_failure_cannot_hide_changed_storage[oversized]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_final_pointer_failure_cannot_hide_changed_storage[unreadable]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_ended_job_with_gone_named_target_does_not_pin[False]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_ended_job_with_gone_named_target_does_not_pin[True]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_not_a_directory_pointer_has_no_git_reader",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_unused_parent_without_objects_does_not_stop_retirement[absent-objects-base]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_unused_parent_without_objects_does_not_stop_retirement[absent-objects-head]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_unused_parent_without_objects_does_not_stop_retirement[ordinary-base]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_unused_parent_without_objects_does_not_stop_retirement[ordinary-head]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_stable_pointer_alias_inside_retirable_tree_observation[admin-path-base]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_stable_pointer_alias_inside_retirable_tree_observation[admin-path-head]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_stable_pointer_alias_inside_retirable_tree_observation[gitfile-base]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_stable_pointer_alias_inside_retirable_tree_observation[gitfile-head]"
+  ],
+  "all_nodes": [
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/pointer_matrix.py::test_rejected_child_with_valid_parent[gitdir: \\n]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/pointer_matrix.py::test_rejected_child_with_valid_parent[gitdir:metadata\\n]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/pointer_matrix.py::test_rejected_child_with_valid_parent[]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/pointer_matrix.py::test_rejected_child_with_valid_parent[\\n]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/pointer_matrix.py::test_rejected_child_with_valid_parent[\\r\\n]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/journal_probes.py::test_old_journal_paths[quarantine]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/journal_probes.py::test_old_journal_paths[archive]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/journal_probes.py::test_old_journal_paths[final_check]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_archive_and_survey[admin-space]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_archive_and_survey[admin-decoy]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_archive_and_survey[common-space]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_nested_gitfile_reader[ ]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_nested_gitfile_reader[\\t]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_bundle_verifier_uses_stripped_common",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_registration_discard_uses_stripped_common_output",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/readers_probe.py::test_physical_common_folder_through_archive_and_survey",
+    "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[same-size-running]",
+    "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[symlink-info-running]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[plain-base]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[plain-head]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[worktree-base]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[worktree-head]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[shared-base]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[shared-head]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[no-git-base]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_routine_repositories_keep_retiring[no-git-head]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-absent-objects]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-ordinary]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-common-pointer]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[absent-linked-admin]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-absent-objects]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-ordinary]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-common-pointer]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[lf-linked-admin]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-absent-objects]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-ordinary]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-common-pointer]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_parent_pointer_is_not_a_git_object_store_fallback[crlf-linked-admin]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_d_r7_1_predates_r6[base]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_d_r7_1_predates_r6[head]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[absent]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[dangling]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[directory]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[permission]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_pointer_failure_split_against_git[oversized]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_final_pointer_failure_cannot_hide_changed_storage[rewrite]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_final_pointer_failure_cannot_hide_changed_storage[oversized]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_final_pointer_failure_cannot_hide_changed_storage[unreadable]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_ended_job_with_gone_named_target_does_not_pin[False]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_ended_job_with_gone_named_target_does_not_pin[True]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_not_a_directory_pointer_has_no_git_reader",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_unused_parent_without_objects_does_not_stop_retirement[absent-objects-base]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_unused_parent_without_objects_does_not_stop_retirement[absent-objects-head]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_unused_parent_without_objects_does_not_stop_retirement[ordinary-base]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_unused_parent_without_objects_does_not_stop_retirement[ordinary-head]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_stable_pointer_alias_inside_retirable_tree_observation[admin-path-base]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_stable_pointer_alias_inside_retirable_tree_observation[admin-path-head]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_stable_pointer_alias_inside_retirable_tree_observation[gitfile-base]",
+    "docs/reports/2026-10-31-retention-pins-review-r8-data/probes_r8.py::test_stable_pointer_alias_inside_retirable_tree_observation[gitfile-head]"
+  ],
+  "property_settings": {},
+  "loaded": [],
+  "dependency_source": {
+    "file": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/subfleet/dependencies.py",
+    "sha256": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d"
+  },
+  "rss": 123568128
+}

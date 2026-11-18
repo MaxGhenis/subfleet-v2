@@ -1,0 +1,13 @@
+{
+  "queued": "2026-10-31T07:24:17.876199+00:00",
+  "args": [
+    "--mutant",
+    "r3-write-metadata-check-dropped",
+    "-p",
+    "tests.conftest",
+    "--confcutdir=docs/reports/2026-10-31-retention-pins-fix-r7-data",
+    "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[same-size-running]"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/real-tmp/mutant-r3-write-metadata-check-dropped",
+  "linked": false
+}

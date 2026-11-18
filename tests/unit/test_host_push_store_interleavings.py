@@ -332,7 +332,10 @@ def test_permanent_ownership_failure_fails_only_its_job_with_one_notice(worlds, 
         assert (core._job(job)["state"], core._job(job)["rc"]) == ("failed", 1)
         assert placed(core, plain)
         assert not (core.root / "worktrees" / job).exists()
-        assert str(error) in " ".join(notices(core, job))
+        # C-25.7 (#233 review r1, `98f2ef0c1`): a job's notice names the class, never sqlite's words.
+        said = " ".join(notices(core, job))
+        assert f"workspace completion could not be recorded: {type(error).__name__}" in said
+        assert str(error) not in said
         core._admit_kind("detached")
         assert len(notices(core, job)) == 1
         assert core._push_workspace_store_errors == {}
@@ -420,7 +423,8 @@ def test_permanent_ownership_error_survives_a_busy_failure_notice(worlds):
         assert notices(core, job) == []
         core._admit_kind("detached")
         assert core._job(job)["state"] == "failed"
-        assert str(permanent) in " ".join(notices(core, job))
+        said = " ".join(notices(core, job))
+        assert "workspace completion could not be recorded: IntegrityError" in said and str(permanent) not in said
         assert len(notices(core, job)) == 1
         core.pushes.submit(lambda: None).result(timeout=180)
         assert not (core.root / "worktrees" / job).exists()
@@ -573,16 +577,18 @@ def test_permanent_preparing_error_keeps_running_build_slot_until_cleanup(worlds
         world.patch.setattr(host_push, "prepare_workspace", prepare)
         fault_transaction(world, "job.workspace_preparing", "update", sqlite3.IntegrityError("preparing constraint"))
         fault_transaction(world, "job.workspace_failed", "notice", sqlite3.OperationalError("database is locked"))
-        actual = core.store.transaction
+        # Fix r1 of #309: the build is queued inside the preparing transaction, after
+        # its hold read. Its UPDATE faults only once the worker has started, so the
+        # build is running when the preparing write fails, as before the reorder.
+        actual = core.pushes.submit
 
-        @contextmanager
-        def after_worker_starts(kind="state.changed", **kwargs):
-            if kind == "job.workspace_preparing":
+        def submit_then_worker_starts(function, *args, **kwargs):
+            future = actual(function, *args, **kwargs)
+            if args and args[0] == core._prepare_push_workspace and args[2].name == job:
                 assert entered.wait(30)
-            with actual(kind, **kwargs) as tx:
-                yield tx
+            return future
 
-        world.patch.setattr(core.store, "transaction", after_worker_starts)
+        world.patch.setattr(core.pushes, "submit", submit_then_worker_starts)
         try:
             core._admit_kind("detached")
             future = core._push_workspaces[job]

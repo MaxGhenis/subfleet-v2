@@ -1,0 +1,39 @@
+[
+  {
+    "id": "R6-F1",
+    "priority": "P2",
+    "age": "Predates fix round r5; meets the explicit stable-real-Git P2 stop rule.",
+    "file": "subfleet/dependencies.py",
+    "line": 228,
+    "problem": "Named gitdirs under worktrees/<id> infer a parent common directory when commondir is absent or CR/LF-only, omitting a valid own store.",
+    "executed_inputs": [
+      "absent commondir",
+      "LF-only commondir",
+      "CRLF-only commondir"
+    ],
+    "validation": "Each strengthened fixture passes git fsck --no-dangling and reads an owner-only commit before discovery; no incomplete evidence is recorded; the full retention pass prunes the owner for a running borrower.",
+    "test": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads",
+    "fix": "Record and revalidate the own objects and alternates as well as any inferred-parent hint, or record incomplete discovery. Preserve existing absent-registration protection.",
+    "evidence": "red-r6-healthy.log"
+  },
+  {
+    "id": "R6-F2",
+    "priority": "P2",
+    "age": "Predates fix round r5; meets the explicit stable-real-Git P2 stop rule.",
+    "file": "subfleet/dependencies.py",
+    "line": 153,
+    "problem": "The 64 KiB pointer read cap is swallowed as None without incomplete evidence even when Git can read the pointer.",
+    "executed_inputs": [
+      "gitfile target plus CRLF repeated 35000 times",
+      "commondir target plus CRLF repeated 35000 times"
+    ],
+    "validation": "Git fsck and owner-only reads pass; discovery omits actual storage with no incomplete evidence; retention prunes the owner. Separate raw controls record Git returning128 after retirement.",
+    "test": "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads",
+    "fix": "Propagate nonmissing pointer read errors into incomplete evidence, retaining the existing read bound, or implement a Git-compatible reader that records the actual storage.",
+    "evidence": [
+      "red-r6-healthy.log",
+      "padded-pointer-gitfile.json",
+      "padded-pointer-commondir.json"
+    ]
+  }
+]

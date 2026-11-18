@@ -15,6 +15,10 @@ from tests.fake.test_turn_wait_reasons import SETTINGS, message_in, reason
 from tests.unit.retention_world import git
 from tests.unit.test_retention_shared_folders import retiring_tree
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
+
 
 @pytest.mark.parametrize("alias", [False, True], ids=["canonical", "case-alias"])
 @pytest.mark.parametrize("after_quarantine", [False, True], ids=["before-move", "after-move"])

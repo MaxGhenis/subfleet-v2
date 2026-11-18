@@ -1,0 +1,60 @@
+{
+  "name": "mutant-r8-walk-revalidation-dropped",
+  "start": "2026-10-31T20:26:19.621751+00:00",
+  "load": [
+    72.32470703125,
+    75.51904296875,
+    78.8466796875
+  ],
+  "pytest_pid": 67080,
+  "failure_root": "/private/tmp/sf-fix272r12/failed-keep",
+  "args": [
+    "--mutant",
+    "r8-walk-revalidation-dropped",
+    "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 5.840377749998879,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.275763374993403,
+      "wasxfail": null,
+      "failure": "tests/unit/test_retention_locations.py:59: in test_changed_link_chain_with_the_same_final_target_is_incomplete\n    assert any(error[\"file\"] == str(alias) for error in errors), errors\nE   AssertionError: []\nE   assert False\nE    +  where False = any(<generator object test_changed_link_chain_with_the_same_final_target_is_incomplete.<locals>.<genexpr> at 0x10845ca90>)"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00041604199941502884,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "67a721834f2353497674e6ce769db9733dd515ec0cf300c9e215e0abfe18f650",
+      "mutated": "1ffada95156239cd91851ffec89b5c9737f0869afbb847c7caf59bb26fc5fcb0"
+    }
+  ],
+  "collected": [
+    "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-161028-pr272-fix-r12/subfleet/dependencies.py",
+  "product_sha256": "67a721834f2353497674e6ce769db9733dd515ec0cf300c9e215e0abfe18f650",
+  "end": "2026-10-31T20:26:36.366555+00:00",
+  "seconds": 16.744483208996826,
+  "peak_rss_mib": 112.921875,
+  "exit": 1
+}

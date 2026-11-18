@@ -1,0 +1,3 @@
+{"nodeid": "tests/frontend/test_review_r219_fix8_mutations.py::test_round10_mutation_fails_its_named_regression[quiet_window_0ms-stale-glide]", "when": "setup", "outcome": "passed", "duration": 2.2846055000009073, "longrepr": null}
+{"nodeid": "tests/frontend/test_review_r219_fix8_mutations.py::test_round10_mutation_fails_its_named_regression[quiet_window_0ms-stale-glide]", "when": "call", "outcome": "passed", "duration": 203.55531879199953, "longrepr": null}
+{"nodeid": "tests/frontend/test_review_r219_fix8_mutations.py::test_round10_mutation_fails_its_named_regression[quiet_window_0ms-stale-glide]", "when": "teardown", "outcome": "passed", "duration": 0.0009156250016530976, "longrepr": null}

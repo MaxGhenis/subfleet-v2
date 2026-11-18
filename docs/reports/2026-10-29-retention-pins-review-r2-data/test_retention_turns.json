@@ -1,0 +1,182 @@
+{
+  "name": "test_retention_turns",
+  "start": "2026-10-29T06:47:12.190230+00:00",
+  "load": [
+    15.53564453125,
+    19.31103515625,
+    21.36376953125
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_turns.py::test_each_pool_prunes_only_against_its_own_budget",
+    "tests/unit/test_retention_turns.py::test_byte_budgets_are_separate_too",
+    "tests/unit/test_retention_turns.py::test_a_turn_job_is_kept_for_days_after_it_ends",
+    "tests/unit/test_retention_turns.py::test_the_conversation_services_pins_are_asked_again_inside_the_delete",
+    "tests/unit/test_retention_turns.py::test_pins_keep_what_a_conversation_still_needs",
+    "tests/unit/test_retention_turns.py::test_a_notice_with_no_session_never_pins[None]",
+    "tests/unit/test_retention_turns.py::test_a_notice_with_no_session_never_pins[]"
+  ],
+  "phases": {
+    "tests/unit/test_retention_turns.py::test_each_pool_prunes_only_against_its_own_budget": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_turns.py::test_byte_budgets_are_separate_too": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_turns.py::test_a_turn_job_is_kept_for_days_after_it_ends": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_turns.py::test_the_conversation_services_pins_are_asked_again_inside_the_delete": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_turns.py::test_pins_keep_what_a_conversation_still_needs": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_turns.py::test_a_notice_with_no_session_never_pins[None]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_turns.py::test_a_notice_with_no_session_never_pins[]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/unit/test_retention_turns.py::test_each_pool_prunes_only_against_its_own_budget": {
+      "setup": {
+        "duration": 0.41476225000224076,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.7231944169907365,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.003566333994967863,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_turns.py::test_byte_budgets_are_separate_too": {
+      "setup": {
+        "duration": 0.006595333004952408,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.16673958399042021,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00284566699701827,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_turns.py::test_a_turn_job_is_kept_for_days_after_it_ends": {
+      "setup": {
+        "duration": 0.008109041998977773,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.17641916700813454,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00237966600980144,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_turns.py::test_the_conversation_services_pins_are_asked_again_inside_the_delete": {
+      "setup": {
+        "duration": 0.008373916993150488,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.16375929200148676,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.002147207997040823,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_turns.py::test_pins_keep_what_a_conversation_still_needs": {
+      "setup": {
+        "duration": 0.007480375003069639,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.191582457991899,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00199087499640882,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_turns.py::test_a_notice_with_no_session_never_pins[None]": {
+      "setup": {
+        "duration": 0.007106458011548966,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.1992803329922026,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0017290000105276704,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_turns.py::test_a_notice_with_no_session_never_pins[]": {
+      "setup": {
+        "duration": 0.0053692499932367355,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.15778854199743364,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0019393339898670092,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

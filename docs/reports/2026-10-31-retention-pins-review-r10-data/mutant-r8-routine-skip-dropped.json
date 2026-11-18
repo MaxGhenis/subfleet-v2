@@ -1,0 +1,58 @@
+{
+  "name": "mutant-r8-routine-skip-dropped",
+  "start": "2026-10-31T10:43:30.434719+00:00",
+  "load": [
+    42.2685546875,
+    39.47119140625,
+    37.24755859375
+  ],
+  "args": [
+    "--mutant",
+    "r8-routine-skip-dropped",
+    "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.9708752910009935,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.2151311249981518,
+      "wasxfail": null,
+      "failure": "tests/unit/test_retention_locations.py:152: in test_routine_records_are_exactly_unchanged\n    assert recorded == expected\nE   AssertionError: assert {'git': ['/pr...d/commondir']} == {'git': ['/pr...git/objects']}\nE     \nE     Differing items:\nE     {'git': ['/private/tmp/sf-r272r10/real-tmp/mutant-r8-routine-skip-dropped/pytest-of-maxghenis/pytest-0/test_routine_re...skip-dropped/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository/.git/worktrees/linked/commondir']} != {'git': ['/private/tmp/sf-r272r10/real-tmp/mutant-r8-routine-skip-dropped/pytest-of-maxghenis/pytest-0/test_routine_re.../mutant-r8-routine-skip-dropped/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository/.git/objects']}\nE     Use -v to get more diff"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004934159987897146,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "8b39d2f38cf73c92909ae6e241311cdc2cd32ed70295ee2cd240af39f4cb9920",
+      "mutated": "e40379b9fee4f9f2b03d3e721359bb2ca6a32053c404bb25940d9a5267069647"
+    }
+  ],
+  "collected": [
+    "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-063315-pr272-review-r10/subfleet/dependencies.py",
+  "product_sha256": "8b39d2f38cf73c92909ae6e241311cdc2cd32ed70295ee2cd240af39f4cb9920",
+  "end": "2026-10-31T10:43:38.658591+00:00",
+  "seconds": 8.189587042001222,
+  "peak_rss_mib": 110.265625,
+  "exit": 1
+}

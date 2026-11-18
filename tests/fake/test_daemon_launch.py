@@ -61,7 +61,10 @@ def test_c5_1_launch_uses_installed_guardian_and_keeps_credentials_in_environmen
     secret = "fixture-token-environment-only"
     def build(self, *args, **kwargs):
         launch = original(self, *args, **kwargs)
-        return dataclasses.replace(launch, env_add={**launch.env_add, "CLAUDE_CODE_OAUTH_TOKEN": secret})
+        # The harness lane is a Codex lane: its own vendor's token reaches the
+        # launch; a Claude token never does (D-ENV3).
+        return dataclasses.replace(launch, env_add={**launch.env_add, "CODEX_ACCESS_TOKEN": secret,
+                                                    "CLAUDE_CODE_OAUTH_TOKEN": secret})
     monkeypatch.setattr(FakeAdapter, "build_launch", build)
     for key in ("CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
         monkeypatch.setenv(key, "fixture-api-key")
@@ -69,7 +72,8 @@ def test_c5_1_launch_uses_installed_guardian_and_keeps_credentials_in_environmen
     command, options = calls[0]
     assert options["cwd"] == str(Path(module.__file__).resolve().parent.parent)
     assert command[command.index("--cwd") + 1] == str(harness.workdir)
-    assert options["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == secret
+    assert options["env"]["CODEX_ACCESS_TOKEN"] == secret
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in options["env"]
     assert options["env"]["SUBFLEET_ATTEMPT"] == a["attempt_id"]
     assert not set(("CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY")) & options["env"].keys()
     assert secret not in json.dumps(command)
@@ -261,10 +265,15 @@ def test_c14_2_refused_preflight_is_recorded_in_the_attempt_directory_and_daemon
     a = reserve(daemon, harness)
     daemon._launch(a)
     assert calls == [], "a refused launch starts no guardian"
-    assert [{key: value for key, value in call.items() if key != "env"} for call in seen] == [
+    assert [{key: value for key, value in call.items() if key not in {"env", "env_pass"}} for call in seen] == [
         {"binary": "fixture-codex", "home": str(harness.root / "home"),
          "workdir": str(harness.workdir), "state_root": daemon.root}]
+    # C-12.10: the attempt's own TMPDIR reaches guard preflight too (review r1 P2-1).
+    assert set(seen[0]["env_pass"]) == {"CODEX_HOME", "TMPDIR"} | {
+        name for name in ("SSL_CERT_FILE", "SSL_CERT_DIR") if name in seen[0]["env"]}
     assert seen[0]["env"]["CODEX_HOME"] == str(harness.root / "home")
+    tmpdir = json.loads(daemon.store.get_attempt(a["attempt_id"])["evidence_json"])["tmpdir"]["path"]
+    assert seen[0]["env"]["TMPDIR"] == tmpdir + "/"
     adir = daemon.root / "jobs" / a["job_id"] / "a1"
     record = json.loads((adir / "guard-preflight.json").read_text())
     assert record["ok"] is False and record["kind"] == "timeout" and record["code"] == 7

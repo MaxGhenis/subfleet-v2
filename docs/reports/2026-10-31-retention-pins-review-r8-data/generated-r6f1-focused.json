@@ -1,0 +1,70 @@
+{
+  "label": "generated-r6f1-focused",
+  "start": "2026-10-31T05:38:14.984962+00:00",
+  "loads": [
+    33.32861328125,
+    32.83984375,
+    29.42041015625
+  ],
+  "seconds": 54.94924874999924,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.844988958999238,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 42.88023724999948,
+      "properties": [],
+      "failure": "record_property = <function record_property.<locals>.append_property at 0x1084b8670>\n\n    @settings(max_examples=40, deadline=None, database=None, derandomize=True,\n>             suppress_health_check=[HealthCheck.function_scoped_fixture])\n                   ^^^^^^^^^^^^^^^^^^\n\ntests/unit/test_retention_pointer_inputs.py:193: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \ntests/unit/test_retention_pointer_inputs.py:197: in test_named_own_inputs_keep_every_store_real_git_reads\n    observation = check_named_own_input(Path(directory), data)\n                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/docs/reports/2026-10-31-retention-pins-review-r8-data/run_hold.py:62: in observing\n    result = _original(base, data)\n             ^^^^^^^^^^^^^^^^^^^^^\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nbase = PosixPath('/private/tmp/sf-r272r8/cases-6081/tmpebwq9x4j')\ndata = {'slot': 0, 'common': 'absent', 'own': 'plain', 'parent': 'absent'}\n\n    def check_named_own_input(base, data):\n        owner = repo(base / \"owner\")\n        commit = git(\"-C\", owner, \"rev-parse\", \"HEAD\").stdout.rstrip(b\"\\n\")\n        parent = base / \"container\"\n        admin = parent / \"worktrees\" / str(data[\"slot\"])\n        checkout = base / \"checkout\"\n        checkout.mkdir()\n        # The container necessarily exists to hold worktrees/slot. \"absent\"\n        # means it supplies no repository metadata or other parent hint input.\n        if data[\"parent\"] == \"repository\":\n            initialized = git(\"init\", \"-q\", \"--bare\", parent)\n            assert initialized.returncode == 0, initialized.stderr\n        elif data[\"parent\"] == \"not-repository\":\n            parent.mkdir()\n            (parent / \"ordinary-file\").write_text(\"unrelated container\")\n        elif data[\"parent\"] == \"unrelated-commondir\":\n            (parent / \"commondir\").mkdir(parents=True)\n        initialized = git(\"init\", \"-q\", \"--bare\", admin)\n        assert initialized.returncode == 0, initialized.stderr\n        (admin / \"HEAD\").write_bytes(commit + b\"\\n\")\n        (checkout / \".git\").write_bytes(b\"gitdir: \" + os.fsencode(admin) + b\"\\n\")\n        shutil.rmtree(admin / \"objects\")\n        owner_objects = owner / \".git\" / \"objects\"\n        if data[\"own\"] == \"plain\":\n            shutil.copytree(owner_objects, admin / \"objects\")\n        elif data[\"own\"] == \"symlink\":\n            (admin / \"objects\").symlink_to(owner_objects, target_is_directory=True)\n        else:\n            info = admin / \"objects\" / \"info\"\n            info.mkdir(parents=True)\n            (info / \"alternates\").write_bytes(os.fsencode(owner_objects) + b\"\\n\")\n        if data[\"common\"] != \"absent\":\n            (admin / \"commondir\").write_bytes({\"lf\": b\"\\n\", \"crlf\": b\"\\r\\n\"}[data[\"common\"]])\n    \n        store = git(\"-C\", checkout, \"rev-parse\", \"--git-path\", \"objects\")\n        read = git(\"-C\", checkout, \"show\", os.fsdecode(commit) + \":f.txt\")\n        recorded = dependencies.record(str(checkout))\n        note(dict(input=data, git_error=store.stderr, read_error=read.stderr, recorded=recorded))\n        # These inputs deliberately all describe repositories Git actually reads.\n        assert store.returncode == read.returncode == 0\n        assert read.stdout == b\"owner\"\n        actual = folders.canonical(checkout / os.fsdecode(store.stdout.rstrip(b\"\\n\")))\n>       assert actual in recorded.get(\"git\", []) or recorded.get(\"incomplete\"), recorded\nE       AssertionError: {'git': ['/private/tmp/sf-r272r8/cases-6081/tmpebwq9x4j/container/worktrees/0', '/private/tmp/sf-r272r8/cases-6081/tmpebwq9x4j/container', '/private/tmp/sf-r272r8/cases-6081/tmpebwq9x4j/container/objects']}\nE       assert ('/private/tmp/sf-r272r8/cases-6081/tmpebwq9x4j/container/worktrees/0/objects' in ['/private/tmp/sf-r272r8/cases-6081/tmpebwq9x4j/container/worktrees/0', '/private/tmp/sf-r272r8/cases-6081/tmpebwq9x4j/container', '/private/tmp/sf-r272r8/cases-6081/tmpebwq9x4j/container/objects'] or None)\nE        +  where ['/private/tmp/sf-r272r8/cases-6081/tmpebwq9x4j/container/worktrees/0', '/private/tmp/sf-r272r8/cases-6081/tmpebwq9x4j/container', '/private/tmp/sf-r272r8/cases-6081/tmpebwq9x4j/container/objects'] = <built-in method get of dict object at 0x1098315c0>('git', [])\nE        +    where <built-in method get of dict object at 0x1098315c0> = {'git': ['/private/tmp/sf-r272r8/cases-6081/tmpebwq9x4j/container/worktrees/0', '/private/tmp/sf-r272r8/cases-6081/tmpebwq9x4j/container', '/private/tmp/sf-r272r8/cases-6081/tmpebwq9x4j/container/objects']}.get\nE        +  and   None = <built-in method get of dict object at 0x1098315c0>('incomplete')\nE        +    where <built-in method get of dict object at 0x1098315c0> = {'git': ['/private/tmp/sf-r272r8/cases-6081/tmpebwq9x4j/container/worktrees/0', '/private/tmp/sf-r272r8/cases-6081/tmpebwq9x4j/container', '/private/tmp/sf-r272r8/cases-6081/tmpebwq9x4j/container/objects']}.get\nE       Failing test case: test_named_own_inputs_keep_every_store_real_git_reads(\nE           record_property=append_property,\nE           data={'slot': 0,\nE               'common': 'absent',\nE               'own': 'plain',\nE               'parent': 'absent'},  # or any other generated value\nE       )\nE       {'input': {'slot': 0, 'common': 'absent', 'own': 'plain', 'parent': 'absent'},\nE        'git_error': b'',\nE        'read_error': b'',\nE        'recorded': {'git': ['/private/tmp/sf-r272r8/cases-6081/tmpebwq9x4j/container/worktrees/0',\nE          '/private/tmp/sf-r272r8/cases-6081/tmpebwq9x4j/container',\nE          '/private/tmp/sf-r272r8/cases-6081/tmpebwq9x4j/container/objects']}}\n\ntests/unit/test_retention_pointer_inputs.py:183: AssertionError"
+    },
+    {
+      "nodeid": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0005755829988629557,
+      "properties": [],
+      "failure": null
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads"
+  ],
+  "all_nodes": [
+    "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads"
+  ],
+  "property_settings": {
+    "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads": {
+      "max_examples": 40,
+      "derandomize": true,
+      "database_none": true,
+      "explicit_examples": 0,
+      "phases": [
+        "Phase.explicit",
+        "Phase.reuse",
+        "Phase.generate",
+        "Phase.target",
+        "Phase.shrink",
+        "Phase.explain"
+      ],
+      "digest": "bcbd8337cb512b4b0da7ebaae10813647871edfbc0f20e46041a8be2c7f5376f6b5b27966a64c93c8bcb4f7a25e49bbb"
+    }
+  },
+  "loaded": [],
+  "dependency_source": {
+    "file": "/private/tmp/sf-r272r8/generated-r6f1/subfleet/dependencies.py",
+    "sha256": "2f6600d06935f45255cd68ae0731f6206ab042022bb34f6b3b62a89194d4bc13"
+  },
+  "rss": 171098112
+}

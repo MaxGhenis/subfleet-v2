@@ -1,0 +1,8 @@
+{
+  "queued": "2026-10-31T03:20:58.536519+00:00",
+  "args": [
+    "tests/fake/test_turn_retention_cwd.py",
+    "tests/fake/test_turn_retention_job_directory.py",
+    "tests/fake/test_turn_retention_quarantine.py"
+  ]
+}

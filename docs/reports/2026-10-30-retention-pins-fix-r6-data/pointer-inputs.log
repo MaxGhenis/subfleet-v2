@@ -1,0 +1,20 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 22:16:11Z slot A load 
+START pointer-inputs 2026-10-30T22:16:16.246733+00:00 load=(32.00732421875, 22.29443359375, 19.75634765625)
+.                                                                        [100%]
+============================ Hypothesis Statistics =============================
+tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads:
+
+  - during generate phase (123.73 seconds):
+    - Typical runtimes: ~ 395-4503 ms, of which ~ 0-2 ms in data generation
+    - 100 passing, 0 failing, and 0 invalid test cases
+    - Events:
+      * 78.00%, incomplete=False
+      * 66.00%, rejects
+      * 34.00%, reads-owner
+      * 22.00%, incomplete=True
+
+  - Stopped because settings.max_examples=100
+
+
+1 passed in 139.88s (0:02:19)

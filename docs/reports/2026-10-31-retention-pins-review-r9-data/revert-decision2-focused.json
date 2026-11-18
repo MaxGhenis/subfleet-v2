@@ -1,0 +1,649 @@
+{
+  "name": "revert-decision2-focused",
+  "start": "2026-10-31T08:44:52.490166+00:00",
+  "load": [
+    42.14306640625,
+    35.22265625,
+    32.28564453125
+  ],
+  "args": [
+    "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 7.072421207998559,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 14.856598792001023,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007209159994090442,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmpbvjxldav/container/worktrees/0/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"plain\", \"parent\": \"absent\", \"slot\": 0}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmpsqmugytk/container/worktrees/23390/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"plain\", \"parent\": \"absent\", \"slot\": 23390}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmpbaztpp84/container/worktrees/23390/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"symlink\", \"parent\": \"absent\", \"slot\": 23390}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmp1wzgnqni/container/worktrees/438/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"plain\", \"parent\": \"absent\", \"slot\": 438}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmpxyin_f3o/container/worktrees/438/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 438}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmptzmzb6ng/container/worktrees/1276/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"symlink\", \"parent\": \"absent\", \"slot\": 1276}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmp7f_xio_a/container/worktrees/1098/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 1098}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmpvukd987a/container/worktrees/65535/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 65535}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmpo412ai1o/container/worktrees/3630/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"plain\", \"parent\": \"not-repository\", \"slot\": 3630}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmpt88ifo9z/container/worktrees/2055/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"plain\", \"parent\": \"not-repository\", \"slot\": 2055}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmpcs3rlv0_/container/worktrees/162/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"plain\", \"parent\": \"unrelated-commondir\", \"slot\": 162}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmpvf6s0x3n/container/worktrees/27/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"alternate\", \"parent\": \"absent\", \"slot\": 27}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmpcshfz8zp/container/worktrees/1055/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"symlink\", \"parent\": \"unrelated-commondir\", \"slot\": 1055}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmplhbgy68r/container/worktrees/681/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"symlink\", \"parent\": \"repository\", \"slot\": 681}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmpdq8x13ln/container/worktrees/1814/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"alternate\", \"parent\": \"not-repository\", \"slot\": 1814}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmpzc05lq15/container/worktrees/329/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"symlink\", \"parent\": \"not-repository\", \"slot\": 329}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmpttllgcg1/container/worktrees/147/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"alternate\", \"parent\": \"unrelated-commondir\", \"slot\": 147}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmpo5__fx54/container/worktrees/213/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 213}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmpnlqwth4x/container/worktrees/143/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"plain\", \"parent\": \"not-repository\", \"slot\": 143}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmp4kcfoi3s/container/worktrees/29834/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"plain\", \"parent\": \"repository\", \"slot\": 29834}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmp8_czcqa7/container/worktrees/93/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 93}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmp4k41sgbz/container/worktrees/3935/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"symlink\", \"parent\": \"unrelated-commondir\", \"slot\": 3935}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmp5fu18lgo/container/worktrees/1403/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"plain\", \"parent\": \"unrelated-commondir\", \"slot\": 1403}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmp2zet5m6j/container/worktrees/23608/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"symlink\", \"parent\": \"absent\", \"slot\": 23608}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmp_1uq1nsx/container/worktrees/1265/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"alternate\", \"parent\": \"absent\", \"slot\": 1265}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmp_uls3ta7/container/worktrees/4751/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"plain\", \"parent\": \"unrelated-commondir\", \"slot\": 4751}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmp72xst636/container/worktrees/513/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"alternate\", \"parent\": \"not-repository\", \"slot\": 513}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmpcplp0ew5/container/worktrees/392/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"alternate\", \"parent\": \"absent\", \"slot\": 392}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmp8z7rk5rp/container/worktrees/291/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"plain\", \"parent\": \"unrelated-commondir\", \"slot\": 291}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmpxn3gng74/container/worktrees/902/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"symlink\", \"parent\": \"repository\", \"slot\": 902}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmpmbi973jr/container/worktrees/3096/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"symlink\", \"parent\": \"repository\", \"slot\": 3096}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmp40ortcl1/container/worktrees/157/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"symlink\", \"parent\": \"repository\", \"slot\": 157}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmp5knfuqyp/container/worktrees/366/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"symlink\", \"parent\": \"repository\", \"slot\": 366}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmp1k88pa29/container/worktrees/8148/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"plain\", \"parent\": \"repository\", \"slot\": 8148}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmpaex44p_8/container/worktrees/5016/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"alternate\", \"parent\": \"unrelated-commondir\", \"slot\": 5016}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmpldf3k9dz/container/worktrees/5918/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"own\": \"alternate\", \"parent\": \"absent\", \"slot\": 5918}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmp69rysh4w/container/worktrees/65314/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"symlink\", \"parent\": \"repository\", \"slot\": 65314}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmpqd3lu5qe/container/worktrees/618/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 618}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmpsr_fttln/container/worktrees/798/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 798}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "key": "named-own-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-r272r9/real-tmp/revert-decision2-focused/tmp2vj2t4ro/container/worktrees/49233/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"own\": \"alternate\", \"parent\": \"repository\", \"slot\": 49233}, \"outcome\": \"reads-owner\", \"read_rc\": 0}"
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads"
+  ],
+  "product_file": "/private/tmp/sf-r272r9/reversion-decision2/subfleet/dependencies.py",
+  "product_sha256": "fe4006e13e68a73ab8a4ce5557040582f9055505df97df7ae88a5a9bf7fa1283",
+  "attempts": [
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "slot": 0,
+        "common": "absent",
+        "own": "plain",
+        "parent": "absent"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "slot": 23390,
+        "common": "absent",
+        "own": "plain",
+        "parent": "absent"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "slot": 23390,
+        "common": "crlf",
+        "own": "symlink",
+        "parent": "absent"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "slot": 438,
+        "common": "absent",
+        "own": "plain",
+        "parent": "absent"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "own": "alternate",
+        "parent": "repository",
+        "slot": 438,
+        "common": "lf"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "parent": "absent",
+        "common": "lf",
+        "slot": 1276,
+        "own": "symlink"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "slot": 1098,
+        "parent": "repository",
+        "common": "absent",
+        "own": "alternate"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "common": "absent",
+        "parent": "repository",
+        "slot": 65535,
+        "own": "alternate"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "parent": "not-repository",
+        "common": "crlf",
+        "own": "plain",
+        "slot": 3630
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "own": "plain",
+        "parent": "not-repository",
+        "slot": 2055,
+        "common": "crlf"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "common": "absent",
+        "parent": "unrelated-commondir",
+        "slot": 162,
+        "own": "plain"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "common": "crlf",
+        "own": "alternate",
+        "parent": "absent",
+        "slot": 27
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "common": "crlf",
+        "slot": 1055,
+        "own": "symlink",
+        "parent": "unrelated-commondir"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "parent": "repository",
+        "own": "symlink",
+        "slot": 681,
+        "common": "crlf"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "parent": "not-repository",
+        "own": "alternate",
+        "slot": 1814,
+        "common": "absent"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "slot": 329,
+        "own": "symlink",
+        "common": "absent",
+        "parent": "not-repository"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "parent": "unrelated-commondir",
+        "slot": 147,
+        "common": "absent",
+        "own": "alternate"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "slot": 213,
+        "own": "alternate",
+        "parent": "repository",
+        "common": "crlf"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "own": "plain",
+        "slot": 143,
+        "common": "absent",
+        "parent": "not-repository"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "parent": "repository",
+        "slot": 29834,
+        "own": "plain",
+        "common": "absent"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "slot": 93,
+        "common": "absent",
+        "own": "alternate",
+        "parent": "repository"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "slot": 3935,
+        "common": "lf",
+        "own": "symlink",
+        "parent": "unrelated-commondir"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "parent": "unrelated-commondir",
+        "common": "lf",
+        "own": "plain",
+        "slot": 1403
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "own": "symlink",
+        "slot": 23608,
+        "parent": "absent",
+        "common": "lf"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "parent": "absent",
+        "own": "alternate",
+        "common": "crlf",
+        "slot": 1265
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "parent": "unrelated-commondir",
+        "slot": 4751,
+        "own": "plain",
+        "common": "crlf"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "slot": 513,
+        "parent": "not-repository",
+        "common": "crlf",
+        "own": "alternate"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "own": "alternate",
+        "common": "lf",
+        "slot": 392,
+        "parent": "absent"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "own": "plain",
+        "slot": 291,
+        "common": "crlf",
+        "parent": "unrelated-commondir"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "parent": "repository",
+        "common": "lf",
+        "slot": 902,
+        "own": "symlink"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "parent": "repository",
+        "slot": 3096,
+        "own": "symlink",
+        "common": "lf"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "slot": 157,
+        "parent": "repository",
+        "common": "lf",
+        "own": "symlink"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "common": "absent",
+        "slot": 366,
+        "parent": "repository",
+        "own": "symlink"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "own": "plain",
+        "slot": 8148,
+        "common": "crlf",
+        "parent": "repository"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "common": "crlf",
+        "own": "alternate",
+        "parent": "unrelated-commondir",
+        "slot": 5016
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "slot": 5918,
+        "common": "lf",
+        "own": "alternate",
+        "parent": "absent"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "common": "absent",
+        "own": "symlink",
+        "parent": "repository",
+        "slot": 65314
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "parent": "repository",
+        "slot": 618,
+        "own": "alternate",
+        "common": "crlf"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "common": "absent",
+        "parent": "repository",
+        "own": "alternate",
+        "slot": 798
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads",
+      "input": {
+        "common": "crlf",
+        "own": "alternate",
+        "parent": "repository",
+        "slot": 49233
+      },
+      "outcome": "passed"
+    }
+  ],
+  "end": "2026-10-31T08:45:36.297091+00:00",
+  "seconds": 43.806111333000445,
+  "peak_rss_mib": 113.359375,
+  "exit": 0
+}

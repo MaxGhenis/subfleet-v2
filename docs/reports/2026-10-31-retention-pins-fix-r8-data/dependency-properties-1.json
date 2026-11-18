@@ -1,0 +1,46 @@
+{
+  "name": "dependency-properties-1",
+  "start": "2026-10-31T07:29:19.359757+00:00",
+  "load": [
+    30.73681640625,
+    33.4560546875,
+    33.78759765625
+  ],
+  "args": [
+    "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.06560533300216775,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 42.73631583299721,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005117499968037009,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-030606-pr272-fix-r8/subfleet/dependencies.py",
+  "product_sha256": "1ed48486e59e3857dd906e46104e798bc1d3e963359fd636ea08a45acfae82ac",
+  "end": "2026-10-31T07:30:10.054328+00:00",
+  "seconds": 50.69363399999929,
+  "peak_rss_mib": 128.0625,
+  "exit": 0
+}

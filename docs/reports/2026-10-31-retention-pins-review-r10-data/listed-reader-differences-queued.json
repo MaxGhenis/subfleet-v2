@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T10:40:51.293271+00:00",
+  "args": [
+    "review-r10-data/readers_probe.py"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r10/real-tmp/listed-reader-differences",
+  "linked": false,
+  "driver_pid": 51108,
+  "lock_process_group": 51160
+}

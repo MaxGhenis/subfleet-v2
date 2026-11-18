@@ -471,3 +471,31 @@ def test_c26_14_i4_a_turn_that_ended_unrecorded_stops_sharing_its_folder(state_d
     assert changes["next"] > feed
     assert service.store.open_windows() == [g_attempt["attempt_id"], b_attempt["attempt_id"],
                                             q_attempt["attempt_id"]]
+
+
+@pytest.mark.parametrize("failure", ("none", "enospc", "eio"))
+@pytest.mark.parametrize("provider", ("claude", "codex"))
+def test_complete_turn_settles_without_freezing_stdout(state_daemon, monkeypatch, failure, provider):
+    """C-26.8/C-9.2: the driver's complete outcome needs no provider-stream copy."""
+    import errno
+    from subfleet import frozen_stream
+    from subfleet.conversations.classify import TurnAdapter
+    daemon, harness = state_daemon
+    job_id, attempt, adir, _, _, _ = writable_turn(daemon, harness)
+    monkeypatch.setattr(daemon.conversations, "adapter", lambda _: TurnAdapter(provider))
+    (adir / "turn.json").write_text(json.dumps({"state": "complete", "final_text": "Finished turn."}))
+    if failure == "enospc":
+        def full(*args):
+            raise OSError(errno.ENOSPC, "no space for stdout copy")
+        monkeypatch.setattr(frozen_stream, "atomic_copy", full)
+    elif failure == "eio":
+        def unreadable(*args):
+            raise OSError(errno.EIO, "stdout capture failed")
+        monkeypatch.setattr(daemon, "_freeze_stream", unreadable)
+    daemon._finalize(receipt_fixture(daemon, attempt, adir))
+    job, ended = daemon.store.get_job(job_id), daemon.store.get_attempt(attempt["attempt_id"])
+    assert (job["state"], ended["state"], ended["outcome_class"]) == ("succeeded", "succeeded", "ok")
+    assert (adir / "deliverable.md").read_bytes() == b"Finished turn."
+    assert not list(adir.glob("stream.frozen-*"))
+    assert not (adir / "stream.freeze.json").exists()
+    assert not [r for r in daemon.store.list_artifacts(attempt["attempt_id"]) if r["role"] == "raw-stream"]

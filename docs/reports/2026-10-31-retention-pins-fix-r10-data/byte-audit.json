@@ -1,0 +1,33 @@
+{
+  "tests/unit/test_retention_location_spelling.py": {
+    "unchanged": true,
+    "sha256": "2a59463e180a0d323b752d197caa07b8f68d979fb24f384cf88f02816b3ff8e1"
+  },
+  "tests/unit/test_retention_location_inputs.py": {
+    "unchanged": true,
+    "sha256": "85ad31cd7dab3317625cd031cd3436ec139a6bae9173185704c550c92ad10827"
+  },
+  "docs/acceptance-contract.md": {
+    "unchanged": true,
+    "sha256": "e4f236bcb51f20d20c59d825fc80da64ca03c02c35dc98daddfae5779faf35f7"
+  },
+  "tests/fake/test_retention_dependency_review_r10.py": {
+    "only_strict_mark_removed": true,
+    "sha256": "a504135a94bf79c6478b41a8e934a99aeead224ba20b19b21a77c72bc41b88b2"
+  },
+  "baseline_snapshot": {
+    "sha256": "8b39d2f38cf73c92909ae6e241311cdc2cd32ed70295ee2cd240af39f4cb9920",
+    "base": "475f6327890e"
+  },
+  "untouched_reader_functions": {
+    "_walk": "8ba802c8343e8d0a3e3f963c2d957101da48c30d9fa1cfc26ec44267e5f7ba17",
+    "_target": "8cbe340670e8dec4d6f67e45e17f960a2af9adeaac872830a5ec471890b3834a",
+    "scan": "eeb1cb5f0132eaee1fa973d18544a1fa19d6c5548412ba759d130514a8a4b8e1",
+    "resolve": "6f603b4c1b40413690ff001f382fff22248417054f639bdc9fb03311dccb6a99",
+    "text": "40e70ba82baf3ebb962e202c4fe3cb8a137d8de870c68e0ad113c5d2c24a139c",
+    "_alternates": "6a75faef79482492ed0f64005f73dd3d77ef69c3664a006b7699fe7d100146b6",
+    "check": "5902e915aeb009ed3d061f64b46fcae8780e6c046a367f7cb2f167adeff0985e",
+    "record": "01624ce184e4634f6f824d12377dee12fe09ae79949dbfcc6130bb191a4e7ce5"
+  },
+  "listed_differences_unchanged": true
+}

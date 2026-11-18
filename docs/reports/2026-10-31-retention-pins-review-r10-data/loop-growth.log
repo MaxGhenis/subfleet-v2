@@ -1,0 +1,7 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 10:52:32Z slot B load 
+...                                                                      [100%]
+3 passed in 8.90s
+{"name": "loop-growth", "start": "2026-10-31T10:52:36.769642+00:00", "load": [44.68994140625, 40.73291015625, 38.61767578125], "seconds": 11.479156040997623, "exit": 0}

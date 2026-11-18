@@ -1,0 +1,78 @@
+{
+  "label": "named-own-probe",
+  "start": "2026-10-30T18:50:45.352877+00:00",
+  "loads": [
+    41.1181640625,
+    47.39208984375,
+    49.50048828125
+  ],
+  "seconds": 23.85888079200231,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "probe_r6.py::test_named_own_store[None]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 2.449456750007812
+    },
+    {
+      "nodeid": "probe_r6.py::test_named_own_store[]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.4850073749985313
+    },
+    {
+      "nodeid": "probe_r6.py::test_named_own_store[\\n]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 2.968861500005005
+    },
+    {
+      "nodeid": "probe_r6.py::test_named_own_store[\\r\\n]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 2.9538359159923857
+    }
+  ],
+  "nodes": [
+    "probe_r6.py::test_named_own_store[None]",
+    "probe_r6.py::test_named_own_store[]",
+    "probe_r6.py::test_named_own_store[\\n]",
+    "probe_r6.py::test_named_own_store[\\r\\n]"
+  ],
+  "all_nodes": [
+    "probe_r6.py::test_named_own_store[None]",
+    "probe_r6.py::test_named_own_store[]",
+    "probe_r6.py::test_named_own_store[\\n]",
+    "probe_r6.py::test_named_own_store[\\r\\n]"
+  ],
+  "phases": {
+    "probe_r6.py::test_named_own_store[None]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    },
+    "probe_r6.py::test_named_own_store[]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "probe_r6.py::test_named_own_store[\\n]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    },
+    "probe_r6.py::test_named_own_store[\\r\\n]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 119668736
+}

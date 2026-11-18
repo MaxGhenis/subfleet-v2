@@ -1,0 +1,12 @@
+{
+  "expected_holds": 68,
+  "all_complete": true,
+  "all_locked": true,
+  "all_setup_teardown_passed": true,
+  "no_unresolved_ordinary_failures": true,
+  "every_hold_under_ten_minutes": true,
+  "preserved_sha256": {
+    "docs/acceptance-contract.md": "e4f236bcb51f20d20c59d825fc80da64ca03c02c35dc98daddfae5779faf35f7",
+    "tests/unit/test_retention_location_inputs.py": "85ad31cd7dab3317625cd031cd3436ec139a6bae9173185704c550c92ad10827"
+  }
+}

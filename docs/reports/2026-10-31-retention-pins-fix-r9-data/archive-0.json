@@ -1,0 +1,385 @@
+{
+  "name": "archive-0",
+  "start": "2026-10-31T10:05:44.314099+00:00",
+  "load": [
+    32.88330078125,
+    34.02734375,
+    35.21630859375
+  ],
+  "args": [
+    "tests/unit/test_retention_archive.py::test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit",
+    "tests/unit/test_retention_archive.py::test_bundle_alone_restores_the_commits_in_a_fresh_clone",
+    "tests/unit/test_retention_archive.py::test_scratch_source_clone_deleted_after_retirement_is_still_restorable",
+    "tests/unit/test_retention_archive.py::test_clone_of_a_local_repository_carries_its_whole_history",
+    "tests/unit/test_retention_archive.py::test_temporary_directory_source_is_scratch_by_default",
+    "tests/unit/test_retention_archive.py::test_blob_only_in_a_local_branch_is_archived_not_omitted",
+    "tests/unit/test_retention_archive.py::test_local_path_remote_is_not_a_remote",
+    "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch",
+    "tests/unit/test_retention_archive.py::test_a_remote_on_this_machine_is_no_network_remote",
+    "tests/unit/test_retention_archive.py::test_network_url_classification",
+    "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission",
+    "tests/unit/test_retention_archive.py::test_object_reader_hashes_every_byte"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_archive.py::test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.2599539579969132,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 1.8496147910009313,
+      "wasxfail": null,
+      "failure": "tests/unit/test_retention_archive.py:116: in test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit\n    assert \"README.md\" in omitted and \"data.bin\" in omitted            # unchanged, on origin/main\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE   AssertionError: assert ('README.md' in [])"
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0020988750002288725,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_bundle_alone_restores_the_commits_in_a_fresh_clone",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.33987420899939025,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_bundle_alone_restores_the_commits_in_a_fresh_clone",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.031225375001668,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_bundle_alone_restores_the_commits_in_a_fresh_clone",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0022528340014105197,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_scratch_source_clone_deleted_after_retirement_is_still_restorable",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0019990420005342457,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_scratch_source_clone_deleted_after_retirement_is_still_restorable",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.3430331250019663,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_scratch_source_clone_deleted_after_retirement_is_still_restorable",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0002821669986587949,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_clone_of_a_local_repository_carries_its_whole_history",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0012014579988317564,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_clone_of_a_local_repository_carries_its_whole_history",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.0428056249984365,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_clone_of_a_local_repository_carries_its_whole_history",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005860420023964252,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_temporary_directory_source_is_scratch_by_default",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0018813749993569218,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_temporary_directory_source_is_scratch_by_default",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.5151235420016747,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_temporary_directory_source_is_scratch_by_default",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005578330019488931,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_blob_only_in_a_local_branch_is_archived_not_omitted",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.3127049590002571,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_blob_only_in_a_local_branch_is_archived_not_omitted",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 1.3879245419993822,
+      "wasxfail": null,
+      "failure": "tests/unit/test_retention_archive.py:234: in test_blob_only_in_a_local_branch_is_archived_not_omitted\n    assert entries[\"README.md\"].get(\"blob\")            # on origin/main: omitted\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE   AssertionError: assert None\nE    +  where None = <built-in method get of dict object at 0x109d21dc0>('blob')\nE    +    where <built-in method get of dict object at 0x109d21dc0> = {'p': 'README.md', 'sha256': 'b860af096761758635428053935eb997297662e24e8eea1116c00673dd4ce919', 'sig': {'ctime': 1793441160749042456, 'dev': 16777234, 'ino': 2428078954, 'mode': 384, ...}, 'size': 500, ...}.get"
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_blob_only_in_a_local_branch_is_archived_not_omitted",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.026162707999901613,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_local_path_remote_is_not_a_remote",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.34959675000209245,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_local_path_remote_is_not_a_remote",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 1.4564371250016848,
+      "wasxfail": null,
+      "failure": "tests/unit/test_retention_archive.py:245: in test_local_path_remote_is_not_a_remote\n    assert manifest[\"git\"][\"scratch\"] == \"no network remote\"\nE   AssertionError: assert 'scratch path' == 'no network remote'\nE     \nE     - no network remote\nE     + scratch path"
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_local_path_remote_is_not_a_remote",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0019436250004218891,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[alternates]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.3879550419987936,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[alternates]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.019857333001709776,
+      "wasxfail": null,
+      "failure": "tests/unit/test_retention_archive.py:257: in test_borrowed_or_shallow_object_store_is_scratch\n    assert reason in (\"borrows objects (alternates)\", \"shallow clone\")\nE   AssertionError: assert 'scratch path' in ('borrows objects (alternates)', 'shallow clone')"
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[alternates]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0013923330006946344,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[shallow]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.41013112499786075,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[shallow]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.03585566599940648,
+      "wasxfail": null,
+      "failure": "tests/unit/test_retention_archive.py:257: in test_borrowed_or_shallow_object_store_is_scratch\n    assert reason in (\"borrows objects (alternates)\", \"shallow clone\")\nE   AssertionError: assert 'scratch path' in ('borrows objects (alternates)', 'shallow clone')"
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[shallow]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0015133339984458871,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_remote_on_this_machine_is_no_network_remote",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0010359170009905938,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_remote_on_this_machine_is_no_network_remote",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0001195840013679117,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_a_remote_on_this_machine_is_no_network_remote",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00010133300020243041,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_network_url_classification",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.000930374997551553,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_network_url_classification",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00017966599989449605,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_network_url_classification",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0001263330013898667,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[wrong-bytes]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.31185329200161505,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[wrong-bytes]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.316026917000272,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[wrong-bytes]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0020363750008982606,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[truncated]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.30193016699922737,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[truncated]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.2989577089974773,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[truncated]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002315707999514416,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_object_reader_hashes_every_byte",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.2957176249983604,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_object_reader_hashes_every_byte",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.07013879100122722,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_object_reader_hashes_every_byte",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0018829580003512092,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_archive.py::test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit",
+    "tests/unit/test_retention_archive.py::test_bundle_alone_restores_the_commits_in_a_fresh_clone",
+    "tests/unit/test_retention_archive.py::test_scratch_source_clone_deleted_after_retirement_is_still_restorable",
+    "tests/unit/test_retention_archive.py::test_clone_of_a_local_repository_carries_its_whole_history",
+    "tests/unit/test_retention_archive.py::test_temporary_directory_source_is_scratch_by_default",
+    "tests/unit/test_retention_archive.py::test_blob_only_in_a_local_branch_is_archived_not_omitted",
+    "tests/unit/test_retention_archive.py::test_local_path_remote_is_not_a_remote",
+    "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[alternates]",
+    "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[shallow]",
+    "tests/unit/test_retention_archive.py::test_a_remote_on_this_machine_is_no_network_remote",
+    "tests/unit/test_retention_archive.py::test_network_url_classification",
+    "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[wrong-bytes]",
+    "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[truncated]",
+    "tests/unit/test_retention_archive.py::test_object_reader_hashes_every_byte"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-055640-pr272-fix-r9/subfleet/dependencies.py",
+  "product_sha256": "0ce5a93ca69429b99e2525850a1a1240ff5042e45af4c09eef785bdc2707b7b0",
+  "end": "2026-10-31T10:06:10.722680+00:00",
+  "seconds": 26.408127499998955,
+  "peak_rss_mib": 113.765625,
+  "exit": 1
+}

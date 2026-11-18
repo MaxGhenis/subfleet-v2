@@ -320,7 +320,7 @@ class Model:
         return ({iso(self.hold)} if self.held(now) else set()) | ({iso(self.limit[0])} if self.limited(now) else set())
 
 
-HOLD_ENDS = (-1, 1, 2, 6, 48)                 # hours from now; -1 is a hold already over
+HOLD_ENDS = (-1, 1, 2, 6, 48)                 # hours from now; -1 is refused (C-9.6)
 LIMIT_ENDS = (1, 3, 7, 72)
 ADVANCES = (1, 30, 90, 240, 600, 3000)         # minutes
 REASONS = ("provider-limit", "credits")
@@ -352,8 +352,15 @@ def play(steps) -> list[str]:
                 kind = step[0]
                 if kind == "hold":
                     until = now + hours(step[1])
-                    world.hold(until)
-                    model.hold = until if model.hold is None else max(model.hold, until)
+                    if until <= now:
+                        before = (world.store.list_closures(), world.store.list_events())
+                        with pytest.raises(protocol.ProtocolError) as refused:
+                            world.hold(until)
+                        assert (refused.value.code, refused.value.reason) == (2, "hold-until-past")
+                        assert (world.store.list_closures(), world.store.list_events()) == before
+                    else:
+                        world.hold(until)
+                        model.hold = until if model.hold is None else max(model.hold, until)
                 elif kind == "attempt-limit":
                     until = now + hours(step[1])
                     world.attempt_limit(until, ClosureReason(step[2]), ClockSource(step[3]))

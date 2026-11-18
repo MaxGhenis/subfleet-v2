@@ -16,7 +16,7 @@ def prepare(served, monkeypatch, workdir):
     # `served` records the daemon as booted at "routing-boot" and started at
     # "routing-start"; the CLI checks daemon.lock against the same (C-5.3).
     monkeypatch.setattr(client, "boot_id", lambda: "routing-boot")
-    monkeypatch.setattr(client, "proc_start", lambda pid: "routing-start")
+    monkeypatch.setattr(client, "proc_status", lambda pid: ("S", "routing-start"))
     monkeypatch.setenv("SUBFLEET_HOME", str(daemon.root))
     for name in ("CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_PID",
                  "SUBFLEET_RUN_DETACH", "SUBFLEET_DAEMON_BIN", "SUBFLEET_TURN_JOB"):

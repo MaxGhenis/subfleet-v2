@@ -738,7 +738,8 @@ def test_heal_turn_argv_environment_and_session(tmp_path, monkeypatch):
                                  prompt="Reply with exactly: ok", popen=Child)
     assert (rc, out) == (0, "ok") and kills == [(4242, signal.SIGKILL)]
     assert seen["argv"] == ["claude", "-p", "Reply with exactly: ok", "--model", "claude-haiku-4-5-20251001",
-                            "--max-turns", "1", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
+                            "--max-turns", "1", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
+                            "--settings", '{"env":{"CLAUDE_CODE_RETRY_WATCHDOG":"0"}}']    # d1031
     assert seen["start_new_session"] is True and seen["env"]["CLAUDE_CONFIG_DIR"] == str(tmp_path / "max@example.org")
     assert "CLAUDE_CODE_OAUTH_TOKEN" not in seen["env"] and "ANTHROPIC_API_KEY" not in seen["env"]
     assert seen["cwd"] != str(tmp_path) and seen["stdin"] is not None

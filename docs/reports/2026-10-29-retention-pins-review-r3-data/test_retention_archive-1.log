@@ -1,0 +1,113 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 14:25:03Z slot A load 
+{"start": "2026-10-29T14:25:04.225689+00:00", "load": [60.0947265625, 52.2724609375, 39.056640625], "name": "test_retention_archive-1"}
+Fworld = World(base=PosixPath('/private/tmp/sf-r272r3/cases-8380/pytest/test_round_trip_dirty_unpushed0'), trusted=True, remote...f-r272r3/cases-8380/pytest/test_round_trip_dirty_unpushed0/state'), store=<subfleet.store.Store object at 0x109702660>)
+
+    def test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit(world):
+        """d635 required case: archive, verify, remove, then the documented restore
+        brings back every byte (modes, links, hard links, the FIFO, ignored output)
+        and every commit, including one reachable only from the reflog."""
+        w = world
+        job = make_dirty_detached(w, "job-rt")
+        wt = job["worktree"]
+        before = snapshot(wt)
+        links_before = inode_groups(wt)
+        jobdir_before = snapshot(w.root / "jobs" / "job-rt")
+        admin_before = snapshot(w.admin("job-rt"))
+        result = run(w)
+        assert result["pruned"] == ["job-rt"], result
+        assert not wt.exists() and not (w.root / "jobs" / "job-rt").exists()
+        assert w.store.get_job("job-rt") is None
+        # The registration is removed with the tree (no locked registrations pile up),
+        # and nothing else in the repository was pruned.
+        assert not w.admin("job-rt").exists()
+        assert "job-rt" not in git(w.repo, "worktree", "list", "--porcelain")
+        archive = w.root / "archive" / "job-rt"
+        manifest = json.loads((archive / "manifest.json").read_text())
+        omitted = [e["p"] for e in manifest["trees"]["worktree"]["entries"] if e.get("blob")]
+>       assert "README.md" in omitted and "data.bin" in omitted            # unchanged, on origin/main
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: assert ('README.md' in [])
+
+tests/unit/test_retention_archive.py:116: AssertionError
+....Fworld = World(base=PosixPath('/private/tmp/sf-r272r3/cases-8380/pytest/test_blob_only_in_a_local_bran0'), trusted=True, remote...f-r272r3/cases-8380/pytest/test_blob_only_in_a_local_bran0/state'), store=<subfleet.store.Store object at 0x10a006210>)
+
+    def test_blob_only_in_a_local_branch_is_archived_not_omitted(world):
+        """Omit a blob only if a remote-tracking ref reaches it: a commit on a local
+        branch that was never pushed does not count, however durable the branch looks."""
+        w = world
+        (w.repo / "local-only.txt").write_text("committed locally, never pushed\n" * 100)
+        git(w.repo, "add", "local-only.txt")
+        git(w.repo, "commit", "--quiet", "-m", "local only")
+        w.job("job-local")
+        assert run(w)["pruned"] == ["job-local"]
+        manifest = json.loads((w.root / "archive" / "job-local" / "manifest.json").read_text())
+        entries = {e["p"]: e for e in manifest["trees"]["worktree"]["entries"]}
+        assert "store" in entries["local-only.txt"] and not entries["local-only.txt"].get("blob")
+>       assert entries["README.md"].get("blob")            # on origin/main: omitted
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: assert None
+E        +  where None = <built-in method get of dict object at 0x10a37d480>('blob')
+E        +    where <built-in method get of dict object at 0x10a37d480> = {'p': 'README.md', 'sha256': 'b860af096761758635428053935eb997297662e24e8eea1116c00673dd4ce919', 'sig': {'ctime': 1793283952096067038, 'dev': 16777232, 'ino': 2381828110, 'mode': 384, ...}, 'size': 500, ...}.get
+
+tests/unit/test_retention_archive.py:234: AssertionError
+                                                                   [100%]
+=================================== FAILURES ===================================
+__ test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit __
+
+world = World(base=PosixPath('/private/tmp/sf-r272r3/cases-8380/pytest/test_round_trip_dirty_unpushed0'), trusted=True, remote...f-r272r3/cases-8380/pytest/test_round_trip_dirty_unpushed0/state'), store=<subfleet.store.Store object at 0x109702660>)
+
+    def test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit(world):
+        """d635 required case: archive, verify, remove, then the documented restore
+        brings back every byte (modes, links, hard links, the FIFO, ignored output)
+        and every commit, including one reachable only from the reflog."""
+        w = world
+        job = make_dirty_detached(w, "job-rt")
+        wt = job["worktree"]
+        before = snapshot(wt)
+        links_before = inode_groups(wt)
+        jobdir_before = snapshot(w.root / "jobs" / "job-rt")
+        admin_before = snapshot(w.admin("job-rt"))
+        result = run(w)
+        assert result["pruned"] == ["job-rt"], result
+        assert not wt.exists() and not (w.root / "jobs" / "job-rt").exists()
+        assert w.store.get_job("job-rt") is None
+        # The registration is removed with the tree (no locked registrations pile up),
+        # and nothing else in the repository was pruned.
+        assert not w.admin("job-rt").exists()
+        assert "job-rt" not in git(w.repo, "worktree", "list", "--porcelain")
+        archive = w.root / "archive" / "job-rt"
+        manifest = json.loads((archive / "manifest.json").read_text())
+        omitted = [e["p"] for e in manifest["trees"]["worktree"]["entries"] if e.get("blob")]
+>       assert "README.md" in omitted and "data.bin" in omitted            # unchanged, on origin/main
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: assert ('README.md' in [])
+
+tests/unit/test_retention_archive.py:116: AssertionError
+___________ test_blob_only_in_a_local_branch_is_archived_not_omitted ___________
+
+world = World(base=PosixPath('/private/tmp/sf-r272r3/cases-8380/pytest/test_blob_only_in_a_local_bran0'), trusted=True, remote...f-r272r3/cases-8380/pytest/test_blob_only_in_a_local_bran0/state'), store=<subfleet.store.Store object at 0x10a006210>)
+
+    def test_blob_only_in_a_local_branch_is_archived_not_omitted(world):
+        """Omit a blob only if a remote-tracking ref reaches it: a commit on a local
+        branch that was never pushed does not count, however durable the branch looks."""
+        w = world
+        (w.repo / "local-only.txt").write_text("committed locally, never pushed\n" * 100)
+        git(w.repo, "add", "local-only.txt")
+        git(w.repo, "commit", "--quiet", "-m", "local only")
+        w.job("job-local")
+        assert run(w)["pruned"] == ["job-local"]
+        manifest = json.loads((w.root / "archive" / "job-local" / "manifest.json").read_text())
+        entries = {e["p"]: e for e in manifest["trees"]["worktree"]["entries"]}
+        assert "store" in entries["local-only.txt"] and not entries["local-only.txt"].get("blob")
+>       assert entries["README.md"].get("blob")            # on origin/main: omitted
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: assert None
+E        +  where None = <built-in method get of dict object at 0x10a37d480>('blob')
+E        +    where <built-in method get of dict object at 0x10a37d480> = {'p': 'README.md', 'sha256': 'b860af096761758635428053935eb997297662e24e8eea1116c00673dd4ce919', 'sig': {'ctime': 1793283952096067038, 'dev': 16777232, 'ino': 2381828110, 'mode': 384, ...}, 'size': 500, ...}.get
+
+tests/unit/test_retention_archive.py:234: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_archive.py::test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit
+FAILED tests/unit/test_retention_archive.py::test_blob_only_in_a_local_branch_is_archived_not_omitted
+2 failed, 4 passed in 42.79s

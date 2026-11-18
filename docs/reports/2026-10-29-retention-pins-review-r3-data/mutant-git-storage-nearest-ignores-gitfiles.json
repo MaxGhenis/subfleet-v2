@@ -1,0 +1,29 @@
+{
+  "name": "mutant-git-storage-nearest-ignores-gitfiles",
+  "start": "2026-10-29T13:47:04.688176+00:00",
+  "load": [
+    19.95654296875,
+    20.72265625,
+    22.46142578125
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_units.py::test_d1_a_linked_checkout_outside_names_the_repository_it_lives_in": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/unit/test_retention_dependency_units.py::test_d1_a_linked_checkout_outside_names_the_repository_it_lives_in"
+  ],
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+      "mutated_sha256": "d3eee0ff9ed5ee775ce6dad1cc701dd14a42712cebcbe5a566e035049acf192f"
+    }
+  ],
+  "rc": 1,
+  "seconds": 3.1453124999970896,
+  "rss": 115703808
+}

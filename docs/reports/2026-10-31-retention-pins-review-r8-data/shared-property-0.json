@@ -1,0 +1,54 @@
+{
+  "label": "shared-property-0",
+  "start": "2026-10-31T06:10:12.406729+00:00",
+  "loads": [
+    31.5068359375,
+    32.6865234375,
+    32.03857421875
+  ],
+  "seconds": 310.67161662499893,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.08546025000032387,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 301.4106192920008,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.001184750000902568,
+      "properties": [],
+      "failure": null
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine"
+  ],
+  "all_nodes": [
+    "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine"
+  ],
+  "property_settings": {},
+  "loaded": [],
+  "dependency_source": {
+    "file": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/subfleet/dependencies.py",
+    "sha256": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d"
+  },
+  "rss": 130187264
+}

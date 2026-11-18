@@ -22,6 +22,7 @@ import pytest
 from subfleet.adapters.base import AdapterError
 from subfleet.daemon import after
 from subfleet.salvage import SalvageError
+from tests.fake.notice_invariant import notice_without_capability
 from tests.fake.test_state_contract import state_daemon
 from tests.fake.test_workspace_contract import repository
 from tests.unit.test_salvage import git
@@ -493,7 +494,7 @@ def test_c6_8_a_launch_time_branch_check_that_got_no_answer_is_retried_never_lau
     job = daemon.store.get_job(job_id)
     if max_attempts == 1:
         assert (job["state"], job["rc"]) == ("failed", 1)
-        assert daemon.store.list_notices()[-1]["text"].split("\n")[1:] == [detail]
+        assert notice_without_capability(daemon.store.list_notices()[-1]["text"]).split("\n")[1:] == [detail]
         return
     assert (job["state"], job["rc"], job["wait_reason"]) == ("waiting", None, "workspace")
     assert 0 < seconds_until(job["next_check_at"]) <= 5
@@ -516,7 +517,7 @@ def test_c6_8_a_launch_time_branch_check_that_got_no_answer_is_retried_never_lau
     daemon._admit()
     job = daemon.store.get_job(job_id)
     assert (job["state"], job["rc"]) == ("failed", 7) and len(daemon.store.list_attempts(job_id)) == 1
-    lines = daemon.store.list_notices()[-1]["text"].split("\n")[1:]
+    lines = notice_without_capability(daemon.store.list_notices()[-1]["text"]).split("\n")[1:]
     assert lines[0].startswith("failed while preparing the retry: writable job refused on main")
     assert lines[1:] == [f"attempt a1: unknown, rc=-: {detail}"]
 
@@ -563,5 +564,5 @@ def test_c6_8_launch_time_checks_that_get_no_answer_back_off_counted_in_a_row(st
     assert 0 < waits[0] <= 5 < waits[1] <= 10
     assert (job["state"], job["rc"]) == ("failed", 1) and len(events(daemon, job_id, "job.workspace_deferred")) == 2
     detail = "workdir-branch-check-unfinished: git symbolic-ref was killed by SIGKILL"
-    assert daemon.store.list_notices()[-1]["text"].split("\n")[1:] == [
+    assert notice_without_capability(daemon.store.list_notices()[-1]["text"]).split("\n")[1:] == [
         f"attempt a3: {detail}", f"attempt a2: unknown, rc=-: {detail}", f"attempt a1: unknown, rc=-: {detail}"]

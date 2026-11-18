@@ -1,0 +1,28 @@
+{
+  "r7_only_mark_removed": true,
+  "original_property_unchanged": true,
+  "checks": {
+    "subfleet/retention.py": {
+      "unchanged": true,
+      "sha256": "e08ffd693d85249fedef40e2ee493137a2b588dcfe801cfb376784f85e438de2"
+    },
+    "subfleet/retention_archive.py": {
+      "unchanged": true,
+      "sha256": "40a2a4712a1dbd9b5a4e0a6ac28c7e87a8762a646a5d26a546151723802fcf26"
+    },
+    "subfleet/retention_git.py": {
+      "unchanged": true,
+      "sha256": "f97190b7b1d61cdafc3ba08ad60451a7be3f252938aaffc0077d6271ec854c17"
+    },
+    "subfleet/retention_survey.py": {
+      "unchanged": true,
+      "sha256": "f56bdec64f957658fa4bd6c010cb4bc1d874e925f926b57fde8be98c1428c0cf"
+    },
+    "docs/acceptance-contract.md": {
+      "unchanged": true,
+      "sha256": "e4f236bcb51f20d20c59d825fc80da64ca03c02c35dc98daddfae5779faf35f7"
+    }
+  },
+  "final_dependency_source_sha256": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+  "all_holds_complete": 46
+}

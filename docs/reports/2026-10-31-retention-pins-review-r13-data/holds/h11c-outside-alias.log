@@ -1,0 +1,10 @@
+queued 2026-10-31T22:10:53Z load { 44.58 50.77 63.31 } TMPDIR=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/link/hold-h11c-outside-alias
+hold 22:10:53Z slot A load { 44.58 50.77 63.31 }
+.                                                                        [100%]
+=============================== warnings summary ===============================
+docs/reports/2026-10-31-retention-pins-review-r13-data/r12_transaction_probes_indent_fixed.py::test_outside_checkout_alias_is_a_listed_extra_location
+  docs/reports/2026-10-31-retention-pins-review-r13-data/r12_transaction_probes_indent_fixed.py:202: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    def test_outside_checkout_alias_is_a_listed_extra_location(tmp_path, record_property):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 passed, 1 warning in 13.70s

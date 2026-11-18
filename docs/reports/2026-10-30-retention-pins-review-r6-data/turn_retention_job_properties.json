@@ -1,0 +1,52 @@
+{
+  "label": "turn_retention_job_properties",
+  "start": "2026-10-30T19:46:31.703447+00:00",
+  "loads": [
+    54.0791015625,
+    48.2568359375,
+    48.1875
+  ],
+  "seconds": 70.57590637500107,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 52.75803216699569
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd"
+  ],
+  "all_nodes": [
+    "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd"
+  ],
+  "phases": {
+    "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {
+    "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd": {
+      "max_examples": 40,
+      "derandomize": true,
+      "phases": [
+        "Phase.explicit",
+        "Phase.reuse",
+        "Phase.generate",
+        "Phase.target",
+        "Phase.shrink",
+        "Phase.explain"
+      ],
+      "explicit_examples": 5,
+      "explicit_example_count_provenance": "Counted @example decorators in unchanged source; observer used wrong attribute for this metadata field only."
+    }
+  },
+  "loaded": [],
+  "rss": 126091264
+}

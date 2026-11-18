@@ -78,11 +78,42 @@ time.sleep({ESCAPE_S})
 PERL_ESCAPER = ('$0 = "renamed-escaper"; my $marker = $ENV{SUBFLEET_FAKE_MARKER};'
                 'open(my $out, ">", "$marker.tmp") or die; print $out $$; close($out);'
                 f'rename("$marker.tmp", $marker) or die; sleep {ESCAPE_S};')
-ESCAPERS = {"retitled-node": "node", "retitled-nul": "nul", "perl-escape": "perl"}
+ESCAPERS = {"retitled-node": "node", "retitled-nul": "nul", "perl-escape": "perl",
+            "lockf-escape": "lockf"}
+#: D-KILL2 (incidents 2026-10-16 and 2026-10-18): a provider's command ran
+#: `/usr/bin/lockf -k <suite lock> ...` as the leader of a session of its own,
+#: and the lockf outlived the cancelled attempt waiting for its lock, ppid 1
+#: once the provider was gone. lockf is an Apple platform binary that runs with
+#: the hardened runtime, and on macOS 26 the argument buffer of such a process
+#: holds its argv and no environment (observed 2026-10-18), so the markers it
+#: inherits show neither in `ps -E` nor in the raw buffer. This escaper is
+#: that lockf, markers inherited unchanged. Its lock is `<marker>.lock`, which
+#: the test holds (never the suite lock), and it waits at most LOCKF_WAIT_S.
+LOCKF_WAIT_S = 120
+
+
+def lockf_escaper() -> int:
+    """Publish this pid, then become lockf in place: the session leader that the
+    provider's Popen made, as the incident's lockf led its own session."""
+    marker = os.environ["SUBFLEET_FAKE_MARKER"]
+    with open(marker + ".tmp", "w") as stream:
+        stream.write(str(os.getpid()))
+    os.rename(marker + ".tmp", marker)
+    os.execv("/usr/bin/lockf", ["/usr/bin/lockf", "-k", "-t", str(LOCKF_WAIT_S), marker + ".lock",
+                                "/bin/sleep", str(ESCAPE_S)])
+    return 1
 
 
 def escaper(kind: str) -> int:
-    """The escaper's parent: started in a new session, it forks and exits."""
+    """The escaper's parent: started in a new session, it forks and exits.
+    `lockf` is the exception: it stays the session's leader (`lockf_escaper`).
+    With SUBFLEET_FAKE_IGNORE_TERM the escaper ignores TERM (SIG_IGN survives exec, and
+    lockf sets its own handler only once it holds its lock), so a test can watch the
+    kill protocol count it between the TERM and the KILL (D-KILL4 fix 1)."""
+    if os.environ.get("SUBFLEET_FAKE_IGNORE_TERM"):
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    if kind == "lockf":
+        return lockf_escaper()
     if os.fork():
         return 0
     if kind == "node":
@@ -99,8 +130,42 @@ def escaper(kind: str) -> int:
     return 1
 
 
+#: D-KILL4 (incident 2026-10-20, walled `us10299-review-shell-b`): an agent's
+#: `/bin/sh` loop respawning a marked runner. The loop is a shell, an Apple platform
+#: binary whose environment macOS 26 hides, so only its children show the markers;
+#: it outlives the provider in a session of its own (`--driver`), reparented to
+#: launchd once the provider ends (`--detached`: at once, by a fork that exits).
+#: It ends by itself within DRIVER_S, and each child within CHILD_S (long enough that a census
+#: sees one: a census landing between two children sees nothing of an uncounted loop).
+DRIVER_S = 90
+CHILD_S = 5.0
+DRIVER_LOOP = ('end=$(( $(/bin/date +%s) + {limit} )); '
+               'while [ "$(/bin/date +%s)" -lt "$end" ]; do "$0" "$1" --marked-child; done')
+
+
+def driver(detached: bool) -> int:
+    """Lead a new session, publish this pid, then become the shell loop in place."""
+    os.setsid()
+    if detached and os.fork():
+        return 0
+    marker = os.environ["SUBFLEET_FAKE_MARKER"]
+    with open(marker + ".tmp", "w") as stream:
+        stream.write(str(os.getpid()))
+    os.rename(marker + ".tmp", marker)
+    os.execv("/bin/sh", ["/bin/sh", "-c", DRIVER_LOOP.format(limit=DRIVER_S),
+                         sys.executable, str(Path(__file__).resolve())])
+    return 1
+
+
 def main() -> int:
+    if "--driver" in sys.argv:
+        return driver("--detached" in sys.argv)
+    if "--marked-child" in sys.argv:
+        time.sleep(CHILD_S)          # the markers it inherited show in its buffer
+        return 0
     if "--escaper" in sys.argv:
+        if "--new-session" in sys.argv:
+            os.setsid()
         return escaper(sys.argv[sys.argv.index("--escaper") + 1])
     if "--escaped-child" in sys.argv:
         # Popen gave this process its own session, but it belonged to the

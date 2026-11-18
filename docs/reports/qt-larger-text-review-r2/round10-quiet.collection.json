@@ -1,0 +1,5 @@
+[
+  "tests/frontend/test_review_r219_fix8_mutations.py::test_round10_mutation_fails_its_named_regression[quiet_landing_ends_following-quiet-regrow]",
+  "tests/frontend/test_review_r219_fix8_mutations.py::test_round10_mutation_fails_its_named_regression[quiet_landing_ends_following-quiet-regrow-natural]",
+  "tests/frontend/test_review_r219_fix8_mutations.py::test_round10_mutation_fails_its_named_regression[quiet_landing_ends_following-quiet-regrow-late]"
+]

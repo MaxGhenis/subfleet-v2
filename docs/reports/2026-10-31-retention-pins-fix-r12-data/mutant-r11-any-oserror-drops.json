@@ -1,0 +1,66 @@
+{
+  "name": "mutant-r11-any-oserror-drops",
+  "start": "2026-10-31T20:32:15.156070+00:00",
+  "load": [
+    71.1640625,
+    76.611328125,
+    78.5244140625
+  ],
+  "pytest_pid": 44853,
+  "failure_root": "/private/tmp/sf-fix272r12/failed-keep",
+  "args": [
+    "--mutant",
+    "r11-any-oserror-drops",
+    "tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-ENOENT]"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-ENOENT]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.2147771250020014,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-ENOENT]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.44703479199961293,
+      "wasxfail": null,
+      "failure": "tests/unit/test_retention_location_readable.py:173: in test_filter_stat_table\n    assert (place in result) == (outcome != \"ELOOP\")\nE   AssertionError: assert ('/private/tmp/sf-fix272r12/real-tmp/mutant-r11-any-oserror-drops/pytest-of-maxghenis/pytest-0/test_filter_stat_table_found_E0/missing' in []) == ('ENOENT' != 'ELOOP')"
+    },
+    {
+      "node": "tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-ENOENT]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005538749974220991,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-ENOENT]",
+      "key": "stat-table",
+      "value": "{\"route\": \"found\", \"outcome\": \"ENOENT\", \"stat_errno\": 2, \"controlled_failed_equation\": true, \"controlled_final_spelling\": true, \"kept\": false}"
+    }
+  ],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "67a721834f2353497674e6ce769db9733dd515ec0cf300c9e215e0abfe18f650",
+      "mutated": "f461d861a7a369bd00861fa14f157f0728daaba818371d476936eb60e88dbd7d"
+    }
+  ],
+  "collected": [
+    "tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-ENOENT]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-161028-pr272-fix-r12/subfleet/dependencies.py",
+  "product_sha256": "67a721834f2353497674e6ce769db9733dd515ec0cf300c9e215e0abfe18f650",
+  "end": "2026-10-31T20:32:32.928829+00:00",
+  "seconds": 17.772419250002713,
+  "peak_rss_mib": 116.015625,
+  "exit": 1
+}

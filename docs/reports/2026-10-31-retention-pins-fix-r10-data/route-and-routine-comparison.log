@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 11:59:48Z slot A load 
+..............                                                           [100%]
+14 passed, 9 deselected in 25.00s
+{"name": "route-and-routine-comparison", "start": "2026-10-31T12:00:15.992492+00:00", "load": [178.59326171875, 121.09814453125, 89.06884765625], "seconds": 28.883519374998286, "exit": 0}

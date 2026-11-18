@@ -1,0 +1,51 @@
+{
+  "name": "earlier-test_retention_archive_properties-1",
+  "start": "2026-10-31T17:08:43.110057+00:00",
+  "load": [
+    35.51513671875,
+    42.8984375,
+    52.1875
+  ],
+  "pytest_pid": 34546,
+  "failure_root": "/private/tmp/sf-r272r11/failed-keep",
+  "args": [
+    "tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_a_trusted_repository"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_a_trusted_repository",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.052972375000536,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_a_trusted_repository",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 62.13300520800112,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_a_trusted_repository",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0010611250036163256,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_a_trusted_repository"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/subfleet/dependencies.py",
+  "product_sha256": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+  "end": "2026-10-31T17:09:53.863714+00:00",
+  "seconds": 70.7527967499991,
+  "peak_rss_mib": 114.21875,
+  "exit": 0
+}

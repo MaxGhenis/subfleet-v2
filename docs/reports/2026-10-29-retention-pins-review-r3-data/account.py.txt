@@ -1,0 +1,76 @@
+import collections
+import json
+from pathlib import Path
+import shutil
+
+scratch=Path('/private/tmp/sf-r272r3')
+workspace=Path('/Users/maxghenis/.subfleet/worktrees/20261029-084118-pr272-review-r3')
+destination=workspace/'docs/reports/2026-10-29-retention-pins-review-r3-data'
+expected=json.loads((scratch/'logs/collect.json').read_text())['nodes']
+records=sorted([json.loads(p.read_text()) for p in (scratch/'logs').glob('*.json')],key=lambda d:d['start'])
+ordinary=[d for d in records if d['name'].startswith('test_')]
+latest={}
+for d in ordinary:
+    for node,phases in d['phases'].items():latest[node]=phases
+missing=sorted(set(expected)-latest.keys())
+assert missing==['tests/unit/test_retention_archive.py::test_real_lsof_sees_a_process_whose_cwd_is_in_the_tree'],missing
+assert len(latest)==567
+assert all(p.get('setup')==p.get('call')==p.get('teardown')=='passed' for p in latest.values())
+plan=json.loads((scratch/'ordinary-plan.json').read_text())
+assert {n for n,args in plan} <= {d['name'] for d in ordinary}
+mutants=json.loads((scratch/'mutants.json').read_text());assert len(mutants)==19
+marked=next(d for d in records if d['name']=='r3-final-marked')
+assert collections.Counter(p.get('call') for p in marked['phases'].values())=={'passed':2,'skipped':4}
+for n,count in [('mutant-trial-r3-alias-revalidation-final',2),('mutant-trial-r3-census-before-recovery',4)]:
+    d=next(d for d in records if d['name']==n)
+    assert d['rc']==0 and len(d['loaded'])==1 and len(d['phases'])==count
+    assert all(p.get('call')=='passed' for p in d['phases'].values())
+
+destination.mkdir(exist_ok=True)
+for p in (scratch/'logs').iterdir():
+    if p.is_file():shutil.copyfile(p,destination/p.name)
+for name in ['pr-body.json','ci.txt','merges.json','merge-content.json','merge-base-audit.json','history-audit.json','review-files.json','definitions.json','mutants.json','measurement.json','ordinary-plan.json','mutants-plan.json','own-mutants-plan.json','files.json']:
+    shutil.copyfile(scratch/name,destination/name)
+for name in ['probes.py','recovery.py','measurement.py','run.py','batch.py','account.py']:
+    shutil.copyfile(scratch/name,destination/(name+'.txt'))
+file_rows=[]
+for file in json.loads((scratch/'files.json').read_text()):
+    nodes=[n for n in expected if n.split('::')[0]==file]
+    holds=[d for d in ordinary if any(n.split('::')[0]==file for n in d['phases'])]
+    passed=sum(n in latest and latest[n].get('call')=='passed' for n in nodes)
+    file_rows.append({'file':file,'passed':passed,'unrun':len(nodes)-passed,'start':holds[0]['start'],'load':holds[0]['load'],'holds':[d['name'] for d in holds]})
+(destination/'coverage.json').write_text(json.dumps({'expected':568,'passed':567,'unrun':missing,'files':file_rows},indent=2)+'\n')
+(destination/'holds.json').write_text(json.dumps(records,indent=2)+'\n')
+
+def clock(d):return d['start'][11:23]
+def loads(d):return ' / '.join(f'{x:.2f}' for x in d['load'])
+def counts(d):
+    c=collections.Counter(p.get('call','uncalled') for p in d['phases'].values())
+    x=sum(bool(p.get('xfail')) for p in d['phases'].values())
+    return f"{c['passed']}/{c['failed']}/{c['skipped']-x}/{x}"
+
+lines=[f'**567 of 568 requested existing nodes passed** across 19 files; the single real-lsof node is unrun under the no-live-process restriction. All 75 planned ordinary holds completed, with {len(ordinary)-75} additional archive retry holds after correcting the fixture location. The new review file adds **2 passing controls and 4 strict expected failures**; `--runxfail` executes those four failures, each with completed teardown. Separate small-store controls: 20 passed. Trial repairs: 2 alias cases and 4 recovery cases passed. These counts exclude development oracle mistakes and mutant failures.','',
+'All times below are UTC on 2026-10-29 and are observed after lock admission; load is the host 1/5/15-minute average. The shared wrapper cannot read sysctl in this sandbox, so the observer records `os.getloadavg()`. Every hold used the shared lock; no outside-lock fallback was needed. Each pytest has a 570-second whole-run alarm and uses normal property settings, with no xdist.','',
+'| Requested file | Passed / unrun | First start | Load (1/5/15) |', '|---|---:|---|---|']
+for r in file_rows:lines.append(f"| `{r['file']}` | {r['passed']} / {r['unrun']} | {clock(r)} | {loads(r)} |")
+lines+=['',f"New file `tests/fake/test_retention_dependency_review_r3.py`: **2 passed / 4 strict expected failures / 0 unrun**, final marked start {clock(marked)} UTC, load {loads(marked)}. The final alias fixture uses a distinct owner-only commit and checks its content through Git; earlier exploratory holds remain in the ledger."]
+lines+=['','### Mutants','',
+'Every mutation matches once, loads exactly one changed module from the reviewed source and exits 1 with a named call assertion failing and teardown passing. The ordinary green runs validate those killers independently. No source file was modified. The three r3 mutants independently test write metadata, final pathname identity and inclusion of already-terminal legacy exporters.','',
+'| Mutant | Executed failing killer | Result | Start | Load |','|---|---|---|---|---|']
+for m in mutants:
+    killer='<br>'.join('`'+n+'`' for n in m['failed'])
+    lines.append(f"| `{m['name']}` | {killer} | KILLED | {clock(m)} | {loads(m)} |")
+lines+=['','### Complete hold ledger','','P/F/S/X counts are completed call outcomes, with expected failures separated from skips. Collection has no calls. Initial scratch oracles and development probes are retained, without counting their failures as ordinary head failures.','',
+'| Hold | Start | Load (1/5/15) | P/F/S/X | Seconds |','|---|---|---|---|---:|']
+for d in records:lines.append(f"| `{d['name']}` | {clock(d)} | {loads(d)} | {counts(d)} | {d['seconds']:.2f} |")
+lines+=['',f"Longest admitted pytest: **{max(d['seconds'] for d in records):.2f} seconds**. Highest observed pytest RSS: **{max(d['rss'] for d in records)/2**20:.1f} MiB**; fixture child RSS is not separately sampled.",'',
+'The initial `own-probes` run has 14 erroneous post-release exact-set assertions (the finished borrower may retire too), one real R3-F1 failure and six passing SQL controls. Correcting the set assertion produces 20 passing controls. The initial recovery probe inserted a legacy-shaped job between passes; `recovery-existing-legacy` supersedes it with a legacy job predating both passes. Both show the same two legacy failures and two recorded-evidence passes. The final regression and trial use the latter timeline. The scale run retains its separate reason-precedence oracle error as explained above.','',
+'Initial archive holds under `/private/tmp` trigger the existing lexical `scratch path` check even though the fixture disables temporary-root classification. This makes expected blob omission and scratch-reason assertions fail. Archive fixture trees were moved to the allowed Darwin task scratch at `/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261029-084118-pr272-review-r3-a1-04vmk40r/sf-r272r3`; no source, fixture, bound or assertion was patched. Only failed nodes were retried there; later archive holds use that directory from the start. The ledger retains initial environment failures and successful retries separately. TMPDIR and homes remain inside the two task-owned scratch roots, whose combined disk use stays below 1.5 GB.','',
+'Not run: the real-lsof archive node, the full suite, Python 3.12, CI execution and the person-only live frontend. The live frontend cannot run on a lane. No remaining requested local node is unrun beyond the explicitly excluded host process scan.','',
+'The regression, report and evidence are left uncommitted under the explicit review-only/no-commit instruction. No staging, Git metadata write, push, publication or PR comment was attempted. The final handoff confirms guarded scratch cleanup and the end of all owned tool sessions.']
+text='\n'.join(lines)+'\n'
+report=workspace/'docs/reports/2026-10-29-retention-pins-review-r3.md'
+content=report.read_text().replace('Final ordinary coverage, complete hold ledger, mutant table, trial-repair result and cleanup are appended after all owned runs finish.',text)
+content=content.replace('**Pass, pending final execution accounting.**','**Pass.**')
+report.write_text(content)
+print(json.dumps({'passed':567,'ordinary_holds':len(ordinary),'all_holds':len(records),'mutants':len(mutants),'max_seconds':max(d['seconds'] for d in records),'files':file_rows},indent=2))

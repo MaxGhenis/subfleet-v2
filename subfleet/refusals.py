@@ -18,7 +18,7 @@ import string
 from typing import Any
 
 from . import ids
-from .contracts import JOB_ID_SLUG_MAX
+from .contracts import HOLD_NOTE_CREDENTIAL_RULE, HOLD_NOTE_RULE, JOB_ID_SLUG_MAX, Sandbox
 from .sessions.registry import CONVERSATION_FIX
 
 # Checkout checks select these fixed diagnostics and repairs at their raise
@@ -61,6 +61,14 @@ CHECKOUT_REFUSALS = {
     "object-changed": ("baseline object changed while copying", "wait for checkout writes to finish and resubmit"),
 }
 
+#: The fix of `claude-subscription-refused`: `claude.ORG_BLOCK_CAUSES` word for word
+#: (a test compares them). Both known causes, neither asserted, and no promised outcome.
+CLAUDE_REFUSAL_CAUSES = (
+    "Either the account's subscription lapsed or was cancelled, or an org admin "
+    "disabled Claude Code; once the account is subscribed with Claude Code allowed, "
+    "run `subfleet lanes enroll` again."
+)
+
 # reason -> (message, fix), the most specific form. `{name}` is a checked value.
 HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     # Jobs, requests and lists.
@@ -69,6 +77,9 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     "turn-submit": ("conversation turns are created by the daemon, not submitted",
                     "send a message with message.submit"),
     "turn-block": ("a turn job needs its conversation's turn block", None),
+    "unknown-pinned-model": ("unknown pinned model {model}", "pin a model from the live policy"),
+    "needs-shell": ("needs a shell: {model} runs {sandbox} jobs without one",
+                    "pass -s workspace-write, or pin a Codex model"),
     "list-kind": ("kind must name a job kind", None),
     "list-include-turns": ("include_turns must be true or false", None),
     "list-last": ("last must be a nonnegative integer", None),
@@ -86,7 +97,8 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
                        "commit a baseline or run it from a repository, or pass -s read-only "
                        "to run it here without writing"),
     "writable-repository": ("writable jobs require a committed git repository",
-                            "initialize a feature branch and commit a baseline"),
+                            "initialize a feature branch and commit a baseline, or pass -s read-only"),
+    "review-publish": ("reviews cannot publish", "omit --push-branch"),
     "writable-branch": ("writable job refused on {branch}",
                         "Check out a task branch before submitting a writable job."),
     "inspect-workdir": ("could not inspect the workdir",
@@ -104,6 +116,13 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
                             "worktree (without --in-place)"),
     "workspace-prepare": ("could not allocate the worktree; daemon.log has git's output",
                           "check repository and state-root permissions"),
+    # C-6.20: a tree that needs cutting again while a lock, whoever took it, stands on its registration.
+    "worktree-locked": ("the job's worktree needs cutting again and a lock stands on its registration",
+                        "run git worktree unlock on it, then submit again"),
+    # D-SH1 round 6 (C-6.6): a policy review's copy of its caller's uncommitted work.
+    "uncommitted-copy": ("the caller's uncommitted files changed while they were copied", "submit again"),
+    "uncommitted-apply": ("the caller's uncommitted changes could not be copied into the worktree",
+                          "submit again, or pass -s read-only to review the checkout in place"),
     # One session's writers (C-6.4, C-6.5, C-23.54).
     "revive-writer": ("session has a live writable job ({job_id}) and a revive is a second instance of it",
                       "wait for {job_id}, or kill it before reviving or dispatching"),
@@ -203,14 +222,30 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
                               "Read stderr_tail and exit_status in the attempt's guard-preflight.json (or run "
                               "`subfleet doctor --live`) for the app-server's own error; trust remains "
                               "unverified."),
+    # C-14.2 (D-SH1 round 8): any review on Codex, read-only included; the fix is
+    # `guard.preflight._PUBLISH_FIX`, word for word.
+    "guard-preflight-publish": ("Codex guard preflight refused the review: the never-rules guard verified, but "
+                                "Codex did not trust the review's publish hook",
+                                "Read the hooks/list answer in the attempt's guard-preflight.json: it must list "
+                                "<state root>/publish-guard/review-publish-hook once, enabled and trusted. subfleet "
+                                "doctor does not check this hook. Until it verifies, run the review on a Claude "
+                                "model (for example -m opus)."),
     "codex-guard-required": ("Writable Codex jobs require the never-rules guard",
                              "Run the guard trust preflight and supply its hooks override."),
+    "codex-publish-hook-required": ("Writable Codex reviews require the review publish hook",
+                                    "Run the guard trust preflight with the publish hook and supply its hooks override."),
+    # C-12.4, #221 review r2 P3-7: the installed hook is run once before launch.
+    "publish-hook-self-test": ("the review publish hook did not deny a gh write when it was tested before launch",
+                               "check that the hook's interpreter and the subfleet package it imports are in place "
+                               "(daemon.log names the failure), then submit again"),
     "codex-home-mismatch": ("Codex credential home does not match the lane",
                             "Resolve CODEX_HOME from this lane's original home."),
     "codex-thread-id": ("Codex resume requires a thread id", "Use the original attempt's native_session_id and lane."),
     "turn-manifest": ("turn job has no turn manifest", "the dispatcher creates turn jobs"),
     "turn-guard": ("a Codex turn needs the verified never-rules guard", None),
     "api-key-home": ("API-key home refused", "log this lane into a subscription account"),
+    "credential-env-inherited": ("lane environment credential names a variable every launch inherits",
+                                 "store the lane OAuth token under a daemon variable no launch inherits"),
     "credential-env": ("could not resolve lane environment credential",
                        "set the lane's credential variable in the daemon environment to the lane OAuth token"),
     "credential-kind": ("unsupported credential kind for provider", None),
@@ -260,8 +295,10 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     "claude-authenticate": ("claude: the credential did not authenticate",
                             "run claude setup-token while signed into the lane account, then store it "
                             "in the enrolled keychain item"),
-    "claude-org-disabled": ("claude: the organisation has disabled Claude Code subscription access for this account",
-                            "ask the account's admin to enable Claude Code access"),
+    # C-9.3: Claude Code's refusal, its causes unasserted. The line is quoted only when it
+    # is one Claude Code was recorded printing, and the fix is `claude.ORG_BLOCK_CAUSES`.
+    "claude-subscription-refused": ('claude: Claude Code refused subscription access for this account: '
+                                    '"{claude_refusal}" (error kind {error_kind})', CLAUDE_REFUSAL_CAUSES),
     "claude-account-mismatch": ("claude: the credential reference and the signed-in account do not match",
                                 "rebind the lane to the account its credential really holds (C-1.3)"),
     "claude-account-missing": ("claude: cannot determine the account for the credential",
@@ -272,15 +309,31 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
                                "token and cannot be bound to an account (C-10.6)"),
     # Lanes: holds, releases and transfers (C-9.6, C-10.4).
     "unknown-lane": ("lanes {action}: unknown lane {lane_id}", "subfleet lanes list"),
+    "hold-until-past": ("lanes hold: --until must be in the future; hold is not in force", None),
     "hold-until": ("lanes hold: --until must be an ISO 8601 instant", None),
+    # The rule a note broke (`contracts.hold_note`), never the note (review r1 of #263).
+    "hold-note": ("lanes hold: {hold_rule}", None),
     "release-limits-note": ("lanes release --limits: --note is required", None),
     "release-limits-none": ("lanes release --limits: no open provider-limit or credits closures", None),
     "release-limits-reported": ("lanes release --limits: reported clock; provider clocks cannot be released by hand",
                                 None),
+    # Tasks: an operator's hold on one task at admission (C-11.10, D-TASKHOLD1).
+    "unknown-task": ("tasks: unknown task {task}",
+                     "name a task the policy's chains route; subfleet run --help lists them"),
+    "task-hold-note": ("tasks hold: --note is required: one line of printable characters, at most 160, "
+                       "and no credential", None),
+    "task-hold-until": ("tasks hold: --until must be a later ISO 8601 instant", None),
+    "task-hold-condition": ("tasks: hold note does not match --if-note-prefix", None),
+    "tasks-target": ("tasks: choose a task or --sandbox workspace-write, never both", None),
+    "tasks-action": ("tasks: the action is list, hold or release", None),
     "transfer-lane": ("lanes transfer: name a lane", None),
     "transfer-owner": ("lanes transfer: --to must be v1 or v2", None),
     "transfer-blocked": ("lanes transfer: the lane cannot move yet; the dry run's blocker says why",
                          "subfleet lanes transfer <lane> --to v2 --dry-run shows the plan"),
+    "transfer-held": ("lanes transfer: lane {lane_id} is held (credential-refused={lane_variable}): "
+                      "it holds no credential to move",
+                      "point the lane at a daemon variable no launch inherits in lanes.json (same lane id, "
+                      "provider and account), restart the daemon, then transfer it"),
     "transfer-live": ("lanes transfer: the lane has live work",
                       "wait for its work or containment to finish, then run this again"),
     "transfer-v1-edit": ("lanes transfer: this transfer edits a v1 roster file",
@@ -306,6 +359,15 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     "login-busy": ("lane still has live work or an execution lease", None),
     "cards-target": ("cards: the only target is 'refresh'", None),
     "operations-command": ("unknown operator command", None),
+    # Retention's delete path (C-8.7, d2660).
+    "retention-delete-action": ("retention delete: action must be dry-run, apply, status or stop", None),
+    "retention-delete-dormant": ("retention delete: retention is dormant (SUBFLEET_RETENTION_DORMANT=1)", None),
+    "retention-delete-limit": ("retention delete: --limit must be a positive integer", None),
+    "retention-delete-request": ("retention delete: the request is invalid",
+                                 "check it with subfleet retention delete --request FILE --dry-run, "
+                                 "which names the field"),
+    "retention-delete-busy": ("retention delete: a request is already running",
+                              "wait for it, or stop it with subfleet retention delete --stop"),
     # Notices, pings and sessions (C-15.8, C-23.39).
     "notice-ack-fingerprints": ("notice.ack: give one fingerprint per id, or none", None),
     "notice-ack-fingerprint-type": ("notice.ack: every fingerprint is a string, as the listing gives it", None),
@@ -334,6 +396,8 @@ LESS_SPECIFIC: dict[str, tuple[tuple[str, str | None], ...]] = {
     "guard-preflight": (("Codex guard preflight refused the writable job", "rerun subfleet doctor"),),
     "unknown-job": (("unknown job", None),),
     "different-payload": (("request id already used with a different payload", None),),
+    "unknown-pinned-model": (("unknown pinned model", HANDLER_MESSAGES["unknown-pinned-model"][1]),),
+    "needs-shell": (("needs a shell: the pinned launch runs without one", HANDLER_MESSAGES["needs-shell"][1]),),
     "policy-workdir": (("these jobs write by policy, and {repository}", HANDLER_MESSAGES["policy-workdir"][1]),
                        ("these jobs write by policy, outside a committed repository",
                         HANDLER_MESSAGES["policy-workdir"][1])),
@@ -365,11 +429,23 @@ LESS_SPECIFIC: dict[str, tuple[tuple[str, str | None], ...]] = {
                          "use a lane with no managed or nonempty configuration layer"),),
     "adapter-missing": (("provider adapter has no constructor", None),),
     "enroll-bound": (("lanes enroll: the credential is already bound to a lane", "subfleet lanes list"),),
+    "hold-note": ((f"lanes hold: {HOLD_NOTE_RULE}", None),),
     "unknown-lane": (("lanes {action}: unknown lane", "subfleet lanes list"),
                      ("lanes: unknown lane", "subfleet lanes list")),
+    "transfer-held": (("lanes transfer: lane {lane_id} is held: its credential variable is one no lane "
+                       "may name, so it holds no credential to move", HANDLER_MESSAGES["transfer-held"][1]),
+                      ("lanes transfer: the lane is held: its credential variable is one no lane may name, "
+                       "so it holds no credential to move", HANDLER_MESSAGES["transfer-held"][1])),
     "unknown-provider-lane": (("unknown {provider} lane", "subfleet lanes list"),
                               ("unknown lane", "subfleet lanes list")),
     "sessions-id": (("sessions: session_id is required", None),),
+    "unknown-task": (("tasks: unknown task", HANDLER_MESSAGES["unknown-task"][1]),),
+    "claude-subscription-refused": (
+        ('claude: Claude Code refused subscription access for this account: "{claude_refusal}"',
+         CLAUDE_REFUSAL_CAUSES),
+        ("claude: Claude Code refused subscription access for this account (error kind {error_kind})",
+         CLAUDE_REFUSAL_CAUSES),
+        ("claude: Claude Code refused subscription access for this account", CLAUDE_REFUSAL_CAUSES)),
 }
 
 FALLBACK: tuple[str, None] = ("operation: request was refused", None)
@@ -383,6 +459,7 @@ _SHAPES = {
     "lane_id": re.compile(r"(?:codex|claude)-[1-9][0-9]{0,8}\Z"),
     # A policy task name; the policy file is the operator's, the value still has a shape.
     "task": re.compile(r"[a-z][a-z0-9-]{0,39}\Z"),
+    "model": re.compile(r"[a-z][a-z0-9._-]{0,79}\Z"),
 }
 
 
@@ -397,20 +474,35 @@ GUARD_REPAIRS = {
 
 
 def _choices() -> dict[str, tuple[str, ...]]:
+    from .adapters.claude import SUBSCRIPTION_REFUSAL_LINES
+    from .adapters.claude_stream import AUTH_ERROR_KINDS
     from .adapters.isolation import CODEX_LAYERS, MANAGED_ENV
+    from .launch_env import ALLOWED_NAMES, SESSION_PROBE_NAMES, TEST_SESSION_NAMES, refused_reference
     return {
         # `lanes` actions, then `sessions` actions: the daemon names them, never the caller.
         "action": ("hold", "release", "release --limits", "transfer", "retire", "unretire", "revived", "nudged"),
+        # `lanes hold --note`: the rule a note broke, each a contract text (C-9.6).
+        "hold_rule": (HOLD_NOTE_RULE, HOLD_NOTE_CREDENTIAL_RULE),
         "repository": ("this repository has no commit yet", "this directory is not a git repository"),
         "variable": MANAGED_ENV,
         "layer": CODEX_LAYERS,
         "branch": ("main", "master"),
         "provider": ("claude", "codex"),
+        "sandbox": tuple(sandbox.value for sandbox in Sandbox),
         "session_verb": ("resume", "revive"),
         "guard_kind": tuple(GUARD_REPAIRS),
         "checkout_problem": tuple(message for message, _ in CHECKOUT_REFUSALS.values()),
         "checkout_fix": tuple(fix for _, fix in CHECKOUT_REFUSALS.values()),
         "errno_name": tuple(errno.errorcode.values()),
+        # C-9.3: a Claude credential or organisation error kind, and a refusal line a
+        # recorded stream shows Claude Code printing, each matched whole, never free text.
+        "error_kind": AUTH_ERROR_KINDS,
+        "claude_refusal": SUBSCRIPTION_REFUSAL_LINES,
+        # D-ENV2: a held lane's variable, a name and never a value: each listed,
+        # session or probe name that is refused. A harness hook is not listed, so
+        # its refusal takes the next form, which names none.
+        "lane_variable": tuple(sorted(name for name in (*ALLOWED_NAMES, *TEST_SESSION_NAMES, *SESSION_PROBE_NAMES)
+                                      if refused_reference(name))),
     }
 
 
@@ -445,6 +537,44 @@ def checked(name: str, value: Any) -> bool:
     return not ids.holds_credential(value)
 
 
+def task_hold_condition_details(details: Any) -> dict[str, Any] | None:
+    """The sole structured handler detail admitted on the wire (C-11.10).
+
+    A blocking hold has the same four keys and types as a hold reply. This is
+    deliberately apart from the generic template values: no free-text value is
+    added to that vocabulary. Notes pass the hold's shape checks and its whole
+    credential scrubber; supported notes therefore stay as status shows them.
+    """
+    from . import task_holds
+    from .sessions.handoff import scrub_secrets
+
+    if type(details) is not dict or set(details) != {"task_hold"}:
+        return None
+    hold = details["task_hold"]
+    if type(hold) is not dict:
+        return None
+    field = "sandbox" if "sandbox" in hold else "task"
+    if set(hold) != {field, "until", "note", "since"}:
+        return None
+    task, until, note, since = (hold[name] for name in (field, "until", "note", "since"))
+    if field == "sandbox" and task != task_holds.SANDBOX:
+        return None
+    if (type(task) is not str or not task or not task.isprintable() or ids.holds_credential(task)
+            or type(until) is not str or (since is not None and type(since) is not str)
+            or type(note) is not str or len(note) > task_holds.NOTE_MAX or not note.isprintable()):
+        return None
+    try:
+        task_holds.instant(until)
+        if since is not None:
+            task_holds.instant(since)
+    except (ValueError, TypeError, OverflowError):
+        return None
+    clean, _ = scrub_secrets(note, strip_reminders=True, whole=True)
+    if ids.holds_credential(clean):
+        return None
+    return {"task_hold": {field: task, "until": until, "note": clean, "since": since}}
+
+
 def render(reason: Any, details: Any = None) -> tuple[str, str | None]:
     """The public message and fix for a handler refusal's reason and details."""
     if type(reason) is not str or reason not in HANDLER_MESSAGES:
@@ -458,6 +588,14 @@ def render(reason: Any, details: Any = None) -> tuple[str, str | None]:
             break
     else:                                   # unreachable while the last forms name no value
         return FALLBACK
+    if reason == "task-hold-condition":
+        checked_hold = task_hold_condition_details(details)
+        if checked_hold is not None:
+            hold = checked_hold["task_hold"]
+            target = f"sandbox {hold['sandbox']}" if "sandbox" in hold else f"task {hold['task']}"
+            message += f": {target}, until {hold['until']}, note {hold['note']!r}"
+            if hold['since'] is not None:
+                message += f", since {hold['since']}"
     if reason == "guard-preflight" and checked("guard_kind", details.get("guard_kind")):
         kind = details["guard_kind"]
         if kind == "trust":

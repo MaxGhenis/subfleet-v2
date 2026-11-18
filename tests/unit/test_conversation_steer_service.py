@@ -6,7 +6,7 @@ import pytest
 from subfleet import protocol
 from subfleet.conversations.peers import Verdict
 from subfleet.conversations.store import ConversationError
-from tests.unit.test_conversation_service import svc, conversation, submit  # noqa: F401
+from tests.unit.test_conversation_service import svc, conversation, submit, turn_attempt  # noqa: F401
 
 
 class Runner:
@@ -46,6 +46,7 @@ def live(svc):
     host = submit(svc, cid)
     svc.store.set_state(host, "running")
     runner = Runner(host, cid)
+    turn_attempt(svc, host, state="running", n=99, job_id="host")
     svc.runners[runner.attempt_id] = runner
     mid = submit(svc, cid, "steer", after=host)
     return cid, host, mid, runner
@@ -476,6 +477,7 @@ def test_evidence_gathering_never_blocks_another_conversations_colliding_stop_st
                              settings=svc.store.conversation(other)["settings"])
     svc.store.set_state(other_host, "running")
     runner = Runner(other_host, other)
+    turn_attempt(svc, other_host, state="running", n=99, job_id="host")
     svc.runners[runner.attempt_id] = runner
     svc._person = lambda peer, what: Verdict(True, "test", peer)
     replies, prompt, scans = [], [], []

@@ -1,0 +1,483 @@
+[
+  {
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_0/checkout/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_0/checkout/.git/objects",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_0/stable/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_0/stable/.git/objects"
+      ],
+      "review_root": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_0/stable"
+    },
+    "actual_unspelled": [],
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_0/checkout/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_0/checkout/.git/objects",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_0/stable/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_0/stable/.git/objects"
+      ],
+      "review_root": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_0/stable"
+    },
+    "baseline_unspelled": [],
+    "cycle": "self-suffix",
+    "dropped_unreadable": [],
+    "healthy_after": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_0/stable/.git",
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_0/stable/.git/objects"
+    ],
+    "healthy_before": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_0/stable/.git",
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_0/stable/.git/objects"
+    ],
+    "route": "control"
+  },
+  {
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_1/checkout/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_1/checkout/.git/objects",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_1/stable/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_1/stable/.git/objects"
+      ],
+      "review_root": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_1/stable"
+    },
+    "actual_unspelled": [],
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_1/checkout/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_1/checkout/.git/objects",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_1/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_1/stable/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_1/stable/.git/objects"
+      ],
+      "review_root": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_1/stable"
+    },
+    "baseline_unspelled": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_1/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail"
+    ],
+    "cycle": "self-suffix",
+    "dropped_unreadable": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_1/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail"
+    ],
+    "healthy_after": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_1/stable/.git",
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_1/stable/.git/objects"
+    ],
+    "healthy_before": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_1/stable/.git",
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_1/stable/.git/objects"
+    ],
+    "route": "scan"
+  },
+  {
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_2/checkout/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_2/checkout/.git/objects",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_2/stable/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_2/stable/.git/objects"
+      ],
+      "incomplete": [
+        {
+          "file": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_2/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+          "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_2/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail'"
+        },
+        {
+          "file": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_2/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/info/alternates",
+          "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_2/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/info/alternates'"
+        }
+      ],
+      "review_root": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_2/stable"
+    },
+    "actual_unspelled": [],
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_2/checkout/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_2/checkout/.git/objects",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_2/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_2/stable/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_2/stable/.git/objects"
+      ],
+      "incomplete": [
+        {
+          "file": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_2/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+          "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_2/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail'"
+        },
+        {
+          "file": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_2/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/info/alternates",
+          "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_2/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/info/alternates'"
+        }
+      ],
+      "review_root": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_2/stable"
+    },
+    "baseline_unspelled": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_2/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail"
+    ],
+    "cycle": "self-suffix",
+    "dropped_unreadable": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_2/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail"
+    ],
+    "healthy_after": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_2/stable/.git",
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_2/stable/.git/objects"
+    ],
+    "healthy_before": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_2/stable/.git",
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_2/stable/.git/objects"
+    ],
+    "route": "alternates"
+  },
+  {
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_3/checkout/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_3/checkout/.git/objects",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_3/stable/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_3/stable/.git/objects"
+      ],
+      "incomplete": [
+        {
+          "file": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_3/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x",
+          "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_3/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x'"
+        },
+        {
+          "file": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_3/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x/info/alternates",
+          "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_3/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x/info/alternates'"
+        }
+      ],
+      "review_root": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_3/stable"
+    },
+    "actual_unspelled": [],
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_3/checkout/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_3/checkout/.git/objects",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_3/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_3/stable/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_3/stable/.git/objects"
+      ],
+      "incomplete": [
+        {
+          "file": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_3/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x",
+          "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_3/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x'"
+        },
+        {
+          "file": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_3/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x/info/alternates",
+          "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_3/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x/info/alternates'"
+        }
+      ],
+      "review_root": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_3/stable"
+    },
+    "baseline_unspelled": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_3/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x"
+    ],
+    "cycle": "self-suffix",
+    "dropped_unreadable": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_3/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x"
+    ],
+    "healthy_after": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_3/stable/.git",
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_3/stable/.git/objects"
+    ],
+    "healthy_before": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_3/stable/.git",
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_3/stable/.git/objects"
+    ],
+    "route": "alternates-tail"
+  },
+  {
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/stable/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/stable/.git/objects"
+      ],
+      "incomplete": [
+        {
+          "file": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+          "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail'"
+        },
+        {
+          "file": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects",
+          "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects'"
+        },
+        {
+          "file": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects/info/alternates",
+          "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects/info/alternates'"
+        },
+        {
+          "file": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/commondir",
+          "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/commondir'"
+        }
+      ],
+      "review_root": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/stable"
+    },
+    "actual_unspelled": [],
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/stable/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/stable/.git/objects"
+      ],
+      "incomplete": [
+        {
+          "file": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+          "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail'"
+        },
+        {
+          "file": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects",
+          "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects'"
+        },
+        {
+          "file": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects/info/alternates",
+          "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects/info/alternates'"
+        },
+        {
+          "file": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/commondir",
+          "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/commondir'"
+        }
+      ],
+      "review_root": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/stable"
+    },
+    "baseline_unspelled": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects"
+    ],
+    "cycle": "self-suffix",
+    "dropped_unreadable": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects"
+    ],
+    "healthy_after": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/stable/.git",
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/stable/.git/objects"
+    ],
+    "healthy_before": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/stable/.git",
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_4/stable/.git/objects"
+    ],
+    "route": "gitfile"
+  },
+  {
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_5/checkout/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_5/stable/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_5/stable/.git/objects"
+      ],
+      "incomplete": [
+        {
+          "file": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+          "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail'"
+        },
+        {
+          "file": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects",
+          "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects'"
+        },
+        {
+          "file": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects/info/alternates",
+          "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects/info/alternates'"
+        }
+      ],
+      "review_root": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_5/stable"
+    },
+    "actual_unspelled": [],
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_5/checkout/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_5/stable/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_5/stable/.git/objects"
+      ],
+      "incomplete": [
+        {
+          "file": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+          "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail'"
+        },
+        {
+          "file": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects",
+          "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects'"
+        },
+        {
+          "file": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects/info/alternates",
+          "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects/info/alternates'"
+        }
+      ],
+      "review_root": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_5/stable"
+    },
+    "baseline_unspelled": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects"
+    ],
+    "cycle": "self-suffix",
+    "dropped_unreadable": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects"
+    ],
+    "healthy_after": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_5/stable/.git",
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_5/stable/.git/objects"
+    ],
+    "healthy_before": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_5/stable/.git",
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_5/stable/.git/objects"
+    ],
+    "route": "commondir"
+  },
+  {
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_6/checkout/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_6/store",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_6/stable/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_6/stable/.git/objects"
+      ],
+      "incomplete": [
+        {
+          "file": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_6/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+          "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_6/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail'"
+        },
+        {
+          "file": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_6/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/info/alternates",
+          "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_6/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/info/alternates'"
+        }
+      ],
+      "review_root": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_6/stable"
+    },
+    "actual_unspelled": [],
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_6/checkout/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_6/store",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_6/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_6/stable/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_6/stable/.git/objects"
+      ],
+      "incomplete": [
+        {
+          "file": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_6/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+          "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_6/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail'"
+        },
+        {
+          "file": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_6/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/info/alternates",
+          "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_6/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/info/alternates'"
+        }
+      ],
+      "review_root": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_6/stable"
+    },
+    "baseline_unspelled": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_6/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail"
+    ],
+    "cycle": "self-suffix",
+    "dropped_unreadable": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_6/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail"
+    ],
+    "healthy_after": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_6/stable/.git",
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_6/stable/.git/objects"
+    ],
+    "healthy_before": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_6/stable/.git",
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_6/stable/.git/objects"
+    ],
+    "route": "objects-alternates"
+  },
+  {
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_7/checkout/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_7/checkout/.git/objects",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_7/stable/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_7/stable/.git/objects"
+      ],
+      "review_root": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_7/stable"
+    },
+    "actual_unspelled": [],
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_7/checkout/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_7/checkout/.git/objects",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_7/other/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_7/stable/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_7/stable/.git/objects"
+      ],
+      "review_root": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_7/stable"
+    },
+    "baseline_unspelled": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_7/other/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail"
+    ],
+    "cycle": "two-link-suffix",
+    "dropped_unreadable": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_7/other/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail"
+    ],
+    "healthy_after": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_7/stable/.git",
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_7/stable/.git/objects"
+    ],
+    "healthy_before": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_7/stable/.git",
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_7/stable/.git/objects"
+    ],
+    "route": "scan"
+  },
+  {
+    "actual": {
+      "git": [
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_8/checkout/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_8/checkout/.git/objects",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_8/stable/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_8/stable/.git/objects"
+      ],
+      "incomplete": [
+        {
+          "file": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_8/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail",
+          "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_8/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail'"
+        },
+        {
+          "file": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_8/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/info/alternates",
+          "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_8/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/info/alternates'"
+        }
+      ],
+      "review_root": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_8/stable"
+    },
+    "actual_unspelled": [],
+    "baseline": {
+      "git": [
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_8/checkout/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_8/checkout/.git/objects",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_8/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_8/stable/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_8/stable/.git/objects"
+      ],
+      "incomplete": [
+        {
+          "file": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_8/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail",
+          "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_8/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail'"
+        },
+        {
+          "file": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_8/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/info/alternates",
+          "reason": "[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_8/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/info/alternates'"
+        }
+      ],
+      "review_root": "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_8/stable"
+    },
+    "baseline_unspelled": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_8/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail"
+    ],
+    "cycle": "two-link-suffix",
+    "dropped_unreadable": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_8/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail"
+    ],
+    "healthy_after": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_8/stable/.git",
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_8/stable/.git/objects"
+    ],
+    "healthy_before": [
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_8/stable/.git",
+      "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_route_comparison_against_8/stable/.git/objects"
+    ],
+    "route": "alternates"
+  }
+]

@@ -115,6 +115,7 @@ def test_build_launch_preserves_contract_and_captures_sent_prompt(tmp_path, sand
         MODEL, effort, prompt, GUARD_OVERRIDE,
     )
     outside_repo = ("--skip-git-repo-check",) if sandbox == Sandbox.READ_ONLY else ()
+    assert launch.notes['capability'] == ('writable' if sandbox == Sandbox.WORKSPACE_WRITE else 'commands')
     assert launch.argv[:5 + len(outside_repo)] == ("/test/bin/codex", "exec", "--json", *outside_repo, "-m", MODEL)
     assert launch.argv[launch.argv.index("--sandbox") + 1] == sandbox.value
     overrides = [launch.argv[index + 1] for index, value in enumerate(launch.argv) if value == "-c"]

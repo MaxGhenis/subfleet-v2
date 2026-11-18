@@ -1,0 +1,50 @@
+{
+  "name": "mutant-r2-post-read-identity-check-dropped",
+  "start": "2026-10-31T02:55:31.522120+00:00",
+  "load": [
+    58.47900390625,
+    64.9873046875,
+    48.1328125
+  ],
+  "args": [
+    "--mutant",
+    "r2-post-read-identity-check-dropped",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 7.192766333000236,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 8.446869624999636,
+      "failure": "tests/fake/test_retention_dependency_review_r2.py:82: in test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads\n    assert \"owner\" not in result[\"pruned\"], (recorded, result)\nE   AssertionError: ({'git': ['/private/tmp/sf-fix272r7/hold-mutant-r2-post-read-identity-check-dropped/pytest-of-maxghenis/pytest-0/test_...ternates_d0/outside/.git/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48045, 'bytes_after': 0, ...})\nE   assert 'owner' not in ['owner']"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.02590695799972309,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+      "mutated": "a6d5a7bc4918145fb61c2f423a033835904c0f8d293b85afec03fcca1965b22d"
+    }
+  ],
+  "end": "2026-10-31T02:56:07.121582+00:00",
+  "seconds": 35.59817279199979,
+  "peak_rss_mib": 116.75,
+  "exit": 1
+}

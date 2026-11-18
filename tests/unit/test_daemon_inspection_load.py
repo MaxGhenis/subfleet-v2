@@ -114,6 +114,10 @@ def daemon(tmp_path, monkeypatch):
         startup.setattr(procs, "guardian_disclaim_allowed", lambda: False)
         core = Daemon(tmp_path / "state", inspect_interval_s=30)
     procs.forget_boot_id()      # C-5.12's cache; conftest also clears it per test
+    def refuse_signal(*args, **kwargs):
+        pytest.fail("inspection-only fixtures must not signal a process")
+    monkeypatch.setattr(procs, "signal_group", refuse_signal)
+    monkeypatch.setattr(procs, "signal_process", refuse_signal)
     home = tmp_path / "home"
     core.store.put_lane(Lane("codex-1", "codex", "codex:test", Credential("codex", str(home), "home"),
                              str(home), LaneOwner.V2, False))
@@ -123,7 +127,7 @@ def daemon(tmp_path, monkeypatch):
     core.store.add_attempt(attempt_id=ATTEMPT, job_id=JOB, seq=1, lane_id="codex-1",
                            model_requested="astra", state="running", guardian_pid=GUARDIAN,
                            child_pid=CHILD, pgid=PGID, boot_id=BOOT, proc_start=STARTED,
-                           started_at="2026-09-24T11:46:51Z", evidence_json="{}")
+                           started_at=daemon_module.utcnow(), evidence_json="{}")
     yield core
     core.close()
 
@@ -415,7 +419,7 @@ def test_paced_inspection_still_reads_the_receipt_every_tick(daemon, monkeypatch
     adir = daemon_module.attempt_dir(daemon.root, JOB, 1)
     adir.mkdir(parents=True, exist_ok=True)
     (adir / "exit.json").write_text(json.dumps({"rc": 0, "signal": None, "child_pid": CHILD,
-                                                "finished_at": "2026-09-24T11:50:00Z"}))
+                                                "finished_at": daemon_module.utcnow()}))
     daemon._process_attempt(ATTEMPT)
     assert daemon.store.get_attempt(ATTEMPT)["state"] == "finalizing"
 

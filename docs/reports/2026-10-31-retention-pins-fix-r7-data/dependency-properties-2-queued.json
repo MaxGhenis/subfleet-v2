@@ -1,0 +1,8 @@
+{
+  "queued": "2026-10-31T04:22:08.735762+00:00",
+  "args": [
+    "tests/unit/test_retention_dependency_properties.py",
+    "-k",
+    "live_dependents_are_monotone"
+  ]
+}

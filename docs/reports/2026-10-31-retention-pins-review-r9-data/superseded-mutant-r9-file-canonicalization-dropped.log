@@ -1,0 +1,14 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 09:17:43Z slot A load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____ test_firmlink_metadata_location_keeps_the_tree_real_git_reads[gitfile] ____
+tests/fake/test_retention_dependency_review_r9.py:80: in test_firmlink_metadata_location_keeps_the_tree_real_git_reads
+    assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)
+E   AssertionError: ({'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-r9-file-canonicalization-dropped/pytest-of-maxghenis/pytest-0/test_f...ytes_before': 48840, 'bytes_after': 0, ...}, b'fatal: not a git repository (or any of the parent directories): .git
+E     ')
+E   assert ('owner' not in ['owner'])
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[gitfile]
+1 failed in 12.46s
+{"name": "mutant-r9-file-canonicalization-dropped", "start": "2026-10-31T09:17:47.970497+00:00", "load": [30.97216796875, 33.95263671875, 41.115234375], "seconds": 14.425229665997904, "exit": 1}

@@ -1,0 +1,9 @@
+{
+  "queued": "2026-10-31T07:23:09.097423+00:00",
+  "args": [
+    "tests/fake/test_retention_dependency_review_r1.py",
+    "tests/fake/test_retention_dependency_incomplete.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/real-tmp/regressions-r1",
+  "linked": false
+}

@@ -1,0 +1,13 @@
+{
+  "pre_cleanup_du": [
+    "529928\t/private/tmp/sf-r272r4",
+    "78056\t/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261029-222604-pr272-review-r4-a2-ou5qyy5f/sf-r272r4"
+  ],
+  "combined_kib": 607984,
+  "combined_mib": 593.734375,
+  "all_test_and_batch_sessions_completed": true,
+  "guard": "assert \"/sf-\" in p; shutil.rmtree(p, ignore_errors=True)",
+  "completed_utc": "2026-10-30T03:35:19.119115+00:00",
+  "roots_absent": true,
+  "workspace_generated_artifacts_absent": true
+}

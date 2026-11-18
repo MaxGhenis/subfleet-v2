@@ -16,8 +16,10 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import asdict
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
+import unicodedata
 
 from hypothesis import HealthCheck, given, settings, strategies as st
 import pytest
@@ -395,6 +397,9 @@ class Store:
     def get_attempt(self, attempt_id):
         return dict(self.row)
 
+    def get_job(self, job_id):
+        return None  # These census-only fixtures have no allocated worktree.
+
 
 def core_for(row) -> SimpleNamespace:
     return SimpleNamespace(root=Path("/fixture/state"), store=Store(row), _read_json=lambda path: None)
@@ -553,3 +558,153 @@ def test_d_cen1_a_proven_other_boot_excludes_an_unknown_sequence_root(monkeypatc
                                recorded_identities={42: procs.ProcessIdentity(42, BOOT_B, START)},
                                responsible_root=procs.ResponsibleRoot(42, BOOT_B, None))
     assert not result.responsible_pids and result.verified_empty
+
+
+# Every root (PR #177 on D-CEN1) -----------------------------------------------
+# The census compares the root and the attempt id as `os.fsencode` gives them, byte
+# for byte (`marker_strings`, `procargs_marked`), so a root that is not printable
+# ASCII, ends in a space, is NFD or is long matches like any other. Before D-CEN1
+# the census read `ps -axEww`, which prints such a root in vis(3) notation, and
+# matched it as written (PR #177's report).
+
+def nul_free(raw: bytes) -> bytes:
+    return raw.replace(b"\0", b"")
+
+
+#: PR #177's seven roots (tests/process/test_census_root_bytes_process.py runs them
+#: against the real kernel), an NFD root, and one over 1,000 bytes.
+NAMED_ROOTS = {
+    "the report's": "/tmp/subfleet-José-root",
+    "newline and tab": "/tmp/subfleet-a\nb\tc-root",
+    "no-break space": "/tmp/subfleet-\u00a0-root",
+    "backslash and space": "/tmp/subfleet a\\b-root",
+    "ends in a space": "/tmp/subfleet-root ",
+    "control and DEL": "/tmp/subfleet-\x01\x7f-root",
+    "not UTF-8": os.fsdecode(b"/tmp/subfleet-\xff\xfe-root"),
+    "NFD": unicodedata.normalize("NFD", "/tmp/subfleet-José-root"),
+    "over 1,000 bytes": "/tmp/subfleet-" + "é" * 600 + "-root ",
+}
+ROOT_TEXT = st.text(st.characters(codec="utf-8", exclude_characters="\0"), min_size=1, max_size=300)
+root_bytes = st.one_of(
+    st.sampled_from([os.fsencode(root) for root in NAMED_ROOTS.values()]),
+    st.binary(min_size=1, max_size=1500).map(nul_free).filter(bool),
+    ROOT_TEXT.map(lambda text: unicodedata.normalize("NFD", text).encode()),
+    st.tuples(st.binary(min_size=1, max_size=200).map(nul_free).filter(bool),
+              st.integers(min_value=1, max_value=3)).map(lambda pair: pair[0] + b" " * pair[1]),
+)
+#: Ids `marker_strings` accepts: no NUL, no whitespace, not empty. Real ids are ASCII
+#: (a timestamp, a slug, `probe:` and hex); `jéb/a1` is not (review r1 finding 8).
+attempt_ids = st.one_of(
+    st.sampled_from(["20991231-235959-build-ab12/a1", "jéb/a1", "probe:0f3a9c", os.fsdecode(b"j\xffb/a1")]),
+    st.binary(min_size=1, max_size=60).map(lambda raw: os.fsdecode(nul_free(raw)))
+    .filter(lambda attempt: attempt and not any(char.isspace() for char in attempt)),
+)
+
+
+def other_roots(raw: bytes) -> list[bytes]:
+    """Roots that are not `raw` but come close: one byte longer or shorter, with its
+    trailing spaces stripped, NFC where it is NFD, and ASCII-replaced."""
+    text = os.fsdecode(raw)
+    near = [raw + b"x", raw[:-1], raw.rstrip(b" "), raw + b" ", b" " + raw,
+            os.fsencode(unicodedata.normalize("NFC", text)), text.encode("ascii", "replace")]
+    return [other for other in near if other and other != raw and b"\0" not in other]
+
+
+@pytest.mark.parametrize("root", NAMED_ROOTS.values(), ids=NAMED_ROOTS.keys())
+def test_every_root_marker_is_the_roots_own_bytes(root):
+    """The census looks for `SUBFLEET_ROOT=` and the root's `os.fsencode` bytes, as
+    `subprocess` and `spawn_disclaimed` write them into a child's environment: no
+    notation, no strip, no normalisation."""
+    attempt, marker = procs.marker_strings("jéb/a1", root)
+    assert attempt == b"SUBFLEET_ATTEMPT=j\xc3\xa9b/a1"
+    assert marker == b"SUBFLEET_ROOT=" + os.fsencode(root)
+
+
+@PROPERTY
+@given(raw=root_bytes, attempt=attempt_ids,
+       others=st.lists(st.binary(max_size=24).map(nul_free), max_size=6),
+       root_at=st.integers(min_value=0, max_value=6), attempt_at=st.integers(min_value=0, max_value=6),
+       carries=st.sampled_from(["both", "attempt only", "root only", "another root", "neither"]),
+       pick=st.integers(min_value=0, max_value=6), in_argv=st.booleans())
+def test_every_root_is_matched_exactly_when_both_whole_strings_are_there(raw, attempt, others, root_at,
+                                                                           attempt_at, carries, pick, in_argv):
+    """Invariant 1, the parse: for any root bytes without a NUL (non-ASCII, trailing
+    spaces, NFD, up to 1,500 bytes), any attempt id `marker_strings` accepts (one
+    non-ASCII), and wherever the variables fall among others, in the environment or
+    in argv, `procargs_marked` holds exactly when both whole strings are present. A
+    near-miss root (one byte longer or shorter, stripped, NFC, ASCII-replaced) is
+    another root."""
+    root = os.fsdecode(raw)
+    attempt_mark, root_mark = procs.marker_strings(attempt, root)
+    assert root_mark == b"SUBFLEET_ROOT=" + raw
+    strings = list(others)
+    near = other_roots(raw)
+    if carries in ("both", "root only"):
+        strings.insert(root_at % (len(strings) + 1), root_mark)
+    if carries == "another root" and near:
+        strings.insert(root_at % (len(strings) + 1), b"SUBFLEET_ROOT=" + near[pick % len(near)])
+    if carries in ("both", "attempt only", "another root"):
+        strings.insert(attempt_at % (len(strings) + 1), attempt_mark)
+    argv, env = ([b"python", *strings], []) if in_argv else ([b"python"], strings)
+    found = procs.procargs_marked(procargs(argv, env), attempt_mark, root_mark)
+    assert found == (attempt_mark in strings and root_mark in strings)
+    assert found == (carries == "both" or (attempt_mark in others and root_mark in strings)
+                     or (root_mark in others and attempt_mark in strings))
+
+
+@PROPERTY
+@given(raw=root_bytes, attempt=attempt_ids, position=st.sampled_from(["first", "middle", "last"]),
+       pick=st.integers(min_value=0, max_value=6))
+def test_every_root_census_counts_its_marked_process_and_not_another_roots(monkeypatch, raw, attempt, position,
+                                                                             pick):
+    """Invariant 1, the census: through `FakeKernel`, `containment` puts the process that
+    carries both markers in `marker_pids`, wherever `SUBFLEET_ROOT` falls, and not a
+    process that carries the same attempt id under a near-miss root."""
+    root = os.fsdecode(raw)
+    attempt_mark, root_mark = procs.marker_strings(attempt, root)
+    env = [b"PATH=/usr/bin:/bin", attempt_mark, b"HOME=/Users/x"]
+    env.insert({"first": 0, "middle": 2, "last": 3}[position], root_mark)
+    processes = {96: procargs([b"python"], env)}
+    near = other_roots(raw)
+    if near:
+        processes[97] = procargs([b"python"], [attempt_mark, b"SUBFLEET_ROOT=" + near[pick % len(near)]])
+    census(monkeypatch, parents=ROWS, session=BOOT_A)
+    kernel_with(monkeypatch, processes=processes)
+    result = procs.containment(None, None, None, attempt, root=root)
+    assert result.marker_pids == {96}, result.errors
+    assert not result.verified_empty and result.errors == ()
+
+
+UNHOLDABLE = {
+    "a NUL in the root": ("job/a1", "/tmp/subfleet-a\x00b"),
+    "a lone surrogate in the root": ("job/a1", "/tmp/subfleet-\ud800"),
+    "a low surrogate below U+DC80 in the root": ("job/a1", "/tmp/subfleet-\udc7f"),
+    "a NUL in the attempt id": ("job\x00/a1", "/tmp/subfleet-root"),
+    "a lone surrogate in the attempt id": ("job\ud800/a1", "/tmp/subfleet-root"),
+}
+
+
+@pytest.mark.parametrize("attempt,root", UNHOLDABLE.values(), ids=UNHOLDABLE.keys())
+def test_a_root_or_id_no_environment_can_hold_leaves_the_census_unverifiable(monkeypatch, attempt, root):
+    """Invariant 2: a root or attempt id holding a NUL, or one `os.fsencode` cannot
+    encode (a surrogate outside U+DC80 to U+DCFF, which surrogateescape turns into
+    bytes), is carried by no process. `marker_strings` refuses it and the census is
+    unverifiable, "marker enumeration unavailable", never verified empty."""
+    with pytest.raises(ValueError):
+        procs.marker_strings(attempt, root)
+    census(monkeypatch, parents=ROWS, session=BOOT_A)
+    kernel_with(monkeypatch, processes={96: marked()})
+    result = procs.containment(None, None, None, attempt, root=root)
+    assert result.unverifiable and not result.verified_empty
+    assert "marker enumeration unavailable" in result.errors
+
+
+@pytest.mark.parametrize("raw", [b"/tmp/subfleet-\x80", b"/tmp/subfleet-\xff\xfe-root"])
+def test_an_escaped_byte_is_a_holdable_root(monkeypatch, raw):
+    """A surrogate in U+DC80 to U+DCFF is one undecodable byte (`os.fsdecode`), so such
+    a root is holdable and matched as its bytes."""
+    root = os.fsdecode(raw)
+    assert any(0xDC80 <= ord(char) <= 0xDCFF for char in root)
+    census(monkeypatch, parents=ROWS, session=BOOT_A)
+    kernel_with(monkeypatch, processes={96: procargs([b"python"], [MARK, b"SUBFLEET_ROOT=" + raw])})
+    assert procs.containment(None, None, None, ATTEMPT, root=root).marker_pids == {96}

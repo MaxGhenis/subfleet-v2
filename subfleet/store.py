@@ -40,7 +40,27 @@ from typing import Any
 from .contracts import Closure, Credential, Decision, IdentityStatus, Lane, LaneOwner, Reading
 from .lockwatch import WatchedLock, thread_name
 
-SCHEMA_VERSION = 7
+SHELL_REQUIREMENT_MIGRATION = 8
+LAUNCH_CAPABILITY_MIGRATION = 9
+PROVIDER_QOS_MIGRATION = 10
+SCHEMA_VERSION = PROVIDER_QOS_MIGRATION
+#: C-12.4: jobs whose attempts in the last 24 h had no shell or no writes. A
+#: range on `reserved_at`, which `attempts_reserved` indexes, in the stored
+#: spelling (`restricted_window`): `julianday(reserved_at)` could use no index and
+#: scanned every attempt (#221 review r1b, P3-9).
+RESTRICTED_RUNS_SQL = (
+    "SELECT DISTINCT job_id FROM attempts WHERE reserved_at >= ? AND reserved_at <= ? "
+    "AND capability IN ('none','commands') ORDER BY job_id"
+)
+
+
+def restricted_window(now: datetime | str) -> tuple[str, str]:
+    """`RESTRICTED_RUNS_SQL`'s bounds: 24 h back from `now`, spelled as the daemon
+    stores `reserved_at` (`2026-10-18T21:00:00Z`)."""
+    at = (datetime.fromisoformat(now.replace("Z", "+00:00")) if isinstance(now, str) else now)
+    at = at.astimezone(timezone.utc)
+    spell = lambda moment: moment.isoformat(timespec="seconds").replace("+00:00", "Z")  # noqa: E731
+    return spell(at - timedelta(days=1)), spell(at)
 #: C-9.6: closure reasons that each keep a row of their own (`Store.put_closure`).
 HOLD_REASONS = ("operator-hold", "auth-dead")
 Row = dict[str, Any]
@@ -95,7 +115,42 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
     6: ("ALTER TABLE jobs ADD COLUMN mcp_servers TEXT NOT NULL DEFAULT '[]'",),
     7: tuple(f"ALTER TABLE jobs ADD COLUMN {column} TEXT" for column in
              ("push_branch", "push_remote", "push_default_branch", "push_sha", "push_error")),
+    SHELL_REQUIREMENT_MIGRATION: (
+        "ALTER TABLE jobs ADD COLUMN needs_shell INTEGER NOT NULL DEFAULT 0 CHECK (needs_shell IN (0,1))",
+        "ALTER TABLE attempts ADD COLUMN has_shell INTEGER CHECK (has_shell IN (0,1))",
+    ),
+    LAUNCH_CAPABILITY_MIGRATION: (
+        "ALTER TABLE attempts ADD COLUMN capability TEXT CHECK (capability IN ('none','commands','writable'))",
+        "ALTER TABLE attempts ADD COLUMN publish_denied INTEGER CHECK (publish_denied IN (0,1))",
+    ),
+    # C-5.1, D-QOS-BOOKED1: the provider QoS a job requested (`run --qos`); an older job
+    # requested none, which is `utility`, the clamp.
+    PROVIDER_QOS_MIGRATION: (
+        "ALTER TABLE jobs ADD COLUMN provider_qos TEXT "
+        "CHECK (provider_qos IS NULL OR provider_qos IN ('utility','default'))",
+    ),
 }
+
+
+def shell_flags(row: Mapping[str, Any]) -> Row:
+    """Boolean launch fields for domain records, never arbitrary SQL results."""
+    value = dict(row)
+    for key in ("needs_shell", "has_shell", "publish_denied"):
+        if key in value and value[key] is not None:
+            value[key] = bool(value[key])
+    return value
+
+
+def job_flags(row: Mapping[str, Any]) -> Row:
+    """A job's domain record: `shell_flags`, and the provider QoS the job requested
+    (C-5.1, D-QOS-BOOKED1). NULL, which every job from before the column has, is
+    `utility`, the clamp; so is a missing column, as a read-only Store reads a schema-9
+    file it may not migrate (#277 review r1, P2). Attempt rows take `shell_flags` alone,
+    so they gain no job field; raw SQL still reads NULL."""
+    value = shell_flags(row)
+    if value.get("provider_qos") is None:
+        value["provider_qos"] = "utility"
+    return value
 
 
 def utc_now() -> str:
@@ -106,7 +161,15 @@ def _json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
-def _pin_notice_key(data_json: str | None) -> tuple | None:
+def cancel_info(at: str, data_json: str) -> dict[str, Any]:
+    """D-KILL1: display attribution without implying a client stated session is verified."""
+    data = {"at": at, **json.loads(data_json)}
+    if data.get("by") == "client":
+        data.update(session_id_source="client-stated", pid_source="socket-peer-audit-token")
+    return data
+
+
+def _pin_notice_key(data_json: str | None, *, include_outcome_digest: bool = False) -> tuple | None:
     """C-11.8: (id, session, creation time) of the service notice a `job.pin_noticed` event names."""
     try:
         data = json.loads(data_json or "{}")
@@ -114,22 +177,68 @@ def _pin_notice_key(data_json: str | None) -> tuple | None:
         return None
     if not isinstance(data, dict) or not isinstance(data.get("service_notice_id"), int):
         return None
-    return data["service_notice_id"], data.get("session_id"), data.get("created_at")
+    key = data["service_notice_id"], data.get("session_id"), data.get("created_at")
+    return (*key, data.get("outcome_sha256")) if include_outcome_digest else key
 
 
-#: C-11.8: the expression `events_pin_notice` indexes, character for character.
+#: C-11.8: the expression `events_pin_notice` (and `events_notice_retired`) indexes,
+#: character for character.
 PIN_NOTICE_ID = "(CASE WHEN json_valid(data_json) THEN json_extract(data_json,'$.service_notice_id') END)"
+
+#: The events that name a service notice about a job, each kind with its own
+#: partial index on `PIN_NOTICE_ID`: a pin's notice (C-11.8, `events_pin_notice`)
+#: and the outcome of a job retention retired with its notice unread (C-8.4,
+#: `retention_notices`, `events_notice_retired`).
+NOTICE_EVENT_KINDS = ("job.pin_noticed", "retention.notice_retired")
+
+
+def batch_submission_rows(query: Callable[[str, Sequence[Any]], Iterable[Any]],
+                          job_ids: Sequence[str]) -> list[Any]:
+    """Batch-bearing first submissions, bounded by jobs rather than their history.
+
+    Submit inserts each job and its submission atomically. Repeated submissions
+    (a fabricated history, or an archived id reused after clock rollback) use
+    the first identity, as dependencies and ``Daemon._submitted`` already do.
+    Keep the old literal batch filter here and leave JSON parsing and label
+    validation to each caller.
+    """
+    ids = sorted(set(job_ids))
+    found = []
+    for start in range(0, len(ids), 500):
+        chunk = ids[start:start + 500]
+        # The scalar lookup stops at the first submission in events_job order.
+        # Filtering the payload afterwards also stops a batch-less submission
+        # from walking the job's later events. +kind avoids events_kind's walk
+        # of all submissions. VALUES handles unknown ids without a jobs row.
+        found.extend(query(
+            "WITH wanted(job_id) AS (VALUES " + ",".join("(?)" for _ in chunk) + ") "
+            "SELECT e.job_id,e.data_json FROM wanted JOIN events e ON e.event_id=("
+            "SELECT first.event_id FROM events first WHERE first.job_id=wanted.job_id "
+            "AND +first.kind='job.submitted' ORDER BY first.event_id LIMIT 1) "
+            "WHERE e.data_json LIKE '%\"batch\"%'", chunk))
+    return found
 
 
 def pin_notice_jobs(query: Callable[[str, Sequence[Any]], Iterable[Any]],
-                    rows: Iterable[Mapping[str, Any]]) -> dict[int, str]:
+                    rows: Iterable[Mapping[str, Any]], *,
+                    kinds: Sequence[str] = NOTICE_EVENT_KINDS) -> dict[int, str]:
     """C-11.8, C-15.2: service notice id -> the job a pin's notice is about, from its
-    `job.pin_noticed` event. `rows` are service notice rows with their stored
+    `job.pin_noticed` event, or the job an outcome notice reports (C-8.4: retention
+    retired it with its notice unread), from its `retention.notice_retired` event;
+    `kinds` limits which. `rows` are service notice rows with their stored
     (positive) ids. A row matches its event by id, session and creation time
     together: a service notice's id is reused once the row with the highest id is
     deleted (it has no AUTOINCREMENT), and a ping, a nudge or an alert that gets an
-    old pin notice's id names none."""
-    wanted = {(row["notice_id"], row["session_id"], row["created_at"]): row["notice_id"] for row in rows}
+    old pin notice's id names none. A retirement event additionally requires the
+    outcome's full text digest, for every caller; events without one name no
+    row. Only rows matching a retirement event on the first three fields are
+    hashed, lazily and at most once per row. Pin events retain their three-field
+    identity, without hashing text."""
+    wanted = {}
+    for row in rows:
+        key = row["notice_id"], row["session_id"], row["created_at"]
+        wanted[key] = row
+    digests: dict[tuple, str] = {}
     found: dict[int, str] = {}
     ids = sorted({key[0] for key in wanted})
     # Exactly the events that name one of these notices, newest first, with no
@@ -138,19 +247,39 @@ def pin_notice_jobs(query: Callable[[str, Sequence[Any]], Iterable[Any]],
     # notice's event out of the newest 1,000 and left that notice unnamed. The
     # CASE keeps json_extract off a payload json_valid refuses, since SQLite does
     # not promise to test WHERE terms in written order. Such a row names no notice:
-    # a pin record holds strings, ints and lists of strings, never a float, so it
-    # is never a NaN or Infinity payload that json.loads would read and json_valid
-    # refuse. No ORDER BY: it would steer the planner to `events_kind`, which
-    # walks every pin event; the few matches are ordered here, newest first.
+    # a pin record holds strings, ints and lists of strings, never a float, and an
+    # outcome record's one float is finite or null, so neither is a NaN or Infinity
+    # payload that json.loads would read and json_valid refuse. No ORDER BY: it
+    # would steer the planner to `events_kind`, which walks every pin event; the
+    # few matches are ordered here, newest first. Each kind is named as a
+    # literal, so the planner can match its partial index.
     events = []
-    for start in range(0, len(ids), 500):
-        chunk = ids[start:start + 500]
-        events += query("SELECT event_id,job_id,data_json FROM events WHERE kind='job.pin_noticed' AND "
-                        f"{PIN_NOTICE_ID} IN ({','.join('?' * len(chunk))})", chunk)
+    for kind in kinds:
+        if kind not in NOTICE_EVENT_KINDS:
+            raise ValueError(f"not an event that names a service notice: {kind!r}")
+        for start in range(0, len(ids), 500):
+            chunk = ids[start:start + 500]
+            events += query(f"SELECT event_id,kind,job_id,data_json FROM events WHERE kind='{kind}' AND "
+                            f"{PIN_NOTICE_ID} IN ({','.join('?' * len(chunk))})", chunk)
     for event in sorted(events, key=lambda event: event["event_id"], reverse=True):
-        key = _pin_notice_key(event["data_json"])
-        if key in wanted and event["job_id"]:
-            found.setdefault(wanted[key], event["job_id"])
+        retired = event["kind"] == "retention.notice_retired"
+        key = _pin_notice_key(event["data_json"], include_outcome_digest=retired)
+        if key is None or not event["job_id"]:
+            continue
+        identity = key[:3]
+        if identity not in wanted:
+            continue
+        row = wanted[identity]
+        if row["notice_id"] in found:
+            continue
+        if retired:
+            if not key[3]:
+                continue
+            if identity not in digests:
+                digests[identity] = hashlib.sha256(str(row["text"]).encode("utf-8", "surrogatepass")).hexdigest()
+            if key[3] != digests[identity]:
+                continue
+        found[row["notice_id"]] = event["job_id"]
     return found
 
 
@@ -245,6 +374,12 @@ class Store:
         # held it, for how long, and what they were doing.
         self._lock = WatchedLock("store")
         self._depth = 0
+        # C-3.2: each open transaction's audit event, innermost last (`audit_as`).
+        self._audits: list[list] = []
+        # D-ADMIT-IDLE1: connection-local mutation notices, published only after
+        # the outer transaction commits. No persistent schema or polling read.
+        self._admission_watch: Callable[[str], None] | None = None
+        self._admission_pending: set[str] = set()
         # Bumped by every committed top-level transaction that changed a row.
         # A reader compares it without taking `_lock` (an int read is atomic)
         # to learn whether anything it derived from the store can have changed.
@@ -324,9 +459,16 @@ class Store:
                     _alter, _table_kw, table, _add, _column_kw, column, *_rest = statement.split()
                     present = {row[1] for row in
                                self.connection.execute(f'PRAGMA table_info("{table}")')}
-                    if column in present:
+                    # The schema file creates any table absent from an old store.
+                    if not present or column in present:
                         continue
                 self.connection.execute(statement)
+            if step == LAUNCH_CAPABILITY_MIGRATION and self.connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='attempts'").fetchone():
+                self.connection.execute(
+                    "UPDATE attempts SET capability=CASE WHEN has_shell=0 THEN 'none' "
+                    "WHEN has_shell=1 AND (SELECT sandbox FROM jobs WHERE jobs.job_id=attempts.job_id)="
+                    "'workspace-write' THEN 'writable' WHEN has_shell=1 THEN 'commands' ELSE NULL END")
             self.connection.execute("INSERT INTO schema_version VALUES (?,?)", (step, utc_now()))
             self.connection.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
                                     (utc_now(), "schema.migrated", _json({"version": step})))
@@ -334,6 +476,40 @@ class Store:
     @property
     def conn(self) -> sqlite3.Connection:
         return self.connection
+
+    def watch_admission(self, callback: Callable[[str], None]) -> None:
+        """Wake admission for committed queue/capacity changes on this writer.
+
+        Daemon and timer workers sometimes mutate rows through raw transaction
+        SQL, so method-specific hooks miss changes. TEMP triggers belong only
+        to this connection and collect categories; a rollback restores the set
+        alongside its savepoint. A callback must only update in-memory state.
+        """
+        with self._lock:
+            self._admission_watch = callback
+            self.connection.create_function(
+                "subfleet_admission_changed", 1, self._admission_pending.add)
+            triggers = [
+                ("jobs_insert", "INSERT", "jobs", "NEW.state IN ('queued','waiting')", "jobs"),
+                ("jobs_update", "UPDATE", "jobs",
+                 "NEW.state IN ('queued','waiting') AND ("
+                 "OLD.state NOT IN ('queued','waiting') OR "
+                 "(NEW.state='queued' AND OLD.state!='queued') OR "
+                 "(OLD.wait_reason='task-held' AND NEW.wait_reason IS NOT 'task-held'))", "jobs"),
+                ("leases_delete", "DELETE", "leases", "1", "lease"),
+            ]
+            for table, category, columns in (
+                    ("closures", "closure", ("lane_id", "scope", "until_at", "reason", "clock_source",
+                                              "source_event", "released_at")),
+                    ("lanes", "lane", tuple(sorted(self._columns["lanes"] - {"created_at", "updated_at"})))):
+                changed = " OR ".join(f"OLD.{column} IS NOT NEW.{column}" for column in columns)
+                for operation in ("INSERT", "DELETE", "UPDATE"):
+                    triggers.append((f"{table}_{operation.lower()}", operation, table,
+                                     changed if operation == "UPDATE" else "1", category))
+            for name, operation, table, condition, category in triggers:
+                self.connection.execute(
+                    f"CREATE TEMP TRIGGER IF NOT EXISTS admission_{name} AFTER {operation} ON main.{table} "
+                    f"WHEN {condition} BEGIN SELECT subfleet_admission_changed('{category}'); END")
 
     @contextmanager
     def transaction(self, kind: str = "state.changed", *, job_id: str | None = None,
@@ -352,20 +528,29 @@ class Store:
                 "snapshot")
         with self._lock:
             depth = self._depth
+            pending_before = self._admission_pending.copy()
+            notices: tuple[str, ...] = ()
             savepoint = f"store_{depth}"
             self.connection.execute("BEGIN IMMEDIATE" if depth == 0 else f"SAVEPOINT {savepoint}")
             self._depth += 1
             before = self.connection.total_changes
+            audit = [kind, data]
+            self._audits.append(audit)
             try:
                 yield self.connection
-                if self.connection.total_changes != before:
+                if self.connection.total_changes != before and audit[0] is not None:
                     self.connection.execute(
                         "INSERT INTO events(ts,kind,job_id,attempt_id,lane_id,data_json) VALUES (?,?,?,?,?,?)",
-                        (utc_now(), kind, job_id, attempt_id, lane_id, _json(data or {})))
+                        (utc_now(), audit[0], job_id, attempt_id, lane_id, _json(audit[1] or {})))
                 self.connection.execute("COMMIT" if depth == 0 else f"RELEASE SAVEPOINT {savepoint}")
                 if depth == 0 and self.connection.total_changes != before:
                     self.generation += 1
+                if depth == 0:
+                    notices = tuple(sorted(self._admission_pending))
+                    self._admission_pending.clear()
             except BaseException:
+                self._admission_pending.clear()
+                self._admission_pending.update(pending_before)
                 if depth == 0:
                     self.connection.rollback()
                 else:
@@ -373,7 +558,23 @@ class Store:
                     self.connection.execute(f"RELEASE SAVEPOINT {savepoint}")
                 raise
             finally:
+                self._audits.pop()
                 self._depth -= 1
+        if self._admission_watch is not None:
+            for category in notices:
+                self._admission_watch(category)
+
+    def audit_as(self, kind: str | None, data: Mapping[str, Any] | None = None) -> None:
+        """C-3.2: the audit event of the innermost transaction open on this thread is `kind`
+        with `data`, for a transaction that learns inside itself what it did; with `kind`
+        None it writes none, its block having recorded its own events. C-11.10 (review r3
+        of #260, R3-1): an admission write that finds the task held becomes that hold's take,
+        so it records `job.task_held`, and an episode that opens behind a hold records its
+        own `job.pin_unadmittable` before the take that pauses it."""
+        with self._lock:
+            if not self._audits:
+                raise RuntimeError("audit_as: no transaction is open on this thread")
+            self._audits[-1][:] = [kind, data]
 
     def query(self, sql: str, params: Sequence[Any] = ()) -> list[Row]:
         if self._reads_elsewhere():
@@ -598,17 +799,21 @@ class Store:
         finally:
             self._checkin(conn, pooled, "snapshot")
 
-    def close(self) -> None:
+    def close(self, *, deadline: float | None = None) -> None:
         """Close the writer, then each read connection once no read is using it.
 
         C-3.7: a read already in progress when the store closes finishes on its
         connection; one still going after `CLOSE_WAIT_S` closes that connection
-        itself when it ends. A read that starts after `close` is refused."""
+        itself when it ends. A read that starts after `close` is refused.
+        A daemon drain supplies its earlier deadline to overlap this wait with
+        its pool drains; active reads still close their own connections safely.
+        """
         with self._lock:
             self._closed = True
             self.connection.close()
         with self._readers_lock:
-            self._returned.wait_for(lambda: not self._in_use, timeout=CLOSE_WAIT_S)
+            remaining = CLOSE_WAIT_S if deadline is None else min(CLOSE_WAIT_S, max(0.0, deadline - time.monotonic()))
+            self._returned.wait_for(lambda: not self._in_use, timeout=remaining)
             idle = []
             while True:
                 try:
@@ -708,6 +913,27 @@ class Store:
                 raise ValueError("a mismatched lane is released only by re-enrolment")
         self._update("lanes", "lane_id", lane_id, {**values, "updated_at": utc_now()})
 
+    def repair_lane_reference(self, lane_id: str, old: str, new: str) -> int:
+        """D-ENV1 (review r4, P2-1): point a held env-kind lane at the variable lanes.json names.
+
+        The one change to a binding outside re-enrolment (C-1.3). The stored
+        variable is one every launch inherits, so the lane never held a
+        credential this release could resolve; its id, provider and account stay
+        and its credential epoch moves on. The caller (`credentials.reference_repair`)
+        decides that it may; this changes the row only while it still names `old`.
+        Returns the new epoch, or 0 when nothing changed.
+        """
+        with self.transaction("lane.reference_repaired", lane_id=lane_id) as conn:
+            row = self.one("SELECT credential_epoch FROM lanes WHERE lane_id=? AND credential_kind='env' "
+                           "AND credential_ref=?", (lane_id, old))
+            if row is None:
+                return 0
+            epoch = int(row["credential_epoch"]) + 1
+            self.add_event("lane.reference_repaired", lane_id=lane_id, data={"from": old, "to": new, "epoch": epoch})
+            conn.execute("UPDATE lanes SET credential_ref=?, credential_epoch=?, updated_at=? WHERE lane_id=? "
+                         "AND credential_kind='env' AND credential_ref=?", (new, epoch, utc_now(), lane_id, old))
+        return epoch
+
     def get_lane(self, lane_id: str) -> Lane | None:
         row = self.one("SELECT * FROM lanes WHERE lane_id=?", (lane_id,))
         return self.lane_from_row(row) if row else None
@@ -724,10 +950,12 @@ class Store:
         return data["job_id"]
 
     def get_job(self, job_id: str) -> Row | None:
-        return self.one("SELECT * FROM jobs WHERE job_id=?", (job_id,))
+        row = self.one("SELECT * FROM jobs WHERE job_id=?", (job_id,))
+        return job_flags(row) if row is not None else None
 
     def get_job_by_request(self, request_id: str) -> Row | None:
-        return self.one("SELECT * FROM jobs WHERE request_id=?", (request_id,))
+        row = self.one("SELECT * FROM jobs WHERE request_id=?", (request_id,))
+        return job_flags(row) if row is not None else None
 
     def list_jobs(self, *, state: str | None = None, session_id: str | None = None, limit: int | None = None) -> list[Row]:
         clauses, values = [], []
@@ -739,7 +967,7 @@ class Store:
         if limit is not None:
             sql += " LIMIT ?"
             values.append(limit)
-        return self.query(sql, values)
+        return [job_flags(row) for row in self.query(sql, values)]
 
     def update_job(self, job_id: str, **values: Any) -> None:
         self._update("jobs", "job_id", job_id, values)
@@ -750,10 +978,13 @@ class Store:
         return data["attempt_id"]
 
     def get_attempt(self, attempt_id: str) -> Row | None:
-        return self.one("SELECT * FROM attempts WHERE attempt_id=?", (attempt_id,))
+        row = self.one("SELECT * FROM attempts WHERE attempt_id=?", (attempt_id,))
+        return shell_flags(row) if row is not None else None
 
     def list_attempts(self, job_id: str | None = None) -> list[Row]:
-        return self.query("SELECT * FROM attempts" + (" WHERE job_id=?" if job_id else "") + " ORDER BY reserved_at,seq", (job_id,) if job_id else ())
+        return [shell_flags(row) for row in self.query(
+            "SELECT * FROM attempts" + (" WHERE job_id=?" if job_id else "") + " ORDER BY reserved_at,seq",
+            (job_id,) if job_id else ())]
 
     def update_attempt(self, attempt_id: str, **values: Any) -> None:
         if set(values) & {"attempt_id", "job_id", "seq", "lane_id", "model_requested"}:

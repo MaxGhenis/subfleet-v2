@@ -1,0 +1,78 @@
+{
+  "merges": [
+    {
+      "merge": "5b94fd32a",
+      "base": "c2f08a156f6749e0d5bb5304292deb038d0392f9",
+      "clause_counts": {
+        "5b94fd32a^1": 259,
+        "5b94fd32a^2": 260,
+        "5b94fd32a": 260
+      },
+      "duplicates": {
+        "C-5.8": 2,
+        "C-6.4": 2,
+        "C-11.7": 2
+      },
+      "unique_parent_edits_without_verbatim_child": [
+        "C-6.11"
+      ],
+      "parent_lines_not_in_child": {
+        "5b94fd32a^1": [
+          "- **C-6.11** A job that is not placed always has a stated reason, and a fleet th",
+          "- **C-16.2** Ops: `submit`, `list`, `show`, `wait`, `kill`, `lanes`, `readings`,",
+          "- **C-17.1** Verbs (v1 spellings permanent, plan amendment 1): `subfleet` and `s",
+          "- **C-17.4** Stdout carries the contract (job id on `run`, the table on `runs`, "
+        ],
+        "5b94fd32a^2": [
+          "- **C-6.5** Refusals are exit 7 with the fix named: API-key home, workdir under ",
+          "- **C-6.11** A job that is not placed always has a stated reason, and a fleet th",
+          "- **C-8.3** The `-o` export is a copy of the accepted deliverable published by C",
+          "- **C-8.4** Retention: newest 500 jobs or 2 GiB (policy `retention.jobs`, `reten"
+        ]
+      },
+      "all_parent_edits_preserved": true
+    },
+    {
+      "merge": "c1dfadceb",
+      "base": "c499ee34eef0069bfec27162b81415f23b602b87",
+      "clause_counts": {
+        "c1dfadceb^1": 260,
+        "c1dfadceb^2": 260,
+        "c1dfadceb": 260
+      },
+      "duplicates": {
+        "C-5.8": 2,
+        "C-6.4": 2,
+        "C-11.7": 2
+      },
+      "unique_parent_edits_without_verbatim_child": [],
+      "parent_lines_not_in_child": {
+        "c1dfadceb^1": [
+          "| `starting` | Guardian spawned; no `start.json` yet | If `start.json` holds a r",
+          "- **C-5.6** Kill protocol, against the full census (D-KILL4): mark the cancel re",
+          "- **C-5.7** A `quarantined` attempt keeps its leases (lane slot excluded), its w"
+        ],
+        "c1dfadceb^2": [
+          "- **C-6.5** Refusals are exit 7 with the fix named: API-key home, workdir under ",
+          "- **C-6.11** A job that is not placed always has a stated reason, and a fleet th",
+          "- **C-8.3** The `-o` export is a copy of the accepted deliverable published by C",
+          "- **C-8.4** Retention: newest 500 jobs or 2 GiB (policy `retention.jobs`, `reten"
+        ]
+      },
+      "all_parent_edits_preserved": true
+    }
+  ],
+  "r4_marks": {
+    "only_authorized_marks_removed": true,
+    "case_count": 5
+  },
+  "source_sha256": {
+    "subfleet/dependencies.py": "7658a5d4cd07ebc11714727e262d7de521bfe83c39a3dc3dd24afce356dc1be5",
+    "subfleet/daemon.py": "a5c885b9bbb9f33aebe78ea41c02b1ce04ef39638babbed6ecbc6098888475d9",
+    "subfleet/retention.py": "e08ffd693d85249fedef40e2ee493137a2b588dcfe801cfb376784f85e438de2",
+    "subfleet/retention_archive.py": "40a2a4712a1dbd9b5a4e0a6ac28c7e87a8762a646a5d26a546151723802fcf26",
+    "tests/fake/test_retention_dependency_review_r4.py": "e9e781069d6c4fc25313edc21c3edbb84c0df17aaae94615847b8858bf6d33c9",
+    "tests/fake/test_retention_dependency_review_r5.py": "818871f3d35d652f7586116f679cc20eb186e18decf60d3c86bdf801381e1d15"
+  },
+  "T2_unchanged_from_release": true
+}

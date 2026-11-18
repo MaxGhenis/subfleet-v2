@@ -1,0 +1,46 @@
+{
+  "label": "own-stable-red-final",
+  "start": "2026-10-30T03:22:27.567957+00:00",
+  "loads": [
+    20.63330078125,
+    23.36181640625,
+    24.65478515625
+  ],
+  "seconds": 9.061061583000992,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 1.8702332499997283
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[exporting-control]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.4622674169986567
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]",
+    "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[exporting-control]"
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[exporting-control]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 119111680
+}

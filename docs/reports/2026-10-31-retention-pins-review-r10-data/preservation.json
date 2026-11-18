@@ -1,0 +1,5 @@
+{
+  "tests/fake/test_retention_dependency_review_r9.py": "only strict decorator removed",
+  "tests/unit/test_retention_location_inputs.py": "85ad31cd7dab3317625cd031cd3436ec139a6bae9173185704c550c92ad10827",
+  "docs/acceptance-contract.md": "e4f236bcb51f20d20c59d825fc80da64ca03c02c35dc98daddfae5779faf35f7"
+}

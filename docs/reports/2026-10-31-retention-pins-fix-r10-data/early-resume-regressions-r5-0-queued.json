@@ -1,0 +1,14 @@
+{
+  "queued": "2026-10-31T14:12:57.921208+00:00",
+  "args": [
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_dependency_survives_each_retention_recheck[final-gitfile]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_dependency_survives_each_retention_recheck[final-commondir]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_dependency_survives_each_retention_recheck[final-linked]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_task_hold_takes_precedence_then_dependency_fence_keeps_attribution[before-look]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_task_hold_takes_precedence_then_dependency_fence_keeps_attribution[after-look]"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r10/real-tmp/early-resume-regressions-r5-0",
+  "linked": false,
+  "driver_pid": 11095,
+  "lock_process_group": 11185
+}

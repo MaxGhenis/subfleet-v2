@@ -1,0 +1,67 @@
+{
+  "name": "test_retention_archive-39",
+  "start": "2026-10-29T06:41:52.414406+00:00",
+  "load": [
+    19.31298828125,
+    22.890625,
+    23.095703125
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_archive.py::test_salvage_a_network_remote_already_holds_retires[with-registration]",
+    "tests/unit/test_retention_archive.py::test_salvage_a_network_remote_already_holds_retires[without-registration]"
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_salvage_a_network_remote_already_holds_retires[with-registration]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_salvage_a_network_remote_already_holds_retires[without-registration]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/unit/test_retention_archive.py::test_salvage_a_network_remote_already_holds_retires[with-registration]": {
+      "setup": {
+        "duration": 0.8169786670041503,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 1.8966566250019241,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.024166375005734153,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_archive.py::test_salvage_a_network_remote_already_holds_retires[without-registration]": {
+      "setup": {
+        "duration": 0.2922565000044415,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 2.9751327080011833,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0021680000063497573,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

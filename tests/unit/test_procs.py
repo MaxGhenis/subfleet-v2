@@ -691,3 +691,15 @@ def test_a_pipe_is_returned_empty_whatever_its_raw_ends_took_in(monkeypatch):
     finally:
         os.close(read_fd)
         os.close(write_fd)
+
+
+def test_signal_timestamp_is_captured_after_identity_reads(monkeypatch):
+    """A slow identity check cannot move the signal clock before the exit."""
+    calls = []
+    monkeypatch.setattr(procs.os, "getpgrp", lambda: 7)
+    monkeypatch.setattr(procs, "same_process", lambda *args: calls.append("identity") or True)
+    monkeypatch.setattr(procs.os, "getpgid", lambda pid: calls.append("group") or pid)
+    monkeypatch.setattr(procs.os, "killpg", lambda *args: calls.append("signal"))
+    assert procs.signal_group(42, signal.SIGTERM, boot_id="test", proc_start="start",
+                              before_signal=lambda: calls.append("timestamp"))
+    assert calls == ["identity", "group", "timestamp", "signal"]

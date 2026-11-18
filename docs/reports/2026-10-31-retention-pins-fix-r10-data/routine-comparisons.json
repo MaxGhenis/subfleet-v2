@@ -1,0 +1,73 @@
+[
+  {
+    "after": {
+      "git": [
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_five_routine_controls_aga0/repository/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_five_routine_controls_aga0/repository/.git/objects"
+      ]
+    },
+    "before": {
+      "git": [
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_five_routine_controls_aga0/repository/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_five_routine_controls_aga0/repository/.git/objects"
+      ]
+    },
+    "layout": "plain"
+  },
+  {
+    "after": {
+      "git": [
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_five_routine_controls_aga1/repository/.git/worktrees/linked",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_five_routine_controls_aga1/repository/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_five_routine_controls_aga1/repository/.git/objects"
+      ]
+    },
+    "before": {
+      "git": [
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_five_routine_controls_aga1/repository/.git/worktrees/linked",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_five_routine_controls_aga1/repository/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_five_routine_controls_aga1/repository/.git/objects"
+      ]
+    },
+    "layout": "worktree"
+  },
+  {
+    "after": {
+      "git": [
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_five_routine_controls_aga2/shared/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_five_routine_controls_aga2/shared/.git/objects",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_five_routine_controls_aga2/repository/.git/objects"
+      ]
+    },
+    "before": {
+      "git": [
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_five_routine_controls_aga2/shared/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_five_routine_controls_aga2/shared/.git/objects",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_five_routine_controls_aga2/repository/.git/objects"
+      ]
+    },
+    "layout": "shared"
+  },
+  {
+    "after": {
+      "git": [
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_five_routine_controls_aga3/repository/linked/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_five_routine_controls_aga3/repository/.git/objects",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_five_routine_controls_aga3/repository/.git"
+      ]
+    },
+    "before": {
+      "git": [
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_five_routine_controls_aga3/repository/linked/.git",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_five_routine_controls_aga3/repository/.git/objects",
+        "/private/tmp/sf-fix272r10/real-tmp/route-and-routine-comparison/pytest-of-maxghenis/pytest-0/test_five_routine_controls_aga3/repository/.git"
+      ]
+    },
+    "layout": "new-workdir"
+  },
+  {
+    "after": {},
+    "before": {},
+    "layout": "none"
+  }
+]

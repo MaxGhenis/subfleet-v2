@@ -1,0 +1,30 @@
+[
+  [
+    "edges",
+    [
+      "review-r10-data/edge_probes.py"
+    ]
+  ],
+  [
+    "transactions-and-r8-controls",
+    [
+      "docs/reports/2026-10-31-retention-pins-review-r9-data/probes_r9.py",
+      "-k",
+      "test_unused_link_width_and_lifetime or test_terminal_gone_target_and_evidence_cannot_pin or test_recorded_link_entry_stays_stable_for_fences or test_r8_owner_removal_breaks_the_identical_real_git_read"
+    ]
+  ],
+  [
+    "deep-and-unused",
+    [
+      "docs/reports/2026-10-31-retention-pins-review-r9-data/round_probes.py",
+      "-k",
+      "not test_routine_matches_prerequisite"
+    ]
+  ],
+  [
+    "listed-reader-differences",
+    [
+      "review-r10-data/readers_probe.py"
+    ]
+  ]
+]

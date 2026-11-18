@@ -1,0 +1,53 @@
+{
+  "name": "mutant-r3-census-moved-after-recovery",
+  "start": "2026-10-31T03:38:57.709968+00:00",
+  "load": [
+    39.4775390625,
+    41.15380859375,
+    42.857421875
+  ],
+  "args": [
+    "--mutant",
+    "r3-census-moved-after-recovery",
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 4.825619416999871,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 3.4077290000004723,
+      "failure": "tests/fake/test_retention_dependency_review_r3.py:125: in test_c8_4_recovery_discovers_incomplete_before_quarantine\n    assert observations == [True], (observations, result)\nE   AssertionError: ([False], {'pruned': [], 'errors': [], 'bytes_before': 0, 'bytes_after': 0, ...})\nE   assert [False] == [True]\nE     \nE     At index 0 diff: False != True\nE     Use -v to get more diff"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.12682429199958278,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.retention",
+      "original": "e08ffd693d85249fedef40e2ee493137a2b588dcfe801cfb376784f85e438de2",
+      "mutated": "3d3a3739adfc66dc745dc5f7e6f8ea3518f8c90074a757f93b50ff40b4479ff3"
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]"
+  ],
+  "end": "2026-10-31T03:39:20.007378+00:00",
+  "seconds": 22.22184945799927,
+  "peak_rss_mib": 116.3125,
+  "exit": 1
+}

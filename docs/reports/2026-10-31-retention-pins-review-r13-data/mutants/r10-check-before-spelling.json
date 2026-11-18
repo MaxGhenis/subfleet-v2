@@ -1,0 +1,36 @@
+{
+ "name": "r10-check-before-spelling",
+ "start": "2026-10-31T23:07:42Z",
+ "load": [
+  83.93701171875,
+  72.75927734375,
+  65.38330078125
+ ],
+ "rc": 1,
+ "killers": [
+  "tests/unit/test_retention_location_cycles.py::test_scan_retargeted_into_cycle_before_spelling_is_incomplete[resolved-target]"
+ ],
+ "hashes": [
+  {
+   "original": "3d013f755b9b045e4104c7be192f027125d12991be2c191a3a315e4228c4f728",
+   "mutated": "b1a7e4b2aa4f77dd3dd5ecb05147b38e8adcaab20d031016ebbdca1dd998dce4"
+  }
+ ],
+ "failed": 1,
+ "other_failures": 0,
+ "killed": true,
+ "assertions": [
+  [
+   "assert any(error[\"file\"] == str(entry) and \"alias changed\" in error[\"reason\"]"
+  ]
+ ],
+ "fix_r12_assertions": [
+  [
+   "assert any(error[\"file\"] == str(entry) and \"alias changed\" in error[\"reason\"]"
+  ]
+ ],
+ "same_as_fix_r12": true,
+ "failures": [
+  "tests/unit/test_retention_location_cycles.py:149: in test_scan_retargeted_into_cycle_before_spelling_is_incomplete\n    assert any(error[\"file\"] == str(entry) and \"alias changed\" in error[\"reason\"]\nE   AssertionError: {'git': ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r10-check-before-spelling/pytes...eal/mut-r10-check-before-spelling/pytest-of-maxghenis/pytest-0/test_scan_retargeted_into_cycl0/checkout/.git/objects']}\nE   assert False\nE    +  where False = any(<generator object test_scan_retargeted_into_cycle_before_spelling_is_incomplete.<locals>.<genexpr> at 0x1081998a0>)"
+ ]
+}

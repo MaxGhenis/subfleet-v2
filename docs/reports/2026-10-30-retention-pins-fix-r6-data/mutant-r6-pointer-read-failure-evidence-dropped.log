@@ -1,0 +1,43 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 22:26:09Z slot A load 
+START mutant-r6-pointer-read-failure-evidence-dropped 2026-10-30T22:26:12.010657+00:00 load=(14.5634765625, 21.517578125, 21.07568359375)
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__ test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile] ___
+
+world = World(base=PosixPath('/private/tmp/sf-fix272r6/cases-12016/pytest/test_crlf_padded_pointer_keeps0'), trusted=True, rem...ix272r6/cases-12016/pytest/test_crlf_padded_pointer_keeps0/state'), store=<subfleet.store.Store object at 0x10c1e16a0>)
+layout = 'gitfile', padded = True
+
+    @pytest.mark.parametrize("layout", ["gitfile", "commondir"])
+    @pytest.mark.parametrize("padded", [
+        pytest.param(False, id="short-control"),
+        pytest.param(True, id="padded"),
+    ])
+    def test_crlf_padded_pointer_keeps_the_storage_real_git_reads(world, layout, padded):
+        tree = world.job("owner")
+        owner, commit = source(world, tree)
+        outside = repo(world.base / "outside")
+        git(owner, "fetch", "--quiet", str(outside), "HEAD")
+        if layout == "gitfile":
+            (outside / ".git").rename(world.base / "unused.git")
+            pointer = outside / ".git"
+            prefix = b"gitdir: "
+        else:
+            pointer = outside / ".git" / "commondir"
+            prefix = b""
+        pointer.write_bytes(prefix + str(owner / ".git").encode()
+                           + b"\r\n" * (35000 if padded else 1))
+        assert git(outside, "fsck", "--no-dangling") == ""
+        assert git(outside, "show", commit + ":owner-only.txt") == "R5 owner-only storage"
+        recorded = dependencies.record(str(outside))
+        reader(world, recorded)
+        result = maintain(world)
+>       assert "owner" not in result["pruned"] and tree.is_dir(), (recorded, result)
+E       AssertionError: ({}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48944, 'bytes_after': 0, ...})
+E       assert ('owner' not in ['owner'])
+
+tests/fake/test_retention_dependency_review_r6.py:76: AssertionError
+============================ Hypothesis Statistics =============================
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]
+1 failed in 11.85s

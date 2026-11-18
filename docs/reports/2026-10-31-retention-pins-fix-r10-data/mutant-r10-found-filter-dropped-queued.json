@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T13:45:37.956962+00:00",
+  "args": [
+    "--mutant",
+    "r10-found-filter-dropped",
+    "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-self-suffix]"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r10/real-tmp/mutant-r10-found-filter-dropped",
+  "linked": false,
+  "driver_pid": 11867,
+  "lock_process_group": 12535
+}

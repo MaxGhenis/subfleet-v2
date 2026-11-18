@@ -1,0 +1,82 @@
+"""Observe completed tests/examples and load a single named in-memory mutant."""
+import datetime, importlib.abc, importlib.util, json, os, sys
+from pathlib import Path
+
+from hypothesis.core import StateForActualGivenExecution
+from hypothesis.internal.conjecture.engine import ConjectureRunner
+
+scratch=Path(__file__).parent
+current=None
+engines=[]
+explicit={}
+phases={}
+details={}
+collected=[]
+loaded=[]
+started=datetime.datetime.now(datetime.UTC).isoformat()
+load=os.getloadavg()
+original_run=ConjectureRunner.run
+original_execute=StateForActualGivenExecution.execute_once
+
+def run(self):
+    try:
+        return original_run(self)
+    finally:
+        engines.append(dict(nodeid=current,valid=self.valid_test_cases,invalid=self.invalid_test_cases,
+                            calls=self.call_count,settings_max=self.settings.max_examples))
+
+def execute(self,*a,**k):
+    result=original_execute(self,*a,**k)
+    if k.get('example_kwargs') is not None:
+        explicit[current]=explicit.get(current,0)+1
+    return result
+
+ConjectureRunner.run=run
+StateForActualGivenExecution.execute_once=execute
+
+name=os.environ.get('SF_MUTANT')
+if name:
+    definition=json.loads((scratch/'mutant-definitions.json').read_text())[name]
+    path=Path.cwd()/definition['target']
+    source=path.read_text()
+    assert source.count(definition['old'])==1,(name,source.count(definition['old']))
+    mutated=source.replace(definition['old'],definition['new'],1)
+    code=compile(mutated,str(path),'exec')
+    module=definition['target'][:-3].replace('/','.')
+    class Loader(importlib.abc.Loader):
+        def create_module(self,spec):return None
+        def exec_module(self,obj):
+            loaded.append(module)
+            exec(code,obj.__dict__)
+    class Finder(importlib.abc.MetaPathFinder):
+        def find_spec(self,fullname,path=None,target=None):
+            if fullname==module:
+                return importlib.util.spec_from_file_location(fullname,str(Path.cwd()/definition['target']),loader=Loader())
+    sys.meta_path.insert(0,Finder())
+    from hypothesis import Phase,settings
+    settings.register_profile('r1-mutation',phases=(Phase.explicit,Phase.generate))
+    settings.load_profile('r1-mutation')
+
+
+def pytest_collection_finish(session):
+    collected.extend(item.nodeid for item in session.items)
+
+
+def pytest_runtest_logstart(nodeid,location):
+    global current
+    current=nodeid
+
+
+def pytest_runtest_logreport(report):
+    phases.setdefault(report.nodeid,{})[report.when]=report.outcome
+    details.setdefault(report.nodeid,{})[report.when]=dict(duration=report.duration,wasxfail=getattr(report,"wasxfail",None),properties=report.user_properties)
+
+
+def pytest_sessionfinish(session,exitstatus):
+    data=dict(name=os.environ['SF_RUN_NAME'],start=started,load=load,exitstatus=int(exitstatus),
+              cwd=str(Path.cwd()),collected=collected,phases=phases,details=details,engines=engines,explicit=explicit,
+              mutant=name,loaded=loaded)
+    (scratch/(os.environ['SF_RUN_NAME']+'.json')).write_text(json.dumps(data,indent=2)+'\n')
+    session.config.pluginmanager.getplugin('terminalreporter').write_line('OBSERVATION '+json.dumps(dict(engines=engines,explicit=explicit,mutant=name,loaded=loaded)))
+    if name and loaded!=[module]:
+        session.exitstatus=3

@@ -499,9 +499,65 @@ def test_the_embedded_hot_worker_keeps_the_copy_current(tmp_path, monkeypatch):
     assert data["pass"]["state"] == "ok" and data["hot"]["started_at"] == fx.iso(world.clock)
 
 
-def the_end_unreadable(world: World, patch, code: int = errno.EMFILE) -> list:
+def test_an_end_read_that_fails_right_after_a_hot_record_still_knows_the_file(
+        tmp_path, monkeypatch):
+    """C-23.28: the one write between the full pass's own `complete` record
+    and the read of its end is the embedded hot worker's, here publishing a
+    flag the app saved while the full pass ran. That read fails. The worker
+    wrote into the copy the full pass keeps, so the pass still knows the file
+    and records its end as it ended. With a copy of the worker's own, the end
+    was an `error` (mutant C41, which the test above does not reach: there the
+    full pass's own record is the last write before the failed read)."""
+    world = World(tmp_path, monkeypatch, hot_interval=1e-9)
+    for index in range(3):
+        world.put(index, ONE)
+    assert world.full().state == "ok"
+    world.put(0, TWO)
+    world.wait(61)
+    events: list[str] = []
+    with monkeypatch.context() as patch:
+        scan = mirror.Mirror._pass
+
+        def then_the_app_saves_a_flag(engine, current, options):
+            result = scan(engine, current, options)
+            world.save(1, ONE, isStarred=True)
+            return result
+
+        record_hot = mirror.Mirror._record_hot
+        in_hot: list[bool] = []
+
+        def as_hot(engine, current, load_gap):
+            in_hot.append(True)
+            try:
+                return record_hot(engine, current, load_gap)
+            finally:
+                in_hot.pop()
+
+        write = mirror._write_json
+
+        def noting(path, value, **kwargs):
+            inode = write(path, value, **kwargs)
+            if Path(path) == world.running.sidecar_path:
+                events.append("hot" if in_hot else "full")
+            return inode
+
+        patch.setattr(mirror.Mirror, "_pass", then_the_app_saves_a_flag)
+        patch.setattr(mirror.Mirror, "_record_hot", as_hot)
+        patch.setattr(mirror, "_write_json", noting)
+        failed = the_end_unreadable(world, patch, events=events)
+        result = world.full()
+    assert len(failed) == 1
+    assert events[events.index("failed") - 1] == "hot", events
+    assert result.state == "ok" and result.error is None
+    data = world.sidecar()
+    assert data["pass"]["state"] == "ok" and data["not_ok_passes"] == 0
+    assert data["hot"]["started_at"] == fx.iso(world.clock)
+
+def the_end_unreadable(world: World, patch, code: int = errno.EMFILE, *,
+                       events: list | None = None) -> list:
     """The first writer read after the full pass's `complete` checkpoint fails:
-    the read of its end. Returns the reads that failed."""
+    the read of its end. Returns the reads that failed, and notes the failure
+    in `events` when given."""
     checkpoint = mirror.Mirror._checkpoint
     complete = []
 
@@ -518,6 +574,8 @@ def the_end_unreadable(world: World, patch, code: int = errno.EMFILE) -> list:
     def end_unreadable(path, *, strict=False):
         if strict and complete and not failed and Path(path) == world.running.sidecar_path:
             failed.append(path)
+            if events is not None:
+                events.append("failed")
             raise OSError(code, os.strerror(code))
         return load(path, strict=strict)
 

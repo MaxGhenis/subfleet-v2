@@ -6,6 +6,7 @@ sent (the relay is never reached), so these check only what each step queues.
 
 from __future__ import annotations
 
+import ast
 import pytest
 
 from subfleet.conversations.runner import Clocks, TurnRunner
@@ -14,6 +15,18 @@ from subfleet.conversations.turn import TurnSpec
 
 MID = "7f1c9a0e-1111-4222-8333-444455556666"
 SID = "0b0e0f00-aaaa-4bbb-8ccc-dddddddddddd"
+
+
+def test_every_production_frame_explicitly_declares_stop_capability():
+    """C-9.2: every new construction must be classified during protocol review."""
+    directory = Path(__file__).resolve().parents[2] / "subfleet" / "conversations"
+    missing = []
+    for path in sorted(directory.glob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "Frame":
+                if not any(keyword.arg == "stops" for keyword in node.keywords):
+                    missing.append(f"{path.name}:{node.lineno}")
+    assert missing == [], f"Frame constructions without an explicit stops flag: {missing}"
 
 
 class Clock:
@@ -354,7 +367,7 @@ def test_a_frame_in_flight_when_the_runner_starts_is_not_taken_for_a_failure(rel
     finish_write = threading.Event()
 
     def in_flight(server, adir):
-        server._lock.acquire()                       # `apply` holds it for the whole frame
+        server._journal_lock.acquire()               # `apply` holds it for the whole frame
         intent = logged_intent(1, "init", INIT_LINE)
         server._append(intent)
         server._records.append({**intent, "status": "pending"})
@@ -363,7 +376,7 @@ def test_a_frame_in_flight_when_the_runner_starts_is_not_taken_for_a_failure(rel
             finish_write.wait()
             server._append({"kind": "written", "seq": 1})
             server._records[-1]["status"] = "written"
-            server._lock.release()
+            server._journal_lock.release()
         threading.Thread(target=finish, daemon=True).start()
 
     try:
@@ -460,13 +473,13 @@ def _lose_the_answer(runner, *, reached: bool):
     real = runner.relay.send
     lost = []
 
-    def send(seq, op, line=None, tag=None, sig=None):
+    def send(seq, op, line=None, tag=None, sig=None, before_send=None):
         if tag == "user-message" and not lost:
             lost.append(tag)
             if reached:
-                real(seq, op, line=line, tag=tag, sig=sig)
+                real(seq, op, line=line, tag=tag, sig=sig, before_send=before_send)
             raise relay_module.RelayError("relay closed the connection before acknowledging")
-        return real(seq, op, line=line, tag=tag, sig=sig)
+        return real(seq, op, line=line, tag=tag, sig=sig, before_send=before_send)
     runner.relay.send = send
 
 
@@ -676,14 +689,14 @@ def test_a_lost_steer_receipt_is_resolved_before_stop_or_retry(relayed, tmp_path
     real_send = runner.relay.send
     first = True
 
-    def send(seq, op, line=None, tag=None, sig=None):
+    def send(seq, op, line=None, tag=None, sig=None, before_send=None):
         nonlocal first
         if tag == f"steer:{STEER_MID}" and first:
             first = False
             if reached:
-                real_send(seq, op, line=line, tag=tag, sig=sig)
+                real_send(seq, op, line=line, tag=tag, sig=sig, before_send=before_send)
             raise relay_module.RelayError("lost steer receipt")
-        return real_send(seq, op, line=line, tag=tag, sig=sig)
+        return real_send(seq, op, line=line, tag=tag, sig=sig, before_send=before_send)
 
     runner.relay.send = send
     runner.steer(STEER_MID)
@@ -851,7 +864,9 @@ def steer_schedule(provider):
             frame_max = 64 * 1024 * 1024
             def status(self):
                 return server.status()["status"]
-            def send(self, seq, op, *, line=None, tag=None, sig=None):
+            def send(self, seq, op, *, line=None, tag=None, sig=None, before_send=None):
+                if before_send is not None:
+                    before_send()
                 body = server.apply({"seq": seq, "op": op, "line": line, "tag": tag, "sig": sig,
                                      "sha256": relay_module.frame_sha256(op, line, sig)})
                 return Ack(seq=seq, ok=body["ok"], dup=body.get("dup", False), error=body.get("error"))
@@ -1009,7 +1024,7 @@ def test_a_steer_pending_at_construction_is_registered_before_its_written_handsh
         for seq, tag in enumerate(("init", "user-message", "settings"), 1):
             server.apply({"seq": seq, "op": "write", "line": "{}", "tag": tag,
                           "sha256": relay_module.line_sha256("{}")})
-        server._lock.acquire()
+        server._journal_lock.acquire()
         intent = logged_intent(4, f"steer:{STEER_MID}", "{}")
         server._append(intent)
         server._records.append({**intent, "status": "pending"})
@@ -1024,7 +1039,7 @@ def test_a_steer_pending_at_construction_is_registered_before_its_written_handsh
         time.sleep(0.05)
         server._append({"kind": "written", "seq": 4})
         server._records[-1]["status"] = "written"
-        server._lock.release()
+        server._journal_lock.release()
 
     threading.Thread(target=finish, daemon=True).start()
     ready_to_steer(runner, tmp_path)
@@ -1168,6 +1183,53 @@ def test_a_steer_whose_input_fails_goes_back_to_the_queue_and_the_host_runs_on(r
     runner._drain_commands()
     runner._send_outbox()
     assert "interrupt" in logged(adir)
+
+
+#: What a driver's failure said in review r1 of #233 (P2): a secret, then 3,000 more characters.
+STEER_WORDS = "driver said: token=SECRET7steer9 " + "x" * 3000
+
+
+@pytest.mark.parametrize("raised, named", [
+    (RuntimeError(STEER_WORDS), "RuntimeError"),
+    (FileNotFoundError(2, "No such file or directory", "/x/token=SECRET7steerpath9"),
+     "FileNotFoundError: [Errno 2] No such file or directory"),
+    (ValueError(STEER_WORDS), "ValueError"),
+])
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+def test_a_failed_steer_s_reason_names_its_class_and_errno_never_its_words(relayed, tmp_path, provider,
+                                                                           raised, named):
+    """C-25.7 (review r1 of #233, P2): a steer whose driver raised went back to the queue
+    as `input-unavailable: <the exception's words>`, unscrubbed and unbounded (3,066
+    characters), in four records a client reads: the message's `state_reason`, its
+    `changes` row, the `steer.missed` events and the receipt (`_receipt`). It names the
+    exception's class and, for an OS error, its errno (`refusals.fixed_error`)."""
+    from types import SimpleNamespace
+    from subfleet.conversations.service import ConversationService
+    runner, _, _, adir = relayed(provider=provider, recorded=True)
+    ready_to_steer(runner, tmp_path)
+    mid = claim_steer(runner)
+
+    def defect(*args, **kwargs):
+        raise raised
+    runner.driver.steer = defect
+    runner.steer(mid)
+    runner._drain_commands()
+    runner._flush()
+    reason = f"input-unavailable: {named}"
+    row = runner.store.message(mid)
+    assert row["state"] == "queued" and row["state_reason"] == f"steer-missed: {reason}"
+    receipt = ConversationService._receipt(SimpleNamespace(store=runner.store), row)
+    assert receipt["state_reason"] == f"steer-missed: {reason}"
+    changes = [dict(r) for r in runner.store.query("SELECT * FROM changes WHERE message_id=?", (mid,))]
+    assert changes and changes[-1]["state_reason"] == f"steer-missed: {reason}"
+    events = [dict(r) for r in runner.store.query("SELECT * FROM events")]
+    missed = [json.loads(r["data_json"]) for r in events if r["kind"] == "steer.missed"]
+    assert missed and all(data == {"message_id": mid, "why": reason} for data in missed)
+    assert runner.steer_facts()[mid]["detail"] == reason
+    everything = json.dumps([[dict(r) for r in runner.store.query(f"SELECT * FROM {table}")]
+                             for table in ("messages", "changes", "events")] + [receipt, runner.steer_facts()],
+                            default=str)
+    assert "SECRET7" not in everything and "x" * 100 not in everything
 
 
 def provider_stdout(provider: str, cwd: str) -> list[str]:

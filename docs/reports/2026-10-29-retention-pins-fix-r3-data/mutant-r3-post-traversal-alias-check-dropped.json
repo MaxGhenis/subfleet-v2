@@ -1,0 +1,39 @@
+{
+  "label": "mutant-r3-post-traversal-alias-check-dropped",
+  "start": "2026-10-29T20:48:35.712960+00:00",
+  "loads": [
+    81.64208984375,
+    66.1083984375,
+    46.05810546875
+  ],
+  "seconds": 10.997443750000457,
+  "exit": 1,
+  "locked": false,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 2.195605541999612
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]"
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original_sha256": "a4495e8dfe400d55ff869d264a41734008298a15df4b304af3ab4971e29d7dd7",
+      "mutated_sha256": "d3ec61444ccb0209581496fe7ea91c4879111783bc026d48bbee0d0cbc2d47c3"
+    }
+  ],
+  "rss": 115228672
+}

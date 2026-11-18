@@ -1,0 +1,10 @@
+[
+  {
+    "name": "live-ignores-spelled-folder",
+    "hold": "c3-mutant-live-ignores-spelled-folder-red",
+    "observed_killers": [
+      "tests/unit/test_retention_dependency_units.py::test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends"
+    ],
+    "green_hold": "c3-killing-tests-green"
+  }
+]

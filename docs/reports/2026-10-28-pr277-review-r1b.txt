@@ -1,0 +1,205 @@
+VERDICT #277: REQUEST_CHANGES
+
+Reviewed e4b68e3e033ec35603fc28293b023134128b093b against 676a34bf1.
+Production files were not changed. Two regression test files were added.
+The required pytest verification is incomplete; no pytest result is claimed.
+
+Finding
+
+P2: A read-only legacy Store does not supply the promised utility default.
+Location: subfleet/store.py:143; callers at :809, :813 and :817.
+Executed input: build a schema-9 database with old-dispatch and old-turn using
+test_store_qos_migration.old_store, then open Store(path, read_only=True).
+get_job('old-dispatch'), get_job_by_request('old-dispatch') and list_jobs()
+all return dictionaries without provider_qos. Indexing that promised field
+raises KeyError. This is different from raw SQL deliberately retaining NULL.
+Offline.show_job/list_jobs both return utility for the same unmigrated file;
+opening the writer migrates it and its domain reads then return utility.
+
+Fix: normalize missing provider_qos to utility in every job-domain reader,
+including get_job_by_request, without adding a job-only field to attempt rows.
+The new parameterized regression in tests/unit/test_qos_review_r1.py:32 covers
+the three readers. Its equivalent standalone database reproduction ran; the
+pytest regression itself did not complete. The live PR body's invariant 5
+overstates current behavior until this is fixed or its scope is narrowed.
+
+Deviations
+
+1. Batch manifest qos: acceptable. It uses the same choices and submit field
+   as run; a second policy mechanism was not introduced.
+2. why text only for default: acceptable. JSON always carries the request and
+   decision; the text explains the exceptional request without adding a line
+   to every ordinary utility job.
+3. Read QoS before creating the launch gate: correct. The ancestry read can
+   raise; it belongs before pipe_above_stdio creates the two descriptors.
+   The builder added a targeted fake regression; it was inspected, not rerun.
+4. Gate carrying explicit default: correct under the hub's exact rule. An
+   ordinary gate does not set the request. An explicitly requested priority
+   gate is not excluded by the rule. The actual daemon decision helper was
+   exercised on gate rows with NULL, utility and default.
+
+Checks 1-7
+
+1. Rule: the inspected scheduler/daemon/guardian composition is correct.
+   Executed the actual Daemon._launch_qos and _priority_jobs on a private
+   fake database, using an uninitialized Daemon object with only its store
+   and policy assigned (no daemon loop or live service). A default-requesting
+   child of a finished priority ancestor was in a persisted ancestor cycle.
+   Successive policy lists [chosen], [], [chosen] returned inherit, utility,
+   inherit. A listed turn requesting default returned utility. A priority
+   gate with NULL/utility/default returned utility/utility/inherit.
+   guardian.provider_qos('utility') returned None for operator inherit and
+   utility for Inherit and leading-space inherit. The probe and re-enrolment
+   construction sites do not add the flag; their fake executions remain
+   unrun. The 600-example property and actual fake _launch tests remain unrun.
+
+2. Guardian port: inspected the entire base-to-head guardian diff and read
+   origin/wip/backup-2026-10/feat/turn-qos--turn-qos:subfleet/guardian.py without
+   fetching. The new behavior is the requested flag, precedence, and receipt
+   field. The wip turn policy was not ported. Other differences from wip
+   (abandon, linger, environment filtering, stream publication) predate this
+   PR on release/217. Receipt publication still precedes the abandon check,
+   which still precedes provider_argv/spawn. The single computed qos feeds
+   both the receipt and wrapper. The unit receipt tests were not completed.
+
+3. Migration: additive nullable CHECK column and version 10 are correct.
+   Executed schema-9 offline show/list, migration to 10, and migrated Store
+   reads: all supply utility and the old rows survive. The read-only Store
+   edge above is the exception. Executed base payload_digest against head
+   with prompts b'' and b'booked run', the private scratch workdir, task
+   review, policy_hash fixture: old = absent = None = utility, and default
+   differs, for both vectors. Executed the base Store implementation against
+   the migrated fake file: 'store schema 10 is newer than supported schema 9'.
+   Downgrade refusal is stated by existing C-3.5; this PR adds no downgrade
+   conversion. Raw SQL remains NULL as intended.
+
+4. Refusals: executed parser calls, without invoking the real CLI. CLI qos
+   inherit/background/Default/empty and guardian provider-qos
+   default/background/INHERIT/empty all exited 2 with 'invalid choice'.
+   The daemon's validation additionally rejects non-strings; inspected only.
+
+5. Timing: NOT VERIFIED. The four requested interleaved full-file runs at
+   head/base were not executed. A baseline 'git worktree add --detach' did
+   not finish within the command tool's 30-second foreground window and was
+   interrupted; no baseline registration remained. No conclusion can be
+   drawn here about regression versus the known 3/5-second harness waits.
+   Aggregate loads recorded below are actual observations, not generated
+   host load. No host-load generator was started.
+
+6. Process comparison: BLOCKED. /bin/ps on this command's own shell returned
+   'operation not permitted'. No PRI reading was obtained, so PRI 20 is not
+   claimed. The 31-versus-20 test and receipt pair were left unrun for CI.
+   No attempt was made to change or escape the runner's scheduling class.
+
+7. Text: the contract diff has only the C-5.1 addition and change-list line;
+   no new QoS report is committed at head. Read brief-build.md, out-build.md
+   and pr-body-b1.md. The one allowed live read was:
+   gh pr view 277 --repo MaxGhenis/subfleet-v2 --json body
+   Its body matches pr-body-b1.md. Invariant 5 is too broad for the executed
+   read-only legacy Store input. Builder counts and mutant claims are
+   historical statements, not independently reproduced by this review.
+
+Holds and environment
+
+Environment synchronized once with the mandated uv_sync_hold.sh, locked dev
+group, Python 3.14, private venv/cache. Scratch peaked below 25 MiB when
+measured, far below 1 GB. TMPDIR was private for every run. No xdist workers.
+Failure-keep roots were redirected into scratch by a private pytest plugin,
+so session pruning could not inspect or signal unrelated kept-root owners.
+
+The command tool automatically returns a background session after at most
+30 seconds. An exception was requested asynchronously and no answer arrived.
+To preserve the strict run rule, pytest attempts used a synchronous parent
+with a 22/27-second budget, killing only its newly created process group and
+waiting before returning. Every attempt below ended with wrapper rc 124 and
+zero completed pytest results. No test hold ran outside the shared lock.
+Several attempts were admitted but did not produce a test result before the
+budget. The rest only waited for the lock. sysctl load reads in the lock
+script were denied; Python os.getloadavg supplied the observations below.
+
+An early collection stack showed pytest examining ancestor directories;
+subsequent attempts included --confcutdir=. to confine it to this checkout.
+This retained all repository conftest fixtures and guards. The first hold
+was queued at 17:20Z, within an hour of review start. The review ended well
+before the four-hour cutoff for starting holds.
+
+All times below are UTC on 2026-10-28. Loads are one-minute start -> end.
+A = tests/unit/test_guardian_qos_request.py
+R = tests/unit/test_qos_review_r1.py
+S = tests/unit/test_store_qos_migration.py
+C = tests/unit/test_cli_qos.py
+
+Hold  Start        Budget  Input                         Load              Admission
+01    17:20:00Z    22 s    A                             108.99 -> 105.24   none
+02    17:24:18Z    22 s    R                              48.72 -> 43.94    B at 17:24:38
+03    17:24:49Z    22 s    R                              43.54 -> 45.43    B at 17:24:52
+04    17:25:47Z    27 s    R                              56.61 -> 60.14    none
+05    17:27:15Z    27 s    A, -k either_side/no_request/
+                         main_refuses                   87.70 -> 81.23    B at 17:27:17
+06    17:28:19Z    27 s    R, -k operator                 81.43 -> 95.50    B at 17:28:21
+07    17:29:41Z    27 s    R                              57.41 -> 43.71    none
+08    17:30:16Z    27 s    R                              39.75 -> 37.33    none
+09    17:32:48Z    27 s    R                              82.00 -> 78.42    A at 17:32:49
+10    17:35:38Z    27 s    R                              94.76 -> 103.94   none
+11    17:36:59Z    27 s    R                             113.00 -> 106.26   none
+12    17:39:46Z    27 s    R + A + S + C                  94.58 -> 91.11    none
+13    17:42:01Z    27 s    R                              62.20 -> 78.68    A at 17:42:06
+14    17:43:32Z    27 s    A::no_request_is_utility       65.29 -> 74.10    none
+15    17:48:54Z    27 s    R                             115.25 -> 116.41   none
+
+Per-file pytest results: A/R/S/C each have 0 completed results. The other
+required files have 0 executions: tests/unit/test_guardian.py,
+tests/unit/test_guardian_qos.py, tests/unit/test_store_migration_2.py,
+tests/unit/test_launch_qos_property.py, tests/fake/test_launch_provider_qos.py,
+tests/fake/test_provider_qos_booked.py, and the added
+tests/fake/test_launch_qos_review_r1.py. The unrun tails are entirely unrun:
+tests/unit/test_live_store_guard_state_root.py and
+tests/unit/test_live_store_guard_st3_mutations.py. All three guards are unrun:
+tests/fake/test_state_contract.py, tests/unit/test_test_module_names.py,
+tests/unit/test_invariants_index.py. tests/fake/test_daemon_contract.py has
+zero runs at either revision. The full suite is left to CI.
+
+Standalone review inputs (outside the lock; NOT pytest holds or test passes)
+were the private-store reproduction, deterministic daemon decision inputs,
+parser calls, two digest vectors, and base schema refusal described above.
+Both added test files also passed AST syntax parsing. No guardian receipt
+process pair, Hypothesis example count, or mutant kill is claimed here.
+
+Mutants
+
+Mutation                 Named killing input                            Review result
+Class check dropped      launch_qos_property::why_says_why[not-listed]    unrun
+Request check dropped    launch_qos_property::why_says_why[utility]       unrun
+Probe passes inherit     launch_provider_qos::a_probe_for_an_honoured_job unrun
+Operator env ignored     guardian_qos_request::either_side_unclamps      unrun
+Receipt records request  guardian_qos_request::start_json_records...     unrun
+Operator strip/lower     test_qos_review_r1::operator_qos_requires...     unrun
+
+The first five are the builder's named mutations. The sixth addresses the
+mixed-case/whitespace coverage gap. Exact in-memory replacements were
+prepared in scratch but never executed; they were removed with scratch.
+The read-only missing-column behavior is a real failing input at head, so
+it is reported as a finding rather than presented as a mutation kill.
+
+Changes, commits, cleanup
+
+Added tests/unit/test_qos_review_r1.py: exact operator values (4 cases),
+offline readers before/after migration (2), read-only legacy readers (3).
+Added tests/fake/test_launch_qos_review_r1.py: persisted cycles (2 cases),
+turn and explicit gate decisions (4). No production change.
+
+Staging named files failed immediately with:
+Unable to create .../.git/worktrees/20261028-125446-pr277-review-r1b/index.lock:
+Operation not permitted.
+Consequently no commit was made and HEAD remains e4b68e3e033e. Intended commit:
+test: cover legacy QoS readers and launch edge cases
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Files left for salvage: the two test files above and this report. No history
+was rewritten, fetched, merged or pushed. No PR comment or other message was
+sent. The interrupted baseline add left no worktree registration. Scratch
+was removed with the lane's guarded rmtree command. All started commands
+and bounded hold process groups had ended before the final answer.
+
+DONE

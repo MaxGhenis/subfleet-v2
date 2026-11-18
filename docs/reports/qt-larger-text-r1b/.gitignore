@@ -1,0 +1,15 @@
+# Raw run records stay in this worktree; the report evidence JSON embeds them.
+*.log
+*.xml
+*.items.jsonl
+*.start.json
+*.end.json
+*.queued.json
+*.boundary.json
+*.process.json
+*.process-ended.json
+*.collection.json
+*.outside-lock.json
+*.nodes.json
+*.nodes.txt
+checkpoint.json

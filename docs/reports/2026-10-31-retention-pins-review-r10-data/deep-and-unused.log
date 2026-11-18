@@ -1,0 +1,7 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 10:40:42Z slot B load 
+..                                                                       [100%]
+2 passed, 5 deselected in 4.89s
+{"name": "deep-and-unused", "start": "2026-10-31T10:40:44.671362+00:00", "load": [39.67724609375, 38.46630859375, 36.54443359375], "seconds": 5.870095541002229, "exit": 0}

@@ -1,0 +1,16 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 03:58:21Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______ test_unreadable_common_pointer_keeps_allocated_trees[oversized] ________
+tests/fake/test_retention_pointer_failures.py:37: in test_unreadable_common_pointer_keeps_allocated_trees
+    assert any(error["file"] == str(pointer) for error in recorded.get("incomplete", [])), recorded
+E   AssertionError: {'git': ['/private/tmp/sf-fix272r7/hold-mutant-r6-oversized-pointer-treated-as-missing/pytest-of-maxghenis/pytest-0/te...ersized-pointer-treated-as-missing/pytest-of-maxghenis/pytest-0/test_unreadable_common_pointer0/outside/.git/objects']}
+E   assert False
+E    +  where False = any(<generator object test_unreadable_common_pointer_keeps_allocated_trees.<locals>.<genexpr> at 0x109fd0400>)
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[oversized]
+1 failed in 4.66s
+{"name": "mutant-r6-oversized-pointer-treated-as-missing", "start": "2026-10-31T03:58:22.547361+00:00", "load": [38.6552734375, 37.087890625, 38.21630859375], "seconds": 6.051553166999838, "exit": 1}

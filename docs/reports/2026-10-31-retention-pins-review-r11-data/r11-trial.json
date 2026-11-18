@@ -1,0 +1,1885 @@
+{
+  "name": "r11-trial",
+  "start": "2026-10-31T17:02:04.583662+00:00",
+  "load": [
+    55.3623046875,
+    58.85400390625,
+    60.8955078125
+  ],
+  "pytest_pid": 52022,
+  "failure_root": "/private/tmp/sf-r272r11/failed-keep",
+  "args": [
+    "--mutant",
+    "r11-readable-spelling-revalidation-trial",
+    "--runxfail",
+    "tests/fake/test_retention_dependency_review_r11.py",
+    "tests/unit/test_retention_location_cycles.py",
+    "tests/unit/test_retention_locations.py",
+    "tests/unit/test_retention_location_spelling.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[alternates]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.1904847500045435,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[alternates]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.3789595419948455,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[alternates]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.009388041995407548,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[scan]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.0166580419972888,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[scan]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.4601348750002217,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[scan]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0020998749969294295,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[alternates]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7470846669966704,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[alternates]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.0440843750038766,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[alternates]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002078083998640068,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[scan]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.44238795800629305,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[scan]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.4337964579972322,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[scan]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002296332997502759,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[control-self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.03603104200010421,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[control-self-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.35788416599825723,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[control-self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004944579995935783,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0028490000040619634,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-self-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.9248437080022995,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0020822910009883344,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.005281291996652726,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-self-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.3896398330034572,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004206416000670288,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-tail-self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003454208002949599,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-tail-self-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.1299732500046957,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-tail-self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005197909995331429,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[gitfile-self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0045081249991199,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[gitfile-self-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.14600895899639,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[gitfile-self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004954999967594631,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[commondir-self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0030994999979157,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[commondir-self-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.7741176659983466,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[commondir-self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00029166600143071264,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[objects-alternates-self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0077605830010725185,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[objects-alternates-self-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.6612016250001034,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[objects-alternates-self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007562499959021807,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-two-link-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.021487749996595085,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-two-link-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.4490071670006728,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-two-link-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00030958300339989364,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-two-link-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.007334041001740843,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-two-link-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.45099649999610847,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-two-link-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.015142791999096517,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[control-self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.015189375000772998,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[control-self-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3192259589995956,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[control-self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000908709000214003,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[scan-self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003161458000249695,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[scan-self-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.41480833300011,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[scan-self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000742000003810972,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[alternates-self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.014671666998765431,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[alternates-self-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.6755045410027378,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[alternates-self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004363750049378723,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[alternates-tail-self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0037616670015268028,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[alternates-tail-self-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.41245895900647156,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[alternates-tail-self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0011139589987578802,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[gitfile-self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.044267999997828156,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[gitfile-self-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.9338447920017643,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[gitfile-self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003656659973785281,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[commondir-self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0043035839989897795,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[commondir-self-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.7991703329971642,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[commondir-self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000378249998902902,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[objects-alternates-self-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0021003340007155202,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[objects-alternates-self-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.8236420419998467,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[objects-alternates-self-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006419580022338778,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[scan-two-link-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.00358520799636608,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[scan-two-link-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5987385419939528,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[scan-two-link-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004476670001167804,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[alternates-two-link-suffix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.01945920800062595,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[alternates-two-link-suffix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7748555420039338,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[alternates-two-link-suffix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006947079964447767,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_scan_retargeted_into_cycle_before_spelling_is_incomplete[scan-link]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0024411249978584237,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_scan_retargeted_into_cycle_before_spelling_is_incomplete[scan-link]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.363288915999874,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_scan_retargeted_into_cycle_before_spelling_is_incomplete[scan-link]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006024160029483028,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_scan_retargeted_into_cycle_before_spelling_is_incomplete[resolved-target]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003285041995695792,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_scan_retargeted_into_cycle_before_spelling_is_incomplete[resolved-target]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.40284716700261924,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_scan_retargeted_into_cycle_before_spelling_is_incomplete[resolved-target]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005441249959403649,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-target-HEAD]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.012067458003002685,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-target-HEAD]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.22454395800014026,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-target-HEAD]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006165000013425015,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[intermediate-HEAD]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0035921669987146743,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[intermediate-HEAD]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.2704350420026458,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[intermediate-HEAD]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006678749996353872,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-pointer-HEAD]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0030955830006860197,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-pointer-HEAD]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5789844169994467,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-pointer-HEAD]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006255420012166724,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[commondir-file-HEAD]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.007748125004582107,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[commondir-file-HEAD]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3739382920030039,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[commondir-file-HEAD]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007073330052662641,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[alternates-file-HEAD]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0032147079982678406,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[alternates-file-HEAD]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.1278213340046932,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[alternates-file-HEAD]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00030654200236313045,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[git-entry-HEAD]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0015616250020684674,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[git-entry-HEAD]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3248179579968564,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[git-entry-HEAD]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0013850830000592396,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[objects-pack-HEAD]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003923541997210123,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[objects-pack-HEAD]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3955883750022622,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[objects-pack-HEAD]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0002994579990627244,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0012244579993421212,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.28008583300106693,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007112499952199869,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0025067079986911267,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3531083749985555,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006013749953126535,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[missing]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002865291004127357,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[missing]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0019726669997908175,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[missing]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00042537499393802136,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[not-directory]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0034953750000568107,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[not-directory]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.004527791003056336,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[not-directory]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003211250004824251,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[loop]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0063169159984681755,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[loop]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.060463375004474074,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[loop]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004076249970239587,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_walk_access_error_is_incomplete",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.01369870900089154,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_walk_access_error_is_incomplete",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3436983749998035,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_walk_access_error_is_incomplete",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005559169949265197,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_storage_scan_failure_is_incomplete",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.00787016600224888,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_storage_scan_failure_is_incomplete",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.1753504169973894,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_storage_scan_failure_is_incomplete",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0017385419996571727,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0033656669984338805,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.20749720800085925,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00038737499562557787,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[plain]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0031156249970081262,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[plain]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.10297949999949196,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[plain]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000611708004726097,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.028598375000001397,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3280532090066117,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006986250009504147,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[shared]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002857874998881016,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[shared]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.396464792000188,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[shared]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006460420045186765,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[new-workdir]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.004151750006712973,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[new-workdir]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.1699674170013168,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[new-workdir]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006680829974357039,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[none]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0030202080015442334,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[none]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.1747173749972717,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[none]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006302499969024211,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_scanned_storage_target_beside_checkout_is_still_recorded",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.009674916000221856,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_scanned_storage_target_beside_checkout_is_still_recorded",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.24693262499931734,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_scanned_storage_target_beside_checkout_is_still_recorded",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005451249962789007,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_component_walk_has_a_64_hop_bound",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.02816891700058477,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_component_walk_has_a_64_hop_bound",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.07453166599589167,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_component_walk_has_a_64_hop_bound",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006293339974945411,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0019638749945443124,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 34.85128524999891,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006869170028949156,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[gitfile-pointer]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.13989412500086473,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[gitfile-pointer]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.2819558339979267,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[gitfile-pointer]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00043866600026376545,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[commondir-file]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003343917000165675,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[commondir-file]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.13762491699890234,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[commondir-file]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005889579988433979,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[alternates-file]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.010508250001294073,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[alternates-file]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.29487962500570575,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[alternates-file]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0016926669995882548,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[objects-pack]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0037897079964750446,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[objects-pack]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.4669997910023085,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[objects-pack]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004597080042003654,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[data-volume-plain]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.02612770900304895,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[data-volume-plain]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.2207721250015311,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[data-volume-plain]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0021185830046306364,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[data-volume-worktree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.017769833997590467,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[data-volume-worktree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.24291804200038314,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[data-volume-worktree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005426669958978891,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-case-plain]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003465917005087249,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-case-plain]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0816471250000177,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-case-plain]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005829590008943342,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-case-worktree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.013797958003124222,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-case-worktree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.18794374999561114,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-case-worktree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004531250015133992,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-normalization-plain]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002994750000652857,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-normalization-plain]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.1394002500019269,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-normalization-plain]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007472920042346232,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-normalization-worktree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0035750419992837124,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-normalization-worktree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.24546775000635535,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-normalization-worktree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004952910021529533,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[alternates]",
+      "key": "R11-F1",
+      "value": "{\"after\": 0, \"before\": 0, \"error_after\": \"\", \"fsck\": 0, \"fsck_after_rename\": 0, \"identity\": [16777234, 2439014828], \"middle\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_baseline_keeps_readable_s0/outside/.git\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_baseline_keeps_readable_s0/outside/.git/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_baseline_keeps_readable_s0/state/worktrees/owner/source/.git/objects\"]}, \"renamed\": \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_baseline_keeps_readable_s0/state/worktrees/owner/source/.git/OBJECTS\", \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48657, \"bytes_before\": 48657, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"worktree-in-use\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48657, \"bytes_before\": 48657, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}, \"route\": \"alternates\", \"target\": \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_baseline_keeps_readable_s0/state/worktrees/owner/source/.git/objects\", \"target_fixed_point\": false, \"target_stat_errno\": 0}"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[scan]",
+      "key": "R11-F1",
+      "value": "{\"after\": 0, \"before\": 0, \"error_after\": \"\", \"fsck\": 0, \"fsck_after_rename\": 0, \"identity\": [16777234, 2439016812], \"middle\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_baseline_keeps_readable_s1/stable/.git\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_baseline_keeps_readable_s1/stable/.git/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_baseline_keeps_readable_s1/state/worktrees/owner/packs\"]}, \"renamed\": \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_baseline_keeps_readable_s1/state/worktrees/owner/PACKS\", \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 50431, \"bytes_before\": 50431, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"worktree-in-use\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 50431, \"bytes_before\": 50431, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}, \"route\": \"scan\", \"target\": \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_baseline_keeps_readable_s1/state/worktrees/owner/packs\", \"target_fixed_point\": false, \"target_stat_errno\": 0}"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[alternates]",
+      "key": "R11-F1",
+      "value": "{\"after\": 0, \"before\": 0, \"error_after\": \"\", \"fsck\": 0, \"fsck_after_rename\": 0, \"identity\": [16777234, 2439018605], \"middle\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_reada0/outside/.git\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_reada0/outside/.git/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_reada0/state/worktrees/owner/source/.git/objects\", \"reason\": \"repository alias changed or vanished during discovery\"}]}, \"renamed\": \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_reada0/state/worktrees/owner/source/.git/OBJECTS\", \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48659, \"bytes_before\": 48659, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"dependency-incomplete: borrower: /private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_reada0/state/worktrees/owner/source/.git/objects (repository alias changed or vanished during discovery)\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 48659, \"bytes_before\": 48659, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}, \"route\": \"alternates\", \"target\": \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_reada0/state/worktrees/owner/source/.git/objects\", \"target_fixed_point\": false, \"target_stat_errno\": 0}"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[scan]",
+      "key": "R11-F1",
+      "value": "{\"after\": 0, \"before\": 0, \"error_after\": \"\", \"fsck\": 0, \"fsck_after_rename\": 0, \"identity\": [16777234, 2439021132], \"middle\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_reada1/stable/.git\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_reada1/stable/.git/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_reada1/stable/.git/objects/pack\", \"reason\": \"repository alias changed or vanished during discovery\"}]}, \"renamed\": \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_reada1/state/worktrees/owner/PACKS\", \"result\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 50432, \"bytes_before\": 50432, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"dependency-incomplete: borrower: /private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_reada1/stable/.git/objects/pack (repository alias changed or vanished during discovery)\"}, \"pools\": {\"detached\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 50432, \"bytes_before\": 50432, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 2, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\", \"owner\"], \"pruned\": [], \"reclaimed\": [], \"tmpdir_left\": []}, \"route\": \"scan\", \"target\": \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_return_filter_keeps_reada1/state/worktrees/owner/packs\", \"target_fixed_point\": false, \"target_stat_errno\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[control-self-suffix]",
+      "key": "cycle-route",
+      "value": "{\"cycle\": \"self-suffix\", \"fsck\": 0, \"read\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin0/checkout/.git\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin0/checkout/.git/objects\"]}, \"route\": \"control\"}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-self-suffix]",
+      "key": "cycle-route",
+      "value": "{\"cycle\": \"self-suffix\", \"fsck\": 0, \"read\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin1/checkout/.git\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin1/checkout/.git/objects\"]}, \"route\": \"scan\"}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-self-suffix]",
+      "key": "cycle-route",
+      "value": "{\"cycle\": \"self-suffix\", \"fsck\": 0, \"read\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin2/checkout/.git\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin2/checkout/.git/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin2/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin2/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail'\"}, {\"file\": \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin2/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/info/alternates\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin2/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/info/alternates'\"}]}, \"route\": \"alternates\"}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-tail-self-suffix]",
+      "key": "cycle-route",
+      "value": "{\"cycle\": \"self-suffix\", \"fsck\": 0, \"read\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin3/checkout/.git\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin3/checkout/.git/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin3/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin3/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x'\"}, {\"file\": \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin3/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x/info/alternates\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin3/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x/info/alternates'\"}]}, \"route\": \"alternates-tail\"}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[gitfile-self-suffix]",
+      "key": "cycle-route",
+      "value": "{\"cycle\": \"self-suffix\", \"fsck\": 128, \"read\": 128, \"recorded\": {\"incomplete\": [{\"file\": \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail'\"}, {\"file\": \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects'\"}, {\"file\": \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects/info/alternates\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects/info/alternates'\"}, {\"file\": \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/commondir\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/commondir'\"}]}, \"route\": \"gitfile\"}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[commondir-self-suffix]",
+      "key": "cycle-route",
+      "value": "{\"cycle\": \"self-suffix\", \"fsck\": 128, \"read\": 128, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin5/checkout/.git\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail'\"}, {\"file\": \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects'\"}, {\"file\": \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects/info/alternates\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects/info/alternates'\"}]}, \"route\": \"commondir\"}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[objects-alternates-self-suffix]",
+      "key": "cycle-route",
+      "value": "{\"cycle\": \"self-suffix\", \"fsck\": 0, \"read\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin6/checkout/.git\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin6/store\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin6/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin6/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail'\"}, {\"file\": \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin6/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/info/alternates\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin6/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/info/alternates'\"}]}, \"route\": \"objects-alternates\"}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-two-link-suffix]",
+      "key": "cycle-route",
+      "value": "{\"cycle\": \"two-link-suffix\", \"fsck\": 0, \"read\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin7/checkout/.git\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin7/checkout/.git/objects\"]}, \"route\": \"scan\"}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-two-link-suffix]",
+      "key": "cycle-route",
+      "value": "{\"cycle\": \"two-link-suffix\", \"fsck\": 0, \"read\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin8/checkout/.git\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin8/checkout/.git/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin8/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin8/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail'\"}, {\"file\": \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin8/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/info/alternates\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_cycle_routes_keep_spellin8/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/info/alternates'\"}]}, \"route\": \"alternates\"}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-target-HEAD]",
+      "key": "location-regression",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 2, \"entry\": \"HEAD\", \"named\": false, \"position\": \"gitfile-target\", \"relative\": true}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/owner/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/owner/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[intermediate-HEAD]",
+      "key": "location-regression",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 2, \"entry\": \"HEAD\", \"named\": false, \"position\": \"intermediate\", \"relative\": true}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/owner/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/owner/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-pointer-HEAD]",
+      "key": "location-regression",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 2, \"entry\": \"HEAD\", \"named\": false, \"position\": \"gitfile-pointer\", \"relative\": true}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/owner/pointer\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[commondir-file-HEAD]",
+      "key": "location-regression",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 2, \"entry\": \"HEAD\", \"named\": false, \"position\": \"commondir-file\", \"relative\": true}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/common\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/common/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/owner/pointer\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[alternates-file-HEAD]",
+      "key": "location-regression",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 2, \"entry\": \"HEAD\", \"named\": false, \"position\": \"alternates-file\", \"relative\": true}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/source/.git/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/owner/pointer\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[git-entry-HEAD]",
+      "key": "location-regression",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 2, \"entry\": \"HEAD\", \"named\": false, \"position\": \"git-entry\", \"relative\": true}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/owner/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/owner/hop1\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/stable/entry\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[objects-pack-HEAD]",
+      "key": "location-regression",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 2, \"entry\": \"HEAD\", \"named\": false, \"position\": \"objects-pack\", \"relative\": true}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/owner/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/owner/hop1\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/stable/packs\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[plain]",
+      "key": "routine",
+      "value": "{\"layout\": \"plain\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository/.git\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository/.git/objects\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]",
+      "key": "routine",
+      "value": "{\"layout\": \"worktree\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/repository/.git/worktrees/linked\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/repository/.git\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/repository/.git/objects\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[shared]",
+      "key": "routine",
+      "value": "{\"layout\": \"shared\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/shared/.git\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/shared/.git/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/repository/.git/objects\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[new-workdir]",
+      "key": "routine",
+      "value": "{\"layout\": \"new-workdir\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/linked/.git\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/.git/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/.git\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[none]",
+      "key": "routine",
+      "value": "{\"layout\": \"none\", \"recorded\": {}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"gitfile-target\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpzfqr2zqn/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpzfqr2zqn/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpzfqr2zqn/own\\u00e9r/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpzfqr2zqn/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"commondir-file\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpk1_0iqrr/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpk1_0iqrr/stable/common\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpk1_0iqrr/stable/common/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpk1_0iqrr/own\\u00e9r/pointer\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpk1_0iqrr/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpk1_0iqrr/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"commondir-file\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp41d53qi1/stable/container/worktrees/slot\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp41d53qi1/stable/common\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp41d53qi1/stable/common/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp41d53qi1/own\\u00e9r/pointer\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp41d53qi1/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp41d53qi1/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"alternates-line\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpza9ywwza/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpza9ywwza/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpza9ywwza/stable/source/.git/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpza9ywwza/own\\u00e9r/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpza9ywwza/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"alternates-line\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpkqw7558n/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpkqw7558n/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpkqw7558n/stable/source/.git/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpkqw7558n/own\\u00e9r/HOP0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpkqw7558n/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"gitfile-target\", \"spelling\": \"other-normalization\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp7vfmmz9m/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp7vfmmz9m/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp7vfmmz9m/own\\u00e9r/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp7vfmmz9m/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"objects-pack\", \"spelling\": \"other-normalization\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpkqh03hqa/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpkqh03hqa/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpkqh03hqa/own\\u00e9r/packs\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpkqh03hqa/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpkqh03hqa/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"alternates-file\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpj27x7tke/stable/container/worktrees/slot\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpj27x7tke/stable/container\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpj27x7tke/stable/container/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpj27x7tke/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpj27x7tke/stable/source/.git/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpj27x7tke/own\\u00e9r/pointer\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpj27x7tke/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpj27x7tke/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"objects-pack\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmphh4twj88/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmphh4twj88/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmphh4twj88/own\\u00e9r/packs\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmphh4twj88/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmphh4twj88/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"git-entry\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpg2xdj0wx/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpg2xdj0wx/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpg2xdj0wx/own\\u00e9r/entry\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpg2xdj0wx/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpg2xdj0wx/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"intermediate\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpbb1f1u9c/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpbb1f1u9c/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpbb1f1u9c/own\\u00e9r/HOP0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpbb1f1u9c/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"commondir-target\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpk59p29ib/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpk59p29ib/stable/common\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpk59p29ib/stable/common/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpk59p29ib/own\\u00e9r/HOP0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpk59p29ib/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"intermediate\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpbc79re8u/stable/container/worktrees/slot\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpbc79re8u/stable/container\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpbc79re8u/stable/container/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpbc79re8u/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpbc79re8u/own\\u00e9r/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpbc79re8u/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"gitfile-target\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpsshq_grl/stable/container/worktrees/slot\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpsshq_grl/stable/container\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpsshq_grl/stable/container/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpsshq_grl/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpsshq_grl/own\\u00e9r/HOP0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpsshq_grl/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"commondir-file\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpxv5d9903/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpxv5d9903/stable/common\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpxv5d9903/stable/common/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpxv5d9903/own\\u00e9r/pointer\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpxv5d9903/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpxv5d9903/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"alternates-line\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp0gb0kn6c/stable/container/worktrees/slot\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp0gb0kn6c/stable/container\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp0gb0kn6c/stable/container/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp0gb0kn6c/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp0gb0kn6c/stable/source/.git/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp0gb0kn6c/own\\u00e9r/HOP0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp0gb0kn6c/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"commondir-target\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmphltv23fz/stable/container/worktrees/slot\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmphltv23fz/stable/common\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmphltv23fz/stable/common/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmphltv23fz/own\\u00e9r/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmphltv23fz/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"objects\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp5x5im9f7/stable/container/worktrees/slot\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp5x5im9f7/stable/container\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp5x5im9f7/stable/container/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp5x5im9f7/stable/object-store\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp5x5im9f7/own\\u00e9r/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp5x5im9f7/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"git-entry\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp9x7d8f2v/stable/container/worktrees/slot\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp9x7d8f2v/stable/container\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp9x7d8f2v/stable/container/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp9x7d8f2v/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp9x7d8f2v/own\\u00e9r/entry\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp9x7d8f2v/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp9x7d8f2v/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"alternates-line\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpmzhiit88/stable/container/worktrees/slot\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpmzhiit88/stable/container\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpmzhiit88/stable/container/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpmzhiit88/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpmzhiit88/stable/source/.git/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpmzhiit88/own\\u00e9r/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpmzhiit88/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"commondir-target\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmplnhfka0o/stable/container/worktrees/slot\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmplnhfka0o/stable/common\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmplnhfka0o/stable/common/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmplnhfka0o/own\\u00e9r/HOP0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmplnhfka0o/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"git-entry\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpyb4x_iil/stable/container/worktrees/slot\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpyb4x_iil/stable/container\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpyb4x_iil/stable/container/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpyb4x_iil/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpyb4x_iil/own\\u00e9r/entry\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpyb4x_iil/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpyb4x_iil/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"intermediate\", \"spelling\": \"other-normalization\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpfeuua9fs/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpfeuua9fs/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpfeuua9fs/own\\u00e9r/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpfeuua9fs/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"commondir-file\", \"spelling\": \"other-normalization\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp035794rb/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp035794rb/stable/common\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp035794rb/stable/common/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp035794rb/own\\u00e9r/pointer\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp035794rb/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp035794rb/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"objects-info\", \"spelling\": \"other-normalization\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpg4ruelf9/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpg4ruelf9/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpg4ruelf9/stable/source/.git/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpg4ruelf9/own\\u00e9r/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpg4ruelf9/own\\u00e9r/hop1\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpg4ruelf9/stable/object-info\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpg4ruelf9/stable/object-info/alternates\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"gitfile-pointer\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpnzk1wsj7/stable/container/worktrees/slot\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpnzk1wsj7/stable/container\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpnzk1wsj7/stable/container/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpnzk1wsj7/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpnzk1wsj7/own\\u00e9r/pointer\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpnzk1wsj7/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpnzk1wsj7/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"objects-pack\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp6w87v73n/stable/container/worktrees/slot\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp6w87v73n/stable/container\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp6w87v73n/stable/container/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp6w87v73n/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp6w87v73n/own\\u00e9r/packs\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp6w87v73n/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp6w87v73n/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"gitfile-target\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpnr1hgmqn/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpnr1hgmqn/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpnr1hgmqn/own\\u00e9r/HOP0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpnr1hgmqn/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"gitfile-pointer\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp7ipdr_mq/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp7ipdr_mq/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp7ipdr_mq/own\\u00e9r/pointer\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp7ipdr_mq/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp7ipdr_mq/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"objects\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpb9a28fcd/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpb9a28fcd/stable/object-store\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpb9a28fcd/own\\u00e9r/HOP0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpb9a28fcd/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"gitfile-pointer\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpi9nmgg_0/stable/container/worktrees/slot\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpi9nmgg_0/stable/container\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpi9nmgg_0/stable/container/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpi9nmgg_0/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpi9nmgg_0/own\\u00e9r/pointer\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpi9nmgg_0/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpi9nmgg_0/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"intermediate\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpsulfwgtf/stable/container/worktrees/slot\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpsulfwgtf/stable/container\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpsulfwgtf/stable/container/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpsulfwgtf/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpsulfwgtf/own\\u00e9r/HOP0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpsulfwgtf/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"alternates-file\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpm3ttukuy/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpm3ttukuy/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpm3ttukuy/stable/source/.git/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpm3ttukuy/own\\u00e9r/pointer\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpm3ttukuy/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpm3ttukuy/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"objects\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpyfjzieq1/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpyfjzieq1/stable/object-store\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpyfjzieq1/own\\u00e9r/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpyfjzieq1/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"alternates-line\", \"spelling\": \"other-normalization\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmptmt654d8/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmptmt654d8/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmptmt654d8/stable/source/.git/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmptmt654d8/own\\u00e9r/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmptmt654d8/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"commondir-file\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpc50x0ao2/stable/container/worktrees/slot\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpc50x0ao2/stable/common\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpc50x0ao2/stable/common/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpc50x0ao2/own\\u00e9r/pointer\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpc50x0ao2/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpc50x0ao2/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"gitfile-pointer\", \"spelling\": \"other-normalization\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpj4vsg9ed/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpj4vsg9ed/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpj4vsg9ed/own\\u00e9r/pointer\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpj4vsg9ed/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpj4vsg9ed/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"objects-info\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmplv8c202y/stable/container/worktrees/slot\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmplv8c202y/stable/container\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmplv8c202y/stable/container/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmplv8c202y/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmplv8c202y/stable/source/.git/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmplv8c202y/own\\u00e9r/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmplv8c202y/own\\u00e9r/hop1\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmplv8c202y/stable/object-info\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmplv8c202y/stable/object-info/alternates\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"objects-info\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpvib8qpjj/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpvib8qpjj/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpvib8qpjj/stable/source/.git/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpvib8qpjj/own\\u00e9r/HOP0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpvib8qpjj/own\\u00e9r/hop1\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpvib8qpjj/stable/object-info\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpvib8qpjj/stable/object-info/alternates\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"git-entry\", \"spelling\": \"other-normalization\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpdvvg6aeo/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpdvvg6aeo/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpdvvg6aeo/own\\u00e9r/entry\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpdvvg6aeo/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpdvvg6aeo/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"gitfile-target\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmplk0ywci2/stable/container/worktrees/slot\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmplk0ywci2/stable/container\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmplk0ywci2/stable/container/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmplk0ywci2/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmplk0ywci2/own\\u00e9r/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmplk0ywci2/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"alternates-file\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp6ch6pock/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp6ch6pock/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp6ch6pock/stable/source/.git/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp6ch6pock/own\\u00e9r/pointer\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp6ch6pock/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp6ch6pock/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"objects-pack\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpwog9sqey/stable/container/worktrees/slot\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpwog9sqey/stable/container\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpwog9sqey/stable/container/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpwog9sqey/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpwog9sqey/own\\u00e9r/packs\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpwog9sqey/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpwog9sqey/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"intermediate\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpw57ntrzq/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpw57ntrzq/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpw57ntrzq/own\\u00e9r/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpw57ntrzq/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"gitfile-pointer\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp1w8jd439/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp1w8jd439/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp1w8jd439/own\\u00e9r/pointer\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp1w8jd439/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp1w8jd439/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"git-entry\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp5p5nrhtl/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp5p5nrhtl/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp5p5nrhtl/own\\u00e9r/entry\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp5p5nrhtl/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp5p5nrhtl/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"commondir-target\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpxiupyfpd/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpxiupyfpd/stable/common\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpxiupyfpd/stable/common/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpxiupyfpd/own\\u00e9r/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpxiupyfpd/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"commondir-target\", \"spelling\": \"other-normalization\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpsovf_jry/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpsovf_jry/stable/common\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpsovf_jry/stable/common/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpsovf_jry/own\\u00e9r/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpsovf_jry/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"objects-info\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpb2ref6tl/stable/container/worktrees/slot\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpb2ref6tl/stable/container\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpb2ref6tl/stable/container/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpb2ref6tl/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpb2ref6tl/stable/source/.git/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpb2ref6tl/own\\u00e9r/HOP0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpb2ref6tl/own\\u00e9r/hop1\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpb2ref6tl/stable/object-info\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpb2ref6tl/stable/object-info/alternates\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"objects-info\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpc1jxzxi7/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpc1jxzxi7/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpc1jxzxi7/stable/source/.git/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpc1jxzxi7/own\\u00e9r/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpc1jxzxi7/own\\u00e9r/hop1\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpc1jxzxi7/stable/object-info\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpc1jxzxi7/stable/object-info/alternates\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"objects\", \"spelling\": \"other-normalization\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpz1tkge1e/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpz1tkge1e/stable/object-store\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpz1tkge1e/own\\u00e9r/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpz1tkge1e/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"alternates-file\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp_8222uhb/stable/container/worktrees/slot\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp_8222uhb/stable/container\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp_8222uhb/stable/container/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp_8222uhb/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp_8222uhb/stable/source/.git/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp_8222uhb/own\\u00e9r/pointer\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp_8222uhb/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp_8222uhb/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"objects-pack\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp6ccqzkit/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp6ccqzkit/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp6ccqzkit/own\\u00e9r/packs\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp6ccqzkit/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmp6ccqzkit/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": true, \"position\": \"objects\", \"spelling\": \"other-case\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpyrzm47jr/stable/container/worktrees/slot\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpyrzm47jr/stable/container\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpyrzm47jr/stable/container/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpyrzm47jr/stable/object-store\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpyrzm47jr/own\\u00e9r/HOP0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpyrzm47jr/own\\u00e9r/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "key": "spelling-input",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"alternates-file\", \"spelling\": \"other-normalization\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpdsfqbl2e/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpdsfqbl2e/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpdsfqbl2e/stable/source/.git/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpdsfqbl2e/own\\u00e9r/pointer\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpdsfqbl2e/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/tmpdsfqbl2e/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[gitfile-pointer]",
+      "key": "r9-sibling",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"gitfile-pointer\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one0/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one0/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one0/own\\u00e9r/pointer\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one0/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one0/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[commondir-file]",
+      "key": "r9-sibling",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"commondir-file\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one1/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one1/stable/common\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one1/stable/common/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one1/own\\u00e9r/pointer\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one1/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one1/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[alternates-file]",
+      "key": "r9-sibling",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"alternates-file\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one2/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one2/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one2/stable/source/.git/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one2/own\\u00e9r/pointer\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one2/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one2/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[objects-pack]",
+      "key": "r9-sibling",
+      "value": "{\"after\": 128, \"before\": 0, \"input\": {\"named\": false, \"position\": \"objects-pack\", \"spelling\": \"data-volume\"}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one3/stable/container/admin\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one3/stable/container/admin/objects\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one3/own\\u00e9r/packs\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one3/stable/hop0\", \"/private/tmp/sf-r272r11/real-tmp/r11-trial/pytest-of-maxghenis/pytest-0/test_review_r9_sibling_has_one3/stable/hop1\"]}}"
+    }
+  ],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+      "mutated": "844e4dabfb616bbbaabbe4797a3350065515b70097e322562eb283e63db39d6d"
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[alternates]",
+    "tests/fake/test_retention_dependency_review_r11.py::test_baseline_keeps_readable_store_across_case_rename[scan]",
+    "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[alternates]",
+    "tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[scan]",
+    "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[control-self-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-self-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-self-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-tail-self-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[gitfile-self-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[commondir-self-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[objects-alternates-self-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[scan-two-link-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_cycle_routes_keep_spelling_and_evidence[alternates-two-link-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[control-self-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[scan-self-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[alternates-self-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[alternates-tail-self-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[gitfile-self-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[commondir-self-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[objects-alternates-self-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[scan-two-link-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_readable_repository_beside_cycle_keeps_every_place[alternates-two-link-suffix]",
+    "tests/unit/test_retention_location_cycles.py::test_scan_retargeted_into_cycle_before_spelling_is_incomplete[scan-link]",
+    "tests/unit/test_retention_location_cycles.py::test_scan_retargeted_into_cycle_before_spelling_is_incomplete[resolved-target]",
+    "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-target-HEAD]",
+    "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[intermediate-HEAD]",
+    "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-pointer-HEAD]",
+    "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[commondir-file-HEAD]",
+    "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[alternates-file-HEAD]",
+    "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[git-entry-HEAD]",
+    "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[objects-pack-HEAD]",
+    "tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it",
+    "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete",
+    "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[missing]",
+    "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[not-directory]",
+    "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[loop]",
+    "tests/unit/test_retention_locations.py::test_walk_access_error_is_incomplete",
+    "tests/unit/test_retention_locations.py::test_storage_scan_failure_is_incomplete",
+    "tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned",
+    "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[plain]",
+    "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]",
+    "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[shared]",
+    "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[new-workdir]",
+    "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[none]",
+    "tests/unit/test_retention_locations.py::test_scanned_storage_target_beside_checkout_is_still_recorded",
+    "tests/unit/test_retention_locations.py::test_component_walk_has_a_64_hop_bound",
+    "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+    "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[gitfile-pointer]",
+    "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[commondir-file]",
+    "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[alternates-file]",
+    "tests/unit/test_retention_location_spelling.py::test_review_r9_sibling_has_one_spelling[objects-pack]",
+    "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[data-volume-plain]",
+    "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[data-volume-worktree]",
+    "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-case-plain]",
+    "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-case-worktree]",
+    "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-normalization-plain]",
+    "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[other-normalization-worktree]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/subfleet/dependencies.py",
+  "product_sha256": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+  "end": "2026-10-31T17:03:39.882554+00:00",
+  "seconds": 95.29771745800099,
+  "peak_rss_mib": 119.328125,
+  "exit": 0
+}

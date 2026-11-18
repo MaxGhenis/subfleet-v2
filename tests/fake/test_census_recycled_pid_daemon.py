@@ -272,7 +272,9 @@ def test_a_new_responsibility_identity_cannot_inherit_snapshot_group_authority(s
     monkeypatch.setattr(procs.os, "killpg", lambda pid, sig: signalled.append(pid))
     daemon.term_grace_s = daemon.kill_settle_s = 0
     daemon._kill_attempt(attempt)
-    assert set(signalled) <= {42}
+    # D-KILL4: 61 is a responsibility member, signalled as a census member under the
+    # birth that census captured (same_process checks it); never by its old group row.
+    assert set(signalled) <= {42, 61}
     evidence = json.loads(daemon.store.get_attempt(attempt["attempt_id"])["evidence_json"])
     assert evidence["responsible_identities"]["61"]["proc_start"] == state.starts[61]
     assert "61" not in evidence["owned_identities"]

@@ -1,0 +1,19 @@
+{
+  "queued": "2026-10-31T16:33:41.197896+00:00",
+  "args": [
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_pending_export_keeps_the_tree_and_a_written_one_goes_into_the_archive",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[case]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[output]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[review-root]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[READER]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[TURN]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[linked]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[output]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[review-root]"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/earlier-test_retention_dependencies-2",
+  "linked": false,
+  "driver_pid": 28541,
+  "lock_process_group": 28620
+}

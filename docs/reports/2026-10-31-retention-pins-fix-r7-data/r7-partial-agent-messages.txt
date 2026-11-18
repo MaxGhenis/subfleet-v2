@@ -1,0 +1,91 @@
+I’ll read the lane rules and r6 evidence first, then start the required holds and check the pointer repairs and property coverage. I’ll keep all runs in scratch and make no commits or external writes, as required by the review instruction.
+
+
+---
+
+I’m applying the PR-review skill using local diffs and call-site inspection; GitNexus tools aren’t available here. The lane rules prohibit sub-agents, so I’ll run this review in one lane.
+
+
+---
+
+The requested temp folder was sandbox-denied, so I’m using `/private/tmp/sf-r272r7`. Environment setup is running. I’ll start the r6 regressions next and check whether generated inputs reach both repaired classes without the explicit examples.
+
+
+---
+
+The property uses real Git for its object-path and commit-read checks. I’m still testing whether its 100 generated inputs reach the repaired cases independently of the 15 explicit examples.
+
+Both allowed GitHub reads failed because the scratch GitHub config has no authentication. I won’t retry them; the live PR body and CI buckets remain unavailable.
+
+
+---
+
+All 16 r6 regression cases pass at head, including the five formerly failing inputs. The turn cwd examples and property also pass.
+
+I’m probing whether the new recursive call reads unrelated metadata in an inferred parent that Git does not use. I also added a mutation check for revalidating the named admin’s own objects path.
+
+
+---
+
+The source audit confirms that only the expected-failure marks covering the five repaired cases were removed. The acceptance contract and the three legacy reader modules are byte-identical to `b2a357b6c`.
+
+The T2 property passes. Several other holds are waiting for the shared lock; none has reached the 30-minute fallback threshold.
+
+
+---
+
+The turn-retention files, alternates tests and job-dependency tests pass. The generated-only reversion checks are still waiting for the lock.
+
+The suspected parent-metadata regression has a focused probe: Git creates the separate git directory normally, then discovery encounters a `commondir` directory in its unused parent. I’ll compare both revisions’ records and retirement results to determine whether this adds a false global pin.
+
+
+---
+
+The generated-only R6-F1 reversion has entered the lock. I checked Hypothesis’s seed derivation: it removes decorators before hashing the test function, so removing `@example` entries preserves the deterministic seed.
+
+The dependency fake and spelling tests also pass. The parent controls and new probes remain queued.
+
+
+---
+
+The generated-only property detects the R6-F1 reversion. Its first failing input is a valid gitfile naming `worktrees/slot`, with absent `commondir` and a symlinked own store. Real Git reads the owner’s commit; the reverted discovery omits that store without reporting incompleteness.
+
+The R6-F2 reversion is now queued separately.
+
+
+---
+
+The R6-F2 reversion has also produced a generated failure: an oversized gitfile loses incomplete evidence. Its first failing input has a malformed prefix and blank target; I’ll distinguish that bounded-read check from the generated cases that Git successfully reads.
+
+
+---
+
+Both generated-only reversions now complete with failures under the original example count and seed. The R6-F2 run spent most of its time in Hypothesis’s explain phase and finished within the ten-minute hold requirement.
+
+I’m moving to the named mutants and the parent probe’s trial repair while the remaining ordinary holds wait for admission.
+
+
+---
+
+The ordinary holds and new probes are still waiting for the shared lock. I’ll use the required direct-run fallback if a waiter reaches 30 minutes without admission.
+
+I’ve added a vanished-target variant to the parent probe so it also checks the report’s statement that stale gitfiles remain routine.
+
+
+---
+
+Both generated-only failures are now recorded, and the copied test bodies have matching hashes with 0/0/15 explicit examples in the two reversions and head.
+
+The other holds are still waiting for admission. Loads are around 45, with ample free disk. The oldest waiter reaches 30 minutes at 01:59 UTC.
+
+
+---
+
+The new probes have entered the lock. They’re now checking actual retirement at base and head for the four routine repository shapes, followed by pointer failures, final-read failures and the unused-parent counterexamples.
+
+
+---
+
+The probe confirms a new regression: discovery reads an unused parent’s `commondir` directory and reports incomplete evidence, globally pinning an unrelated owner tree. The checkout itself passes real Git’s fsck and commit read.
+
+The vanished-target variant produces the same false pin, contradicting the desktop’s unqualified stale-target statement. I’m treating this as R7-F1, a P3 introduced by fix r6, and checking the trial repair and base retirement controls.

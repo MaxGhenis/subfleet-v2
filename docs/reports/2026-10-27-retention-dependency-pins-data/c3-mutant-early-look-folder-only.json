@@ -1,0 +1,51 @@
+{
+  "start": "2026-10-28T23:23:34.664132+00:00",
+  "load": [
+    106.78271484375,
+    108.32373046875,
+    110.2734375
+  ],
+  "pid": 90690,
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-read-only]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 1.1258379170030821
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-read-only]",
+      "phase": "call",
+      "outcome": "failed",
+      "seconds": 39.21289700000489,
+      "failure": "tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-rdp217c3/hold-c3-mutant-early-look-folder-only/pytest-of-maxghenis/pytest-0/test_c8_4_a_job_submitted_unde0')\nkind = 'linked', shape = 'read-only'\n\n    @pytest.mark.parametrize(\"kind, shape\", [(\"review-root\", \"read-only\"), (\"linked\", \"read-only\"),\n                                             (\"linked\", \"worktree\"), (\"linked\", \"in-place\"), (\"output\", \"read-only\")])\n    def test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired(tmp_path, kind, shape):\n        \"\"\"Gaps 1, 3 and 4, the admission side. While retention holds `worktree:<tree>`\n        (after the selecting transaction, before `begin` reads or moves the tree), a job\n        is submitted that needs a place in the tree but works outside it. Admission holds\n        it `lease-held` on the fence before preparing its workspace: no git runs for it,\n        and a worktree writer's worktree is not registered in the repository in the tree.\n        The hold names the place and what the job needs it as (`needs`), and `why` says\n        retention is removing the tree that place is in. Once the retirement lets go, the\n        next pass places it (C-6.10), and only then is a writer's worktree cut.\n        Failed on 0a91f070: reserved under the fence (`live`, no hold).\"\"\"\n        with fleet_daemon(tmp_path / \"state\") as (daemon, harness, patch):\n            measured(daemon, harness)\n            tree, nested = retiring_tree(daemon, harness)\n            if kind == \"linked\":\n                external_checkout(tmp_path, nested)\n            fence = folders.exclusive_key(tree)\n            workspaces = Workspaces(daemon, patch, real=True)\n            registered = registrations(nested)\n            seen = {}\n    \n            def begin(retirement, job, pool):\n                seen[\"fence\"] = lease(daemon, fence)\n                seen[\"job\"], seen[\"place\"], seen[\"role\"] = job_id, _, _ = needing(daemon, harness, tmp_path, tree,\n                                                                                  nested, kind, shape)\n                daemon._admit()\n                seen.update(live=_live(daemon, job_id), hold=dict(daemon._holds.get(job_id) or {}),\n                            prepared=list(workspaces.calls), registered=registrations(nested),\n                            row=dict(daemon._job(job_id)), why=daemon._why_job(daemon._job(job_id))[\"text\"])\n                raise rarch.Defer(\"test finished at fence\", 1)\n    \n            patch.setattr(rarch.Retirement, \"begin\", begin)\n            retire(daemon)\n            job_id, place, role = seen[\"job\"], seen[\"place\"], seen[\"role\"]\n            assert seen[\"fence\"] == \"retention:retired\", seen\n>           assert not seen[\"live\"] and seen[\"prepared\"] == [] and seen[\"registered\"] == registered, seen\nE           AssertionError: {'fence': 'retention:retired', 'job': '20261028-192510-astra', 'place': '/private/var/folders/9l/_wztzgbx7mgc7l1r0416c...est_c8_4_a_job_submitted_unde0/state/worktrees/retired/vendor/lib/.git/worktrees/external', 'role': 'git-storage', ...}\nE           assert (not False and ['20261028-192510-astra'] == []\nE             \nE             Left contains one more item: '20261028-192510-astra'\nE             Use -v to get more diff)\n\ntests/fake/test_retention_dependencies.py:167: AssertionError"
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-read-only]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.000799917004769668
+    }
+  ],
+  "hypothesis_profile": "explicit and generate; no shrinking; first failure",
+  "all_collected": [
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-read-only]"
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-read-only]"
+  ],
+  "exit": 1,
+  "seconds": 107.97933004100923,
+  "maxrss": 125353984,
+  "capped": false,
+  "cap_seconds": null,
+  "lock": "outside after 30 minutes",
+  "command": [
+    "-x",
+    "--hypothesis-seed=217",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-read-only]"
+  ],
+  "admission_utc": "2026-10-28T23:23:03.741472+00:00",
+  "wall_seconds": 1956.169,
+  "queue_seconds": 1801.262
+}

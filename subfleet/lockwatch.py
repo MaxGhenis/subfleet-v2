@@ -32,6 +32,7 @@ from collections.abc import Callable
 HOLD_REPORT_S = 2.0
 #: C-3.6: a thread that has waited this long for the lock reports itself.
 WAIT_REPORT_S = 5.0
+STOP_JOIN_S = 2.0
 #: C-3.6: at most one line per lock and kind of report in this window; the
 #: next line, or a summary once the window has passed, counts the rest.
 REPORT_EVERY_S = 60.0
@@ -175,10 +176,17 @@ class LockWatch:
             self._thread = threading.Thread(target=self._run, name="subfleet-lockwatch", daemon=True)
             self._thread.start()
 
-    def stop(self) -> None:
+    def begin_stop(self) -> None:
+        """Start the join deadline now so the drain can overlap it."""
+        if not self._stop.is_set():
+            self._stop_by = self.clock() + STOP_JOIN_S
         self._stop.set()
+
+    def stop(self) -> None:
+        """Join only until the original stop deadline, then detach diagnostics."""
+        self.begin_stop()
         if self._thread is not None and self._thread is not threading.current_thread():
-            self._thread.join(timeout=2)
+            self._thread.join(timeout=max(0.0, self._stop_by - self.clock()))
         for lock in self.locks:
             if lock.watch is self:
                 lock.watch = None

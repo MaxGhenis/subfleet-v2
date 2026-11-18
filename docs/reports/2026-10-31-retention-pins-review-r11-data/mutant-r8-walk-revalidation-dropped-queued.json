@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T16:53:51.077129+00:00",
+  "args": [
+    "--mutant",
+    "r8-walk-revalidation-dropped",
+    "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/mutant-r8-walk-revalidation-dropped",
+  "linked": false,
+  "driver_pid": 65964,
+  "lock_process_group": 65980
+}

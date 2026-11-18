@@ -4,7 +4,7 @@ Until #16 the admission pass recorded a whole routing decision for a job that
 was only waiting for capacity, once per re-check (`daemon.py` `_admit` called
 `add_decision` each time a routing verdict left a job waiting). The latest-row
 readers need only two rows per job, but retention archives and the store's
-history method read all rows. No foreign key in schema 7 points at `decisions`.
+history method read all rows. No foreign key in the current schema points at `decisions`.
 #16 stopped the repeats — a wait
 that reaches the verdict it reached last time adds no row (C-6.10) — and this
 module is the one-off operator pass that gives back the space the rows already
@@ -88,6 +88,7 @@ import gzip
 import hashlib
 import json
 import os
+import re
 import shlex
 import shutil
 import sqlite3
@@ -99,16 +100,33 @@ from pathlib import Path
 from typing import Any
 
 from .guardian import atomic_publish
+from .home_paths import home_path
 from .store import SCHEMA_VERSION, SchemaVersionError, Store, utc_now
 
 STORE_NAME = "state.sqlite3"
 LOCK_NAME = "daemon.lock"
 BACKUPS_NAME = "backups"
 
+#: The shell block of the operator recipe below, before the copy's quoted path
+#: is put in it. Invariants: all old database files stay together, no old WAL
+#: reaches the restored copy, and neither the backup nor its rows change during
+#: restoration.
+RESTORE_SCRIPT = """(
+    set -eu
+    backup={copy_path}
+    aside=$(mktemp -d "$state_root/state-before-restore.XXXXXX")
+    for file in state.sqlite3 state.sqlite3-wal state.sqlite3-shm; do
+        if [ -e "$state_root/$file" ]; then
+            mv "$state_root/$file" "$aside/$file"
+        fi
+    done
+    cp "$backup" "$state_root/state.sqlite3"
+    sqlite3 "$state_root/state.sqlite3" 'PRAGMA integrity_check'
+)"""
+
 #: The operator recipe, also embedded verbatim in docs/migration.md and
-#: executed against disposable stores by test_prune_restore.py. Invariants:
-#: all old database files stay together, no old WAL reaches the restored copy,
-#: and neither the backup nor its rows change during restoration.
+#: executed against disposable stores by test_prune_restore.py. `_restore_fix`
+#: fills in the fence and the script.
 RESTORE_RECIPE = """Stop the daemon with `subfleet daemon stop`. If its launchd job is
 installed, unload it with
 `launchctl unload ~/Library/LaunchAgents/com.subfleet.daemon.plist` so KeepAlive
@@ -121,20 +139,9 @@ Move `state.sqlite3`, `state.sqlite3-wal` and `state.sqlite3-shm` aside together
 before copying the backup. Run this block in the same shell with `state_root`
 set; replace the backup placeholder with the copy named in the pass report:
 
-```sh
-(
-    set -eu
-    backup={copy_path}
-    aside=$(mktemp -d "$state_root/state-before-restore.XXXXXX")
-    for file in state.sqlite3 state.sqlite3-wal state.sqlite3-shm; do
-        if [ -e "$state_root/$file" ]; then
-            mv "$state_root/$file" "$aside/$file"
-        fi
-    done
-    cp "$backup" "$state_root/state.sqlite3"
-    sqlite3 "$state_root/state.sqlite3" 'PRAGMA integrity_check'
-)
-```
+{fence}sh
+{script}
+{fence}
 
 Require `integrity_check` to return exactly `ok`. Compare each table's
 `SELECT COUNT(*) FROM "<table>"` with the pre-prune counts in this pass's JSON
@@ -371,14 +378,32 @@ def _restore_fix(copy_path: str | None) -> str:
     """
     if not copy_path:
         return "nothing was deleted and no copy was taken; the store is as it was"
-    return RESTORE_RECIPE.format(copy_path=shlex.quote(copy_path))
+    script = RESTORE_SCRIPT.format(copy_path=shlex.quote(copy_path))
+    return RESTORE_RECIPE.format(fence=code_fence(script), script=script)
+
+
+def code_fence(body: str) -> str:
+    """A backtick fence that nothing in `body` can close (D-PRR1).
+
+    A CommonMark fenced block ends at the first line of only backticks at least
+    as long as its opening fence. A backup path is the operator's to name: one
+    holding a newline and a run of three backticks ended a fixed three-backtick
+    block early, and a reader looking for the next triple backtick stops inside
+    any path that holds one. A run longer than every run in the body, and never
+    shorter than three, cannot occur inside it. The migration guide's copy holds
+    no backtick, so it keeps three.
+    """
+    longest = max((len(run) for run in re.findall("`+", body)), default=0)
+    return "`" * max(3, longest + 1)
 
 
 def _require_schema_tables(database: Path) -> None:
-    """Refuse missing expected tables using only a read-only source connection.
+    """Refuse missing expected tables or columns through a read-only connection.
 
-    Apply the build's schema to an in-memory database to obtain its table names,
-    never to the source. Extra tables remain covered by the content proofs.
+    Apply the build's schema to an in-memory database to obtain its tables and
+    columns, never to the source. This follows SCHEMA_VERSION's DDL without a
+    separate column list. Extra tables and columns remain covered by SELECT *
+    fingerprints and the complete VACUUM INTO backup.
     """
     expected = sqlite3.connect(":memory:")
     source = None
@@ -391,6 +416,17 @@ def _require_schema_tables(database: Path) -> None:
             raise PruneRefused(
                 f"prune decisions: schema {SCHEMA_VERSION} store is missing expected tables: "
                 + ", ".join(missing),
+                "nothing has been deleted or repaired; investigate the store before pruning")
+        missing_columns = sorted(
+            f"{table}.{column}"
+            for table in _tables(expected)
+            for column in (
+                {row['name'] for row in expected.execute(f'PRAGMA table_info("{table}")')}
+                - {row['name'] for row in source.execute(f'PRAGMA table_info("{table}")')}))
+        if missing_columns:
+            raise PruneRefused(
+                f"prune decisions: schema {SCHEMA_VERSION} store is missing expected columns: "
+                + ", ".join(missing_columns),
                 "nothing has been deleted or repaired; investigate the store before pruning")
     finally:
         if source is not None:
@@ -620,7 +656,7 @@ def plan(conn: sqlite3.Connection) -> Plan:
     per attempt), when one of `KEEP_QUERIES` selects it for its job, or when its
     job is not terminal. Everything else is omitted from future full histories
     intentionally: latest answers are preserved, not the original history
-    length. No foreign key names a decision row on schema 7.
+    length. No foreign key names a decision row on the current schema.
     """
     states = {row["job_id"]: row["state"] for row in conn.execute("SELECT job_id, state FROM jobs")}
     # `length()` over a TEXT column counts characters, and `store._json` writes
@@ -1298,7 +1334,8 @@ def main(argv: list[str] | None = None) -> int:
         prog="subfleet.prune_decisions",
         description="delete the redundant decisions rows a waiting job accumulated "
                     "(the daemon must be stopped)")
-    parser.add_argument("--state-root", default=os.environ.get("SUBFLEET_HOME") or "~/.subfleet")
+    parser.add_argument("--state-root", default=None,
+                        help="the state root (default: $SUBFLEET_HOME, else ~/.subfleet)")
     parser.add_argument("--backup-dir", default=None,
                         help="where the backups go (default: <state root>/backups), "
                              "for instance a directory on another volume")
@@ -1313,6 +1350,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="print the report without saving it")
     parser.add_argument("--json", action="store_true", help="print the report as JSON")
     args = parser.parse_args(argv)
+    if args.state_root is None:
+        # D-ST3: the default is the person's live store, which a pytest process refuses.
+        args.state_root = home_path("SUBFLEET_HOME", lambda: "~/.subfleet")
     if args.apply and not args.confirm:
         return _fail(PruneRefused.code, "prune decisions: --apply deletes rows and was not "
                                         "confirmed",

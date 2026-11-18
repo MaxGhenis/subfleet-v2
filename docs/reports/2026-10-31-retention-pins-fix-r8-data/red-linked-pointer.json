@@ -1,0 +1,110 @@
+{
+  "name": "red-linked-pointer",
+  "start": "2026-10-31T07:07:43.146841+00:00",
+  "load": [
+    34.533203125,
+    34.8896484375,
+    35.03564453125
+  ],
+  "args": [
+    "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.4124414170000819,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 3.0572098750017176,
+      "failure": "tests/unit/test_retention_pointer_inputs.py:123: in test_pointer_inputs_keep_every_store_real_git_reads\n    suppress_health_check=[HealthCheck.function_scoped_fixture])\n         ^^^^^^^^^^^^^^^^^^\n/private/tmp/sf-fix272r8/venv/lib/python3.14/site-packages/hypothesis/core.py:1691: in _raise_to_user\n    raise the_error_hypothesis_found\ntests/unit/test_retention_pointer_inputs.py:142: in test_pointer_inputs_keep_every_store_real_git_reads\n    observation = check_input(Path(directory), data)\n                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\ntests/unit/test_retention_pointer_inputs.py:115: in check_input\n    assert any(error[\"file\"] == str(pointer) for error in recorded.get(\"incomplete\", [])), recorded\nE   AssertionError: {'incomplete': [{'file': '/private/tmp/sf-fix272r8/real-tmp/red-linked-pointer/tmpv8vlhxz9/checkout/.git', 'reason': \"[Errno 27] longer than 65536 bytes: '/private/tmp/sf-fix272r8/real-tmp/red-linked-pointer/tmpv8vlhxz9/checkout/.git'\"}]}\nE   assert False\nE    +  where False = any(<generator object check_input.<locals>.<genexpr> at 0x10708c8b0>)\nE   (note: 1 other explicit example also failed with this error; use Verbosity.verbose to view)\nE   Failing explicit example: test_pointer_inputs_keep_every_store_real_git_reads(\nE       record_property=append_property,\nE       data={'layout': 'gitfile',\nE        'prefix': 'present',\nE        'target': 'normal',\nE        'common': 'absent',\nE        'own': 'symlink',\nE        'named': True,\nE        'padding': 'over',\nE        'pad_file': 'gitfile'},\nE   )\nE   {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"present\", \"target\": \"normal\"}\nE   {'git_path': b'/private/tmp/sf-fix272r8/real-tmp/red-linked-pointer/tmpv8vlhxz9/container/worktrees/slot/objects\\n',\nE    'git_error': b'',\nE    'read_error': b'',\nE    'recorded': {'incomplete': [{'file': '/private/tmp/sf-fix272r8/real-tmp/red-linked-pointer/tmpv8vlhxz9/checkout/.git',\nE       'reason': \"[Errno 27] longer than 65536 bytes: '/private/tmp/sf-fix272r8/real-tmp/red-linked-pointer/tmpv8vlhxz9/checkout/.git'\"}]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005167080016690306,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-fix272r8/real-tmp/red-linked-pointer/tmpcla1ovgj/container/worktrees/slot/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [18], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"empty\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [18, 0], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-fix272r8/real-tmp/red-linked-pointer/tmpitoda3tu/container/worktrees/slot/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [18, 1], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-fix272r8/real-tmp/red-linked-pointer/tmpol2aemaz/container/worktrees/slot/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [18, 2], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-fix272r8/real-tmp/red-linked-pointer/tmp38ynbhft/owner/.git/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [18, 9], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"absent\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [10], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"misspelled\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [17], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"colon-only\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [17], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [10], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-fix272r8/real-tmp/red-linked-pointer/tmpy_hasy3d/container/worktrees/slot/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"spaces\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [13], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-fix272r8/real-tmp/red-linked-pointer/tmpbfkah2op/container/worktrees/slot/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"padded\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [65298], \"read_rc\": 0}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [18], \"read_rc\": 128}"
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "key": "git-input",
+      "value": "{\"git_path\": \"/private/tmp/sf-fix272r8/real-tmp/red-linked-pointer/tmpyewfuxja/container/worktrees/slot/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"alternate\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [18], \"read_rc\": 0}"
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads"
+  ],
+  "end": "2026-10-31T07:07:52.401507+00:00",
+  "seconds": 9.254347957998107,
+  "peak_rss_mib": 114.453125,
+  "exit": 1
+}
