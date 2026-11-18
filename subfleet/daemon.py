@@ -618,7 +618,8 @@ HEADLESS_PREAMBLE = (
 #: inspection that raised and could not inspect this time (another attempt's
 #: `ps` read was running, or the table, its boot identity or the guardian could
 #: not be read). `_schedule` counts it as neither a success, which would clear
-#: the key's failure count, nor a failure.
+#: the key's failure count, nor a failure. `_retention` returns it for a delete
+#: step it took while the hourly pass was due (C-8.7, d3085).
 DEFERRED = object()
 
 
@@ -822,6 +823,9 @@ class Daemon:
     #: D-ENV2 (review r1 of #248, P3-1): the harness hooks of the lanes.json rows
     #: startup ignored, withheld from every launch (`_open_lanes`); none before it.
     _ignored_hooks: frozenset[str] = frozenset()
+    #: C-8.7 (d3085): the last retention pass left retention due, so the
+    #: operator's delete path is owed one step before the next pass.
+    _retention_delete_owed = False
 
     @property
     def _disk(self) -> disk.DiskAdmission:
@@ -5969,9 +5973,20 @@ class Daemon:
         any journal a restart left), when one is due and the hourly pass is not.
         It runs on the retention key under `_unrun_lock`, so it never overlaps a
         pass, and a due pass goes first; it leaves the pass's clock alone. A
-        step that raises what the path did not expect ends the request."""
-        if not self._retention_delete_ready() or time.monotonic() - self._last_maintenance >= RETENTION_INTERVAL_S:
+        step that raises what the path did not expect ends the request.
+
+        d3085: a pass that left retention due (a catch-up, a holder-scan failure
+        with a job waiting for its check 2, a pass that reached its deadline
+        after progress, or one that raised) owes the path one step, which runs
+        before the next pass even though that pass is due. A pass that raises
+        leaves the hourly clock untouched, so through a run of them the pass
+        was due at every turn and the path never took a step; a catch-up leaves
+        a 5 s window, which a busy worker pool can miss."""
+        if not self._retention_delete_ready():
             return False
+        if time.monotonic() - self._last_maintenance >= RETENTION_INTERVAL_S and not self._retention_delete_owed:
+            return False
+        self._retention_delete_owed = False
         budget = {**RETENTION_DEFAULTS, **(self.policy.get("retention") or {})}
         try:
             with self._unrun_lock:
@@ -5987,8 +6002,18 @@ class Daemon:
         return True
 
     def _retention(self):
+        due = time.monotonic() - self._last_maintenance >= RETENTION_INTERVAL_S
         if self._retention_delete_turn():
-            return
+            # d3085: a step taken while the pass is due is the step a pass that
+            # left retention due owed. It is neither that pass's success nor its
+            # failure (C-5.10), so the key keeps its failure count: consecutive
+            # failing passes still back off, with one step in each wait.
+            return DEFERRED if due else None
+        # d3085: until this pass sets the hourly clock, it leaves retention due and
+        # owes the delete path its next step (C-8.7). Each branch below that rearms
+        # the hour settles the debt; a catch-up, a scan failure with a job waiting
+        # for its check 2, a deadline after progress and a raise leave it owed.
+        self._retention_delete_owed = True
         # C-8.4, C-26.12: detached and turn jobs each have their own budget; the
         # conversation service pins the turn jobs it still needs (IR-17). d635:
         # retirement archives before it deletes; a pass retires a bounded batch,
@@ -6014,6 +6039,7 @@ class Daemon:
                 self._retention_dormant_logged = True
             self.timers.mark("retention", next_due=after(RETENTION_INTERVAL_S))
             self._last_maintenance = time.monotonic()
+            self._retention_delete_owed = False
             return
         budget = {**RETENTION_DEFAULTS, **(self.policy.get("retention") or {})}
         with self._unrun_lock:
@@ -6039,6 +6065,7 @@ class Daemon:
         if interrupted == "cancelled":
             self.timers.mark("retention", error="CancelledError", next_due=after(RETENTION_INTERVAL_S))
             self._last_maintenance = time.monotonic()
+            self._retention_delete_owed = False
             return
         if result.get("holder_scan_failed"):
             if result.get("awaiting_check2"):
@@ -6059,6 +6086,7 @@ class Daemon:
             self.log.warning("retention: holder scan failed; %d jobs in the store; next pass in an hour",
                              result.get("jobs_after", 0))
             self._last_maintenance = time.monotonic()
+            self._retention_delete_owed = False
             return
         if interrupted:
             if not progressed:
@@ -6066,6 +6094,7 @@ class Daemon:
                 self.log.warning("retention: deadline reached before it pruned a job or advanced; "
                                  "%d jobs in the store; next pass in an hour", result.get("jobs_after", 0))
                 self._last_maintenance = time.monotonic()
+                self._retention_delete_owed = False
                 return
             self.log.warning("retention: deadline reached after progress (%d jobs pruned); "
                              "%d jobs in the store; retrying on the worker clock", pruned, result.get("jobs_after", 0))
@@ -6096,6 +6125,7 @@ class Daemon:
         # A raising pass remains due so the worker retry clock can re-offer it.
         # Completed and non-advancing passes rearm the hourly interval last.
         self._last_maintenance = time.monotonic()
+        self._retention_delete_owed = False
 
     def _prune_service_notices(self) -> int:
         """C-23.26: a service notice is pruned 14 days after it was written, once delivered.
