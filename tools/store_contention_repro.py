@@ -114,7 +114,7 @@ if os.environ.get("SFR_SAMPLE"):
     signal.signal(signal.SIGUSR2, lambda *_: gathering.set())
 
 # Admission (2026-09-26): every outermost store-lock hold made by an admission
-# pass, those of its reserving transaction (`ADMISSION_EVENT`) apart; every thread's wait
+# pass, those containing its reserving transaction (`ADMISSION_EVENT`) apart; every thread's wait
 # for the store lock; and each turn job's time from being queued to being
 # reserved. Holds and waits are counted once SIGUSR2 has said measuring began.
 import contextlib
@@ -130,6 +130,7 @@ def acquire(blocking=True, timeout=-1):
     ok = real_acquire(blocking, timeout)
     if ok and lock._depth == 1:
         local.since, local.cpu = time.monotonic(), time.thread_time()
+        local.reserving = False
         if measuring.is_set():
             admission["waits"].append(local.since - started)
     return ok
@@ -162,15 +163,13 @@ daemon._admit_pass = admit_pass
 real_tx = daemon.store.transaction
 @contextlib.contextmanager
 def transaction(kind="state.changed", **options):
-    mark = kind == ADMISSION_EVENT
-    if mark:
-        local.reserving = True
-    try:
-        with real_tx(kind, **options) as tx:
-            yield tx
-    finally:
-        if mark:
-            local.reserving = False
+    with real_tx(kind, **options) as tx:
+        # The transaction may be nested under a route's outer store-lock hold.
+        # Mark after acquire initializes that hold, and retain its attribution
+        # until release even if this transaction has already exited.
+        if kind == ADMISSION_EVENT:
+            local.reserving = True
+        yield tx
 daemon.store.transaction = transaction
 real_boundary = daemon._boundary
 def boundary(name, job_id, attempt_id=None):

@@ -218,3 +218,71 @@ Cleanup: 219 logged external folder paths checked, 17 workspace artifact roots q
 Final commit: the final named-file `git add` and `git commit` both returned **128** because the sandbox denies creation of the external `index.lock`, as did the earlier test and fix commit attempts. The hub must collect the five named changed files from this workspace; the commit restriction is the only reason they remain uncommitted. No history rewrite or push occurred.
 
 Head built: `f3e773a72a7b409b042bd8ebdae5dbecf41d6677`.
+
+## Fix round 2
+
+Started **2026-11-17 16:50:10 UTC**, from the first command's `date -u`, at `d0a28f13a56e982b846acc2b9824647e84365f38`. Finished: 2026-11-17 17:31:47 UTC.
+
+Both P2 findings and the previously unproven fence case are fixed locally. The unchanged Fix round 1 section's “Both P2 findings are **proven and fixed**” applied only to the reserving transaction; it did not cover probe-wait or early retention-fence transactions, and it omitted the reserving-hold tool regression introduced that round.
+
+- **Probe-wait rollback (pre-existing P2):** `_prepare_route` cached verdict B before `job.probe_waiting` committed. A decision INSERT, audit INSERT or COMMIT failure rolled SQL back but left B cached, so subsequent B looks suppressed the decision. New `test_probe_wait_rollback.py` establishes committed A, adds a closed synthetic `codex-2` lane to produce B, faults only `job.probe_waiting`, and checks job/decision/event rollback and exact previous-record restoration. After two more looks it has 2 decisions, as the no-fault control does. On unchanged daemon code all 3 fault cases failed with 1 decision; the control passed. All 4 pass after the fix, and the probe callback asserts writer-lock depth 0.
+- **Early fence rollback (proven here):** `_fence_hold` cached `lease-held` inside `job.fenced` without restoring it on rollback. New `test_fence_wait_rollback.py` faults its audit INSERT and COMMIT, with a prior record and with no record. All 4 failed before: stale B survived, retry rechecks advanced to 1, and the reserving transaction reaching the same fence signature emitted no new C-3.8 wait event. All 4 pass after: previous record restored or absent record removed, retry rechecks 0, and wait-event count 2. The retry exercises admission's mandatory second fence read, the race where a fence appears after the early read. No fence finding remains for the hub.
+- **Daemon change:** `_capacity_wait_rollback` shares Fix round 1's writer-lock/snapshot/`BaseException` restoration policy across the reserving transaction, probe-wait transaction and `_fence_hold`. Restoration surrounds transaction exit, including audit insertion and COMMIT; only that job's replaced-whole record is restored. Probe execution precedes the new lock scope. Fence's early no-fence read and postcommit waiter publication stay outside it; unroutable settlement remains outside the writer lock. No Store change or new lock order is needed.
+- **Tool metering (change P2):** Fix round 1 made the outer hold begin before `local.reserving` was set and end after it cleared. The tool now marks an outer hold when an `ADMISSION_EVENT` transaction enters and retains that attribution until release, resetting on the next outer acquire. `test_store_contention_meter.py` executes the tool's actual `DAEMON` meter wrappers against one real fake-provider admission: the current enclosing-lock case failed before with 0 reserving holds out of 2 admission holds, while the transaction-outermost control passed. Both pass after with 1 reserving hold, for wall and CPU measurements. This fixes measurement for both checkout lock shapes without changing daemon behavior for this finding.
+
+C-3.8 and C-6.10 now name exactly the reserving transaction, `job.probe_waiting`, and `_fence_hold`/`job.fenced` as restoring their record on rollback. The Fix round 2 sentence stays inside D-RESERVED-NOISE1's existing change-log entry. **P3 remains for the hub's release merge:** no merge/rebase, PR-body edit, history rewrite, push or GitHub write was performed.
+
+Commands and results (routine read-only inspections and completion polls grouped):
+
+- Initial `date -u`, `pwd`, `git status --short --branch`, the requested review/report `cat` reads, and `gh pr view 315 --repo MaxGhenis/subfleet-v2`: succeeded; clean detached HEAD initially, PR read only.
+- `rg --files`, `rg -n`, `sed -n`, `cat`, `head`, `tail`, `ls .venv/bin/python`, `git ls-files '*AGENTS.md'`, Python source/contract inspection and runner/report writes, `git diff`/`--stat`/`--check`, `git rev-parse HEAD`, and `git status --short`, including fsmonitor/untracked-cache-disabled variants: succeeded; no tracked AGENTS file. One `rg` included nonexistent `subfleet/socket_peer.py` and returned 2; the actual `subfleet/conversations/peers.py` was then read. Searches stayed within the workspace and job scratch; the requested external review was read only.
+- `getconf DARWIN_USER_TEMP_DIR`: succeeded. With required `TMPDIR` and `UV_CACHE_DIR=$TMPDIR/uv-cache`, `mkdir -p "$TMPDIR/sf-rn-fix2"` and `uv sync --group dev` were denied (sync exit 2). Creating job-temp `sf-rn-fix2` and repeating `uv sync --group dev` with its `uv-cache` succeeded; repeat sync resolved 10 and checked 9 packages, using CPython 3.15.2.
+- Named-file `git add -- ...` followed by `git commit -m ...` was attempted for (1) meter regression, (2) wait regressions, (3) daemon fix, (4) meter fix and (5) contract. Every add and commit returned **128**, unable to create the external worktree metadata's `index.lock`. The hub must collect the seven named changed files; no alternate Git metadata or history was used.
+
+Every pytest command retained `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"`, used the job-temp cache fallback, `PYTHONPATH=<scratch>:.`, and this template:
+
+```text
+uv run --no-sync --with 'pytest-xdist>=3.6' pytest -p rn_isolation -q -n N --timeout=1200 FILES --basetemp=<scratch>/pytest-NAME
+```
+
+`<scratch>` is `/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261117-114951-rn-fix-r3-a1-bd7515x_/sf-rn-fix2`. The job-only isolation plugin redirected `tempfile` and `tests.failed_keep.ROOT` there before pytest setup, refused unstubbed native process readers/credential commands, and skipped the QoS test requiring native process inspection. Later runs also put pytest/Hypothesis caches in scratch. For fixtures that checked native identity to construct a daemon, the corrected runner supplied synthetic boot/start identities; fixture-specific process mocks still took precedence. It did not lower Hypothesis examples or change the admission algorithms under test. From the QoS run onward commands also set `PYTHONDONTWRITEBYTECODE=1` and passed `-o cache_dir=<scratch>/pytest-cache`.
+
+| FILES / fresh basetemp | N | Result |
+|---|---:|---|
+| `tests/fake/test_store_contention_meter.py` / `pytest-meter-before`, unchanged tool/daemon | 0 | **1 failed, 1 passed**, 61.55 s; current lock regression fails, earlier lock-shape control passes. |
+| `tests/fake/test_probe_wait_rollback.py tests/fake/test_fence_wait_rollback.py` / `pytest-waits-before`, unchanged daemon | 4 | **7 failed, 1 passed**, 83.41 s; every fault regression fails, no-fault control passes. |
+| All three new files / `pytest-new-after` | 4 | **10 passed**, 31.41 s. |
+| `tests/fake/test_capacity_wait_rollback.py tests/fake/test_probe_turn.py tests/fake/test_capacity_wait_backoff.py tests/fake/test_admission_route_isolation.py` / `pytest-admission` | 4 | **190 passed**, 838.89 s. |
+| `tests/unit/test_daemon_qos_tools.py` / `pytest-qos` | 4 | **3 passed, 1 skipped**, 14.23 s; native process-priority case skipped under the brief. |
+| `tests/fake/test_event_names.py tests/fake/test_event_name_properties.py tests/fake/test_waiting_queue_cost.py tests/unit/test_store_audit.py` / `pytest-events` | 4 | **1 failed, 17 passed, 8 skipped**, 25.58 s: explicit TMPDIR allocation denied during property setup; OS-identity fixture skipped 8 cases. |
+| Same four files, corrected isolation / `pytest-events-corrected` | 4 | **26 passed**, 117.21 s; explicit system-temp allocation redirected to scratch and boot/start identities made synthetic. No product/test assertion changed. |
+| `tests/fake/test_detached_retention_fence.py` / `pytest-fences` | 4 | **89 passed**, 343.71 s. |
+| `tests/fake/test_state_contract.py tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py tests/unit/test_handler_refusals.py` / `pytest-final`, run last | 4 | **435 passed**, 91.44 s. |
+
+No additional fake files or full suite were run; the rest is left to CI as requested. `test_c6_3_an_override_that_ends_before_the_reservation_is_judged_again` passed in the admission bundle; no standalone rerun was needed. Independent read-only review found no further code or lock-order issue.
+
+Deviations and cleanup: The prescribed system-temp scratch/cache were denied, so the job-owned scratch/cache fallback above was used. The first event/store run exposed an explicit system-TMPDIR allocation and native-identity fixture checks; only the temporary runner was corrected, and the whole affected group passed afterward. One early pytest cache staging folder was automatically removed by pytest before the required name guard was applied (cleanup deviation): `/Users/maxghenis/.subfleet/worktrees/20261117-114951-rn-fix-r3/pytest-cache-files-r3jq4eyv`. Later explicit outside-scratch temp allocations received the `sf-rn-fix2` marker, and caches moved into scratch.
+
+Before deletion, the following 13 generated artifact roots were recorded here. Each relative path is under `/Users/maxghenis/.subfleet/worktrees/20261117-114951-rn-fix-r3`, and was moved to `/Users/maxghenis/.subfleet/worktrees/20261117-114951-rn-fix-r3/sf-rn-fix2-cleanup-165010/NN-name` before `shutil.rmtree`, which asserts `sf-rn-fix2` is in its argument:
+
+- `.pytest_cache`
+- `.hypothesis`
+- `.venv`
+- `tools/__pycache__`
+- `subfleet/__pycache__`
+- `subfleet/adapters/__pycache__`
+- `subfleet/sessions/__pycache__`
+- `subfleet/conversations/__pycache__`
+- `subfleet/gate/__pycache__`
+- `subfleet/guard/__pycache__`
+- `tests/__pycache__`
+- `tests/unit/__pycache__`
+- `tests/fake/__pycache__`
+
+The quarantine root and `/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261117-114951-rn-fix-r3-a1-bd7515x_/sf-rn-fix2` (test state, logs, runner and uv cache) were also removed with that guard. Cleanup result: **exit 0**, all recorded job-owned artifacts removed. No caller workspace, shared cache or unrelated folder was removed.
+
+Final `git diff --check`: **passed, exit 0**, repeated after the report metadata update. Final named-file `git add` and `git commit`: **both exit 128**, denied creation of the external worktree metadata's `index.lock`.
+
+Commits were denied; the seven changed files remain in this workspace for collection.
+
+Head built: `d0a28f13a56e982b846acc2b9824647e84365f38`.

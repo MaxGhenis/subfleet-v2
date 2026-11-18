@@ -7346,20 +7346,21 @@ class Daemon:
                 reserved_at = (self._probe_record(holder) or record)["created_at"]
                 next_check = after(60) if quarantined else max(utcnow(), _later(reserved_at, PROBE_RETRY_S))
                 note["next_check_at"] = next_check
-                repeat = self._capacity_wait(job["job_id"], "probe-wait:" + scheduler.verdict_signature(decision),
-                                             {"reason": "probe-pending", **note}, expedite=False)
-                with self.store.transaction("job.probe_waiting", job_id=job["job_id"], lane_id=pair[0],
-                                            data={"model": pair[1], "class": outcome.cls.value,
-                                                  "next_check_at": next_check}) as tx:
-                    # C-11.10 (review r3 of #260, R3-1): a hold committed while the probe ran takes
-                    # the job here instead of its capacity wait (the caller finds it `task-held`).
-                    # A quarantined probe's wait is a person's (`uncertain`), which a hold leaves.
-                    if quarantined or self._task_held_at_write(tx, job, None) is None:
-                        if not repeat:
-                            self.store.add_decision(job["job_id"], decision)
-                        tx.execute("UPDATE jobs SET state='waiting',wait_reason=?,next_check_at=? WHERE job_id=? "
-                                   "AND state IN ('queued','waiting')",
-                                   ("uncertain" if quarantined else "capacity", next_check, job["job_id"]))
+                with self._capacity_wait_rollback(job["job_id"]):
+                    repeat = self._capacity_wait(job["job_id"], "probe-wait:" + scheduler.verdict_signature(decision),
+                                                 {"reason": "probe-pending", **note}, expedite=False)
+                    with self.store.transaction("job.probe_waiting", job_id=job["job_id"], lane_id=pair[0],
+                                                data={"model": pair[1], "class": outcome.cls.value,
+                                                      "next_check_at": next_check}) as tx:
+                        # C-11.10 (review r3 of #260, R3-1): a hold committed while the probe ran takes
+                        # the job here instead of its capacity wait (the caller finds it `task-held`).
+                        # A quarantined probe's wait is a person's (`uncertain`), which a hold leaves.
+                        if quarantined or self._task_held_at_write(tx, job, None) is None:
+                            if not repeat:
+                                self.store.add_decision(job["job_id"], decision)
+                            tx.execute("UPDATE jobs SET state='waiting',wait_reason=?,next_check_at=? WHERE job_id=? "
+                                       "AND state IN ('queued','waiting')",
+                                       ("uncertain" if quarantined else "capacity", next_check, job["job_id"]))
                 return None, desktop
         return None, desktop
 
@@ -7576,7 +7577,8 @@ class Daemon:
 
         if not fences(self.store.query):
             return False
-        with self.store.transaction("job.fenced", job_id=job["job_id"]) as tx:
+        with (self._capacity_wait_rollback(job["job_id"]),
+              self.store.transaction("job.fenced", job_id=job["job_id"]) as tx):
             current = tx.execute("SELECT state, cancel_requested_at FROM jobs WHERE job_id=?",
                                  (job["job_id"],)).fetchone()
             if current is None or current[1] or current[0] not in ("queued", "waiting"):
@@ -9233,6 +9235,25 @@ class Daemon:
             raise Unroutable(exc) from exc
 
     @contextlib.contextmanager
+    def _capacity_wait_rollback(self, job_id: str):
+        """C-3.8, C-6.10: restore this job's wait record when its transaction fails.
+
+        Enclose the transaction's exit so audit and COMMIT failures restore too.
+        The writer lock keeps snapshot and restore together with task holds that
+        clear the record. Call only around the wait and transaction, never probes.
+        """
+        with self.store._lock:
+            previous = self._capacity_waits.get(job_id)
+            try:
+                yield
+            except BaseException:
+                if previous is None:
+                    self._capacity_waits.pop(job_id, None)
+                else:
+                    self._capacity_waits[job_id] = previous
+                raise
+
+    @contextlib.contextmanager
     def _isolated_route(self, job: dict, holds: dict[str, dict]):
         """C-6.12: an `Unroutable` from the block settles this job and ends the block, not the pass.
 
@@ -9245,16 +9266,8 @@ class Daemon:
         """
         route = {"failed": False}
         try:
-            with self.store._lock:
-                previous = self._capacity_waits.get(job["job_id"])
-                try:
-                    yield route
-                except BaseException:
-                    if previous is None:
-                        self._capacity_waits.pop(job["job_id"], None)
-                    else:
-                        self._capacity_waits[job["job_id"]] = previous
-                    raise
+            with self._capacity_wait_rollback(job["job_id"]):
+                yield route
         except Unroutable as exc:
             route["failed"] = True
             self._unroutable(job, exc, holds)
