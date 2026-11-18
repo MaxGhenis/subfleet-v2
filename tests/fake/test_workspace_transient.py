@@ -14,6 +14,7 @@ import shutil
 import signal
 import stat
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -235,15 +236,15 @@ def test_c6_8_a_worktree_add_that_quotes_a_name_that_is_not_utf8_fails_with_it(s
     daemon, harness = state_daemon
     repository(daemon, harness)
     job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
-    real_run = subprocess.run
+    real_popen = subprocess.Popen
 
-    def run(cmd, *args, **kwargs):
+    def popen(cmd, *args, **kwargs):
         if "worktree" in cmd and "add" in cmd:
             stderr = b"error: unable to create file caf\xe9.txt: Permission denied\nfatal: could not reset\n"
-            decoded = stderr.decode("utf-8", kwargs.get("errors") or "strict") if kwargs.get("text") else stderr
-            return subprocess.CompletedProcess(cmd, 128, "" if kwargs.get("text") else b"", decoded)
-        return real_run(cmd, *args, **kwargs)
-    monkeypatch.setattr(daemon_module.subprocess, "run", run)
+            return real_popen([sys.executable, "-c", f"import os; os.write(2, {stderr!r}); raise SystemExit(128)"],
+                              *args, **kwargs)
+        return real_popen(cmd, *args, **kwargs)
+    monkeypatch.setattr(daemon_module.subprocess, "Popen", popen)
     daemon._admit()
     assert daemon.store.get_job(job_id)["state"] == "failed"
     assert daemon.store.list_notices()[0]["text"].splitlines()[1:] == [
@@ -268,17 +269,17 @@ def test_c6_8_a_worktree_add_on_a_full_disk_or_a_held_lock_waits(state_daemon, m
     daemon, harness = state_daemon
     repository(daemon, harness)
     job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
-    real_run = subprocess.run
+    real_popen = subprocess.Popen
     environments = []
 
-    def run(cmd, *args, **kwargs):
+    def popen(cmd, *args, **kwargs):
         if "worktree" in cmd and "add" in cmd:
             environments.append(kwargs.get("env") or {})
             Path(cmd[cmd.index("--detach") + 1]).mkdir(parents=True)     # what a cut-short add leaves
-            decoded = stderr.decode("utf-8", kwargs.get("errors") or "strict") if kwargs.get("text") else stderr
-            return subprocess.CompletedProcess(cmd, 128, "" if kwargs.get("text") else b"", decoded)
-        return real_run(cmd, *args, **kwargs)
-    monkeypatch.setattr(daemon_module.subprocess, "run", run)
+            return real_popen([sys.executable, "-c", f"import os; os.write(2, {stderr!r}); raise SystemExit(128)"],
+                              *args, **kwargs)
+        return real_popen(cmd, *args, **kwargs)
+    monkeypatch.setattr(daemon_module.subprocess, "Popen", popen)
     daemon._admit()
     job = daemon.store.get_job(job_id)
     assert (job["state"], job["wait_reason"], job["rc"]) == ("waiting", "workspace", None)
@@ -288,7 +289,7 @@ def test_c6_8_a_worktree_add_on_a_full_disk_or_a_held_lock_waits(state_daemon, m
     assert "git worktree add exited 128: fatal: " in log_text(daemon)
     assert environments[0].get("LC_ALL") == "C" and "LANGUAGE" not in environments[0]
     assert not (daemon.root / "worktrees" / job_id).exists() and daemon.store.list_notices() == []
-    monkeypatch.setattr(daemon_module.subprocess, "run", real_run)          # the disk has room again
+    monkeypatch.setattr(daemon_module.subprocess, "Popen", real_popen)          # the disk has room again
     due(daemon, job_id)
     daemon._admit()
     assert [a["state"] for a in daemon.store.list_attempts(job_id)] == ["reserved"]
@@ -303,22 +304,22 @@ def test_c6_8_a_worktree_add_killed_by_a_signal_waits(state_daemon, monkeypatch)
     daemon, harness = state_daemon
     repository(daemon, harness)
     job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
-    real_run = subprocess.run
+    real_popen = subprocess.Popen
 
-    def run(cmd, *args, **kwargs):
+    def popen(cmd, *args, **kwargs):
         if "worktree" in cmd and "add" in cmd:
             Path(cmd[cmd.index("--detach") + 1]).mkdir(parents=True)
-            return subprocess.CompletedProcess(cmd, -signal.SIGKILL, "" if kwargs.get("text") else b"",
-                                               "" if kwargs.get("text") else b"")
-        return real_run(cmd, *args, **kwargs)
-    monkeypatch.setattr(daemon_module.subprocess, "run", run)
+            return real_popen([sys.executable, "-c", "import os, signal; os.kill(os.getpid(), signal.SIGKILL)"],
+                              *args, **kwargs)
+        return real_popen(cmd, *args, **kwargs)
+    monkeypatch.setattr(daemon_module.subprocess, "Popen", popen)
     daemon._admit()
     job = daemon.store.get_job(job_id)
     assert (job["state"], job["wait_reason"], job["rc"]) == ("waiting", "workspace", None)
     [record] = events(daemon, job_id, "job.workspace_deferred")
     assert record["error"] == "could not allocate worktree: git worktree was killed by SIGKILL"
     assert not (daemon.root / "worktrees" / job_id).exists()
-    monkeypatch.setattr(daemon_module.subprocess, "run", real_run)
+    monkeypatch.setattr(daemon_module.subprocess, "Popen", real_popen)
     due(daemon, job_id)
     daemon._admit()
     assert [a["state"] for a in daemon.store.list_attempts(job_id)] == ["reserved"]
@@ -415,40 +416,39 @@ def test_c6_8_a_half_made_worktree_is_rebuilt_before_admission(state_daemon):
     workdir = repository(daemon, harness)
     job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
     leftover = daemon.root / "worktrees" / job_id
-    leftover.mkdir()
-    (leftover / "partial.txt").write_text("from a killed checkout\n")
+    # Git registers and locks before writing files. Reproduce its registered leftover,
+    # rather than inventing an unregistered directory holding somebody's extra path.
+    git(workdir, "worktree", "add", "--detach", str(leftover), "HEAD")
+    (workdir / ".git" / "worktrees" / job_id / "locked").write_bytes(b"initializing\n")
+    (leftover / "tracked.txt").unlink()
     daemon._admit()
     [attempt] = daemon.store.list_attempts(job_id)
     assert attempt["state"] == "reserved"
-    assert (leftover / ".git").is_file() and not (leftover / "partial.txt").exists()
+    assert (leftover / ".git").is_file()
     assert git(leftover, "rev-parse", "HEAD") == git(workdir, "rev-parse", "HEAD")
     assert (leftover / "tracked.txt").read_text() == "baseline\n"
 
 
-def test_c6_8_a_killed_worktree_add_waits_and_leaves_nothing_behind(state_daemon, slow_git):
+def test_c6_8_a_killed_worktree_add_waits_and_leaves_nothing_behind(state_daemon, slow_git, monkeypatch):
     """C-6.8 `git worktree add` past its cap is transient, and its directory is removed."""
     daemon, harness = state_daemon
     repository(daemon, harness)
     daemon.policy["caps"].update(workspace_git_timeout_s=1, worktree_add_timeout_s=1)
     job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write"))["job_id"]
     daemon.policy["caps"]["workspace_git_timeout_s"] = 60   # only the add is slow
-    real_run = subprocess.run
+    real_popen = subprocess.Popen
 
-    def run(cmd, *args, **kwargs):
+    def popen(cmd, *args, **kwargs):
         if "worktree" in cmd and "add" in cmd:
             slow_git.touch()
-            try:
-                return real_run(cmd, *args, **kwargs)
-            finally:
-                slow_git.unlink()
-        return real_run(cmd, *args, **kwargs)
+        return real_popen(cmd, *args, **kwargs)
     import subfleet.daemon as daemon_module
-    original = daemon_module.subprocess.run
-    daemon_module.subprocess.run = run
+    monkeypatch.setattr(daemon_module.subprocess, "Popen", popen)
     try:
         daemon._admit()
     finally:
-        daemon_module.subprocess.run = original
+        slow_git.unlink(missing_ok=True)
+        monkeypatch.setattr(daemon_module.subprocess, "Popen", real_popen)
     job = daemon.store.get_job(job_id)
     assert (job["state"], job["wait_reason"]) == ("waiting", "workspace")
     assert not (daemon.root / "worktrees" / job_id).exists()
