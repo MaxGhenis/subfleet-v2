@@ -598,13 +598,15 @@ def _clear_entry_acl(parent: int, name: str, found: os.stat_result) -> bool:
     Opened without following a link (a symlink itself with `O_SYMLINK`), checked
     against `found` through the descriptor, changed through it, so the change
     reaches that inode. A regular file denying read can be opened write-only,
-    without writing or truncation. An entry no open admits (0000, 0200)
-    is first set to exactly owner read and write (search too, for a
-    directory) by name, never through a symlink (`_empty`'s rule for
-    directories): an entry swapped in between can have its mode set that
+    without writing or truncation. If no open admits an entry and its mode
+    lacks owner read or write (search too, for a directory), it is first set
+    to exactly those owner bits by name, never through a symlink (`_empty`'s
+    rule for directories): an entry swapped in between can have its mode set that
     way, only if it is this user's, and then fails the check. A socket or a
-    device, which no open admits, keeps its ACL: the refusal stands. The
-    link-count guard cannot exclude a same-user hard link made after fstat."""
+    device, which no open admits, keeps its ACL: the refusal stands. An entry
+    already granting those owner bits keeps its mode when ACLs refuse both
+    opens. The link-count guard cannot exclude a same-user hard link made
+    after fstat."""
     is_dir = stat.S_ISDIR(found.st_mode)
     if is_dir:
         flags = rfs.O_DIR
@@ -627,8 +629,10 @@ def _clear_entry_acl(parent: int, name: str, found: os.stat_result) -> bool:
                     raise exc
                 fd = os.open(name, (flags & ~os.O_ACCMODE) | os.O_WRONLY, dir_fd=parent)
             except PermissionError:
-                os.chmod(name, stat.S_IRWXU if is_dir else stat.S_IRUSR | stat.S_IWUSR, dir_fd=parent,
-                         follow_symlinks=False)
+                owner_bits = stat.S_IRWXU if is_dir else stat.S_IRUSR | stat.S_IWUSR
+                if found.st_mode & owner_bits == owner_bits:
+                    return False
+                os.chmod(name, owner_bits, dir_fd=parent, follow_symlinks=False)
                 try:
                     fd = os.open(name, flags, dir_fd=parent)
                 except PermissionError:

@@ -4,9 +4,10 @@ TMPDIR for ever (C-12.10).
 `chmod +a "everyone deny delete"` refuses unlink to the file's owner too.
 Removal fixed directory modes but not ACLs, so each sweep renamed the folder
 to its tombstone, failed at the first unlink and put it back. Now an unlink or
-rmdir inside the tombstone refused with EACCES or EPERM has the ACL that
-refuses it (the entry's own, or its directory's `delete_child`) removed,
+rmdir inside the tombstone refused with EACCES or EPERM has only deny `delete`
+permissions on the entry, or deny `delete_child` on its directory, removed
 through a descriptor opened without following a link, and is retried once.
+Other permissions and entries are preserved; an ACE is dropped only if empty.
 
 Invariants (each has a test here; the property-based ones draw trees of random
 depth, modes 0000 to 0777 on files and directories, symlinks inside and
@@ -16,8 +17,10 @@ outside, some entries with deny-delete ACLs):
   allocation gone, or False with it back at its name; no file outside changes
   (mode, ACL, flags, content, name), even one a symlink inside points at whose
   ACL denies delete.
-- 3, no retry loop: a tree whose only obstacles are deny-delete ACLs on this
-  user's entries goes in one pass.
+- 3, no retry loop: once inside the tombstone, a tree whose only obstacles are
+  deny-delete ACLs on this user's entries goes in one pass, when a checked
+  descriptor can be opened. A deny-delete ACL on the allocation folder itself
+  refuses the initial rename and stays unchanged.
 - 5, idempotence: a second sweep over an allocation already removed is a
   no-op and records nothing new.
 
@@ -138,8 +141,23 @@ def test_the_tombstone_s_delete_child_acl_is_repaired_but_the_temp_root_s_blocks
         restore(scratch.root)
 
 
+def test_an_allocation_folder_s_delete_denial_defers_before_tombstone_repair(restored):
+    """C-12.10's limit: the source folder's ACL refuses the initial rename."""
+    lines, log = quiet_log("tests.rte.allocation-acl")
+    scratch = scratch_in(restored, log)
+    record = scratch.create("job/a1")
+    folder = Path(record["path"])
+    add_acl(folder, DENY_DELETE)
+    before = acl_entries(folder)
+    assert scratch._remove(record) is False
+    assert lines.lines == ["TMPDIR removal deferred for job/a1: PermissionError(EACCES)"]
+    assert scratch.presence(record) == "present"
+    assert acl_entries(folder) == before
+    assert not os.path.lexists(scratch.tombstone_path(record))
+
+
 def test_a_symlink_whose_own_acl_denies_delete_goes_and_its_outside_target_keeps_its_acl(restored):
-    """Mutant 3's witness: the link's own ACL is removed through `O_SYMLINK`,
+    """Mutant 3's witness: the link's deny-delete permission is removed through `O_SYMLINK`,
     never by a call that follows it, so the outside file it names, whose ACL
     also denies delete, keeps its ACL, mode and bytes."""
     scratch = scratch_in(restored)
@@ -196,7 +214,7 @@ def test_a_hard_linked_file_keeps_its_acl_and_removal_defers(restored):
 
 
 def test_only_an_acl_that_refused_an_unlink_is_cleared(restored, monkeypatch):
-    """Mutant 5's witness: ACLs are removed after a refusal, from the entry
+    """Mutant 5's witness: deny-delete permissions are removed after a refusal, from the entry
     refused (or its directory), never from every entry before emptying. A file
     whose ACL refuses no unlink (deny writeattr) is unlinked with it."""
     scratch = scratch_in(restored)
@@ -221,7 +239,7 @@ def test_only_an_acl_that_refused_an_unlink_is_cleared(restored, monkeypatch):
 
 
 def test_an_acl_refusal_is_retried_once_after_its_acl_is_removed(restored, monkeypatch):
-    """Mutant 4's witness: the retry follows the ACL's removal; a retry
+    """Mutant 4's witness: the retry follows deny-delete repair; a retry
     without it is refused again. And the call is retried once, not looped."""
     scratch = scratch_in(restored)
     record = scratch.create("job/a1")
@@ -300,16 +318,33 @@ def test_clearing_delete_denials_preserves_other_permissions_and_entries(restore
     assert after[1] == before[1]
 
 
-def test_a_file_whose_acl_denies_read_and_delete_is_removed_in_one_pass(restored):
+@pytest.mark.parametrize("mode", [0o400, 0o644])
+def test_a_file_whose_acl_denies_read_and_delete_is_removed_in_one_pass(restored, mode):
     scratch = scratch_in(restored)
     record = scratch.create("job/a1")
     entry = Path(record["path"]) / "locked"
     entry.write_text("synthetic payload")
+    os.chmod(entry, mode)
     add_acl(entry, "everyone deny read,delete")
     with pytest.raises(PermissionError):
         os.open(entry, rfs.O_FILE)
     assert scratch._remove(record) is True
     assert scratch.presence(record) == "absent"
+
+
+def test_acl_refused_opens_preserve_a_file_s_already_sufficient_mode(restored):
+    """Both opens refused by ACL alone must leave the put-back file at 0644."""
+    scratch = scratch_in(restored)
+    record = scratch.create("job/a1")
+    entry = Path(record["path"]) / "locked"
+    entry.write_text("synthetic payload")
+    os.chmod(entry, 0o644)
+    add_acl(entry, "everyone deny read,write,delete")
+    before = acl_entries(entry)
+    assert scratch._remove(record) is False
+    assert scratch.presence(record) == "present"
+    assert acl_entries(entry) == before
+    assert stat.S_IMODE(entry.stat().st_mode) == 0o644
 
 
 # --- sweep_unknown: the folder's name, never None ------------------------------------------------

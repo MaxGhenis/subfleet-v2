@@ -5,7 +5,7 @@ Two sessions built this. Both worked on a detached HEAD, because git refuses to 
 - **Session 1 (rte-build-r1), 2026-11-13 18:29–21:20 UTC.** It made the three fixes and their tests, and stopped at its 3-hour limit.
   - e89f202a9: walk maps the lstat refusal (change 1).
   - 96ad826ad: the bundle step removes git's lock (change 2).
-  - 5169107e0: TMPDIR removal clears a blocking ACL (change 3).
+  - 5169107e0: TMPDIR removal repairs deny-delete ACL refusals (change 3).
   - 0f846b74f and a8583bee0: tests.
   - d767b2a8b: the first report.
 - **Session 2 (rte-build-r2), 2026-11-14 23:40 UTC to 2026-11-15 02:22 UTC.**
@@ -22,7 +22,7 @@ Two sessions built this. Both worked on a detached HEAD, because git refuses to 
 | Merge of release/217 | Done (342d95001), one conflict resolved |
 | Change 1: walk maps every permission refusal | Done; tests pass; mutant killed |
 | Change 2: bundle lock, with the 10-minute ruling | Done; all four leftover cases and both sides of the line pass; 3 mutants killed |
-| Change 3: TMPDIR removal clears a blocking ACL | Done; the ACL file passes (17 tests, property test included). `test_attempt_tmpdir_leaks.py` only partly ran |
+| Change 3: TMPDIR removal clears deny-delete permissions | Done; the ACL file passes (17 tests, property test included). `test_attempt_tmpdir_leaks.py` only partly ran |
 | Change 4: Reclaim against a deny-delete file | Tested. The prediction holds, so Reclaim is unchanged |
 | Contract (C-8.4, C-12.10) | Done; index and contract tests pass |
 | Mutants (6 from the brief plus 2 for the age rule) | All 8 killed |
@@ -83,23 +83,23 @@ Two sessions built this. Both worked on a detached HEAD, because git refuses to 
 4. Nothing else writes there. The daemon only `lexists` the folder, the CLI's `archives` and `restore` read published archives, and `survey` and `sample` only walk.
 5. `rgit.run` starts git in its own session and, on a timeout or a cancel, kills and reaps the group. A hard-killed daemon can leave a git child running; the hub's ruling covers it with the 10-minute rule.
 
-## Change 3: TMPDIR removal clears an extended ACL that blocks it (D-TMPDIR-ACL1)
+## Change 3: TMPDIR removal clears deny-delete permissions (D-TMPDIR-ACL1)
 
 All of this is in `subfleet/attempt_tmp.py`, with the ACL helpers in `retention_fs.py` (5169107e0). I reread it in session 2.
 
-**`_delete(op, parent, name, parent_inside=…)`** wraps every unlink and rmdir in `_empty`, and the tombstone's own rmdir (`parent_inside=False`, so the temp root is never touched). On EACCES or EPERM it calls `_clear_blocking_acls` and retries once only if something was cleared; otherwise the refusal stands. It clears:
+**`_delete(op, parent, name, parent_inside=…)`** wraps every unlink and rmdir in `_empty`, and the tombstone's own rmdir (`parent_inside=False`, so the temp root is never touched). On EACCES or EPERM it calls `_clear_blocking_acls` and retries once only if something was cleared; otherwise the refusal stands. It clears only these deny permissions, dropping an ACE only when it becomes empty and preserving other permissions, allow entries, qualifiers, flags and order:
 
-- **the entry's own ACL** (deny `delete`), only when the entry is this user's and, unless it is a directory, has `st_nlink == 1`. Session 1 added the link condition: another link could be named outside the allocation;
-- **the parent directory's ACL** (deny `delete_child`), only when the parent is inside the tombstone, through the descriptor `_empty` holds.
+- **`delete` from the entry's own deny ACL entries**, only when the entry is this user's and, unless it is a directory, has `st_nlink == 1`. Session 1 added the link condition: another link could be named outside the allocation;
+- **`delete_child` from the parent directory's deny ACL entries**, only when the parent is inside the tombstone, through the descriptor `_empty` holds.
 
 **How `_clear_entry_acl` touches an entry.**
 
 - It opens without following a link: `O_DIR`, `O_SYMLINK` for a symlink itself, or `O_NOFOLLOW` for regular files and FIFOs.
 - Through the descriptor, it checks device, inode, uid, type and link count against the lstat before it clears.
-- An entry no open admits is first set by name to exactly 0600 (0700 for a directory), never through a link, as `_empty` already does for directories.
+- An entry no open admits is first set by name to exactly 0600 (0700 for a directory) only when its mode lacks owner read or write (or search, for a directory), never through a link, as `_empty` already does for directories. When those owner bits are already present, it keeps its mode and its own ACL repair defers.
 - Sockets and devices keep their ACL.
 
-**Mechanism: ctypes into libSystem** (`acl_init(0)` with `acl_set_fd_np(fd, acl, ACL_TYPE_EXTENDED)`; detection with `acl_get_fd_np` and `acl_get_entry`). I chose it over `/bin/chmod -h -N` because:
+**Mechanism: ctypes into libSystem** (`acl_get_fd_np` and `acl_get_entry` read and iterate the ACL; `acl_delete_perm` removes the selected deny `delete` or `delete_child` permission, `acl_delete_entry` drops an ACE left empty, and `acl_set_fd_np(fd, acl, ACL_TYPE_EXTENDED)` writes the narrowed ACL). I chose the descriptor route because:
 
 - it acts on a checked descriptor, so no path is resolved and no link is followed;
 - it needs no subprocess per entry (the live folder has 14,718 entries);
@@ -117,7 +117,7 @@ The tests are in `tests/unit/test_rte_reclaim_acl.py` (a0e02ffef). What Reclaim 
 2. **The set-aside rename of the file itself is refused too:** macOS checks delete on a rename's source. The file stays where it is, with `kept` entries `unlink-failed`, `in place`.
 3. **Its directory goes aside whole.** The directory's `rmdir` fails (not empty), and the directory, which has no ACL, is renamed into `conflicts/<label>/`. The file and its ACL go with it. At the root, `run` sets the remainder aside the same way.
 4. **`Reclaim.run` returns True.** End to end, the job is retired and reclaimed, the file and its ACL sit in `retention-conflicts/<job>/worktree/…`, and a `retention.conflict` event lists `notes/locked.txt` as kept.
-5. **The archive's copy carries no ACL** (the test checks every stored file). So clearing an ACL before an unlink would lose nothing the archive keeps.
+5. **The archive's copy carries no ACL** (the test checks every stored file). So removing deny-delete permissions before an unlink would lose nothing the archive keeps.
 
 The prediction holds: Reclaim finishes. The brief's condition for changing Reclaim ("if Reclaim can't finish") isn't met, so Reclaim is unchanged and the tests stay.
 
@@ -216,7 +216,7 @@ Test runs, one file per command, at most four at once:
 - **Branch.** The work is on a detached HEAD, not the assigned branch.
 - **Merge target.** I merged release/217 at 82d3dd819, not the 85769b826 named in the brief.
 - **Scope.** The survey and `sample` now report walk errors they used to drop, and `_git` maps `TreeError`. Both go beyond the line-251 change, but the brief's caller check required them.
-- **The link condition.** The nlink == 1 condition on clearing a file's ACL is session 1's addition.
+- **The link condition.** The nlink == 1 condition on removing a file's deny-delete permissions is session 1's addition.
 - **Mutants beyond the brief.** M7 and M7b test the age rule; the continuation asked for one.
 - **Folders.** Session 1 briefly created and deleted an empty `../rte-msg-2.txt` beside its worktree. Session 2 created nothing outside the worktree and `sf-rte-b2`.
   - The uv cache at `$TMPDIR/uv-cache` is the one the rules name, left in place.
@@ -235,8 +235,8 @@ Three tree errors kept retention and TMPDIR cleanup from finishing on the host.
 - **Bundle lock (D-RET-STALE-LOCK1).** Before `git bundle create`, the bundle step removes `commits.bundle.tmp` and git's leftover `commits.bundle.tmp.lock`, the lock only once it is 10 minutes old (`_Builder.BUNDLE_LOCK_STALE_S`).
   - A younger lock defers the job with `bundle lock in use` and removes nothing.
   - Size and age are logged either way.
-- **TMPDIR ACLs (D-TMPDIR-ACL1).** Inside a TMPDIR tombstone, an unlink or rmdir refused with EACCES or EPERM is retried once after removing the ACL that refused it, through a checked `O_NOFOLLOW` or `O_SYMLINK` descriptor (ctypes `acl_set_fd_np`).
-  - That ACL is this user's single-link entry's deny `delete`, or its in-tombstone directory's deny `delete_child`.
+- **TMPDIR ACLs (D-TMPDIR-ACL1).** Inside a TMPDIR tombstone, an unlink or rmdir refused with EACCES or EPERM is retried once after removing selected deny `delete` or `delete_child` permissions, through a checked `O_NOFOLLOW` or `O_SYMLINK` descriptor (ctypes `acl_set_fd_np`).
+  - Repair removes deny `delete` from this user's single-link entry (directories excepted), or deny `delete_child` from its containing directory owned by this user inside the tombstone. An ACE is dropped only when left empty; other permissions, allow entries, qualifiers, flags and order are preserved.
   - Deferral lines name the errno, and `sweep_unknown` names the folder instead of `None`.
 - **Reclaim.** Unchanged, with tests. A deny-delete file goes to `retention-conflicts/<job>/` with its directory, and `Reclaim.run` returns True.
 - **Contract.** C-8.4 and C-12.10 are amended, with one change-log line.
@@ -320,3 +320,54 @@ Final report/data commit attempt: explicit `git add` of the 12 changed/deliverab
 Finished: **2026-11-16 00:37:22 UTC**, within the three-hour limit (1 h 23 m 55 s).
 
 Head built: **661911f6bfb618d192573859174a19fbbbc72c63**
+
+## Fix round 2
+
+Started **2026-11-17 16:50:05 UTC**, from `date -u` in the first command, at **b600369127850e0314cec857fed5a544b98a52eb**. Read the specified `review-r2.md`, this report and `gh pr view 321 --repo MaxGhenis/subfleet-v2` before making changes. Work stayed in the assigned detached checkout and job scratch.
+
+### Findings and evidence
+
+- **P2: allocation-folder ACL before the tombstone.** The initial rename happens before ACL repair, so a fresh allocation folder's own deny-`delete` ACL refuses it. C-12.10 now names the EACCES deferral with the folder and ACL intact and scopes its one-pass promise to inside the tombstone. The T1 pin, `test_an_allocation_folder_s_delete_denial_defers_before_tombstone_repair`, passed before the fix, as intended, and afterward: removal returns False, the exact warning names EACCES, presence stays `present`, the ACL is unchanged and no tombstone appears. No repair before the rename was added.
+- **P3: unnecessary mode change after ACL-only open refusals.** `_clear_entry_acl` previously chmodded every entry whose opens were refused. It now does so only if the lstat mode lacks owner read or write, or search for a directory. E2's new `test_acl_refused_opens_preserve_a_file_s_already_sufficient_mode` failed before the change: its 0644 file returned at 0600 despite retaining its ACL. It passes afterward, preserving 0644 and the ACL in the put-back allocation. The existing deny-read/delete test now covers both 0400 and 0644; both still remove in one pass, preserving the needed chmod/write-only recovery path. C-12.10 and its existing change-log entry describe the condition.
+- **P3: adjacent empty ACEs and iterator restart.** `test_adjacent_delete_only_denials_are_both_removed_in_one_pass` adds two adjacent delete-only deny ACEs for distinct user/group principals resolved at runtime. No identities are hard-coded or printed. It confirms the real unlink refusal, observes the target ACL change from two entries to zero, and requires the allocation gone in one pass. Production passes. The process-local W5 driver removes only the restart after `acl_delete_entry`; **W5 survives, 1 passed**. The native iterator handled both deletions on this host. This is evidence of survival, not a claim that the test kills W5; the restart and test are retained as directed.
+- **P3: stale whole-ACL descriptions.** Corrected the earlier report's mechanism and embedded PR body, and the ACL test module's prose: repair removes selected deny `delete`/`delete_child` permissions, drops only an ACE left empty and preserves unrelated ACL contents. The mechanism describes the existing ACL read/edit/write operations rather than creating an empty ACL. Historical mutant evidence and test identifiers remain historical. The GitHub PR body was read only; the hub still owns its rewrite.
+
+### Commands and results
+
+The prescribed `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"`, `UV_CACHE_DIR=$TMPDIR/uv-cache`, scratch mkdir and `uv sync --group dev` were attempted first. The mkdir and cache initialization were denied; sync exited 2. The fallback `TMPDIR=/private/tmp/sf-rte-fix2 UV_CACHE_DIR=/private/tmp/sf-rte-fix2/uv-cache uv sync --group dev` succeeded with Python 3.15.2 and nine packages installed. No dependency or lockfile change was made.
+
+Before the first pytest run, copied round 1's `sf_rte_safe.py` into scratch and replaced only its three `/private/tmp/sf-rte-fix1` path literals with `/private/tmp/sf-rte-fix2`: failed-test keeps, the lexical-path seam and the synthetic-repository guard. Every pytest invocation loads `-p sf_rte_safe` with scratch on `PYTHONPATH`. The inherited local-fetch replacement, forbidden-command audit guard and two daemon-module skips remain enabled. No forbidden command was executed.
+
+The reproducible runner, plugin, W5 driver and importer list are in `docs/reports/2026-11-08-retention-tree-errors-fix-r2-data/`. Runs use scratch TMPDIR/cache/Hypothesis storage, disable bytecode writes, and use a new `--basetemp=/private/tmp/sf-rte-fix2/pytest-<run>` and scratch pytest cache each time. Pytest defaults are `-q -ra --timeout=600 --timeout-method=signal --durations=10`; the first before-fix run used timeout 300 and no durations. Parallel runs use `uv run --no-sync --with 'pytest-xdist>=3.6'`, at most `-n 4`. W5 and the first final changed run additionally used `--offline`; after an offline metadata failure, the runner uses the public PyPI index with inherited index overrides removed. Exact generated command arguments and results are recorded with the logs.
+
+In the table, `D` means `docs/reports/2026-11-08-retention-tree-errors-fix-r2-data`, and paths abbreviated to filenames are under `tests/unit/` unless stated otherwise. The runs occurred in the required order: changed tests and their witnesses, importers, then the final four files.
+
+| Run / command arguments | Result |
+|---|---|
+| Before-fix pytest: `test_rte_tmpdir_acl.py -k 'allocation_folder_s_delete_denial or acl_refused_opens_preserve'`, `pytest-before` | Expected **1 failed, 1 passed, 22 deselected**, 40.14 s: E2 failed at 0600 versus 0644; T1 passed |
+| Changed files: `test_rte_tmpdir_acl.py test_rte_tmpdir_acl_iterator.py -n 4`, `pytest-changed` | **25 passed**, 214.72 s; the deny-read control used 0400 |
+| `python3 D/run.py w5 --mutant W5 tests/unit/test_rte_tmpdir_acl_iterator.py` | **W5 survived: 1 passed**, 9.94 s pytest / 35.37 s command wall time |
+| `python3 D/run.py changed-final tests/unit/test_rte_tmpdir_acl.py tests/unit/test_rte_tmpdir_acl_iterator.py -n 4` | **26 passed**, 130.33 s pytest / 151.32 s wall; includes both 0400 and 0644 controls |
+| `python3 D/run.py importers --importers -n 4` | Exit 1 before pytest: xdist metadata unavailable offline; **0 tests ran**, 5.25 s wall |
+| `python3 D/run.py importers-public --importers -n 4`, public-index retry | **694 passed, 32 skipped, 7 xfailed**, 614.60 s pytest / 634.52 s wall; no unexpected failures |
+| `python3 D/run.py final tests/fake/test_state_contract.py tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py tests/unit/test_handler_refusals.py -n 4` | **437 passed**, 209.62 s pytest / 230.45 s wall |
+
+`git grep -l attempt_tmp -- 'tests/**/test_*.py'` found 18 conservative matches, all selected and saved in `D/importers.txt`; AST inspection identified 13 direct importers. `attempt_tmp` is the only production module changed this round; `retention_fs` is changed only in W5's process memory. The new iterator file also ran in both changed suites. All 32 importer skips are in `test_attempt_tmpdir_daemon.py` and `test_attempt_tmpdir_leaks_daemon.py`, whose routing-state fixtures inspect unrelated processes. The seven existing census mutation expected failures stayed expected. There was no deadline-related failure needing an isolated retry.
+
+### Isolation, cleanup, commits and omissions
+
+Recorded before cleanup: the generated folder outside job scratch is `/Users/maxghenis/.subfleet/worktrees/20261117-114949-rte-fix-r2/.venv`. Cleanup stages it in `/Users/maxghenis/.subfleet/worktrees/20261117-114949-rte-fix-r2/sf-rte-fix2-generated-caches`, checks that none of its source paths contains tracked files or is a symlink, asserts `sf-rte-fix2` is in the deletion path, then calls `shutil.rmtree`. The report-data directory is an intentional deliverable and remains. `/private/tmp/sf-rte-fix2` remains for logs, basetemps and cache; no other scratch folder was created successfully.
+
+Read-only inspection used `date -u`, `pwd`, `getconf`, `cat`, `sed`, `rg`, `tail`, `git status`, `git diff`, `git grep`, `git rev-parse`, `git check-ignore`, and Python source/AST inspection. The AGENTS filename search and evidence-file ignore check returned no matches; other inspection commands succeeded. AST parsing passed for the three changed Python source/test files, and `git diff --check` passed. Copying the ten initial evidence logs/command records succeeded; final evidence is retained alongside them.
+
+The two earlier coherent-step attempts used named-file `git add` and `git commit` (regressions, then mode fix/contract). Both staging and committing were denied with `index.lock: Operation not permitted`. No history rewrite, branch workaround, stash or push was attempted.
+
+`python3 D/cleanup.py --list-only` confirmed `.venv` was the only generated checkout folder. After the final test process exited, copying `final.log` and `final.json` succeeded. `python3 D/cleanup.py` exited 0: **one generated folder removed**, inventory saved in `D/cleanup-paths.txt`; `.venv` and the staging folder are gone. Final `git diff --check` passed.
+
+Not run: the whole suite, other Python versions, unrelated importers of unchanged production modules, and additional earlier-round mutants. The 32 daemon cases were selected but intentionally skipped for the process-isolation rule. No requested finding is left unaddressed: the pre-rename limit remains by the hub's ruling, and W5's survival is the explicitly permitted witness outcome. Deviations are the denied Darwin scratch/cache fallback, public-index retry after missing offline metadata, and denied commits in the supplied detached checkout. No live store or unrelated live process was inspected or changed; the PR on GitHub remains untouched.
+
+Final report/data staging named exactly 23 files; `git add` and `git commit -m 'fix: address retention tree error review round two'` both exited **128**, again denied creation of `index.lock`. The hub must collect the working-tree changes; no new commit could be created. Final `git rev-parse HEAD` confirmed the starting head remains unchanged.
+
+Finished **2026-11-17 17:25:14 UTC**, within the three-hour limit (**35 m 9 s**).
+
+Head built: **b600369127850e0314cec857fed5a544b98a52eb**

@@ -1,0 +1,33 @@
+{
+  "command": [
+    "uv",
+    "run",
+    "--default-index",
+    "https://pypi.org/simple",
+    "--no-sync",
+    "--with",
+    "pytest-xdist>=3.6",
+    "python",
+    "-u",
+    "-m",
+    "pytest",
+    "-p",
+    "sf_rte_safe",
+    "-q",
+    "-ra",
+    "--durations=10",
+    "--timeout=600",
+    "--timeout-method=signal",
+    "--basetemp=/private/tmp/sf-rte-fix2/pytest-final",
+    "-o",
+    "cache_dir=/private/tmp/sf-rte-fix2/pytest-cache-final",
+    "tests/fake/test_state_contract.py",
+    "tests/unit/test_test_module_names.py",
+    "tests/unit/test_invariants_index.py",
+    "tests/unit/test_handler_refusals.py",
+    "-n",
+    "4"
+  ],
+  "exit_code": 0,
+  "elapsed_s": 230.45
+}
