@@ -66,6 +66,13 @@ CLIENT_POLL_S = .25
 #: a caller relies on. One whose client has hung up is not run.
 READ_ONLY_OPS = frozenset({"list", "show", "wait", "readings", "why", "pick",
                            "daemon.status", "notice.pending"})
+#: C-16.7, C-10.9: ops that only record an observation nobody waits on: a
+#: desktop session's report of the app's account (`desktop.report`). Its hook
+#: waits at most 1 s and relies on no reply, and the next prompt reports again,
+#: so one whose client has hung up is not run, as a read-only op is not: a slow
+#: daemon is not handed writes nobody is waiting for. It runs on the request
+#: pool, never on the lookups' (`daemon.LOOKUP_OPS`), since it writes.
+OBSERVATION_OPS = frozenset({"desktop.report"})
 #: C-16.7 with C-25.2: the conversation ops that only read. The two long polls
 #: are here (C-25.4), and the diffs, whose git work is the costliest read the
 #: daemon does (C-26.14). `conversation.open` only reads when it names a
@@ -136,7 +143,7 @@ def open_descriptors() -> int | None:
 
 def read_only(op: str, args: dict) -> bool:
     """C-16.7: whether a request is one a caller relies on only for its reply."""
-    if op in READ_ONLY_OPS or op in READ_ONLY_CONVERSATION_OPS:
+    if op in READ_ONLY_OPS or op in READ_ONLY_CONVERSATION_OPS or op in OBSERVATION_OPS:
         return True
     if op == "conversation.open":
         return isinstance(args, dict) and bool(args.get("conversation_id"))

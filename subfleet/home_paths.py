@@ -42,6 +42,7 @@ SAFE_HOME_PATHS = {
     "SUBFLEET_CLAUDE_SETTINGS": "claude/settings.json",
     "SUBFLEET_CODEX_APP_HOME": "codex",
     "SUBFLEET_DESKTOP_LOGIN": "claude.json",
+    "SUBFLEET_DESKTOP_USAGE": "claude-app/plan-usage-history.json",
     "SUBFLEET_PROVIDER_HOME": "providers",
     "SUBFLEET_V1_STATE": "legacy/state",
     "SUBFLEET_DELEGATE_STATE": "legacy/delegate",
@@ -687,6 +688,14 @@ def desktop_login_path() -> Path:
     """Claude's desktop login, with a test-only isolation override."""
     return Path(home_path("SUBFLEET_DESKTOP_LOGIN", lambda: Path.home() / ".claude.json",
                           test_only=True))
+
+
+def desktop_usage_path() -> Path:
+    """C-10.9: the Claude desktop app's usage record, with a test-only isolation
+    override. Tests point it into their own folder and never read the real one."""
+    return Path(home_path("SUBFLEET_DESKTOP_USAGE",
+                          lambda: Path.home() / "Library" / "Application Support" / "Claude"
+                          / "plan-usage-history.json", test_only=True))
 
 
 def provider_home() -> Path:
