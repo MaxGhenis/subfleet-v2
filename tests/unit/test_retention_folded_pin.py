@@ -37,6 +37,10 @@ from subfleet import retention_archive as rarch
 from subfleet.store import Store
 from tests.unit.retention_world import git, snapshot
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
+
 ID = "20261005-120000-first-desk"            # C-1.1: `[a-z0-9-]`
 #: Spellings of `ID` that APFS finds (each folds to it) and SQLite's NOCASE and LIKE
 #: do not match: checked on 2026-10-06 (logs/apfs-ascii-aliases.log).

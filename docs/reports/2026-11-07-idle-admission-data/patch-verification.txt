@@ -1,0 +1,1 @@
+Both patches checked and applied sequentially to an archive of a8624a4899a2. All affected files exactly match the final workspace.
