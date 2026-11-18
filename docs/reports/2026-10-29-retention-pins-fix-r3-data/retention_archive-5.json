@@ -1,0 +1,123 @@
+{
+  "label": "retention_archive-5",
+  "start": "2026-10-29T20:20:31.147643+00:00",
+  "loads": [
+    19.12060546875,
+    23.36083984375,
+    19.203125
+  ],
+  "seconds": 38.7720195830002,
+  "exit": 0,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[lock]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.860680333000346
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[quarantine]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.245535500000187
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[archive]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.8713935840000886
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[final_check]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.4877774579999823
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[commit]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.21604304199991
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[publish]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.7609881670000505
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_published_archive_keeps_no_progress_log",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.487324958000045
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_retention_never_prunes_other_registrations",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.4014174169997204
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[lock]",
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[quarantine]",
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[archive]",
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[final_check]",
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[commit]",
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[publish]",
+    "tests/unit/test_retention_archive.py::test_a_published_archive_keeps_no_progress_log",
+    "tests/unit/test_retention_archive.py::test_retention_never_prunes_other_registrations"
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[lock]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[quarantine]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[archive]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[final_check]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[commit]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[publish]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_published_archive_keeps_no_progress_log": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_retention_never_prunes_other_registrations": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 124223488
+}

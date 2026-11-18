@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T15:11:09.320183+00:00",
+  "args": [
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r10/real-tmp/admission-writer",
+  "linked": false,
+  "driver_pid": 47201,
+  "lock_process_group": 47290
+}

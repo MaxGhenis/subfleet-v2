@@ -1,0 +1,150 @@
+{
+  "label": "alias-errors",
+  "start": "2026-10-29T20:48:23.356984+00:00",
+  "loads": [
+    84.19482421875,
+    65.72998046875,
+    45.56884765625
+  ],
+  "seconds": 10.019116000000395,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.021589124999991327
+    },
+    {
+      "nodeid": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[gitdir]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.003590084000279603
+    },
+    {
+      "nodeid": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[commondir]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0058419999995749095
+    },
+    {
+      "nodeid": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[common-target]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0075383749999673455
+    },
+    {
+      "nodeid": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[alternate]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0067799170001308084
+    },
+    {
+      "nodeid": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[folder]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.009973083000659244
+    },
+    {
+      "nodeid": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[directory]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.005033542000091984
+    },
+    {
+      "nodeid": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[vanished]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.02598095800021838
+    },
+    {
+      "nodeid": "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[stable]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.00366566699995019
+    },
+    {
+      "nodeid": "tests/unit/test_retention_dependency_aliases.py::test_repeated_unresolvable_alias_keeps_one_incomplete_observation",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.24413712499972462
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[gitfile]",
+    "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[gitdir]",
+    "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[commondir]",
+    "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[common-target]",
+    "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[alternate]",
+    "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[folder]",
+    "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[directory]",
+    "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[vanished]",
+    "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[stable]",
+    "tests/unit/test_retention_dependency_aliases.py::test_repeated_unresolvable_alias_keeps_one_incomplete_observation"
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[gitfile]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[gitdir]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[commondir]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[common-target]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[alternate]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[folder]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[directory]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[vanished]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_dependency_aliases.py::test_repository_pointer_changes_are_incomplete[stable]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_dependency_aliases.py::test_repeated_unresolvable_alias_keeps_one_incomplete_observation": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 110084096
+}

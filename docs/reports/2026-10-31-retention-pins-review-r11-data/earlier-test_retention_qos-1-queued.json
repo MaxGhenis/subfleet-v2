@@ -1,0 +1,17 @@
+{
+  "queued": "2026-10-31T17:21:07.324094+00:00",
+  "args": [
+    "tests/unit/test_retention_qos.py::test_a_clamped_git_runs",
+    "tests/unit/test_retention_qos.py::test_every_child_retention_starts_is_clamped",
+    "tests/unit/test_retention_qos.py::test_the_archive_and_the_deletion_run_throttled",
+    "tests/unit/test_retention_qos.py::test_the_clamp_follows_its_setting[background-background]",
+    "tests/unit/test_retention_qos.py::test_the_clamp_follows_its_setting[inherit-None]",
+    "tests/unit/test_retention_qos.py::test_the_clamp_follows_its_setting[maintenance-maintenance]",
+    "tests/unit/test_retention_qos.py::test_the_clamp_follows_its_setting[nonsense-utility]",
+    "tests/unit/test_retention_qos.py::test_the_threads_disk_io_is_lowered_and_put_back"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/earlier-test_retention_qos-1",
+  "linked": false,
+  "driver_pid": 22223,
+  "lock_process_group": 22305
+}

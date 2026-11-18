@@ -23,6 +23,7 @@ final class UIModel: ObservableObject {
     @Published private(set) var state = ConversationStoreState()
     /// The last thing that went wrong, shown in the window's status line.
     @Published var problem: String?
+    @Published private(set) var withdrawingMessages: Set<String> = []
     @Published private(set) var accountSnapshot: Snapshot?
     /// A listed session that cannot continue here, shown in place of a conversation.
     @Published var lockedEntry: SidebarEntry?
@@ -67,6 +68,10 @@ final class UIModel: ObservableObject {
     /// Suggestions whose Start or Dismiss this app is waiting on.
     @Published private(set) var suggestionsActing: Set<String> = []
     private var reveals = 0
+    /// Moves on when a notification's click opens the conversation already
+    /// focused, which moves no focus: the sidebar puts its highlight back on that
+    /// conversation, which a native session chosen just before may have taken.
+    @Published private(set) var focusReasserted = 0
     /// What the stale-approvals check last read, per conversation (the daemon's
     /// count and the cards shown), so an unchanged mismatch is read once.
     private var staleRead: [String: [Int]] = [:]
@@ -87,9 +92,15 @@ final class UIModel: ObservableObject {
     private var availabilityChecks = 0
     /// What `lostDaemon` put in the status line, cleared when the daemon is back.
     private var lostProblem: String?
-    private lazy var notificationDelegate = ApprovalNotificationDelegate { [weak self] action, userInfo in
-        self?.handleNotification(action: action, userInfo: userInfo)
-    }
+    /// The notification center's delegate, the only one (C-29.9).
+    private(set) lazy var notificationDelegate = ApprovalNotificationDelegate(
+        receive: { [weak self] action, requestID, userInfo in
+            self?.handleNotification(action: action, requestID: requestID, userInfo: userInfo)
+        },
+        present: { [weak self] requestID, userInfo in
+            self?.showsWhileFrontmost(requestID: requestID, userInfo: userInfo) ?? true
+        })
+    private var notificationsRegistered = false
 
     init(paths: AppPaths = .standard(), client: DaemonCalling? = nil, defaults: UserDefaults = .standard,
          state initialState: ConversationStoreState = ConversationStoreState()) {
@@ -136,8 +147,9 @@ final class UIModel: ObservableObject {
     func start() {
         guard !started, engine != nil else { return }
         started = true
-        notificationDelegate.register()
+        registerNotifications()
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+        observeOnScreen()
         Task { await connect() }
         pumpTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.pump() }
@@ -168,15 +180,20 @@ final class UIModel: ObservableObject {
         // A navigation while the baseline was loading keeps its focus.
         baseline.focus(state.focusedConversationID)
         state = baseline
-        state.watchBaselined = true
+        state.markBaselined()
+        // The copy was taken before the drain; read what is on screen now.
+        noteOnScreen()
         startWatchLoop()
+        // A notification clicked before now (the click that launched the app).
+        let clicked = clicks.baselineLanded(navigation: navigation, pendingApprovals: state.pendingApprovals)
         if let focused = state.focusedConversationID {
             startEventsLoop(focused)
-        } else if !newDraft.isPresented,
+        } else if clicked == nil, !newDraft.isPresented,
                   let requested = ProcessInfo.processInfo.environment["SUBFLEET_OPEN_CONVERSATION"], !requested.isEmpty {
             // A launch that names a conversation opens it (notifications and links reuse this).
             focus(requested)
         }
+        if let clicked { openClicked(clicked) }
     }
 
     func refreshList() async {
@@ -279,15 +296,23 @@ final class UIModel: ObservableObject {
         Thread.detachNewThread { [weak self] in
             WatchLoop(engine: engine,
                       cursor: { DispatchQueue.main.sync(execute: { self?.state.watchCursor }) },
-                      deliver: { page in DispatchQueue.main.async { self?.fold(watch: page) } },
+                      deliver: { update in DispatchQueue.main.sync { self?.fold(watch: update) } },
                       lost: { error in DispatchQueue.main.async { self?.lostDaemon(error) } },
-                      regained: { DispatchQueue.main.async { self?.regainedDaemon() } }).run()
+                      regained: { DispatchQueue.main.async { self?.regainedDaemon() } },
+                      focusedConversationID: { DispatchQueue.main.sync { self?.state.focusedConversationID } },
+                      knownMessageIDs: { id in DispatchQueue.main.sync { self?.state.knownMessageIDs(in: id) ?? [] } }).run()
         }
     }
 
-    private func fold(watch page: WatchPage) {
+    private func fold(watch update: WatchUpdate) {
+        let page = update.page
         let known = Set(state.conversations.map(\.conversation_id))
-        state.apply(watch: page)
+        // One publication: a settled host must never expose the tray projection
+        // with a block from the previous list refresh. Read visibility as the page lands.
+        var next = state
+        next.focusedOnScreen = noteOnScreen(publish: false)
+        next.apply(update: update)
+        state = next
         for intent in state.drainNotifications() { post(intent) }
         updateBadge()
         refreshApprovalsIfStale()
@@ -347,10 +372,16 @@ final class UIModel: ObservableObject {
                 guard let cursor else { return }
                 do {
                     let page = try engine.events(conversationID: conversationID, after: cursor, wait: catchingUp ? 0 : nil)
+                    let known = DispatchQueue.main.sync { self?.state.knownMessageIDs(in: conversationID) ?? [] }
+                    let receipts = try engine.unknownReceipts(in: page, knownMessageIDs: known)
                     failures = 0
                     let result: Timeline.PageResult? = DispatchQueue.main.sync {
                         guard let self, self.eventsGeneration == generation else { return nil }
-                        return self.state.apply(events: page, conversationID: conversationID)
+                        var next = self.state
+                        next.apply(receipts: receipts, conversationID: conversationID)
+                        let result = next.apply(events: page, conversationID: conversationID)
+                        self.state = next
+                        return result
                     }
                     switch result {
                     case nil, .superseded?: return
@@ -401,12 +432,18 @@ final class UIModel: ObservableObject {
         eventsGeneration += 1
     }
 
-    func focus(_ conversationID: String) {
+    /// What showing a conversation leaves: a failed or new conversation's
+    /// draft, a suggestion, and a locked session's page.
+    private func leavePages() {
         selectedSuggestionID = nil
         selectedFailedDraftID = nil
         endFailedDraftEditing()
         newDraft.leave()
         lockedEntry = nil
+    }
+
+    func focus(_ conversationID: String) {
+        leavePages()
         guard state.focusedConversationID != conversationID else { return }
         state.focus(conversationID)
         navigation += 1
@@ -419,8 +456,20 @@ final class UIModel: ObservableObject {
         busy = true
         defer { busy = false }
         do {
+            // Capture the app's receipt identities on the main actor before
+            // opening on the outbox queue. Settled history already held here
+            // must not be fetched and folded on each conversation switch.
+            let knownConversationID: String?
+            switch target {
+            case .conversation(let id): knownConversationID = id
+            case .native(let native):
+                knownConversationID = state.conversations.first {
+                    $0.provider == native.provider && $0.native_session_id == native.session_id
+                }?.conversation_id
+            }
+            let known = knownConversationID.map { state.knownMessageIDs(in: $0) } ?? []
             let (result, steers) = try await onOutbox { () throws -> (ConversationOpenResult, [OutboxSteer]) in
-                let open = try engine.open(target)
+                let open = try engine.open(target, knownMessageIDs: known)
                 return (open, engine.outbox.steers(in: open.conversation.conversation_id))
             }
             // The daemon's state is kept either way; the screen moves only if the
@@ -493,6 +542,156 @@ final class UIModel: ObservableObject {
         guard let engine else { return }
         if let found = try? await onOutbox({ try engine.runs(conversationID: conversationID) }), runs[conversationID] != found {
             runs[conversationID] = found
+        }
+    }
+
+    // MARK: Notifications
+
+    /// Clicks, one held until `connect` has its baseline.
+    private var clicks = NotificationClicks()
+
+    /// Makes the model's delegate the notification center's, with its Allow once
+    /// action, once. In the app the call that acts is the app delegate's, in
+    /// `applicationWillFinishLaunching`: the system delivers the click that
+    /// launched the app only to a delegate set before launch ends (C-29.9), and
+    /// `start` runs later, when the main window first appears. `start`'s call
+    /// then does nothing; it acts only in a build with no app delegate (the
+    /// view-test build).
+    func registerNotifications() {
+        guard !notificationsRegistered else { return }
+        notificationsRegistered = true
+        notificationDelegate.register()
+    }
+
+    /// Whether one that arrives while the app is frontmost shows: as it would in
+    /// the background, unless its conversation is on screen by now, the focused
+    /// one with the main window visible and holding the key window (D-24).
+    func showsWhileFrontmost(requestID: String, userInfo: [AnyHashable: Any]) -> Bool {
+        NotificationTarget(requestID: requestID, userInfo: userInfo)?
+            .showsWhileFrontmost(onScreenConversationID: onScreenConversationID()) ?? true
+    }
+
+    /// A clicked notification (C-29.9): its conversation, and for an approval
+    /// still waiting that conversation's oldest card (C-27.5), which the
+    /// conversation view scrolls to once the card is in its timeline.
+    func show(_ target: NotificationTarget) {
+        if let opening = clicks.click(target, baselined: state.watchBaselined, navigation: navigation,
+                                      pendingApprovals: state.pendingApprovals) {
+            openClicked(opening)
+        }
+    }
+
+    private func openClicked(_ opening: NotificationOpening) {
+        if opening.revealsCard { revealApprovals(in: opening.conversationID) }
+        guard state.focusedConversationID == opening.conversationID else {
+            // `focus` takes a new token, which drops any open still on its way.
+            focus(opening.conversationID)
+            return
+        }
+        // Already focused, where `focus` changes nothing: open it again under a
+        // new token, so the click still drops an open on its way (a native session
+        // chosen just before) and replaces its own conversation's, not loses it.
+        leavePages()
+        focusReasserted += 1
+        navigation += 1
+        let token = navigation
+        Task { await open(.conversation(opening.conversationID), token: token) }
+    }
+
+    // MARK: On screen (D-24)
+
+    /// The main window, as its content last reported it (`MainWindowReader`).
+    /// A closed window reads as not visible, and the reference ends with it.
+    weak var mainWindow: NSWindow? {
+        didSet { noteOnScreen() }
+    }
+    private var onScreenObservers: [NSObjectProtocol] = []
+
+    /// Reads from AppKit whether the focused conversation is on screen: the
+    /// app is active, the main window is visible (neither closed nor
+    /// miniaturized nor wholly covered: `occlusionState`) and the key window
+    /// is it or a window attached to it, and its display is awake in a session
+    /// on the console. The focus alone stays set while the person works in
+    /// another app or has closed the window, where its conversation's turns
+    /// must notify like any other's.
+    @discardableResult
+    private func noteOnScreen(publish: Bool = true) -> Bool {
+        let visible = mainWindow.map {
+            $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible) && holdsKey($0) && shown($0)
+        } ?? false
+        let onScreen = onScreenOverride ?? (NSApp?.isActive == true && visible)
+        if publish && state.focusedOnScreen != onScreen { state.focusedOnScreen = onScreen }
+        return onScreen
+    }
+
+    /// Stands in for what AppKit would say when set: the UI-model probes have no
+    /// window to show, and set it to decide with the focused conversation on
+    /// screen. Nil in the app.
+    var onScreenOverride: Bool?
+
+    /// Whether the display showing `window` is awake (CoreGraphics: an asleep
+    /// display "is therefore not drawable") and this login session is on the
+    /// console, not switched out for another user's (`CGSessionCopyCurrentDictionary`,
+    /// whose `kCGSessionOnConsoleKey` is the string below). Read each time rather
+    /// than kept from NSWorkspace's notifications, so a missed wake cannot leave
+    /// the conversation counted off screen.
+    private func shown(_ window: NSWindow) -> Bool {
+        let number = window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
+        guard CGDisplayIsAsleep(number.map { CGDirectDisplayID($0.uint32Value) } ?? CGMainDisplayID()) == 0 else {
+            return false
+        }
+        let session = CGSessionCopyCurrentDictionary() as? [String: Any]
+        return session?["kCGSSessionOnConsoleKey"] as? Bool ?? true
+    }
+
+    /// Whether the key window is `window` or one attached to it (a sheet, or a
+    /// child window). The menu bar panel makes `NSApp.isActive` true while it is
+    /// key, without raising the main window, which may be all but covered by
+    /// another app's (seen 2026-09-30 in a probe app with the same scenes).
+    private func holdsKey(_ window: NSWindow) -> Bool {
+        var key = NSApp?.keyWindow
+        while let current = key {
+            if current === window { return true }
+            key = current.sheetParent ?? current.parent
+        }
+        return false
+    }
+
+    /// The conversation on screen now, read again from AppKit: the
+    /// notification center's delegate asks as a notification arrives while
+    /// the app is frontmost.
+    func onScreenConversationID() -> String? {
+        noteOnScreen()
+        return state.onScreenConversationID
+    }
+
+    /// Keeps `focusedOnScreen` current as the app is activated or left, as a
+    /// window becomes or stops being key or is miniaturized, restored, closed,
+    /// covered or uncovered, and as the displays sleep or wake and the session
+    /// is switched away or back. The two decisions that use it (`fold(watch:)`
+    /// and the delegate's `willPresent`) read it all again as well, so a change
+    /// these do not report cannot make them wrong.
+    private func observeOnScreen() {
+        let names: [Notification.Name] = [
+            NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification,
+            NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
+            NSWindow.didChangeOcclusionStateNotification, NSWindow.didMiniaturizeNotification,
+            NSWindow.didDeminiaturizeNotification, NSWindow.willCloseNotification,
+        ]
+        onScreenObservers = names.map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                // Read after the change lands: a closing window is still visible while it is told.
+                Task { @MainActor in self?.noteOnScreen() }
+            }
+        }
+        let workspace: [Notification.Name] = [
+            NSWorkspace.screensDidSleepNotification, NSWorkspace.screensDidWakeNotification,
+            NSWorkspace.sessionDidResignActiveNotification, NSWorkspace.sessionDidBecomeActiveNotification,
+        ]
+        onScreenObservers += workspace.map { name in
+            NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.noteOnScreen() }
+            }
         }
     }
 
@@ -730,6 +929,8 @@ final class UIModel: ObservableObject {
         let checkSupported = state.availability.capabilities.map { $0.has("workspace.check.v1") } ?? true
         if !stayHere { draftDestinations[messageID] = token }
         newDraft.isSubmitting = true
+        // A conversation the person starts is newer than any click still held.
+        clicks.drop()
         Task {
             do {
                 try await onReads {
@@ -788,15 +989,18 @@ final class UIModel: ObservableObject {
         let provider = state.conversation(conversationID)?.provider
         let messageID = Outbox.newMessageID()
         // The turn the person steers into now: a steer that reaches the daemon after
-        // it ended is refused, never joined to the next turn (C-24.9).
+        // it ended is refused, never joined to the next turn (C-24.9). The composer
+        // asks to steer only while there is one, in this same main-actor turn; with
+        // none, the message queues rather than steer without naming a turn.
         let into = steer ? state.steerHost(forComposerOf: conversationID)?.messageID : nil
+        let steering = into != nil
         state.addLocalMessage(conversationID: conversationID, messageID: messageID, text: text,
-                              attachments: staged.map(\.sha256), settings: settings, steer: steer)
+                              attachments: staged.map(\.sha256), settings: settings, steer: steering)
         Task {
             do {
                 _ = try await onOutbox {
                     try engine.send(conversation: conversationID, text: text, staged: staged, settings: settings,
-                                    messageID: messageID, steer: steer, into: into)
+                                    messageID: messageID, steer: steering, into: into)
                 }
                 if let provider { defaults.set(settings.model, forKey: "lastModel.\(provider)") }
                 pump()
@@ -806,15 +1010,17 @@ final class UIModel: ObservableObject {
         }
     }
 
-    /// Steer a queued message into the running turn (C-24.9): journaled, then sent.
-    /// A refusal leaves it queued and its status line says why. The queue tray's
-    /// "Send now" (DESIGN.md sections 7 to 9) calls this.
-    func steer(messageID: String, conversationID: String) {
+    /// Steer a queued message into the running turn `into` (C-24.9): journaled, then
+    /// sent. A refusal leaves it queued and its status line says why. The queue tray's
+    /// "Send now" (DESIGN.md sections 7 to 9) calls this with the turn the tray showed
+    /// when it offered the action (`QueuedMessage.steerInto`), never the turn live when
+    /// the click lands: one that ended meanwhile has the daemon refuse the steer
+    /// (`no-live-turn`), so the message stays queued and never joins the next turn.
+    func steer(messageID: String, conversationID: String, into: String) {
         guard let engine else { return }
         // Slash commands and shell input wait for the turn to end (DESIGN.md section 9).
         let text = state.timelines[conversationID]?.turn(messageID)?.personText ?? ""
         guard steerable(text: text) else { return }
-        let into = state.timelines[conversationID]?.liveMessageID
         state.requestSteer(conversationID: conversationID, messageID: messageID)
         Task {
             do {
@@ -1006,7 +1212,37 @@ final class UIModel: ObservableObject {
         }
     }
 
+    /// A tray withdrawal always names its own message and conversation. Pending
+    /// clicks share one busy state, so a row cannot send a second action meanwhile.
+    func withdrawQueued(_ row: QueuedMessage, conversationID: String) {
+        guard row.canWithdraw, let engine, withdrawingMessages.insert(row.id).inserted else { return }
+        Task {
+            defer { withdrawingMessages.remove(row.id) }
+            do {
+                if case .withdraw = row.withdraw {
+                    let result = try await onOutbox { try engine.withdrawSend(row.id) }
+                    switch result {
+                    case .withdrawn(let receipt):
+                        if let receipt { state.apply(receipt: receipt) }
+                        else { state.withdrawLocal(conversationID: conversationID, messageID: row.id) }
+                    case .stopped(let receipt):
+                        if let receipt { state.apply(receipt: receipt) }
+                    case .inFlight: break
+                    }
+                } else if let receipt = try await onOutbox({ try engine.stop(row.withdraw) }) {
+                    state.apply(receipt: receipt)
+                }
+            } catch { report(error) }
+        }
+    }
+
     func stop(_ action: StopAction) {
+        if case .withdraw(let id) = action,
+           let (conversationID, timeline) = state.timelines.first(where: { $0.value.turn(id) != nil }),
+           let turn = timeline.turn(id) {
+            withdrawQueued(QueuedMessage(turn: turn), conversationID: conversationID)
+            return
+        }
         guard let engine else { return }
         Task {
             do {
@@ -1021,9 +1257,17 @@ final class UIModel: ObservableObject {
         guard let engine else { return }
         Task {
             do {
-                let (conversation, receipt) = try await onOutbox { try engine.perform(choice.action, conversationID: conversationID) }
-                if let conversation { state.upsert(conversation) }
-                if let receipt { state.apply(receipt: receipt) }
+                let known = state.knownMessageIDs(in: conversationID)
+                let (conversation, receipt, refresh) = try await onOutbox {
+                    let (conversation, receipt) = try engine.perform(choice.action, conversationID: conversationID)
+                    let refresh = try engine.refreshConversation(conversationID, knownMessageIDs: known)
+                    return (conversation, receipt, refresh)
+                }
+                var next = state
+                if let conversation { next.upsert(conversation) }
+                if let receipt { next.apply(receipt: receipt) }
+                next.apply(refresh: refresh)
+                state = next
             } catch {
                 report(error)
             }
@@ -1234,7 +1478,7 @@ final class UIModel: ObservableObject {
             let content = UNMutableNotificationContent()
             content.title = intent.title
             content.body = intent.body
-            content.userInfo = ["conversation_id": intent.conversationID]
+            content.userInfo = intent.userInfo(allowing: nil)
             if intent.kind == .approval, let engine {
                 let detail: ApprovalDetail? = try? await onOutbox {
                     let approvals = try engine.approvals(conversationID: intent.conversationID)
@@ -1244,7 +1488,7 @@ final class UIModel: ObservableObject {
                 }
                 if let detail, let target = ApprovalNotificationTarget(detail: detail) {
                     content.categoryIdentifier = ApprovalNotificationDelegate.categoryID
-                    content.userInfo = target.userInfo
+                    content.userInfo = intent.userInfo(allowing: target)
                     let display = detail.approval.display
                     let summary = display.command ?? display.input ?? display.description ?? display.tool
                     if let summary { content.body += "\n" + summary }
@@ -1255,20 +1499,39 @@ final class UIModel: ObservableObject {
         }
     }
 
-    private func handleNotification(action: String, userInfo: [AnyHashable: Any]) {
+    /// A notification's response (C-29.9). Any but a dismissal opens the main
+    /// window on its conversation, an approval's at the conversation's oldest
+    /// waiting card while one waits (`show`: a response before the first list
+    /// and feed baseline waits for them). Allow once also answers the one
+    /// request the notification advertised (`allowOnce`). Returns Allow once's
+    /// work, for a probe to wait on.
+    @discardableResult
+    func handleNotification(action: String, requestID: String, userInfo: [AnyHashable: Any]) -> Task<Void, Never>? {
         guard action != UNNotificationDismissActionIdentifier,
-              let conversationID = userInfo["conversation_id"] as? String, !conversationID.isEmpty else { return }
+              let target = NotificationTarget(requestID: requestID, userInfo: userInfo) else { return nil }
+        show(target)
         #if !SUBFLEET_VIEW_TEST
+        // Nil before the window first appears (the click that launched the app):
+        // the window, the app's first scene, presents itself at launch, and
+        // `connect` opens the held click in it.
         SubfleetAppDelegate.openMain?()
         #endif
         NSApp?.activate(ignoringOtherApps: true)
-        focus(conversationID)
-        guard action == ApprovalNotificationDelegate.allowOnceID else { return }
+        guard action == ApprovalNotificationDelegate.allowOnceID else { return nil }
+        return allowOnce(userInfo)
+    }
+
+    /// Allow once, as release/217's delegate answered it (c3763edba): the request
+    /// the notification advertised is read again and allowed only if it is still
+    /// that pending, unmasked request with an `allow` option; otherwise it is left
+    /// for review in the conversation. Returns the work, for a probe to wait on.
+    @discardableResult
+    func allowOnce(_ userInfo: [AnyHashable: Any]) -> Task<Void, Never>? {
         guard let target = ApprovalNotificationTarget(userInfo: userInfo) else {
             problem = "Review the pending request in the conversation."
-            return
+            return nil
         }
-        Task {
+        return Task {
             guard let detail = await approvalDetail(target.approvalID, reveal: false) else { return }
             guard target.canAllow(detail) else {
                 problem = "This request needs review. Use the approval card's details in the conversation."

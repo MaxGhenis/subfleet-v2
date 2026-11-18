@@ -68,6 +68,9 @@ def test_host_credentials_after_configure_and_fixture_undo(tmp_path, monkeypatch
                 raise OSError("intercepted before any helper, socket or remote")
 
             monkeypatch.setattr(host_push.subprocess, "Popen", intercept)
+            # The session removed the agent socket it inherited (D-PRR1); one
+            # set during the session must still not reach git.
+            monkeypatch.setenv("SSH_AUTH_SOCK", str(tmp_path / "person-agent.sock"))
             with pytest.raises(host_push.PushError):
                 host_push.git(repo, "ls-remote", "https://example.invalid/review",
                               credentials=settings)
@@ -156,6 +159,8 @@ def test_host_credentials_accept_explicit_fixture_configs(tmp_path, monkeypatch)
     (xdg / "git/config").write_text("[credential]\nuseHttpPath = true\n")
     monkeypatch.setenv("SUBFLEET_HOST_HOME", str(home))
     monkeypatch.setenv("SUBFLEET_HOST_CONFIG", str(xdg))
+    # The session holds no inherited agent socket (D-PRR1); set one to drop.
+    monkeypatch.setenv("SSH_AUTH_SOCK", str(tmp_path / "agent.sock"))
     settings = host_push.host_credentials(tmp_path)
     assert settings == ("-c", "credential.usehttppath=true", "-c", "credential.helper=fixture-helper")
     env = host_push._environment()

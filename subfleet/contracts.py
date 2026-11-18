@@ -8,6 +8,7 @@ the store, the daemon, the adapters, and the CLI cannot drift apart.
 from __future__ import annotations
 
 import enum
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -25,7 +26,7 @@ HEADLESS_MARKER = "<!-- subfleet:headless -->"  # C-6.7
 #: salvage wrote its ref there and reported success (adversarial review of the
 #: round-3 branch). Salvage's git drops them (`salvage._git_env`, which keeps a
 #: temporary index a caller names), and so does the daemon's environment
-#: (`cli.STRIPPED_ENV`).
+#: (`launch_env.ALLOWED_NAMES`).
 GIT_LOCATION_ENV = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY",
                     "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE", "GIT_QUARANTINE_PATH")
 #: C-13.1: how git reads every pathspec when the environment says so. Salvage
@@ -95,6 +96,13 @@ class OutcomeClass(str, enum.Enum):  # C-9.2
     UNKNOWN = "unknown"
 
 
+# D-WALL1, D-WALL-RETRY1: settled outside faults give back their provider time.
+# State and killed_by must also permit exclusion; a live or stopped attempt counts.
+WALL_EXEMPT_OUTCOME_CLASSES = (
+    OutcomeClass.LIMITED.value, OutcomeClass.TRANSIENT.value, OutcomeClass.AUTH_DEAD.value,
+)
+
+
 class ReadingLabel(str, enum.Enum):  # C-9.1
     PROVIDER = "provider"
     STALE_PROVIDER = "stale-provider"
@@ -140,6 +148,23 @@ class ActionState(str, enum.Enum):  # C-19.1
 class Sandbox(str, enum.Enum):
     READ_ONLY = "read-only"
     WORKSPACE_WRITE = "workspace-write"
+
+
+class Capability(str, enum.Enum):
+    NONE = "none"
+    COMMANDS = "commands"
+    WRITABLE = "writable"
+
+
+def launch_capability(provider: str, sandbox: str | Sandbox) -> Capability:
+    """C-12.3–4: writes include temporary files; commands alone cannot run pytest."""
+    if sandbox == Sandbox.WORKSPACE_WRITE:
+        return Capability.WRITABLE
+    return Capability.COMMANDS if provider == "codex" else Capability.NONE
+
+
+def launch_has_shell(provider: str, sandbox: str | Sandbox) -> bool:
+    return launch_capability(provider, sandbox) != Capability.NONE
 
 
 class LaneOwner(str, enum.Enum):  # C-10.4
@@ -233,6 +258,7 @@ WORKSPACE_RETRY_CEILING_S = 300
 #: consecutive recheck that reaches the same verdict, to the ceiling.
 CAPACITY_RECHECK_BASE_S = 1
 CAPACITY_RECHECK_CEILING_S = 30
+CAPACITY_RECHECK_EVENT_CEILING_S = 600
 #: C-6.10: one job's admission probes are reserved at least this far apart. The
 #: clock runs from the reservation, so a probe that ran this long (its deadline
 #: stopped it) leaves its vehicle due at once, and one that failed in a second
@@ -253,6 +279,13 @@ TRANSIENT_RETRY_DELAY_S = 60
 #: the rest of an episode, against 0.2% four hours on (docs/reports/2026-10-13-model-capacity-steer.md).
 MODEL_CAPACITY_STEER_S = 900
 START_GRACE_S = 10
+#: D-QUAR-START1 (a), C-4.2: start grace's bound. At its expiry a guardian that is alive,
+#: running (not stopped) and verified by its recorded identity, and is the census's only
+#: member, is given more time, re-checked at the census's pacing (C-5.12), until this
+#: long after the deadline began (the launch). Python start-up, the launch gate and the
+#: identity reads all come before `start.json`; under load 60 to 100 on 2026-10-26 one
+#: guardian took about 31 s (`20261026-104634-ce1-review-r3/a1`).
+START_GRACE_MAX_S = 6 * START_GRACE_S
 TERM_GRACE_S = 15
 # C-5.6, C-5.9: how long a census may keep finding pids the kernel is still
 # tearing down (after SIGKILL, or after the guardian's exit receipt) before the
@@ -265,6 +298,9 @@ EXIT_SETTLE_S = 3
 # wall clock are still read every tick; a death verdict is never taken from a
 # shared table.
 INSPECT_INTERVAL_S = 1.0
+# C-5.12, D-WALL1: unchanged live membership needs a durable observation only
+# once per minute. Identity changes still carry their newest observation.
+LIVENESS_WRITE_S = 60
 # C-5.11: how often a probe's guardian re-records the group members it owns
 # (C-5.4); it runs inside the probe monitor's paced liveness check, which uses
 # `INSPECT_INTERVAL_S`, so at most that often too. A running attempt records its
@@ -278,8 +314,8 @@ WAIT_RECHECK_S = 1.0
 # (SIGTERM, up to TERM_GRACE_S of census polling, then SIGKILL and one census),
 # so that finishes first.
 STOP_GRACE_S = 30
-# C-5.8a: leave faulthandler time to dump before the kernel's SIGALRM ends a
-# process whose dump timer failed, was cancelled, or is still dumping.
+# C-5.8a: split this diagnostic budget equally between the Python snapshot
+# and the C fallback; the kernel alarm cuts either off at the end of it.
 STOP_DUMP_MARGIN_S = 3.0
 # C-5.8a: how much longer launchd (the plist's ExitTimeOut) and `subfleet daemon
 # stop` wait before SIGKILL: time for the dump, and the backstop for a stop that
@@ -306,6 +342,11 @@ RETENTION_MAX_BYTES = 2 * 1024 ** 3
 TURN_RETENTION_MAX_JOBS = 2000
 TURN_RETENTION_MAX_BYTES = 4 * 1024 ** 3
 TURN_RETENTION_KEEP_DAYS = 14
+# C-8.4 (D-NOTICE-KEEP1): an unread notice addressed to a session keeps its job
+# this many days after the notice was written, and no longer; 0 keeps it for
+# ever. A session that never runs again never reads its notice, and on
+# 2026-11-05 such notices alone kept 88 trees (25.47 GB) on disk.
+NOTICE_RETENTION_KEEP_DAYS = 7
 # d635, final review of e50716e8 (N1): a job whose baseline no network remote
 # holds bundles the shared history no remote holds as well as its own; above
 # this many bytes (git's measure on disk) the job is kept instead. 0 keeps
@@ -364,6 +405,83 @@ class Closure:  # C-9.6
     source_event: str | None
 
 
+#: C-9.6 (D-STATUS-SRC1): an operator hold's `source_event` is `operator`, or
+#: `operator: <note>` when `lanes hold --note` gave one. The note rides in the
+#: field every closure already has, so the store's schema is unchanged; nothing
+#: compares a `source_event` with `operator`.
+HOLD_SOURCE = "operator"
+HOLD_NOTE_MAX = 160
+HOLD_NOTE_RULE = f"--note must be one line of 1 to {HOLD_NOTE_MAX} printable characters"
+#: C-9.6 (review r1 of #263): a note the C-23.14 scrubber would change is refused,
+#: not masked, as C-1.5 refuses such a request id and C-25.7 such a correlation id.
+#: Masking would change what the operator wrote, and the refusal never echoes it.
+HOLD_NOTE_CREDENTIAL_RULE = "--note must not carry a credential (the C-23.14 scrubber would change it)"
+#: What every reader shows for a stored note no writer here accepts (`hold_note_of`).
+HOLD_NOTE_WITHHELD = "[note withheld: it would carry a credential]"
+
+
+def hold_note(value: Any) -> str | None:
+    """`lanes hold --note`'s text as the hold records it; None when no note was given.
+
+    The text is stripped of the whitespace around it and must then be one line
+    of printable characters (`str.isprintable`: no newline, tab, control or
+    separator character other than the space), from 1 to `HOLD_NOTE_MAX` of
+    them, that the C-23.14 scrubber leaves whole, read from its start or from
+    just after any `-` or `_` (`ids.holds_credential`), both as written and as
+    JSON writes it (review r2 of #263, P3-1: the scrubber's URL rule finds no
+    word boundary before `https` in `ühttps://u:<password>@host` and leaves it
+    whole, but masks the password in `\\u00fchttps://…`, the form `status
+    --json` and `status.json` carry). Anything else raises ValueError naming
+    the rule it breaks, never the text, and the caller writes nothing. The
+    length is checked first, so a longer text is never read for a credential."""
+    if value is None:
+        return None
+    note = value.strip() if isinstance(value, str) else ""
+    if not note or len(note) > HOLD_NOTE_MAX or not note.isprintable():
+        raise ValueError(HOLD_NOTE_RULE)
+    from .ids import holds_credential       # ids imports this module
+    if holds_credential(note) or holds_credential(json.dumps(note)[1:-1]):
+        raise ValueError(HOLD_NOTE_CREDENTIAL_RULE)
+    return note
+
+
+def hold_source(note: str | None) -> str:
+    """The `source_event` of an operator hold carrying `note` (C-9.6)."""
+    return HOLD_SOURCE if note is None else f"{HOLD_SOURCE}: {note}"
+
+
+def hold_note_of(source_event: Any) -> str | None:
+    """The note an operator hold's `source_event` carries, or None (C-9.6).
+
+    Read strictly (review r2 of #263, P3-3): `operator` carries no note, and
+    `operator: <note>` carries the note when `hold_note` accepts it as it
+    stands. Any other source, which only a writer outside `lanes hold` can
+    leave (`operator:<note>`, `Operator: <note>`, a bare `sk-…`, a note with
+    a credential or of more than `HOLD_NOTE_MAX` characters), reads as
+    `HOLD_NOTE_WITHHELD`, so no reader (status, its JSON, the alerts, a
+    session notice) passes it on. A note over `HOLD_NOTE_MAX` is withheld
+    unread: `hold_note` refuses it on its length before the scrubber reads it,
+    work that grows with the square of the length (2,000 characters take
+    seconds). Call it for a hold's row only: any other closure's source
+    reads as withheld here."""
+    prefix = f"{HOLD_SOURCE}: "
+    written = source_event[len(prefix):] if isinstance(source_event, str) and source_event.startswith(prefix) else None
+    try:
+        note = hold_note(written)
+    except ValueError:
+        return HOLD_NOTE_WITHHELD
+    # Exactly what `lanes hold` writes for that note: a round trip, not a
+    # comparison with the word (C-9.6's guard).
+    return note if hold_source(note) == source_event else HOLD_NOTE_WITHHELD
+
+
+def hold_source_shown(source_event: Any) -> Any:
+    """A hold's `source_event` as a reader shows it: as stored, unless its note is
+    withheld (`hold_note_of`), when it is `operator: ` and the withheld text."""
+    note = hold_note_of(source_event)
+    return hold_source(note) if note == HOLD_NOTE_WITHHELD else source_event
+
+
 #: C-17.1, C-26.12: the kinds the job ledger holds (`jobs.kind`), as the code
 #: submits them: `dispatch` (`run`), `resume`, `revive` (`sessions revive`),
 #: `gate-review` (`gate`), `handoff` (`handoff`), and `turn`, which only the
@@ -415,8 +533,10 @@ class JobSpec:
 @dataclass(frozen=True)
 class Launch:  # C-12.2
     argv: tuple[str, ...]
-    env_add: dict[str, str]         # merged over a sanitised environment; may hold the credential
-    env_remove: tuple[str, ...]     # keys stripped before spawn (API keys)
+    env_add: dict[str, str]         # explicit additions over an allowlisted parent; may hold the credential
+    env_remove: tuple[str, ...]     # mandatory exclusions, applied last: they win over the parent,
+                                    # policy names and env_add alike (round 1's memory isolation;
+                                    # test_mandatory_removal_also_beats_selected_additions)
     cwd: str
     stdin_path: str | None          # prompt file fed on stdin, or None
     stdout_path: str

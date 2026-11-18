@@ -1,0 +1,23 @@
+{
+  "name": "test_invariants_index-5",
+  "start": "2026-10-29T14:43:25.585371+00:00",
+  "load": [
+    16.40478515625,
+    25.91650390625,
+    32.02197265625
+  ],
+  "phases": {
+    "tests/unit/test_invariants_index.py::test_ledger_still_has_two_hundred_and_twenty_rows": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/unit/test_invariants_index.py::test_ledger_still_has_two_hundred_and_twenty_rows"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 4.61709095799597,
+  "rss": 110297088
+}

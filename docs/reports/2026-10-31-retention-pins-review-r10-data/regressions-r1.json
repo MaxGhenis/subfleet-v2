@@ -1,0 +1,950 @@
+{
+  "name": "regressions-r1",
+  "start": "2026-10-31T10:43:59.934102+00:00",
+  "load": [
+    42.19873046875,
+    39.712890625,
+    37.4111328125
+  ],
+  "args": [
+    "tests/fake/test_retention_dependency_review_r1.py",
+    "tests/fake/test_retention_dependency_incomplete.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[case]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.10892987500119489,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[case]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.02245920799759915,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[case]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00015462500232388265,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[nfc]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0021999589989718515,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[nfc]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.031913999999233056,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[nfc]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00033083300149883144,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[nfd]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0021908750022703316,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[nfd]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0437395419976383,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[nfd]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0001759999977366533,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[greek]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0017050000024028122,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[greek]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.01069791699774214,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[greek]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00023916699865367264,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[sharp-s]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.001834540998970624,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[sharp-s]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.11101599999892642,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[sharp-s]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00015512499885517173,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[fi]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0010813330009113997,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[fi]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.007633791999978712,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[fi]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00012808300016331486,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[kelvin]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0010627919982653111,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[kelvin]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0068832920005661435,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[kelvin]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00013187500007916242,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[firmlink]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0016452499985462055,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[firmlink]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.008021958001336316,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[firmlink]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0001673339975241106,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[symlink]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0011119169976154808,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[symlink]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.140343250001024,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[symlink]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00033895800152095035,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[dotdot]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.033230000000912696,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[dotdot]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.008204583999031456,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[dotdot]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0002529580015107058,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[trailing]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.001980624998395797,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[trailing]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.012238708997756476,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[trailing]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003451670017966535,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_git_c_quoted_alternate_keeps_the_tree_it_reads[absolute]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0021070000002509914,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_git_c_quoted_alternate_keeps_the_tree_it_reads[absolute]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5595770830004767,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_git_c_quoted_alternate_keeps_the_tree_it_reads[absolute]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004229160003887955,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_git_c_quoted_alternate_keeps_the_tree_it_reads[relative]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0023558749999210704,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_git_c_quoted_alternate_keeps_the_tree_it_reads[relative]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5358966669991787,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_git_c_quoted_alternate_keeps_the_tree_it_reads[relative]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007350420019065496,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_large_valid_alternates_file_keeps_the_tree_git_reads",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002221874998213025,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_large_valid_alternates_file_keeps_the_tree_git_reads",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.6778621250014112,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_large_valid_alternates_file_keeps_the_tree_git_reads",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00037354199957917444,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[recorded-dotless-i]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0017645420011831447,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[recorded-dotless-i]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.0264318750014354,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[recorded-dotless-i]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004437910029082559,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[recorded-default-ignorable]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.02428399999917019,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[recorded-default-ignorable]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3431804589999956,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[recorded-default-ignorable]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003538330020091962,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[legacy-dotless-i]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0024285840008815285,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[legacy-dotless-i]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.4322617920006451,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[legacy-dotless-i]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005687500015483238,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[legacy-default-ignorable]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.03742433300067205,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[legacy-default-ignorable]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3976453750001383,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r1.py::test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[legacy-default-ignorable]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00022733299920218997,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-overlong]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0013234580001153518,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-overlong]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.6763065830018604,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-overlong]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00048529100240557455,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-quote]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.00530412499938393,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-quote]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.593863041998702,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-quote]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003423749985813629,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-unreadable]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.001813040998968063,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-unreadable]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.64626962499824,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-unreadable]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004894999983662274,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-partial]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0027947919988946524,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-partial]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.4367303750004794,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-partial]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005338750015653204,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-fifo]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0029595410014735535,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-fifo]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.6172191250007018,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-fifo]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00031312500141211785,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-overlong]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0013121660012984648,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-overlong]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.4484861250020913,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-overlong]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003504999986034818,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-quote]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.010903292000875808,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-quote]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.78326187499988,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-quote]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005350419996830169,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-unreadable]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0024434999977529515,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-unreadable]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.4485959579978953,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-unreadable]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006969999994907994,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-partial]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.023461000000679633,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-partial]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.9496304580025026,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-partial]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0009499589978076983,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-fifo]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0026607500003592577,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-fifo]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.1127415000009933,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-fifo]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005418750006356277,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-overlong]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0026950419996865094,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-overlong]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.6320303329994204,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-overlong]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006757500013918616,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-quote]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.004329708001023391,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-quote]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.20193237499916,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-quote]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004914999990432989,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-unreadable]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.001978291998966597,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-unreadable]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.365405666998413,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-unreadable]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005752500001108274,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-partial]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.02257708300021477,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-partial]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.3841712920002465,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-partial]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005158339990884997,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-fifo]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0037932499981252477,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-fifo]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.9191154159998405,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-fifo]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00031725000008009374,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_alternates_still_admit",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0035790420006378554,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_alternates_still_admit",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5374498329983908,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_alternates_still_admit",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00047650000124122016,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_missing_alternates_are_complete_but_dangling_link_is_not",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0032839999985299073,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_missing_alternates_are_complete_but_dangling_link_is_not",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.006569459001184441,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_missing_alternates_are_complete_but_dangling_link_is_not",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003082920011365786,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_recheck_uses_database_only",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002607749996968778,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_recheck_uses_database_only",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.4435307499988994,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_recheck_uses_database_only",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005302079989633057,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_disappearance_during_read_is_incomplete",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0027892090001842007,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_disappearance_during_read_is_incomplete",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.002264415998070035,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_disappearance_during_read_is_incomplete",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005160409964446444,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[case]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[nfc]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[nfd]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[greek]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[sharp-s]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[fi]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[kelvin]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[firmlink]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[symlink]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[dotdot]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_recorded_places_pin_and_fence_through_each_spelling[trailing]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_git_c_quoted_alternate_keeps_the_tree_it_reads[absolute]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_git_c_quoted_alternate_keeps_the_tree_it_reads[relative]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_large_valid_alternates_file_keeps_the_tree_git_reads",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[recorded-dotless-i]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[recorded-default-ignorable]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[legacy-dotless-i]",
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[legacy-default-ignorable]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-overlong]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-quote]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-unreadable]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-partial]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-fifo]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-overlong]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-quote]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-unreadable]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-partial]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-fifo]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-overlong]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-quote]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-unreadable]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-partial]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-fifo]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_alternates_still_admit",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_missing_alternates_are_complete_but_dangling_link_is_not",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_recheck_uses_database_only",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_disappearance_during_read_is_incomplete"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-063315-pr272-review-r10/subfleet/dependencies.py",
+  "product_sha256": "8b39d2f38cf73c92909ae6e241311cdc2cd32ed70295ee2cd240af39f4cb9920",
+  "end": "2026-10-31T10:44:43.656732+00:00",
+  "seconds": 43.72155645900057,
+  "peak_rss_mib": 124.3125,
+  "exit": 0
+}

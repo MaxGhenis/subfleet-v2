@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 20:53:47Z slot A load 
+.....................................                                    [100%]
+37 passed in 57.86s
+{"name": "guard-test_state_contract", "start": "2026-10-31T20:53:50.173064+00:00", "load": [44.49169921875, 51.40185546875, 58.81884765625], "seconds": 59.27762475000054, "exit": 0}

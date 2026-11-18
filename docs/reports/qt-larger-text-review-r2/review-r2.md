@@ -1,0 +1,168 @@
+VERDICT #284: APPROVE
+
+No introduced P1, P2 or P3 was found against `bfb7f862c`. Head remains
+`6700b9bbc6268981e3949a09fb3879f53cfecd7a`.
+Validation completed with **173 repository passes and 10 diagnostic passes**,
+one normal strict expected failure, and the same listed failure forced once with
+`--runxfail`. No requested local selection remains unrun.
+
+**Review r1 findings and reruns**
+
+| R1 issue | Executed input and status |
+| --- | --- |
+| Introduced P3: retained request crosses identity | Fixed. Land A, change the same pin to B, expose the end: zero old callbacks in both orientations. Queued checks also deliver zero old callbacks. |
+| Older pending identity case | Fixed. Keep A's row offscreen, change to B, present the row: zero callbacks and no new landing. A → B → A discards both kinds of old request; fresh A requests land. Same-ID controls remain active and retain the request UUID. |
+| Older release-count error | Fixed. The saved trace and a fresh native two-attempt trace both give 41 old-count entries and one actual transition. Off/on/off across the cutoff gives two releases; an initially resumed trace gives zero. |
+| Older exact-one assumption | Fixed. Fresh native `reveals=2` passes the actual changed regression, including order, landing and follow behavior; the former exact-one assertion rejects it. Zero and unlanded replays remain rejected. The existing retry cap is listed below. |
+| Quiet-landing reply-only gap | Retained as required. The mutant leaves 600 pt after growth, then zero after a compensating shrink. Normal execution is a strict xfail; forced execution fails that assertion. |
+| Missing #282 attempt-2 replay | Completed. The supplied log exactly matches the fixture. Old order rejects it; new order accepts the measured pending clamp; both behavioral helpers pass. The three old helper definitions exactly match local Git object `a093fb4b6`. |
+
+**Checks 1–4**
+
+1. **Identity — PASS.** Already queued A checks read cleared request state after B
+   replaces it. With no new B request they do nothing. With a fresh B request,
+   queued work can check that current request: only B's UUID is delivered.
+   Immediate changes, queued changes, A → B → A, new requests after the round trip,
+   and same-ID controls pass in both document orientations. Cancellation itself
+   does not resume the old owner. The original app identity-boundary input keeps
+   A pending and suspended throughout replacement; B receives a new pin, stays
+   resumed, and catches up. All six orderings of change/reveal/shrink finish B
+   resumed and caught up, 24–25 pt from the end. Timeline input, another reveal,
+   matching abandonment, own send, identity change and pin teardown each end the
+   old request watch. Unrelated abandonment and target removal retain it, as the
+   body now describes. The 25/26 pt controls also pass in both orientations.
+
+2. **One-to-three choice — PASS, with the existing setup bound listed below.**
+   Zero reveals and a reveal that has not landed are rejected. The unchanged
+   probe's `reveals < 3` loop sets the bound; it is not a guarantee that a slow
+   host presents the row within three attempts. The producer cannot emit four;
+   it can fail readiness if three are insufficient. A controlled native input
+   withholds target geometry for three requests and presents it on the fourth;
+   the correct pin then lands. No natural four-attempt scene was observed.
+   The range counts setup attempts. A replay with an extra reveal/landing pair
+   can still pass this shrink test; the separate busy, schedule and streaming
+   tests check two notices per search intent. The added replay control confirms
+   that the covered search-count assertion rejects a third notice. The fresh
+   native two-attempt input passes all landing and follow checks, including one
+   actual suspension release.
+
+3. **Release count — PASS.** Both saved and fresh native traces reproduce 41 → 1.
+   The counter preserves pre-cutoff state, ignores initial resumed entries and
+   entries without suspension data, includes real movement-event transitions,
+   and detects a genuine second release. A pending replay with releases remains
+   rejected; an all-resumed pending replay fails its suspension check; a landed
+   replay with no true-to-false transition fails its release check. The six fresh
+   release-sensitive mutant outputs independently pass their order/setup checks
+   and fail their named behavioral helpers. In both layouts the premature
+   mutants make one release and jump; `reveal_never_lands` makes zero and stays
+   suspended. The final audit verifies those measured reasons.
+
+4. **Text — PASS.** The report, evidence JSON and supplied live body use the
+   qualified current-request/current-conversation/current-watch invariant and
+   the correct watch-ending list. All 11 recorded product/test/fixture hashes
+   match head; the raw r1b item records reproduce every reported run count and
+   the 170 repository plus three diagnostic pass total. The live body, report's
+   fenced body, evidence body and retained draft match byte for byte. The
+   original requested forced-failure claim is reproduced: only the listed quiet
+   counterexample fails. #282 attempt 2 passes both behavioral versions and only
+   the new order helper, for the measured pending-clamp reason.
+
+**Introduced findings, ranked P1/P2/P3:** none.
+
+**Listed differences**
+
+- **Existing P3, quiet-landing coverage:**
+  `tests/frontend/test_review_r219_fix8_mutations.py:286` and
+  `tests/frontend/test_review_pr284_pin.py:159`.
+  Input: quiet landing, growth +600, shrink −900; measured gaps are 600 then zero,
+  and the reply-only rule accepts compensation. Fix: attach the independent
+  resize probe to those quiet cases or measure growth before compensation.
+  The existing strict expected-failure mark remains.
+- **Existing retry cap:** `tests/frontend/ReviewR219Fix8ViewProbe.swift:1436`.
+  Input: the added native delayed-presentation control remains pending through
+  three requests and lands the fourth. The scene's three-attempt cap is byte
+  identical to `bfb7f862c`; the new range assertion cannot receive four from that
+  producer. Fix: establish target presentation with a bounded readiness condition
+  or make scene setup deterministic. This is a remaining possible setup flake,
+  not an introduced regression.
+
+**Mutant table**
+
+| Mutant | Rejected test executions | Measured reason |
+| --- | ---: | --- |
+| `marker_releases_pending_reveal` | 2/2, default/larger | One real marker release while pending; settling jumps. |
+| `confirm_by_distance_only` | 2/2, default/larger | One real completion release with the target unpresented; settling jumps. |
+| `reveal_never_lands` | 2/2, default/larger | Zero releases after the clamp; settling stays suspended. |
+| `quiet_landing_ends_following` | 3/3 | Valid zero-gap setup, then reply gaps 827/835/820 pt. The compensating-shrink counterexample remains listed. |
+| `growth_repins_dropped` | 2/2 | Measured response gaps 600 → 0 and 600 → 0 → 1300; growth is checked before compensation. |
+| `quiet_window_0ms` | 1/1 | Post-landing geometry violates the required rest interval. |
+
+The identity-reset, person-scroll-cancellation and dropped-landed-watch mutations
+in the required review files are also rejected.
+
+**Holds**
+
+Own start: 2026-10-31 05:19:50 UTC. First pytest: 05:20:57 UTC.
+All starts below are UTC on October 31. Loads are `os.getloadavg()[0]` at pytest
+start, because the wrapper's `sysctl` display is denied. Every hold has one serial
+pytest and stayed below 20 minutes. No hold ran outside the shared lock.
+
+| Start | Load | Hold and counts per file | Seconds |
+| --- | ---: | --- | ---: |
+| 05:20:57 | 27.73 | `fix10-whole` — `test_review_r219_fix10_view.py`: 40 passed | 843.90 |
+| 05:33:46 | 31.05 | `repeat-larger` — `test_review_r219_fix10_view.py`: 10 passed | 214.88 |
+| 05:35:34 | 36.88 | `pin-and-r2` — `test_review_pr284_pin.py`: 21 passed, 1 xfailed; `test_review_pr284_r2.py`: 13 passed | 224.99 |
+| 05:39:12 | 32.72 | `guards` — `test_state_contract.py`: 37 passed; `test_test_module_names.py`: 1 passed; `test_invariants_index.py`: 25 passed | 37.12 |
+| 05:48:52 | 30.74 | `fix8-view` — `test_review_r219_fix8_view.py`: 6 passed | 96.89 |
+| 05:54:40 | 27.12 | `resizes` — `test_review_pr284_resizes.py`: 8 passed | 366.31 |
+| 06:15:32 | 29.99 | `identity-replay-diagnostics` — `diagnostics.py`: 9 passed | 714.12 |
+| 06:18:54 | 31.98 | `round7-marker` — `test_review_r219_fix8_mutations.py`: 1 passed | 270.38 |
+| 06:23:32 | 42.07 | `round7-distance` — `test_review_r219_fix8_mutations.py`: 1 passed | 475.47 |
+| 06:31:38 | 35.72 | `round7-never-lands` — `test_review_r219_fix8_mutations.py`: 1 passed | 231.81 |
+| 06:39:23 | 36.69 | `round7-larger` — `test_review_r219_fix8_mutations.py`: 3 passed | 60.87 |
+| 06:40:33 | 33.80 | `round10-quiet` — `test_review_r219_fix8_mutations.py`: 3 passed | 233.77 |
+| 06:44:32 | 38.49 | `round10-growth` — `test_review_r219_fix8_mutations.py`: 2 passed | 162.05 |
+| 06:47:22 | 39.24 | `round10-window` — `test_review_r219_fix8_mutations.py`: 1 passed | 217.12 |
+| 06:51:04 | 40.84 | `diagnostics` — `diagnostics.py`: 1 passed | 12.95 |
+| 06:51:23 | 39.49 | `quiet-forced` — `test_review_pr284_pin.py`: 1 failed (listed, forced) | 31.07 |
+
+Repeated file collection, not repeated node IDs, collected exactly ten changed
+larger-text items: each of the pending and landed cases five times. Both collection
+and passing per-node counts are checked. The independent diagnostics ran nine
+cases once; the later diagnostic hold ran only the six-output audit.
+
+| File | Total outcomes |
+| --- | --- |
+| `docs/reports/qt-larger-text-review-r2/diagnostics.py` | 10 passed |
+| `tests/fake/test_state_contract.py` | 37 passed |
+| `tests/frontend/test_review_pr284_pin.py` | 21 passed, 1 xfailed, 1 failed (listed, forced) |
+| `tests/frontend/test_review_pr284_r2.py` | 13 passed |
+| `tests/frontend/test_review_pr284_resizes.py` | 8 passed |
+| `tests/frontend/test_review_r219_fix10_view.py` | 50 passed |
+| `tests/frontend/test_review_r219_fix8_mutations.py` | 12 passed |
+| `tests/frontend/test_review_r219_fix8_view.py` | 6 passed |
+| `tests/unit/test_invariants_index.py` | 25 passed |
+| `tests/unit/test_test_module_names.py` | 1 passed |
+
+Not run: prohibited `tests/frontend/test_core_live.py` (the person-only daemon
+gate belongs to CI), fresh CI, Python 3.12 or a CI macOS image. CI is hub-owned;
+no CI status is asserted here. Largest reported child RSS: 1.329 GB.
+
+**PR-body lines to change:** none required by the scoped review. The existing
+three-attempt setup cap above remains a useful qualification for a follow-up.
+
+Darwin scratch creation was denied, so `/private/tmp/sf-r284r2` was used.
+The opening review instruction forbids commits, and shared Git metadata is
+read-only. Added tests remain uncommitted in
+`tests/frontend/test_review_pr284_r2.py`; diagnostic tests and their native source
+are in this report directory. No commit, push, fetch, merge, GitHub write, live
+store/real CLI/provider access, sub-agent or artificial host load was used.
+
+Guarded cleanup removed scratch, the review build cache, generated bytecode, and the empty diagnostic directory. All managed tool sessions finished.
+
+Evidence: `evidence.json`, `release-mutant-audit.json`, `fresh-two-comparison.json`,
+`attempt2-comparison.json`, the seven navigation JSON records, `pin-inputs.json`,
+`r2-identity-inputs.json`, per-hold logs/items/collection/start/end/process records,
+and retained native JSON under `native/`.
+
+DONE

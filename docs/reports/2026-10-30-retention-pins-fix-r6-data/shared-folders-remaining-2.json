@@ -1,0 +1,98 @@
+{
+  "label": "shared-folders-remaining-2",
+  "start": "2026-10-30T23:43:28.169370+00:00",
+  "loads": [
+    59.4599609375,
+    61.68994140625,
+    66.44482421875
+  ],
+  "seconds": 127.17875274999824,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_archive_journal_and_fence_use_the_same_folder_spelling",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 6.5645448330033105,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-alias]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 27.962965458005783,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-unrecorded]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 17.263575749995653,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-alias]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 13.853532708002604,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-unrecorded]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 19.599772290996043,
+      "properties": []
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_shared_folders.py::test_archive_journal_and_fence_use_the_same_folder_spelling",
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-alias]",
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-unrecorded]",
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-alias]",
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-unrecorded]"
+  ],
+  "all_nodes": [
+    "tests/unit/test_retention_shared_folders.py::test_archive_journal_and_fence_use_the_same_folder_spelling",
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-alias]",
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-unrecorded]",
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-alias]",
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-unrecorded]"
+  ],
+  "phases": {
+    "tests/unit/test_retention_shared_folders.py::test_archive_journal_and_fence_use_the_same_folder_spelling": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-alias]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-unrecorded]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-alias]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-unrecorded]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {},
+  "loaded": [],
+  "rss": 122372096
+}

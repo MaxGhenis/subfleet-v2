@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T19:54:24.698012+00:00",
+  "args": [
+    "-p",
+    "tests.conftest",
+    "review-r12-data/path_questions.py"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r12/tmp/path-questions",
+  "linked": false,
+  "driver_pid": 80333,
+  "lock_process_group": 80483
+}

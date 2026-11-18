@@ -1,0 +1,14 @@
+{
+  "name": "fix8-view",
+  "start": "2026-10-31T05:48:52.881552+00:00",
+  "load": [
+    30.74462890625,
+    31.3896484375,
+    30.14697265625
+  ],
+  "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+  "args": [
+    "tests/frontend/test_review_r219_fix8_view.py"
+  ],
+  "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+}

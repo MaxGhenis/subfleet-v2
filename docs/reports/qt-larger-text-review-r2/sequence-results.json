@@ -1,0 +1,64 @@
+[
+  {
+    "name": "repeat-larger",
+    "returncode": 0,
+    "extra_environment": {}
+  },
+  {
+    "name": "fix8-view",
+    "returncode": 0,
+    "extra_environment": {}
+  },
+  {
+    "name": "resizes",
+    "returncode": 0,
+    "extra_environment": {}
+  },
+  {
+    "name": "round7-marker",
+    "returncode": 0,
+    "extra_environment": {}
+  },
+  {
+    "name": "round7-distance",
+    "returncode": 0,
+    "extra_environment": {}
+  },
+  {
+    "name": "round7-never-lands",
+    "returncode": 0,
+    "extra_environment": {}
+  },
+  {
+    "name": "round7-larger",
+    "returncode": 0,
+    "extra_environment": {
+      "R219_PROBE_TEXT_SCALE": "1.728"
+    }
+  },
+  {
+    "name": "round10-quiet",
+    "returncode": 0,
+    "extra_environment": {}
+  },
+  {
+    "name": "round10-growth",
+    "returncode": 0,
+    "extra_environment": {}
+  },
+  {
+    "name": "round10-window",
+    "returncode": 0,
+    "extra_environment": {}
+  },
+  {
+    "name": "diagnostics",
+    "returncode": 0,
+    "extra_environment": {}
+  },
+  {
+    "name": "quiet-forced",
+    "returncode": 1,
+    "extra_environment": {}
+  }
+]

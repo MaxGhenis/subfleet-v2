@@ -1,0 +1,133 @@
+{
+  "hold": "c2-spelling-red",
+  "start": "2026-10-28T17:29:07.309961+00:00",
+  "load": [
+    91.38525390625,
+    87.3720703125,
+    97.84716796875
+  ],
+  "args": [
+    "tests/fake/test_retention_dependency_spelling.py",
+    "--tb=short"
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-case]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-fi]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-long-s]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-kelvin]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-case]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-fi]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-long-s]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-kelvin]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-case]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-fi]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-long-s]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-kelvin]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-case]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-fi]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-long-s]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-kelvin]"
+  ],
+  "results": [
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-case]",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "tests/fake/test_retention_dependency_spelling.py:114: in test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted\n    alias_waits(tmp_path, alias, kind, late)\ntests/fake/test_retention_dependency_spelling.py:92: in alias_waits\n    assert not _live(daemon, job), hold\nE   AssertionError: {}\nE   assert not True\nE    +  where True = _live(<subfleet.daemon.Daemon object at 0x10cdb8830>, '20261028-132941-astra')"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-fi]",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "tests/fake/test_retention_dependency_spelling.py:114: in test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted\n    alias_waits(tmp_path, alias, kind, late)\ntests/fake/test_retention_dependency_spelling.py:92: in alias_waits\n    assert not _live(daemon, job), hold\nE   AssertionError: {}\nE   assert not True\nE    +  where True = _live(<subfleet.daemon.Daemon object at 0x10cdb9e80>, '20261028-132944-astra')"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-long-s]",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "tests/fake/test_retention_dependency_spelling.py:114: in test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted\n    alias_waits(tmp_path, alias, kind, late)\ntests/fake/test_retention_dependency_spelling.py:92: in alias_waits\n    assert not _live(daemon, job), hold\nE   AssertionError: {}\nE   assert not True\nE    +  where True = _live(<subfleet.daemon.Daemon object at 0x10c7eb230>, '20261028-132950-astra')"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-kelvin]",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "tests/fake/test_retention_dependency_spelling.py:114: in test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted\n    alias_waits(tmp_path, alias, kind, late)\ntests/fake/test_retention_dependency_spelling.py:92: in alias_waits\n    assert not _live(daemon, job), hold\nE   AssertionError: {}\nE   assert not True\nE    +  where True = _live(<subfleet.daemon.Daemon object at 0x10c7eae40>, '20261028-132955-astra')"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-case]",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "tests/fake/test_retention_dependency_spelling.py:114: in test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted\n    alias_waits(tmp_path, alias, kind, late)\ntests/fake/test_retention_dependency_spelling.py:92: in alias_waits\n    assert not _live(daemon, job), hold\nE   AssertionError: {}\nE   assert not True\nE    +  where True = _live(<subfleet.daemon.Daemon object at 0x10c668ad0>, '20261028-132958-astra')"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-fi]",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "tests/fake/test_retention_dependency_spelling.py:114: in test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted\n    alias_waits(tmp_path, alias, kind, late)\ntests/fake/test_retention_dependency_spelling.py:92: in alias_waits\n    assert not _live(daemon, job), hold\nE   AssertionError: {}\nE   assert not True\nE    +  where True = _live(<subfleet.daemon.Daemon object at 0x10cdb9e80>, '20261028-133002-astra')"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-long-s]",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "tests/fake/test_retention_dependency_spelling.py:114: in test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted\n    alias_waits(tmp_path, alias, kind, late)\ntests/fake/test_retention_dependency_spelling.py:92: in alias_waits\n    assert not _live(daemon, job), hold\nE   AssertionError: {}\nE   assert not True\nE    +  where True = _live(<subfleet.daemon.Daemon object at 0x10c7ea900>, '20261028-133007-astra')"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-kelvin]",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "tests/fake/test_retention_dependency_spelling.py:114: in test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted\n    alias_waits(tmp_path, alias, kind, late)\ntests/fake/test_retention_dependency_spelling.py:92: in alias_waits\n    assert not _live(daemon, job), hold\nE   AssertionError: {}\nE   assert not True\nE    +  where True = _live(<subfleet.daemon.Daemon object at 0x10c7eb4d0>, '20261028-133011-astra')"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-case]",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "tests/fake/test_retention_dependency_spelling.py:114: in test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted\n    alias_waits(tmp_path, alias, kind, late)\ntests/fake/test_retention_dependency_spelling.py:92: in alias_waits\n    assert not _live(daemon, job), hold\nE   AssertionError: {}\nE   assert not True\nE    +  where True = _live(<subfleet.daemon.Daemon object at 0x10c6682f0>, '20261028-133017-astra')"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-fi]",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "tests/fake/test_retention_dependency_spelling.py:114: in test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted\n    alias_waits(tmp_path, alias, kind, late)\ntests/fake/test_retention_dependency_spelling.py:92: in alias_waits\n    assert not _live(daemon, job), hold\nE   AssertionError: {}\nE   assert not True\nE    +  where True = _live(<subfleet.daemon.Daemon object at 0x10c669400>, '20261028-133023-astra')"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-long-s]",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "tests/fake/test_retention_dependency_spelling.py:114: in test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted\n    alias_waits(tmp_path, alias, kind, late)\ntests/fake/test_retention_dependency_spelling.py:92: in alias_waits\n    assert not _live(daemon, job), hold\nE   AssertionError: {}\nE   assert not True\nE    +  where True = _live(<subfleet.daemon.Daemon object at 0x10c669940>, '20261028-133028-astra')"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-kelvin]",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "tests/fake/test_retention_dependency_spelling.py:114: in test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted\n    alias_waits(tmp_path, alias, kind, late)\ntests/fake/test_retention_dependency_spelling.py:92: in alias_waits\n    assert not _live(daemon, job), hold\nE   AssertionError: {}\nE   assert not True\nE    +  where True = _live(<subfleet.daemon.Daemon object at 0x10c669e80>, '20261028-133035-astra')"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-case]",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "tests/fake/test_retention_dependency_spelling.py:114: in test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted\n    alias_waits(tmp_path, alias, kind, late)\ntests/fake/test_retention_dependency_spelling.py:92: in alias_waits\n    assert not _live(daemon, job), hold\nE   AssertionError: {}\nE   assert not True\nE    +  where True = _live(<subfleet.daemon.Daemon object at 0x10c66a3c0>, '20261028-133043-astra')"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-fi]",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "tests/fake/test_retention_dependency_spelling.py:114: in test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted\n    alias_waits(tmp_path, alias, kind, late)\ntests/fake/test_retention_dependency_spelling.py:92: in alias_waits\n    assert not _live(daemon, job), hold\nE   AssertionError: {}\nE   assert not True\nE    +  where True = _live(<subfleet.daemon.Daemon object at 0x10c668ec0>, '20261028-133047-astra')"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-long-s]",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "tests/fake/test_retention_dependency_spelling.py:114: in test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted\n    alias_waits(tmp_path, alias, kind, late)\ntests/fake/test_retention_dependency_spelling.py:92: in alias_waits\n    assert not _live(daemon, job), hold\nE   AssertionError: {}\nE   assert not True\nE    +  where True = _live(<subfleet.daemon.Daemon object at 0x10c66a900>, '20261028-133050-astra')"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-kelvin]",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "tests/fake/test_retention_dependency_spelling.py:114: in test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted\n    alias_waits(tmp_path, alias, kind, late)\ntests/fake/test_retention_dependency_spelling.py:92: in alias_waits\n    assert not _live(daemon, job), hold\nE   AssertionError: {}\nE   assert not True\nE    +  where True = _live(<subfleet.daemon.Daemon object at 0x10c66ae40>, '20261028-133054-astra')"
+    }
+  ],
+  "statistics": {},
+  "exitstatus": 1,
+  "seconds": 108.33217783399596,
+  "maxrss_bytes": 127057920
+}

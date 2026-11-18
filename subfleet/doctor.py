@@ -24,6 +24,7 @@ on.
 from __future__ import annotations
 
 import os
+import json
 import sys
 import shutil
 import sqlite3
@@ -32,11 +33,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .client import Client, DaemonError, DaemonUnavailable, LOCK_NAME, SOCKET_NAME
+from .client import (Client, DaemonError, DaemonStopped, DaemonUnavailable,
+                     LOCK_NAME, SOCKET_NAME, is_stopped)
 from .offline import Offline, OfflineUnavailable, SchemaTooNew
 from .policy import DEFAULT_POLICY_PATH, PolicyError, load_policy
 from .protocol import ProtocolError
 from .provider_env import ProviderEnvironment
+from .launch_env import build_environment
+from .home_paths import checked_override
 
 PASS, FAIL, UNKNOWN = "pass", "fail", "unknown"
 #: Something to act on that is not subfleet failing: it prints a fix line and,
@@ -64,7 +68,7 @@ def _run_full(argv: list[str], timeout: float = 20.0, *,
     """(rc, all of stdout+stderr). `rc is None` means it could not be run."""
     try:
         done = subprocess.run(argv, capture_output=True, text=True, timeout=timeout,
-                              **({"env": env} if env is not None else {}))
+                              env=build_environment() if env is None else env)
     except (OSError, subprocess.SubprocessError) as exc:
         return None, f"{exc.__class__.__name__}: {exc}"
     return done.returncode, f"{done.stdout or ''}\n{done.stderr or ''}".strip()
@@ -73,7 +77,7 @@ def _run_full(argv: list[str], timeout: float = 20.0, *,
 def _run(argv: list[str], timeout: float = 20.0, *,
          env: dict[str, str] | None = None) -> tuple[int | None, str]:
     """(rc, first line) — the shape the one-line detail columns want."""
-    code, text = _run_full(argv, timeout, **({"env": env} if env is not None else {}))
+    code, text = _run_full(argv, timeout, env=build_environment() if env is None else env)
     lines = text.splitlines()
     return code, lines[0] if lines else "(no output)"
 
@@ -118,7 +122,8 @@ def check_compat_table() -> dict[str, Any]:
 
 
 def check_hook_entries(settings: Path | None = None) -> dict[str, Any]:
-    """`~/.claude/settings.json` matches what `daemon install --hooks` writes."""
+    """`~/.claude/settings.json` holds each entry `daemon install --hooks` writes,
+    once and as written, at any position among other tools' entries (C-23.25)."""
     from . import hooks
     report = hooks.installed(settings)
     path = report.get("path")
@@ -133,8 +138,11 @@ def check_hook_entries(settings: Path | None = None) -> dict[str, Any]:
         return row("hook entries in ~/.claude/settings.json", PASS,
                    f"{path}: all native v2 hook entries are present{v1_note}",
                    "`subfleet daemon install --hooks --dry-run` prints the diff")
+    drift = report.get("drift") or {}
+    events = ", ".join(f"{event} ({drift[event]})" if event in drift else event
+                       for event in report["missing_events"])
     return row("hook entries in ~/.claude/settings.json", FAIL,
-               f"{path}: {', '.join(report['missing_events'])} would change{v1_note}",
+               f"{path}: {events} would change{v1_note}",
                "`subfleet daemon install --hooks --dry-run`, then "
                "`subfleet daemon install --hooks`")
 
@@ -191,6 +199,7 @@ def check_pythonpath() -> dict[str, Any]:
     if not entries:
         return row("PYTHONPATH does not shadow subfleet", PASS, "PYTHONPATH is unset",
                    "keep it that way; the runtime is standard library only")
+    entries = [checked_override("PYTHONPATH", item) for item in entries]
     shadows = [item for item in entries
                if (Path(item).expanduser() / "subfleet" / "__init__.py").exists()]
     if not shadows:
@@ -254,8 +263,25 @@ def check_state_root(root: Path) -> dict[str, Any]:
                "C-2.2 lists everything that belongs here")
 
 
+def _quoted(stopped: DaemonStopped) -> str:
+    """A client fix in this file's convention: the command it names, in backticks.
+
+    The client writes its fixes for `fail()`, which prints them bare
+    (subfleet/cli.py); every row here backticks the command it tells the
+    operator to run. `DaemonStopped.command` is that command, and it is a
+    substring of the fix by construction (C-5.13).
+    """
+    return stopped.fix.replace(stopped.command, f"`{stopped.command}`")
+
+
+
 def check_daemon_lock(root: Path) -> dict[str, Any]:
-    """Does `daemon.lock` name a process that is actually alive (C-5.8)?"""
+    """Does `daemon.lock` name a process that is actually alive (C-5.8, C-5.13)?
+
+    Alive is not enough: a holder that is stopped answers nothing, and this row
+    passing while the fleet was frozen is what let `doctor` exit 0 through the
+    2026-09-20 incident.
+    """
     client = Client(root)
     info = client.lock_info()
     socket_present = client.socket_path.exists()
@@ -267,7 +293,7 @@ def check_daemon_lock(root: Path) -> dict[str, Any]:
         return row("daemon.lock names a live process", PASS,
                    "no lock and no socket: no daemon is running",
                    "`subfleet daemon start` when you want one")
-    alive, reason = client.lock_report()
+    pid, alive, reason, state = client.holder_report()
     if alive is False:
         return row("daemon.lock names a live process", FAIL,
                    f"pid {info.get('pid')} is gone: {reason}"
@@ -276,6 +302,10 @@ def check_daemon_lock(root: Path) -> dict[str, Any]:
                       if socket_present else ""),
                    "`subfleet daemon start` — a CLI may start one over a dead "
                    "holder, never over a live one (plan amendment 3)")
+    if alive and is_stopped(state):
+        stopped = DaemonStopped(pid, state, client.socket_path)
+        return row("daemon.lock names a live process", FAIL, str(stopped),
+                   _quoted(stopped))
     if alive is None:
         return row("daemon.lock names a live process", UNKNOWN,
                    f"pid {info.get('pid')}: {reason}",
@@ -323,15 +353,12 @@ def check_provider(binary: str, *, root: Path | None = None) -> dict[str, Any]:
     if found is None:
         return row(f"{binary} --version", FAIL, f"{binary} is not on PATH",
                    f"install {binary}; no lane of that provider can launch without it")
-    if binary == "codex":
-        policy_path = root / "policy.json" if root is not None else DEFAULT_POLICY_PATH
-        try:
-            policy = load_policy(policy_path if policy_path.exists() else DEFAULT_POLICY_PATH)
-        except PolicyError as exc:
-            return row("codex --version", FAIL, str(exc), "correct policy.json, then rerun doctor")
-        code, text = _run([found, "--version"], env=ProviderEnvironment(policy).build("codex"))
-    else:
-        code, text = _run([found, "--version"])
+    policy_path = root / "policy.json" if root is not None else DEFAULT_POLICY_PATH
+    try:
+        policy = load_policy(policy_path if policy_path.exists() else DEFAULT_POLICY_PATH)
+    except PolicyError as exc:
+        return row(f"{binary} --version", FAIL, str(exc), "correct policy.json, then rerun doctor")
+    code, text = _run([found, "--version"], env=ProviderEnvironment(policy).build(binary))
     if code is None:
         return row(f"{binary} --version", UNKNOWN, f"{found}: {text}",
                    f"run `{found} --version` by hand")
@@ -393,8 +420,8 @@ def check_guard_preflight(root: Path) -> dict[str, Any]:
     check = "codex guard preflight settings"
     try:
         deadline = guard.resolve_timeout()
-    except ValueError as exc:
-        return row(check, FAIL, str(exc), guard._CONFIG_FIX)
+    except ValueError:
+        return row(check, FAIL, f"{guard.TIMEOUT_ENV} is invalid", guard._CONFIG_FIX)
     source = "env" if os.environ.get(guard.TIMEOUT_ENV, "").strip() else "default"
     try:
         directory = guard.cache_dir(root)
@@ -448,7 +475,7 @@ def check_guard_preflight_live(root: Path) -> list[dict[str, Any]]:
         # The same `codex` the adapter resolves on PATH; a pass here writes the
         # marker the daemon reuses (same key: version, home, override, seed files).
         result = guard.preflight("codex", home=home, workdir=root, state_root=root,
-                                 env=environment.build("codex"))
+                                 env=environment.build("codex"), env_pass=environment.pass_names)
         deadline = f"{result.timeout_s:g}s" if result.timeout_s is not None else "unset"
         detail = (f"{result.kind or 'refused'} in {result.elapsed_s}s (deadline {deadline}"
                   f"{', cached' if result.cached else ''}"
@@ -491,6 +518,94 @@ def check_module(name: str) -> dict[str, Any]:
                "nothing to do while this passes")
 
 
+def check_daemon_environment(root: Path) -> dict[str, Any]:
+    """C-17.8: ask the daemon for extra names, never inspect process values."""
+    check = "daemon environment allowlist"
+    try:
+        status = Client(root, timeout=5).call("daemon.status")
+    except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
+        return row(check, UNKNOWN, "daemon environment names unavailable",
+                   "start the daemon and run `subfleet doctor` again")
+    report = status.get("environment") if isinstance(status, dict) else None
+    if not isinstance(report, dict) or not isinstance(report.get("extra_names"), list):
+        return row(check, UNKNOWN, "daemon does not report environment names (predates C-17.8)",
+                   "restart it on this release when no jobs are running")
+    names = report["extra_names"]
+    from .launch_env import valid_name
+    if any(not isinstance(name, str) for name in names):
+        return row(check, UNKNOWN, "daemon returned malformed environment names",
+                   "restart it on this release when no jobs are running")
+    if names:
+        display = [name if valid_name(name) else json.dumps(name) for name in sorted(set(names))]
+        return row(check, WARN, "outside the default allowlist: " + ", ".join(display),
+                   "review policy env.pass; restart through `subfleet daemon start` or launchd")
+    return row(check, PASS, "all daemon names are allowlisted", "nothing to do while this passes")
+
+
+def held_lane_fix(lane: dict[str, Any]) -> str:
+    """D-ENV2 (review r5, P3-2): the lanes.json edit that repairs a held lane.
+
+    C-1.3's one exception binds a variable in place only from a row for the same
+    lane id, provider and account; the variable is a placeholder for the
+    operator's own, never a value.
+    """
+    edit = {"lane_id": lane.get("lane_id"), "provider": lane.get("provider"),
+            "account_key": lane.get("account_key"), "credential_kind": "env",
+            "credential_ref": "<VARIABLE>"}
+    return (f"in lanes.json, give lane {lane.get('lane_id')} the row {json.dumps(edit)} (edit its row if it "
+            "has one, keeping the other fields), where <VARIABLE> is a daemon variable no launch inherits "
+            "that holds the lane's OAuth token; then restart the daemon when no jobs are running")
+
+
+def check_daemon_lane_credentials(root: Path) -> dict[str, Any]:
+    """C-17.8: the env-kind lanes' variables the daemon holds, on their own row.
+
+    They belong in the daemon, which hands each only to its own lane, so they
+    are listed, not warned about; names only, never values. A held lane, whose
+    variable some launch inherits (C-10.5), warns, naming the lane, its variable
+    and the lanes.json edit that repairs it (review r5, P3-2). That warning names
+    the store's lane ids and accounts, which came from lanes.json, so it is
+    scrubbed as `daemon start` scrubs its note on the same lane (C-25.7; review
+    r1 of #248, P3-2).
+    """
+    check = "daemon lane credential variables"
+    try:
+        status = Client(root, timeout=5).call("daemon.status")
+    except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
+        return row(check, UNKNOWN, "daemon environment names unavailable",
+                   "start the daemon and run `subfleet doctor` again")
+    report = status.get("environment") if isinstance(status, dict) else None
+    names = report.get("lane_credentials") if isinstance(report, dict) else None
+    if not isinstance(names, list):
+        return row(check, UNKNOWN, "daemon does not list lane credential variables (predates C-17.8's row)",
+                   "restart it on this release when no jobs are running")
+    from .launch_env import refused_reference, valid_name
+    if any(not isinstance(name, str) for name in names):
+        return row(check, UNKNOWN, "daemon returned malformed environment names",
+                   "restart it on this release when no jobs are running")
+    lanes = status.get("lanes")
+    # The scheduler's own rule for `credential-refused` (C-11.8), on the daemon's rows.
+    held = [lane for lane in (lanes if isinstance(lanes, list) else ()) if isinstance(lane, dict)
+            and lane.get("credential_kind") == "env" and refused_reference(lane.get("credential_ref"))]
+    display = [name if valid_name(name) else json.dumps(name) for name in sorted(set(names))]
+    listed = ("held by the daemon alone, each for its own lane: " + ", ".join(display) if display
+              else "the daemon holds no env-kind lane variable")
+    if held:
+        from .daemon_log import scrubbed
+        many = len(held) > 1
+        # Each lane's words are scrubbed apart, so no lane's is cut for the others' length.
+        lanes_text = ", ".join(scrubbed(f"{lane.get('lane_id')} (credential-refused={lane['credential_ref']})")
+                               for lane in held)
+        others = ("the other lanes' variables, " + listed if display
+                  else "the daemon holds no other lane's variable")
+        return row(check, WARN, f"lane{'s' * many} {lanes_text} {'are' if many else 'is'} held (C-10.5), so "
+                   f"nothing launches on {'them' if many else 'it'}; {others}",
+                   "; ".join(scrubbed(held_lane_fix(lane)) for lane in held))
+    if not names:
+        return row(check, PASS, listed, "nothing to do")
+    return row(check, PASS, listed, "nothing to do; no launch inherits them")
+
+
 def check_live(root: Path) -> dict[str, Any]:
     """`--live`: one `ping` against the daemon (C-16.2).
 
@@ -500,11 +615,13 @@ def check_live(root: Path) -> dict[str, Any]:
     reads."""
     try:
         result = Client(root, timeout=5).call("ping", {})
+    except DaemonStopped as exc:
+        return row("ping the daemon", FAIL, str(exc), _quoted(exc))
     except DaemonUnavailable as exc:
         return row("ping the daemon", FAIL, str(exc), "`subfleet daemon start`")
     except (DaemonError, ProtocolError, OSError) as exc:
         return row("ping the daemon", FAIL, f"{exc.__class__.__name__}: {exc}",
-                   "`subfleet daemon logs -n 40`")
+                   getattr(exc, "fix", None) or "`subfleet daemon logs -n 40`")
     if not result.get("pong"):
         return row("ping the daemon", FAIL, f"unexpected reply: {result}",
                    "`subfleet daemon logs -n 40`")
@@ -553,6 +670,8 @@ def check_descriptors_live(root: Path) -> dict[str, Any]:
     check = "daemon descriptors"
     try:
         status = Client(root, timeout=5).call("daemon.status")
+    except DaemonStopped as exc:
+        return row(check, FAIL, str(exc), _quoted(exc))
     except DaemonUnavailable as exc:
         return row(check, FAIL, str(exc), "`subfleet daemon start`")
     except (DaemonError, ProtocolError, OSError) as exc:
@@ -714,6 +833,8 @@ def checks(root: Path, *, live: bool = False,
         check_state_root(root),
         check_socket_path(root),
         check_daemon_lock(root),
+        check_daemon_environment(root),
+        check_daemon_lane_credentials(root),
         check_launchd_limit(),
         check_queued_pins(root),
         check_mirror(root),

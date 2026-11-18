@@ -1,0 +1,899 @@
+{
+  "name": "audit-locations",
+  "start": "2026-10-31T10:38:01.664731+00:00",
+  "load": [
+    36.78955078125,
+    37.43212890625,
+    35.8330078125
+  ],
+  "args": [
+    "tests/unit/test_retention_locations.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-target-HEAD]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.1526368750019174,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-target-HEAD]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.20279491700057406,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-target-HEAD]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006667079978797119,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[intermediate-HEAD]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.03552229100023396,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[intermediate-HEAD]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.12133724999875994,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[intermediate-HEAD]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00035112499972456135,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-pointer-HEAD]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0012295000015001278,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-pointer-HEAD]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.2971925829988322,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-pointer-HEAD]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005189999974390958,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[commondir-file-HEAD]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0026092080006492324,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[commondir-file-HEAD]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.21334837500035064,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[commondir-file-HEAD]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006679170001007151,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[alternates-file-HEAD]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.039017957999021746,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[alternates-file-HEAD]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.2770158329985861,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[alternates-file-HEAD]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006904579968249891,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[git-entry-HEAD]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0022607079990848433,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[git-entry-HEAD]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.21439816700149095,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[git-entry-HEAD]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00036433299828786403,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[objects-pack-HEAD]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0013506659997801762,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[objects-pack-HEAD]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.2668528750000405,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[objects-pack-HEAD]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005884999991394579,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0023761250013194513,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.201917833997868,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007018329997663386,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0022115409992693458,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.10511354200207279,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004829579993383959,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[missing]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0023059999984980095,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[missing]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0013594160009233747,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[missing]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00018970899691339582,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[not-directory]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.001955374998942716,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[not-directory]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.001632457999221515,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[not-directory]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0002422500001557637,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[loop]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0018922079980256967,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[loop]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.008607208998000715,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[loop]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00027512500309967436,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_walk_access_error_is_incomplete",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.001905958000861574,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_walk_access_error_is_incomplete",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.04370708299757098,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_walk_access_error_is_incomplete",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000584458997764159,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_storage_scan_failure_is_incomplete",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0024308329993800726,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_storage_scan_failure_is_incomplete",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.08489662500142003,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_storage_scan_failure_is_incomplete",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004942079976899549,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0021392910020949785,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.1640305000000808,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006047080023563467,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[plain]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.004379999998491257,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[plain]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.2916236669989303,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[plain]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004315000005590264,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.02822050000031595,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.11274991699974635,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00047666600221418776,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[shared]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0022519170015584677,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[shared]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.13604162499905215,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[shared]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.011352124998666113,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[new-workdir]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0026967090016114525,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[new-workdir]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.10856833300204016,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[new-workdir]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005995840001560282,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[none]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002880625001125736,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[none]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.07585845799985691,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[none]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00041899999996530823,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_scanned_storage_target_beside_checkout_is_still_recorded",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.00227916700168862,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_scanned_storage_target_beside_checkout_is_still_recorded",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.11076129199864226,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_scanned_storage_target_beside_checkout_is_still_recorded",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006272910031839274,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_component_walk_has_a_64_hop_bound",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0029757080010313075,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_component_walk_has_a_64_hop_bound",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.19588329099860857,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_component_walk_has_a_64_hop_bound",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007422499984386377,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-target-HEAD]",
+      "key": "location-regression",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 2, \"entry\": \"HEAD\", \"named\": false, \"position\": \"gitfile-target\", \"relative\": true}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/stable/container/admin\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/stable/container/admin/objects\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/owner/hop0\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/owner/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[intermediate-HEAD]",
+      "key": "location-regression",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 2, \"entry\": \"HEAD\", \"named\": false, \"position\": \"intermediate\", \"relative\": true}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/stable/container/admin\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/stable/container/admin/objects\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/owner/hop0\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/owner/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-pointer-HEAD]",
+      "key": "location-regression",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 2, \"entry\": \"HEAD\", \"named\": false, \"position\": \"gitfile-pointer\", \"relative\": true}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/stable/container/admin\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/stable/container/admin/objects\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/owner/pointer\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/stable/hop0\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[commondir-file-HEAD]",
+      "key": "location-regression",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 2, \"entry\": \"HEAD\", \"named\": false, \"position\": \"commondir-file\", \"relative\": true}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/container/admin\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/common\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/common/objects\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/owner/pointer\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/hop0\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[alternates-file-HEAD]",
+      "key": "location-regression",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 2, \"entry\": \"HEAD\", \"named\": false, \"position\": \"alternates-file\", \"relative\": true}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/container/admin\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/container/admin/objects\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/source/.git/objects\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/owner/pointer\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/hop0\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[git-entry-HEAD]",
+      "key": "location-regression",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 2, \"entry\": \"HEAD\", \"named\": false, \"position\": \"git-entry\", \"relative\": true}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/stable/container/admin\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/stable/container/admin/objects\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/owner/hop0\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/owner/hop1\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/stable/entry\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[objects-pack-HEAD]",
+      "key": "location-regression",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 2, \"entry\": \"HEAD\", \"named\": false, \"position\": \"objects-pack\", \"relative\": true}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/stable/container/admin\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/stable/container/admin/objects\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/owner/hop0\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/owner/hop1\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/stable/packs\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[plain]",
+      "key": "routine",
+      "value": "{\"layout\": \"plain\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository/.git\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository/.git/objects\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]",
+      "key": "routine",
+      "value": "{\"layout\": \"worktree\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/repository/.git/worktrees/linked\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/repository/.git\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/repository/.git/objects\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[shared]",
+      "key": "routine",
+      "value": "{\"layout\": \"shared\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/shared/.git\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/shared/.git/objects\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/repository/.git/objects\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[new-workdir]",
+      "key": "routine",
+      "value": "{\"layout\": \"new-workdir\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/linked/.git\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/.git/objects\", \"/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/.git\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[none]",
+      "key": "routine",
+      "value": "{\"layout\": \"none\", \"recorded\": {}}"
+    }
+  ],
+  "locked": true,
+  "spelling_audits": [
+    {
+      "input": "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/checkout",
+      "places": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/stable/container/admin",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/stable/container/admin/objects",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/owner/hop0",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/owner/hop1"
+      ],
+      "links": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/owner/hop0",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/owner/hop1"
+      ]
+    },
+    {
+      "input": "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/checkout",
+      "places": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/stable/container/admin",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/stable/container/admin/objects",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/owner/hop0",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/owner/hop1"
+      ],
+      "links": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/owner/hop0",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/owner/hop1"
+      ]
+    },
+    {
+      "input": "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/checkout",
+      "places": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/stable/container/admin",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/stable/container/admin/objects",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/owner/pointer",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/stable/hop0",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/stable/hop1"
+      ],
+      "links": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/checkout/.git",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/stable/hop0",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/stable/hop1"
+      ]
+    },
+    {
+      "input": "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/checkout",
+      "places": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/container/admin",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/common",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/common/objects",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/owner/pointer",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/hop0",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/hop1"
+      ],
+      "links": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/container/admin/commondir",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/hop0",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/hop1"
+      ]
+    },
+    {
+      "input": "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/checkout",
+      "places": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/container/admin",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/container/admin/objects",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/source/.git/objects",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/owner/pointer",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/hop0",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/hop1"
+      ],
+      "links": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/container/admin/objects/info/alternates",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/hop0",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/hop1"
+      ]
+    },
+    {
+      "input": "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/checkout",
+      "places": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/stable/container/admin",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/stable/container/admin/objects",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/owner/hop0",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/owner/hop1",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/stable/entry"
+      ],
+      "links": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/owner/hop0",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/owner/hop1",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/stable/container/admin/HEAD",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/stable/container/admin/refs/heads/main"
+      ]
+    },
+    {
+      "input": "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/checkout",
+      "places": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/stable/container/admin",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/stable/container/admin/objects",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/owner/hop0",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/owner/hop1",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/stable/packs"
+      ],
+      "links": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/owner/hop0",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/owner/hop1",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/stable/container/admin/objects/pack"
+      ]
+    },
+    {
+      "input": "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/checkout",
+      "places": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/stable/container/admin",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/stable/container/admin/objects",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/owner/hop0",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/owner/hop1"
+      ],
+      "links": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/owner/hop0",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/owner/hop1"
+      ]
+    },
+    {
+      "input": "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_kernel_walk_failure_does_0/checkout",
+      "places": [],
+      "links": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_kernel_walk_failure_does_0/checkout/.git"
+      ]
+    },
+    {
+      "input": "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_kernel_walk_failure_does_1/checkout",
+      "places": [],
+      "links": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_kernel_walk_failure_does_1/checkout/.git"
+      ]
+    },
+    {
+      "input": "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_kernel_walk_failure_does_2/checkout",
+      "places": [],
+      "links": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_kernel_walk_failure_does_2/checkout/.git"
+      ]
+    },
+    {
+      "input": "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_storage_scan_failure_is_i0/checkout",
+      "places": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_storage_scan_failure_is_i0/checkout/.git",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_storage_scan_failure_is_i0/checkout/.git/objects"
+      ],
+      "links": []
+    },
+    {
+      "input": "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/checkout",
+      "places": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/stable/container/worktrees/slot",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/stable/container",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/stable/container/objects",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/stable/container/worktrees/slot/objects",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/owner/hop0",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/owner/hop1"
+      ],
+      "links": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/owner/hop0",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/owner/hop1"
+      ]
+    },
+    {
+      "input": "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository",
+      "places": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository/.git",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository/.git/objects"
+      ],
+      "links": []
+    },
+    {
+      "input": "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository",
+      "places": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository/.git",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository/.git/objects"
+      ],
+      "links": []
+    },
+    {
+      "input": "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/linked",
+      "places": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/repository/.git/worktrees/linked",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/repository/.git",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/repository/.git/objects"
+      ],
+      "links": []
+    },
+    {
+      "input": "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/linked",
+      "places": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/repository/.git/worktrees/linked",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/repository/.git",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/repository/.git/objects"
+      ],
+      "links": []
+    },
+    {
+      "input": "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/shared",
+      "places": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/shared/.git",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/shared/.git/objects",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/repository/.git/objects"
+      ],
+      "links": []
+    },
+    {
+      "input": "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/shared",
+      "places": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/shared/.git",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/shared/.git/objects",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/repository/.git/objects"
+      ],
+      "links": []
+    },
+    {
+      "input": "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/linked",
+      "places": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/linked/.git",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/.git/objects",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/.git"
+      ],
+      "links": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/linked/.git/config",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/linked/.git/info",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/linked/.git/objects",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/linked/.git/refs"
+      ]
+    },
+    {
+      "input": "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/linked",
+      "places": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/linked/.git",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/.git/objects",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/.git"
+      ],
+      "links": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/linked/.git/config",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/linked/.git/info",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/linked/.git/objects",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/linked/.git/refs"
+      ]
+    },
+    {
+      "input": "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact4/neutral",
+      "places": [],
+      "links": []
+    },
+    {
+      "input": "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact4/neutral",
+      "places": [],
+      "links": []
+    },
+    {
+      "input": "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_scanned_storage_target_be0/checkout",
+      "places": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_scanned_storage_target_be0/checkout/.git",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_scanned_storage_target_be0/checkout/.git/objects",
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_scanned_storage_target_be0/owner"
+      ],
+      "links": [
+        "/private/tmp/sf-r272r10/real-tmp/audit-locations/pytest-of-maxghenis/pytest-0/test_scanned_storage_target_be0/checkout/.git/refs"
+      ]
+    }
+  ],
+  "collected": [
+    "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-target-HEAD]",
+    "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[intermediate-HEAD]",
+    "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-pointer-HEAD]",
+    "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[commondir-file-HEAD]",
+    "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[alternates-file-HEAD]",
+    "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[git-entry-HEAD]",
+    "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[objects-pack-HEAD]",
+    "tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it",
+    "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete",
+    "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[missing]",
+    "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[not-directory]",
+    "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[loop]",
+    "tests/unit/test_retention_locations.py::test_walk_access_error_is_incomplete",
+    "tests/unit/test_retention_locations.py::test_storage_scan_failure_is_incomplete",
+    "tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned",
+    "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[plain]",
+    "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]",
+    "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[shared]",
+    "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[new-workdir]",
+    "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[none]",
+    "tests/unit/test_retention_locations.py::test_scanned_storage_target_beside_checkout_is_still_recorded",
+    "tests/unit/test_retention_locations.py::test_component_walk_has_a_64_hop_bound"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-063315-pr272-review-r10/subfleet/dependencies.py",
+  "product_sha256": "8b39d2f38cf73c92909ae6e241311cdc2cd32ed70295ee2cd240af39f4cb9920",
+  "end": "2026-10-31T10:38:15.898269+00:00",
+  "seconds": 14.233235541996692,
+  "peak_rss_mib": 112.53125,
+  "exit": 0
+}

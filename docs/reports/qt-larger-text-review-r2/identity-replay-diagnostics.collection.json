@@ -1,0 +1,11 @@
+[
+  "docs/reports/qt-larger-text-review-r2/diagnostics.py::test_navigation_drops_a_pending_reveal_without_suspending_b",
+  "docs/reports/qt-larger-text-review-r2/diagnostics.py::test_native_two_reveal_landing_and_real_release_count",
+  "docs/reports/qt-larger-text-review-r2/diagnostics.py::test_saved_attempt2_old_and_new_helpers",
+  "docs/reports/qt-larger-text-review-r2/diagnostics.py::test_navigation_change_reveal_shrink_orders[change,reveal,shrink]",
+  "docs/reports/qt-larger-text-review-r2/diagnostics.py::test_navigation_change_reveal_shrink_orders[change,shrink,reveal]",
+  "docs/reports/qt-larger-text-review-r2/diagnostics.py::test_navigation_change_reveal_shrink_orders[reveal,change,shrink]",
+  "docs/reports/qt-larger-text-review-r2/diagnostics.py::test_navigation_change_reveal_shrink_orders[reveal,shrink,change]",
+  "docs/reports/qt-larger-text-review-r2/diagnostics.py::test_navigation_change_reveal_shrink_orders[shrink,change,reveal]",
+  "docs/reports/qt-larger-text-review-r2/diagnostics.py::test_navigation_change_reveal_shrink_orders[shrink,reveal,change]"
+]

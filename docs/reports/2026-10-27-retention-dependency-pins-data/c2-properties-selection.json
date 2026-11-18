@@ -1,0 +1,46 @@
+{
+  "hold": "c2-properties-selection",
+  "start": "2026-10-28T17:48:33.236690+00:00",
+  "load": [
+    108.85986328125,
+    97.6962890625,
+    93.99951171875
+  ],
+  "args": [
+    "tests/unit/test_retention_dependency_properties.py",
+    "-k",
+    "not submitted_dependencies",
+    "--tb=short"
+  ],
+  "collected": [
+    "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs",
+    "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference",
+    "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement"
+  ],
+  "results": [
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs",
+      "phase": "call",
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference",
+      "phase": "call",
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement",
+      "phase": "call",
+      "outcome": "passed"
+    }
+  ],
+  "statistics": {
+    "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs": "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs:\n\n  - during generate phase (149.99 seconds):\n    - Typical runtimes: ~ 377-5406 ms, of which ~ 5-211 ms in data generation\n    - 100 passing, 0 failing, and 2 invalid test cases\n\n  - Stopped because settings.max_examples=100",
+    "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference": "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference:\n\n  - during generate phase (152.21 seconds):\n    - Typical runtimes: ~ 638-3146 ms, of which ~ 4-98 ms in data generation\n    - 100 passing, 0 failing, and 2 invalid test cases\n\n  - Stopped because settings.max_examples=100",
+    "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement": "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement:\n\n  - during generate phase (398.03 seconds):\n    - Typical runtimes: ~ 1553-8618 ms, of which ~ 4-195 ms in data generation\n    - 100 passing, 0 failing, and 2 invalid test cases\n\n  - Stopped because settings.max_examples=100"
+  },
+  "exitstatus": 0,
+  "seconds": 714.6172596670003,
+  "maxrss_bytes": 124731392,
+  "child_maxrss_bytes": 7028736
+}

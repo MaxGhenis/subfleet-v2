@@ -1,0 +1,56 @@
+[
+  {
+    "label": "generated-r6f1-original",
+    "args": [
+      "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads"
+    ],
+    "env": {
+      "SF_SOURCE_ROOT": "/private/tmp/sf-r272r8/generated-r6f1"
+    }
+  },
+  {
+    "label": "generated-r6f1-focused",
+    "args": [
+      "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads"
+    ],
+    "env": {
+      "SF_SOURCE_ROOT": "/private/tmp/sf-r272r8/generated-r6f1"
+    }
+  },
+  {
+    "label": "generated-r6f2-original",
+    "args": [
+      "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads"
+    ],
+    "env": {
+      "SF_SOURCE_ROOT": "/private/tmp/sf-r272r8/generated-r6f2"
+    }
+  },
+  {
+    "label": "generated-r6f2-focused",
+    "args": [
+      "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads"
+    ],
+    "env": {
+      "SF_SOURCE_ROOT": "/private/tmp/sf-r272r8/generated-r6f2"
+    }
+  },
+  {
+    "label": "generated-r7f1-original",
+    "args": [
+      "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads"
+    ],
+    "env": {
+      "SF_SOURCE_ROOT": "/private/tmp/sf-r272r8/generated-r7f1"
+    }
+  },
+  {
+    "label": "generated-r7f1-focused",
+    "args": [
+      "tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads"
+    ],
+    "env": {
+      "SF_SOURCE_ROOT": "/private/tmp/sf-r272r8/generated-r7f1"
+    }
+  }
+]

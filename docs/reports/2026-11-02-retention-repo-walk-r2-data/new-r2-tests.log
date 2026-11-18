@@ -1,0 +1,12 @@
+...........................................256-byte packed-ref oracle: {'separator': [9, 13, 32], 'before-oid': [], 'after-refname': []}
+...........listing timeout=[]; cached=False
+.listing timeout=[]; cached=False
+...fast fallback timeout=[]
+.....census fallback timeout=[]
+.census fallback timeout=[]
+.base pruned: ['job-gone'] deferred: {} errors: []
+.base pruned: ['job-gone'] deferred: {} errors: []
+.head pruned: ['job-gone'] deferred: {} errors: []
+.head pruned: ['job-gone'] deferred: {} errors: []
+.
+69 passed in 245.28s (0:04:05)

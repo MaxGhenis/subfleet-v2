@@ -1,0 +1,1 @@
+{"start": "2026-10-31T06:36:40.199831+00:00", "loads": [35.8017578125, 35.70703125, 34.6435546875], "pid": 96932, "args": ["tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[dangling]"], "fixture_root": "/private/tmp/sf-r272r8"}

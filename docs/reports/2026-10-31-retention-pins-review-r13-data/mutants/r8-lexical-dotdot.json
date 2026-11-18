@@ -1,0 +1,36 @@
+{
+ "name": "r8-lexical-dotdot",
+ "start": "2026-10-31T22:54:24Z",
+ "load": [
+  53.1484375,
+  63.1845703125,
+  60.65625
+ ],
+ "rc": 1,
+ "killers": [
+  "tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it"
+ ],
+ "hashes": [
+  {
+   "original": "3d013f755b9b045e4104c7be192f027125d12991be2c191a3a315e4228c4f728",
+   "mutated": "d50f8bda794d2aba8cd0a21ea92b8477e21e9f87a5760448780cc57381db3a31"
+  }
+ ],
+ "failed": 1,
+ "other_failures": 0,
+ "killed": true,
+ "assertions": [
+  [
+   "assert str(paths[\"admin\"]) in recorded[\"git\"], recorded"
+  ]
+ ],
+ "fix_r12_assertions": [
+  [
+   "assert str(paths[\"admin\"]) in recorded[\"git\"], recorded"
+  ]
+ ],
+ "same_as_fix_r12": true,
+ "failures": [
+  "tests/unit/test_retention_locations.py:37: in test_dotdot_applies_after_the_link_before_it\n    assert str(paths[\"admin\"]) in recorded[\"git\"], recorded\nE   AssertionError: {'git': ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r8-lexical-dotdot/pytest-of-max...-r272r13/real/mut-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/owner/admin/objects']}\nE   assert '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/stable/container/admin' in ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r8-lexical-dotdot/pytest-of-maxghenis/p...f-r272r13/real/mut-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/owner/admin/objects']\nE    +  where '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/stable/container/admin' = str(PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/stable/container/admin'))"
+ ]
+}

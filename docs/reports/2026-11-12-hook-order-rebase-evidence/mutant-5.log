@@ -1,0 +1,31 @@
+{"command": ".venv/bin/python -m pytest -p sf_job_paths tests/unit/test_hooks_install_equality.py::test_an_entry_shared_with_another_tools_hook_differs --basetemp=/private/tmp/sf-hor-b1/mutant-5 -q", "exit": 1, "seconds": 7.21, "log": "/private/tmp/sf-hor-b1/1794463648145463000.log"}
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____________ test_an_entry_shared_with_another_tools_hook_differs _____________
+
+tmp_path = PosixPath('/private/tmp/sf-hor-b1/mutant-5/test_an_entry_shared_with_anot0')
+
+    def test_an_entry_shared_with_another_tools_hook_differs(tmp_path):
+        """C-23.25 v2's hook inside another tool's group is not v2's entry as
+        written: drift, and install splits it out without touching the other hook."""
+        data = live_shape()
+        data["hooks"]["PreToolUse"] = [
+            {"matcher": "Bash", "hooks": [
+                {"type": "command", "command": "/home/user/.claude/hooks/guard-never-rules.sh"},
+                ours("PreToolUse")["hooks"][0]]}]
+        path = write(tmp_path, data)
+        assert hooks.plan(path, command=CMD, timeout=TIMEOUT)["drift"] == {
+            "PreToolUse": "differs"}
+        hooks.apply(path, command=CMD, timeout=TIMEOUT)
+>       assert json.loads(path.read_text())["hooks"]["PreToolUse"] == [
+            ours("PreToolUse"),
+            foreign("/home/user/.claude/hooks/guard-never-rules.sh", "Bash")]
+E       AssertionError: assert [{'matcher': ...imeout': 5}]}] == [{'matcher': ...-rules.sh'}]}]
+E         
+E         At index 0 diff: {'matcher': 'Bash', 'hooks': [{'type': 'command', 'command': '/home/user/.claude/hooks/guard-never-rules.sh'}]} != {'matcher': 'Bash', 'hooks': [{'type': 'command', 'command': '/home/user/bin/subfleet hook PreToolUse', 'timeout': 5}]}
+E         Use -v to get more diff
+
+tests/unit/test_hooks_install_equality.py:224: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_hooks_install_equality.py::test_an_entry_shared_with_another_tools_hook_differs
+1 failed in 3.35s

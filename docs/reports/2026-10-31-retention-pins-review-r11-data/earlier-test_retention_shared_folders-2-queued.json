@@ -1,0 +1,27 @@
+{
+  "queued": "2026-10-31T17:25:51.273761+00:00",
+  "args": [
+    "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[READER-nested]",
+    "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[READER-tree]",
+    "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[TURN-nested]",
+    "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[TURN-tree]",
+    "tests/unit/test_retention_shared_folders.py::test_a_restart_mid_retirement_keeps_the_canonical_fence",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[-copy]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[2]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[:x]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[parent]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[lost]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[running]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[read-only]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[workspace-write]",
+    "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[READER-nested]",
+    "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[READER-tree]",
+    "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[TURN-nested]",
+    "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[TURN-tree]",
+    "tests/unit/test_retention_shared_folders.py::test_archive_journal_and_fence_use_the_same_folder_spelling"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/earlier-test_retention_shared_folders-2",
+  "linked": false,
+  "driver_pid": 87189,
+  "lock_process_group": 87509
+}

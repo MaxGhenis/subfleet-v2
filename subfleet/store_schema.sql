@@ -1,4 +1,4 @@
--- subfleet v2 store schema, version 7 (host push authorization and audit).
+-- subfleet v2 store schema, version 10 (a job's requested provider QoS).
 -- See docs/acceptance-contract.md section 3.
 -- Applied by subfleet/store.py with journal_mode=WAL, synchronous=FULL, foreign_keys=ON.
 -- Version 2 (C-3.1, additive and numbered) adds identity, label, and
@@ -92,6 +92,9 @@ CREATE TABLE IF NOT EXISTS jobs (
   worktree TEXT,
   prompt_path TEXT NOT NULL,
   out_path TEXT,
+  needs_shell INTEGER NOT NULL DEFAULT 0 CHECK (needs_shell IN (0,1)),
+  -- C-5.1, D-QOS-BOOKED1 (schema version 10): `run --qos`; NULL is `utility`, the clamp.
+  provider_qos TEXT CHECK (provider_qos IS NULL OR provider_qos IN ('utility','default')),
   sandbox TEXT NOT NULL CHECK (sandbox IN ('read-only','workspace-write')),
   exclusions TEXT NOT NULL DEFAULT '[]',
   allow_desktop INTEGER NOT NULL DEFAULT 0,
@@ -162,6 +165,9 @@ CREATE TABLE IF NOT EXISTS attempts (
   seq INTEGER NOT NULL,
   lane_id TEXT NOT NULL REFERENCES lanes(lane_id),
   model_requested TEXT NOT NULL,
+  has_shell INTEGER CHECK (has_shell IN (0,1)),
+  capability TEXT CHECK (capability IN ('none','commands','writable')),
+  publish_denied INTEGER CHECK (publish_denied IN (0,1)),
   model_served TEXT,
   attestation TEXT NOT NULL DEFAULT 'unattested' CHECK (attestation IN ('attested','mismatch','unattested')),
   state TEXT NOT NULL CHECK (state IN ('reserved','starting','running','finalizing','succeeded','failed','interrupted','lost','cancelled','quarantined')),
@@ -242,6 +248,8 @@ CREATE INDEX IF NOT EXISTS decisions_job ON decisions(job_id, evaluated_at DESC)
 --     conversation turn's rows, one per turn, since turns share a folder (C-24.5, `subfleet/folders.py`)
 --   | conversation:<id> and native:<provider>:<session id>: one turn per conversation and one writer
 --     per native session (C-26.3). A <folder> is spelled one way (`folders.canonical`, C-6.5).
+--   | task-hold:<task>: an operator's hold on a task at admission (C-11.10), holder `operator: <note>`,
+--     `expires_at` its end; no attempt or job holds one, and no reaper removes it (`subfleet/task_holds.py`).
 CREATE TABLE IF NOT EXISTS leases (
   lease_key TEXT PRIMARY KEY,
   holder TEXT NOT NULL,              -- attempt id or job id
@@ -296,6 +304,13 @@ CREATE INDEX IF NOT EXISTS events_not_json ON events(kind, event_id DESC) WHERE 
 CREATE INDEX IF NOT EXISTS events_pin_notice ON events(kind,
   (CASE WHEN json_valid(data_json) THEN json_extract(data_json,'$.service_notice_id') END), event_id DESC)
   WHERE kind='job.pin_noticed';
+-- C-8.4 (D-NOTICE-KEEP1): the same step for the outcome notice a
+-- `retention.notice_retired` event names: the service notice retention writes a
+-- session when it retires a job whose notice that session never read
+-- (`retention_notices`), so `notice.pending` names its job.
+CREATE INDEX IF NOT EXISTS events_notice_retired ON events(kind,
+  (CASE WHEN json_valid(data_json) THEN json_extract(data_json,'$.service_notice_id') END), event_id DESC)
+  WHERE kind='retention.notice_retired';
 
 -- Jobless operator messages use ping and the same notice polling/ack path.
 -- A separate table is additive: v1's notices.job_id remains a required FK.

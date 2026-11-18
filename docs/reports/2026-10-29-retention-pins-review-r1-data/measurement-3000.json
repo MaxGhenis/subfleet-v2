@@ -1,0 +1,71 @@
+{
+  "start": "2026-10-29T03:48:37.688318+00:00",
+  "load": [
+    7.93310546875,
+    8.75146484375,
+    10.73046875
+  ],
+  "jobs": 3000,
+  "live": 100,
+  "parameters": {
+    "owners": 2900,
+    "live": 100,
+    "events_per_job": 40,
+    "long_waiters": 5,
+    "long_events": 5000,
+    "legacy": 0,
+    "exports": 10
+  },
+  "python": "3.14.7",
+  "sqlite": "3.53.4",
+  "host": "Mac.lan",
+  "source_sha256": {
+    "subfleet/dependencies.py": "1cfdb7bf3c55833b8e1d254a73dc6b0baaee4194990653e8c33aa38c5858f074",
+    "subfleet/retention.py": "40923324b743565c30c001cc262ca9fc5f354cf970467af17318c759d10b53c4"
+  },
+  "events": 147801,
+  "load_at_queries": [
+    7.93310546875,
+    8.75146484375,
+    10.73046875
+  ],
+  "old_ms": 123.58137499541044,
+  "load_at_new_query": [
+    7.93310546875,
+    8.75146484375,
+    10.73046875
+  ],
+  "new_ms": 11.569249996682629,
+  "pins": 22,
+  "ratio": 0.09361645310316613,
+  "plans": {
+    "old recorded": [
+      "SCAN b",
+      "BLOOM FILTER ON a (in_place=? AND sandbox=?)",
+      "SEARCH a USING AUTOMATIC PARTIAL COVERING INDEX (in_place=? AND sandbox=?)"
+    ],
+    "old unrecorded": [
+      "SCAN b",
+      "BLOOM FILTER ON a (in_place=? AND sandbox=?)",
+      "SEARCH a USING AUTOMATIC PARTIAL COVERING INDEX (in_place=? AND sandbox=?)"
+    ],
+    "new live": [
+      "SCAN jobs",
+      "CORRELATED SCALAR SUBQUERY 1",
+      "SEARCH e USING INDEX events_job (job_id=?)"
+    ],
+    "new exports": [
+      "SCAN leases",
+      "CORRELATED SCALAR SUBQUERY 1",
+      "SEARCH e USING INDEX events_job (job_id=?)"
+    ],
+    "new owners": [
+      "SCAN jobs"
+    ]
+  },
+  "load_end": [
+    7.93310546875,
+    8.75146484375,
+    10.73046875
+  ]
+}

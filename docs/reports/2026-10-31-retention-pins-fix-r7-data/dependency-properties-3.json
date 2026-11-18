@@ -1,0 +1,46 @@
+{
+  "name": "dependency-properties-3",
+  "start": "2026-10-31T04:24:09.444367+00:00",
+  "load": [
+    25.69091796875,
+    29.98974609375,
+    32.89453125
+  ],
+  "args": [
+    "tests/unit/test_retention_dependency_properties.py",
+    "-k",
+    "submitted_dependencies_wait"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.11696345800010022,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 30.852136667000195,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005551670001295861,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted"
+  ],
+  "end": "2026-10-31T04:24:46.447491+00:00",
+  "seconds": 37.002668291999726,
+  "peak_rss_mib": 127.953125,
+  "exit": 0
+}

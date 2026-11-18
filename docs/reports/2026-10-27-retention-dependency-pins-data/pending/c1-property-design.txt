@@ -1,0 +1,10 @@
+Adapt pending sketch after coverage and spelling fix:
+- Resolve temporary root before building owned trees; create jobs/<owner>/stdout.
+- Add an untargeted free owner and assert it actually retires in every selection example.
+- Keep independent path/state evidence in Python, with NFD(casefold(NFD(normpath))) oracle and explicit path boundaries.
+- Include recorded and unrecorded owner trees, all row/submission roles, live and terminal states, case/Unicode aliases, and a linked-checkout gitfile pointing at generated storage.
+- Safety: real maintenance, protected files unchanged, every independently unpinned owner pruned (including free).
+- Differential: _pin_reasons and transactional dependents equal independent expected users for each owner, on aliased tree spellings too.
+- Monotonicity: before/after live insertion pin sets; end inserted dependent, compare reference for remaining dependencies; end last live jobs and assert actual retirement.
+- Fence: actual submit/admit with stored aliased dependency evidence, early and reservation transaction paths, absent output tail; restore moved tree, release fence, assert reservation. Unit property checks arbitrary absent paths in one query against independent reference.
+- Use --hypothesis-show-statistics and record observed counts separately from configured maxima.

@@ -1,0 +1,5 @@
+{
+  "line_16": "Review r4 requested R4-F1 and R4-F2; fix round r4 repairs their original inputs. Review r5 identifies the separate R5-F1 pointer parsing gap, repaired in fix round r5.",
+  "line_20_sentence": "Both original repairs were completed in fix round r3; fix round r4 repairs the initial object-directory omission, and fix round r5 repairs the separate R5-F1 pointer parsing gap.",
+  "line_22_sentence": "Review r3 requested R3-F1/R3-F2 repairs, completed in fix round r3."
+}

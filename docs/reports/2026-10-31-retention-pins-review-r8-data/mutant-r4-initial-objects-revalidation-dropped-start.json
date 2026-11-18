@@ -1,0 +1,1 @@
+{"start": "2026-10-31T06:33:31.747781+00:00", "loads": [37.955078125, 35.25, 34.21728515625], "pid": 22584, "args": ["tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]"], "fixture_root": "/private/tmp/sf-r272r8"}

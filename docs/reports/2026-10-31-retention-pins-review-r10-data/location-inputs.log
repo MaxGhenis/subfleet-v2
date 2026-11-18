@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 10:35:08Z slot A load 
+.                                                                        [100%]
+1 passed in 20.87s
+{"name": "location-inputs", "start": "2026-10-31T10:35:10.565945+00:00", "load": [39.71533203125, 36.78369140625, 35.25390625], "seconds": 22.259909666001477, "exit": 0}

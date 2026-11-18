@@ -1,0 +1,7 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 16:43:17Z slot B load 
+START detached_retention_fence-part3 2026-10-30T16:43:19.671157+00:00 load=(16.474609375, 19.62744140625, 22.2578125)
+.............................                                            [100%]
+29 passed, 60 deselected in 20.92s

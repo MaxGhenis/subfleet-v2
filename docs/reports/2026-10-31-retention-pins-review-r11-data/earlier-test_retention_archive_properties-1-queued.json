@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T17:08:39.193559+00:00",
+  "args": [
+    "tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_a_trusted_repository"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/earlier-test_retention_archive_properties-1",
+  "linked": false,
+  "driver_pid": 34417,
+  "lock_process_group": 34473
+}

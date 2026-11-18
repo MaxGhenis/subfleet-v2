@@ -1,0 +1,33 @@
+{
+  "label": "turn_retention_job_properties",
+  "start": "2026-10-29T21:01:09.394433+00:00",
+  "loads": [
+    62.7373046875,
+    62.8251953125,
+    55.1669921875
+  ],
+  "seconds": 43.0612122499997,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 32.67515895900033
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd"
+  ],
+  "phases": {
+    "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 120782848
+}

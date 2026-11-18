@@ -1,0 +1,9 @@
+PASS: all 343 release Changes-v3 entries and whitespace preserved exactly, with requested PR entry first
+PASS: C-23.25 equals original PR verbatim
+PASS: C-23.26 equals release verbatim
+PASS: tests/unit/test_hooks_install_equality.py byte-identical to 62103194a836
+PASS: tests/unit/test_hooks.py byte-identical to b51f08f961e1b1dcfb93347eb080f9ddd9a9260d
+PASS: tests/unit/test_doctor.py byte-identical to b51f08f961e1b1dcfb93347eb080f9ddd9a9260d
+PASS: tests/unit/test_hooks_native_guard.py byte-identical to b51f08f961e1b1dcfb93347eb080f9ddd9a9260d
+PASS: docs/invariants.json byte-identical to b51f08f961e1b1dcfb93347eb080f9ddd9a9260d
+PASS: frozen differential loop exactly equals release subfleet/hooks.py:911-918

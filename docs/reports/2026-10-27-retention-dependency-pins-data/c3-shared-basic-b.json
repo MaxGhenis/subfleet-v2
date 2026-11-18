@@ -1,0 +1,458 @@
+{
+  "start": "2026-10-28T23:12:51.136695+00:00",
+  "load": [
+    113.6669921875,
+    109.38037109375,
+    110.5126953125
+  ],
+  "pid": 97900,
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-nested]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 4.237610875003156
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 57.06121112500841
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-nested]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0007878329925006256
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.00478833400120493
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 55.88155037500837
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.001182125008199364
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-subdirectory]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.17020208400208503
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-subdirectory]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 39.87155250000069
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-subdirectory]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.00936599999840837
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-external]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.019301416992675513
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-external]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 31.48467620900192
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-external]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0006700840021949261
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-nested]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.008773207999183796
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 38.98567737500707
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-nested]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.4061667499918258
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.027130291011417285
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 28.609500791004393
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.000901249994058162
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-subdirectory]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.20321445798617788
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-subdirectory]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 17.93782179101254
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-subdirectory]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0007053750014165416
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-external]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.0021304999972926453
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-external]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 32.09850062501209
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-external]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.001279874995816499
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_names_the_fence_whatever_else_holds_it",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.00897941600123886
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_names_the_fence_whatever_else_holds_it",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 66.37885245800135
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_names_the_fence_whatever_else_holds_it",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.00045924998994451016
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[TURN]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.03186562500195578
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[TURN]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 80.42743808298837
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[TURN]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.005400708003435284
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[READER]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.0019613330077845603
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[READER]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 30.809535042004427
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[READER]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.003996957995695993
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fence_let_go_after_the_look_read_it_starts_the_turn_on_that_pass",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.0013658749958267435
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fence_let_go_after_the_look_read_it_starts_the_turn_on_that_pass",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 43.076415375006036
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fence_let_go_after_the_look_read_it_starts_the_turn_on_that_pass",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0013067910040263087
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fence_taken_after_the_look_read_none_is_the_transactions_to_hold",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.10774304199730977
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fence_taken_after_the_look_read_none_is_the_transactions_to_hold",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 34.57625604099303
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fence_taken_after_the_look_read_none_is_the_transactions_to_hold",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0016945420065894723
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_holds_no_later_turn_back_and_keeps_its_slot_as_its_transaction_did",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.2215827499894658
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_holds_no_later_turn_back_and_keeps_its_slot_as_its_transaction_did",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 51.05261016599252
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_holds_no_later_turn_back_and_keeps_its_slot_as_its_transaction_did",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.002987458006828092
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_journal_and_fence_use_the_same_folder_spelling",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 22.304911915998673
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_journal_and_fence_use_the_same_folder_spelling",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 49.70083849999355
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_archive_journal_and_fence_use_the_same_folder_spelling",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.32725629200285766
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-alias]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 20.856937709002523
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-alias]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 79.51366058300482
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-alias]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.17695616699347738
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-unrecorded]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 8.613799917002325
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-unrecorded]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 56.243078458006494
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-unrecorded]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.007785375011735596
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-alias]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 7.876875375004602
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-alias]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 67.99765079100325
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-alias]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.014642249996541068
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-unrecorded]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 6.970033874997171
+    }
+  ],
+  "hypothesis_profile": "normal",
+  "all_collected": [
+    "tests/unit/test_retention_shared_folders.py::test_live_turn_folder_protects_job_through_full_pass[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_live_turn_folder_protects_job_through_full_pass[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[TURN-tree]",
+    "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[TURN-nested]",
+    "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[READER-tree]",
+    "tests/unit/test_retention_shared_folders.py::test_turn_between_selection_and_transaction_stops_retirement[READER-nested]",
+    "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[TURN-tree]",
+    "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[TURN-nested]",
+    "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[READER-tree]",
+    "tests/unit/test_retention_shared_folders.py::test_archive_commit_rechecks_turn_rows_and_rolls_back[READER-nested]",
+    "tests/unit/test_retention_shared_folders.py::test_retirement_fence_blocks_actual_turn_reservation[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_retirement_fence_blocks_actual_turn_reservation[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_the_fence_holds_a_turn_in_a_repository_nested_in_the_tree[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_the_fence_holds_a_turn_in_a_repository_nested_in_the_tree[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_a_detached_writer_above_a_nested_repository_holds_none_of_its_turns[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_a_detached_writer_above_a_nested_repository_holds_none_of_its_turns[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[TURN-nested]",
+    "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[TURN-tree]",
+    "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[READER-nested]",
+    "tests/unit/test_retention_shared_folders.py::test_a_nested_turn_waits_out_a_retirement_and_starts_once_the_fence_goes[READER-tree]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-nested]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-tree]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-subdirectory]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-external]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-nested]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-tree]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-subdirectory]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-external]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_names_the_fence_whatever_else_holds_it",
+    "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_fence_hold_against_a_model_of_the_fence",
+    "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine",
+    "tests/unit/test_retention_shared_folders.py::test_a_fence_let_go_after_the_look_read_it_starts_the_turn_on_that_pass",
+    "tests/unit/test_retention_shared_folders.py::test_a_fence_taken_after_the_look_read_none_is_the_transactions_to_hold",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_holds_no_later_turn_back_and_keeps_its_slot_as_its_transaction_did",
+    "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn",
+    "tests/unit/test_retention_shared_folders.py::test_archive_journal_and_fence_use_the_same_folder_spelling",
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-alias]",
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-unrecorded]",
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-alias]",
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-unrecorded]",
+    "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[tree]",
+    "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[nested]",
+    "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_a_restart_mid_retirement_keeps_the_canonical_fence",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[running]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[lost]",
+    "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[2]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[-copy]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[:x]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[parent]",
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-folder]",
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-inside]",
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-folder]",
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-inside]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[read-only]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[workspace-write]",
+    "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in"
+  ],
+  "collected": [
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-nested]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-tree]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-subdirectory]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[TURN-external]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-nested]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-tree]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-subdirectory]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-external]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_names_the_fence_whatever_else_holds_it",
+    "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fence_let_go_after_the_look_read_it_starts_the_turn_on_that_pass",
+    "tests/unit/test_retention_shared_folders.py::test_a_fence_taken_after_the_look_read_none_is_the_transactions_to_hold",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_holds_no_later_turn_back_and_keeps_its_slot_as_its_transaction_did",
+    "tests/unit/test_retention_shared_folders.py::test_archive_journal_and_fence_use_the_same_folder_spelling",
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-alias]",
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[TURN-unrecorded]",
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-alias]",
+    "tests/unit/test_retention_shared_folders.py::test_the_commit_recheck_reads_rows_on_the_journals_spelling[READER-unrecorded]",
+    "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[tree]",
+    "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[nested]",
+    "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_a_differently_spelt_recording_is_kept_by_the_selection_check[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_a_restart_mid_retirement_keeps_the_canonical_fence",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[running]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[lost]",
+    "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[2]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[-copy]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[:x]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[parent]",
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-folder]",
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-inside]",
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-folder]",
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-inside]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[read-only]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[workspace-write]",
+    "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in"
+  ],
+  "capped": true,
+  "cap_seconds": 1140,
+  "lock": "locked",
+  "command": [
+    "tests/unit/test_retention_shared_folders.py",
+    "-k",
+    "(not interleavings and not model and not equal_reservation) and not (live_turn_folder or turn_between_selection or archive_commit_rechecks or retirement_fence_blocks or fence_holds_a_turn_in_a_repository or detached_writer_above or nested_turn_waits_out)"
+  ],
+  "admission_utc": "2026-10-28T23:12:14.710902+00:00",
+  "wall_seconds": 2644.091,
+  "queue_seconds": 1503.362
+}

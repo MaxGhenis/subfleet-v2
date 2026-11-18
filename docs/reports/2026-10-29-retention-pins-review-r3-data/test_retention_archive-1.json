@@ -1,0 +1,53 @@
+{
+  "name": "test_retention_archive-1",
+  "start": "2026-10-29T14:25:04.225689+00:00",
+  "load": [
+    60.0947265625,
+    52.2724609375,
+    39.056640625
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_bundle_alone_restores_the_commits_in_a_fresh_clone": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_scratch_source_clone_deleted_after_retirement_is_still_restorable": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_clone_of_a_local_repository_carries_its_whole_history": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_temporary_directory_source_is_scratch_by_default": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_blob_only_in_a_local_branch_is_archived_not_omitted": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/unit/test_retention_archive.py::test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit",
+    "tests/unit/test_retention_archive.py::test_bundle_alone_restores_the_commits_in_a_fresh_clone",
+    "tests/unit/test_retention_archive.py::test_scratch_source_clone_deleted_after_retirement_is_still_restorable",
+    "tests/unit/test_retention_archive.py::test_clone_of_a_local_repository_carries_its_whole_history",
+    "tests/unit/test_retention_archive.py::test_temporary_directory_source_is_scratch_by_default",
+    "tests/unit/test_retention_archive.py::test_blob_only_in_a_local_branch_is_archived_not_omitted"
+  ],
+  "loaded": [],
+  "rc": 1,
+  "seconds": 50.8154463749961,
+  "rss": 125370368
+}

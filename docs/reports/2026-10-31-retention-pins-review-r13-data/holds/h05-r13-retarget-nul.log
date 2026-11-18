@@ -1,0 +1,15 @@
+queued 2026-10-31T21:47:57Z load { 89.67 87.11 86.68 } TMPDIR=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/link/hold-h05-r13-retarget-nul
+hold 21:47:58Z slot A load { 89.67 87.11 86.68 }
+...                                                                      [100%]
+=============================== warnings summary ===============================
+tests/unit/test_retention_location_review_r13.py::test_gitfile_retargeted_into_cycle_between_read_and_filter[link]
+tests/unit/test_retention_location_review_r13.py::test_gitfile_retargeted_into_cycle_between_read_and_filter[resolved-target]
+  tests/unit/test_retention_location_review_r13.py:133: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @pytest.mark.parametrize("variant", ["link", "resolved-target"])
+
+tests/unit/test_retention_location_review_r13.py::test_embedded_nul_alternates_line
+  tests/unit/test_retention_location_review_r13.py:175: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    def test_embedded_nul_alternates_line(tmp_path, record_property):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+3 passed, 3 deselected, 3 warnings in 46.93s

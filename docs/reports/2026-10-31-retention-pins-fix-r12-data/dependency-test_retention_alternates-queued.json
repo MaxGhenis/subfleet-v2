@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T20:40:43.305546+00:00",
+  "args": [
+    "tests/unit/test_retention_alternates.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r12/real-tmp/dependency-test_retention_alternates",
+  "linked": false,
+  "driver_pid": 70950,
+  "lock_process_group": 70991
+}

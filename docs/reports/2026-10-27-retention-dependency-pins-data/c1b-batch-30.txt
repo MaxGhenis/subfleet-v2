@@ -1,0 +1,9 @@
+tests/fake/test_admission_stateful.py::test_r4_simulated_finish_preserves_provider_outcome[limited-limited-claude-sonnet]
+tests/fake/test_admission_stateful.py::test_r4_simulated_finish_preserves_provider_outcome[limited-limited-codex-astra]
+tests/fake/test_admission_stateful.py::test_r4_simulated_finish_preserves_provider_outcome[model-capacity-transient-claude-sonnet]
+tests/fake/test_admission_stateful.py::test_r4_simulated_finish_preserves_provider_outcome[model-capacity-transient-codex-astra]
+tests/fake/test_admission_stateful.py::test_r4_simulated_finish_preserves_provider_outcome[ok-ok-claude-sonnet]
+tests/fake/test_admission_stateful.py::test_r4_simulated_finish_preserves_provider_outcome[ok-ok-codex-astra]
+tests/fake/test_admission_stateful.py::test_r4_simulated_finish_preserves_provider_outcome[transient-transient-claude-sonnet]
+tests/fake/test_admission_stateful.py::test_r4_simulated_finish_preserves_provider_outcome[transient-transient-codex-astra]
+tests/fake/test_admission_stateful.py::test_r4_three_standard_reviews_drain_after_probe_os_error

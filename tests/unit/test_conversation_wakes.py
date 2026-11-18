@@ -1,5 +1,7 @@
 """C-24.10: durable wakes and races against personal input and ownership."""
 import json
+import os
+import subprocess
 import time
 import uuid
 from datetime import UTC, datetime
@@ -39,6 +41,33 @@ def finish(svc, cid, ids=("run-one",)):
 def settle_all(svc, cid):
     for m in rows(svc, cid):
         svc.store.set_state(m["message_id"], "complete")
+
+
+def test_pr_poll_worker_receives_owning_policy_and_resets(svc, monkeypatch):
+    from subfleet.launch_env import build_environment, helper_policy
+    baseline = {"PATH": "/usr/bin:/bin", "HOME": str(svc.root / "user-home")}
+    monkeypatch.setattr(os, "environ", {**baseline, "GH_TOKEN": "dummy", "OTHER_TOKEN": "dummy"})
+    svc.daemon.policy["env"] = {"pass": ["GH_TOKEN"]}
+    svc.wakes.now = lambda: 1000
+    cid = bound(svc)
+    register(svc, cid, prs=["o/r#1"])
+    # Start the pool outside any scope, including on Python builds that inherit
+    # thread contexts. Its task must establish the policy itself.
+    assert svc.wakes.poller.submit(build_environment).result(timeout=30) == baseline
+    seen = []
+    def run(argv, **kwargs):
+        assert argv[:3] == ["gh", "api", "graphql"]
+        seen.append(kwargs["env"])
+        return subprocess.CompletedProcess(argv, 0, json.dumps({
+            "data": {"p0": {"pullRequest": {"state": "OPEN"}}}}), "")
+    monkeypatch.setattr(wakes.subprocess, "run", run)
+    with helper_policy({"env": {"pass": ["OTHER_TOKEN"]}}):
+        svc.wakes.control_tick()
+        assert svc.wakes._poll_future is not None
+        svc.wakes._poll_future.result(timeout=30)
+        assert build_environment() == {**baseline, "OTHER_TOKEN": "dummy"}
+    assert seen == [{**baseline, "GH_TOKEN": "dummy"}]
+    assert svc.wakes.poller.submit(build_environment).result(timeout=30) == baseline
 
 
 def test_completion_batches_once_and_restarts(svc):
@@ -286,3 +315,70 @@ def test_moot_block_differential_against_dispatch_live_writer_check(svc, monkeyp
         assert json.loads(event[0]["data_json"])["reason"] == "continued-elsewhere"
     if delta > 0:
         holder.assert_called_with(c["native_session_id"])
+
+
+@pytest.mark.parametrize("line, said", [
+    ("WAKE-ME: runs=token=SECRET7wakerun9", "run target 1 of 1 is not this conversation's"),
+    ("WAKE-ME: unknown=token=SECRET7wakefield9", "invalid WAKE-ME field"),
+    ("WAKE-ME: note='token=SECRET7wakequote9 runs=x", "ValueError"),
+    ("WAKE-ME: at=token=SECRET7wakeat9", "at needs an ISO timestamp with a timezone, at least 5 minutes away"),
+])
+def test_a_refused_wake_request_s_timeline_detail_holds_our_words_only(svc, line, said):
+    """C-25.7 (the sweep after review r1 of #233): the `wake-refused` event a client
+    shows named the exception's own words, `run <what the agent wrote> is not this
+    conversation's` among them. It holds the wake module's fixed words, or the
+    exception's class."""
+    cid = bound(svc)
+    mid = submit(svc, cid)
+    svc.wakes.from_final(cid, mid, line)
+    events = [json.loads(r["data_json"]) for r in svc.store.query(
+        "SELECT data_json FROM events WHERE message_id=?", (mid,))]
+    details = [e["detail"] for e in events if e.get("phase") == "wake-refused"]
+    assert details == [f"Wake request refused: {said}"]
+    assert "SECRET7" not in json.dumps(events)
+
+
+def test_a_refused_run_target_is_named_by_its_position_never_its_id(svc):
+    """Review r2 of #233: with up to 16 run targets, `subfleet wake` could no longer say
+    which run was refused once the refusal stopped naming the id the agent wrote. It
+    names the target by its position, never its id."""
+    cid = bound(svc)
+    finish(svc, cid, ("run-one", "run-two"))
+    mid = submit(svc, cid)
+    svc.wakes.from_final(cid, mid, "WAKE-ME: runs=run-one,run-two,token=SECRET7wakepos9")
+    events = [json.loads(r["data_json"]) for r in svc.store.query(
+        "SELECT data_json FROM events WHERE message_id=?", (mid,))]
+    details = [e["detail"] for e in events if e.get("phase") == "wake-refused"]
+    assert details == ["Wake request refused: run target 3 of 3 is not this conversation's"]
+    assert "SECRET7" not in json.dumps(events)
+
+
+#: The values a timeline refusal may be built from: a run target's position and the
+#: count, which `register` takes from `enumerate` and `len` (asserted below).
+POSITIONS = {"position", "count"}
+
+
+def test_every_wake_refusal_the_timeline_may_show_is_fixed_words():
+    """The rule's structure: each `bad-wake` or `wake-id-conflict` refusal the wake
+    module raises carries a literal message, never one built from a value, save a run
+    target's position and the count, both numbers the module computes."""
+    import ast
+    import inspect
+    tree = ast.parse(inspect.getsource(wakes))
+    found = 0
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "ConversationError"
+                and isinstance(node.args[0], ast.Constant) and node.args[0].value in wakes.TIMELINE_REFUSALS):
+            found += 1
+            message = node.args[1]
+            assert isinstance(message, ast.Constant) or (isinstance(message, ast.JoinedStr) and all(
+                isinstance(part, ast.Constant) or (isinstance(part, ast.FormattedValue)
+                                                   and isinstance(part.value, ast.Name) and part.value.id in POSITIONS)
+                for part in message.values)), ast.unparse(node)
+    assert found >= 9
+    register = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "register")
+    bindings = sorted(ast.unparse(node).splitlines()[0] for node in ast.walk(register)
+                      if isinstance(node, (ast.For, ast.Assign)) and POSITIONS & {
+                          name.id for target in ([node.target] if isinstance(node, ast.For) else node.targets)
+                          for name in ast.walk(target) if isinstance(name, ast.Name)})
+    assert bindings == ["count = len(targets)", "for position, job_id in enumerate(targets, 1):"], bindings

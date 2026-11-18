@@ -1,0 +1,447 @@
+[
+ {
+  "row": "01",
+  "cwd": "<wt>",
+  "command": "find <home>/.subfleet/worktrees -name AGENTS.md",
+  "hub_parser": "block",
+  "hub_codex_today": "block",
+  "zsh": {
+   "before": "block: <home>/.subfleet/worktrees",
+   "after": "block: <home>/.subfleet/worktrees",
+   "no_interpreter": "block: <home>/.subfleet/worktrees",
+   "parser": [
+    "find",
+    "<home>/.subfleet/worktrees",
+    "<home>/.subfleet/worktrees"
+   ],
+   "fallback_is_before": true
+  },
+  "bash": {
+   "before": "block: <home>/.subfleet/worktrees",
+   "after": "block: <home>/.subfleet/worktrees",
+   "no_interpreter": "block: <home>/.subfleet/worktrees",
+   "parser": [
+    "find",
+    "<home>/.subfleet/worktrees",
+    "<home>/.subfleet/worktrees"
+   ],
+   "fallback_is_before": true
+  }
+ },
+ {
+  "row": "02",
+  "cwd": "<wt>",
+  "command": "find <wt>/.. -name AGENTS.md",
+  "hub_parser": "block",
+  "hub_codex_today": "block",
+  "zsh": {
+   "before": "block: <wt>/..",
+   "after": "block: <wt>/..",
+   "no_interpreter": "block: <wt>/..",
+   "parser": [
+    "find",
+    "<wt>/..",
+    "<home>/.subfleet/worktrees"
+   ],
+   "fallback_is_before": true
+  },
+  "bash": {
+   "before": "block: <wt>/..",
+   "after": "block: <wt>/..",
+   "no_interpreter": "block: <wt>/..",
+   "parser": [
+    "find",
+    "<wt>/..",
+    "<home>/.subfleet/worktrees"
+   ],
+   "fallback_is_before": true
+  }
+ },
+ {
+  "row": "03",
+  "cwd": "<wt>",
+  "command": "find .. -name AGENTS.md",
+  "hub_parser": "block",
+  "hub_codex_today": "pass",
+  "zsh": {
+   "before": "pass",
+   "after": "block: .. (<home>/.subfleet/worktrees)",
+   "no_interpreter": "pass",
+   "parser": [
+    "find",
+    "..",
+    "<home>/.subfleet/worktrees"
+   ],
+   "fallback_is_before": true
+  },
+  "bash": {
+   "before": "pass",
+   "after": "block: .. (<home>/.subfleet/worktrees)",
+   "no_interpreter": "pass",
+   "parser": [
+    "find",
+    "..",
+    "<home>/.subfleet/worktrees"
+   ],
+   "fallback_is_before": true
+  }
+ },
+ {
+  "row": "04",
+  "cwd": "<wt>",
+  "command": "cd .. && find . -name AGENTS.md",
+  "hub_parser": "block",
+  "hub_codex_today": "pass",
+  "zsh": {
+   "before": "pass",
+   "after": "block: . (<home>/.subfleet/worktrees)",
+   "no_interpreter": "pass",
+   "parser": [
+    "find",
+    ".",
+    "<home>/.subfleet/worktrees"
+   ],
+   "fallback_is_before": true
+  },
+  "bash": {
+   "before": "pass",
+   "after": "block: . (<home>/.subfleet/worktrees)",
+   "no_interpreter": "pass",
+   "parser": [
+    "find",
+    ".",
+    "<home>/.subfleet/worktrees"
+   ],
+   "fallback_is_before": true
+  }
+ },
+ {
+  "row": "05",
+  "cwd": "<wt>",
+  "command": "rg --files -g AGENTS.md ..",
+  "hub_parser": "block",
+  "hub_codex_today": "pass",
+  "zsh": {
+   "before": "pass",
+   "after": "block: .. (<home>/.subfleet/worktrees)",
+   "no_interpreter": "pass",
+   "parser": [
+    "rg",
+    "..",
+    "<home>/.subfleet/worktrees"
+   ],
+   "fallback_is_before": true
+  },
+  "bash": {
+   "before": "pass",
+   "after": "block: .. (<home>/.subfleet/worktrees)",
+   "no_interpreter": "pass",
+   "parser": [
+    "rg",
+    "..",
+    "<home>/.subfleet/worktrees"
+   ],
+   "fallback_is_before": true
+  }
+ },
+ {
+  "row": "06",
+  "cwd": "<wt>",
+  "command": "grep -rl AGENTS ..",
+  "hub_parser": "block",
+  "hub_codex_today": "pass",
+  "zsh": {
+   "before": "pass",
+   "after": "block: .. (<home>/.subfleet/worktrees)",
+   "no_interpreter": "pass",
+   "parser": [
+    "grep",
+    "..",
+    "<home>/.subfleet/worktrees"
+   ],
+   "fallback_is_before": true
+  },
+  "bash": {
+   "before": "pass",
+   "after": "block: .. (<home>/.subfleet/worktrees)",
+   "no_interpreter": "pass",
+   "parser": [
+    "grep",
+    "..",
+    "<home>/.subfleet/worktrees"
+   ],
+   "fallback_is_before": true
+  }
+ },
+ {
+  "row": "07",
+  "cwd": "<wt>",
+  "command": "find ../.. -name x",
+  "hub_parser": "block",
+  "hub_codex_today": "pass",
+  "zsh": {
+   "before": "pass",
+   "after": "block: ../.. (<home>/.subfleet)",
+   "no_interpreter": "pass",
+   "parser": [
+    "find",
+    "../..",
+    "<home>/.subfleet"
+   ],
+   "fallback_is_before": true
+  },
+  "bash": {
+   "before": "pass",
+   "after": "block: ../.. (<home>/.subfleet)",
+   "no_interpreter": "pass",
+   "parser": [
+    "find",
+    "../..",
+    "<home>/.subfleet"
+   ],
+   "fallback_is_before": true
+  }
+ },
+ {
+  "row": "08",
+  "cwd": "<wt>",
+  "command": "find ../../.. -name x",
+  "hub_parser": "block",
+  "hub_codex_today": "pass",
+  "zsh": {
+   "before": "pass",
+   "after": "block: ../../.. (<home>)",
+   "no_interpreter": "pass",
+   "parser": [
+    "find",
+    "../../..",
+    "<home>"
+   ],
+   "fallback_is_before": true
+  },
+  "bash": {
+   "before": "pass",
+   "after": "block: ../../.. (<home>)",
+   "no_interpreter": "pass",
+   "parser": [
+    "find",
+    "../../..",
+    "<home>"
+   ],
+   "fallback_is_before": true
+  }
+ },
+ {
+  "row": "09",
+  "cwd": "<wt>",
+  "command": "find . -name AGENTS.md",
+  "hub_parser": "pass",
+  "hub_codex_today": "pass",
+  "zsh": {
+   "before": "pass",
+   "after": "pass",
+   "no_interpreter": "pass",
+   "parser": [],
+   "fallback_is_before": true
+  },
+  "bash": {
+   "before": "pass",
+   "after": "pass",
+   "no_interpreter": "pass",
+   "parser": [],
+   "fallback_is_before": true
+  }
+ },
+ {
+  "row": "10",
+  "cwd": "<wt>",
+  "command": "rg -n foo subfleet",
+  "hub_parser": "pass",
+  "hub_codex_today": "pass",
+  "zsh": {
+   "before": "pass",
+   "after": "pass",
+   "no_interpreter": "pass",
+   "parser": [],
+   "fallback_is_before": true
+  },
+  "bash": {
+   "before": "pass",
+   "after": "pass",
+   "no_interpreter": "pass",
+   "parser": [],
+   "fallback_is_before": true
+  }
+ },
+ {
+  "row": "11",
+  "cwd": "<wt>",
+  "command": "grep -rn foo .",
+  "hub_parser": "pass",
+  "hub_codex_today": "pass",
+  "zsh": {
+   "before": "pass",
+   "after": "pass",
+   "no_interpreter": "pass",
+   "parser": [],
+   "fallback_is_before": true
+  },
+  "bash": {
+   "before": "pass",
+   "after": "pass",
+   "no_interpreter": "pass",
+   "parser": [],
+   "fallback_is_before": true
+  }
+ },
+ {
+  "row": "12",
+  "cwd": "<wt>",
+  "command": "cd subfleet && find .. -name x",
+  "hub_parser": "pass",
+  "hub_codex_today": "pass",
+  "zsh": {
+   "before": "pass",
+   "after": "pass",
+   "no_interpreter": "pass",
+   "parser": [],
+   "fallback_is_before": true
+  },
+  "bash": {
+   "before": "pass",
+   "after": "pass",
+   "no_interpreter": "pass",
+   "parser": [],
+   "fallback_is_before": true
+  }
+ },
+ {
+  "row": "13",
+  "cwd": "<wt>/subfleet",
+  "command": "find .. -name x",
+  "hub_parser": "pass",
+  "hub_codex_today": "pass",
+  "zsh": {
+   "before": "pass",
+   "after": "pass",
+   "no_interpreter": "pass",
+   "parser": [],
+   "fallback_is_before": true
+  },
+  "bash": {
+   "before": "pass",
+   "after": "pass",
+   "no_interpreter": "pass",
+   "parser": [],
+   "fallback_is_before": true
+  }
+ },
+ {
+  "row": "14",
+  "cwd": "<wt>/subfleet",
+  "command": "find ../.. -name x",
+  "hub_parser": "block",
+  "hub_codex_today": "pass",
+  "zsh": {
+   "before": "pass",
+   "after": "block: ../.. (<home>/.subfleet/worktrees)",
+   "no_interpreter": "pass",
+   "parser": [
+    "find",
+    "../..",
+    "<home>/.subfleet/worktrees"
+   ],
+   "fallback_is_before": true
+  },
+  "bash": {
+   "before": "pass",
+   "after": "block: ../.. (<home>/.subfleet/worktrees)",
+   "no_interpreter": "pass",
+   "parser": [
+    "find",
+    "../..",
+    "<home>/.subfleet/worktrees"
+   ],
+   "fallback_is_before": true
+  }
+ },
+ {
+  "row": "15",
+  "cwd": "<wt>",
+  "command": "find .. -maxdepth 1 -name x",
+  "hub_parser": "pass",
+  "hub_codex_today": "pass",
+  "zsh": {
+   "before": "pass",
+   "after": "pass",
+   "no_interpreter": "pass",
+   "parser": [],
+   "fallback_is_before": true
+  },
+  "bash": {
+   "before": "pass",
+   "after": "pass",
+   "no_interpreter": "pass",
+   "parser": [],
+   "fallback_is_before": true
+  }
+ },
+ {
+  "row": "16",
+  "cwd": "<wt>",
+  "command": "rg --files ../..",
+  "hub_parser": "block",
+  "hub_codex_today": "pass",
+  "zsh": {
+   "before": "pass",
+   "after": "block: ../.. (<home>/.subfleet)",
+   "no_interpreter": "pass",
+   "parser": [
+    "rg",
+    "../..",
+    "<home>/.subfleet"
+   ],
+   "fallback_is_before": true
+  },
+  "bash": {
+   "before": "pass",
+   "after": "block: ../.. (<home>/.subfleet)",
+   "no_interpreter": "pass",
+   "parser": [
+    "rg",
+    "../..",
+    "<home>/.subfleet"
+   ],
+   "fallback_is_before": true
+  }
+ },
+ {
+  "row": "17",
+  "cwd": "<wt>",
+  "command": "cd .. && rg --files",
+  "hub_parser": "block",
+  "hub_codex_today": "pass",
+  "zsh": {
+   "before": "pass",
+   "after": "block: . (implicit) (<home>/.subfleet/worktrees)",
+   "no_interpreter": "pass",
+   "parser": [
+    "rg",
+    ". (implicit)",
+    "<home>/.subfleet/worktrees"
+   ],
+   "fallback_is_before": true
+  },
+  "bash": {
+   "before": "pass",
+   "after": "block: . (implicit) (<home>/.subfleet/worktrees)",
+   "no_interpreter": "pass",
+   "parser": [
+    "rg",
+    ". (implicit)",
+    "<home>/.subfleet/worktrees"
+   ],
+   "fallback_is_before": true
+  }
+ }
+]

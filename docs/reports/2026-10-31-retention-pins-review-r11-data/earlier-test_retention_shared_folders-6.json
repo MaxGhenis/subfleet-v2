@@ -1,0 +1,51 @@
+{
+  "name": "earlier-test_retention_shared_folders-6",
+  "start": "2026-10-31T17:32:12.112482+00:00",
+  "load": [
+    53.82080078125,
+    53.0693359375,
+    51.4150390625
+  ],
+  "pytest_pid": 67008,
+  "failure_root": "/private/tmp/sf-r272r11/failed-keep",
+  "args": [
+    "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[tree]"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.5609635419968981,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.47500166700046975,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.03776300000026822,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_shared_folders.py::test_turn_pin_recheck_does_no_filesystem_work_in_transaction[tree]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/subfleet/dependencies.py",
+  "product_sha256": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+  "end": "2026-10-31T17:32:55.874937+00:00",
+  "seconds": 43.76250220799557,
+  "peak_rss_mib": 116.34375,
+  "exit": 0
+}

@@ -1,0 +1,29 @@
+{
+  "queued": "2026-10-31T16:38:20.099811+00:00",
+  "args": [
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_changes_through_each_entry[parent-absent-exporting-commondir]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_changes_through_each_entry[parent-absent-exporting-directory]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_changes_through_each_entry[parent-absent-exporting-gitfile]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_changes_through_each_entry[parent-absent-exporting-linked]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_changes_through_each_entry[parent-absent-live-commondir]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_changes_through_each_entry[parent-absent-live-directory]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_changes_through_each_entry[parent-absent-live-gitfile]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_changes_through_each_entry[parent-absent-live-linked]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_changes_through_each_entry[parent-hardlink-exporting-commondir]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_changes_through_each_entry[parent-hardlink-exporting-directory]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_changes_through_each_entry[parent-hardlink-exporting-gitfile]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_changes_through_each_entry[parent-hardlink-exporting-linked]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_changes_through_each_entry[parent-hardlink-live-commondir]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_changes_through_each_entry[parent-hardlink-live-directory]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_changes_through_each_entry[parent-hardlink-live-gitfile]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_changes_through_each_entry[parent-hardlink-live-linked]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_changes_through_each_entry[remove-exporting-commondir]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_changes_through_each_entry[remove-exporting-directory]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_changes_through_each_entry[remove-exporting-gitfile]",
+    "tests/fake/test_retention_dependency_review_r5.py::test_initial_objects_changes_through_each_entry[remove-exporting-linked]"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/earlier-test_retention_dependency_review_r5-1",
+  "linked": false,
+  "driver_pid": 82064,
+  "lock_process_group": 82100
+}

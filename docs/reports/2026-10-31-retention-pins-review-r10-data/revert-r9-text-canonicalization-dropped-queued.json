@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T10:44:44.111029+00:00",
+  "args": [
+    "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r10/link-tmp/revert-r9-text-canonicalization-dropped",
+  "linked": true,
+  "driver_pid": 5824,
+  "lock_process_group": 5926
+}

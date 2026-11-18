@@ -1,0 +1,7 @@
+{
+  "passing_control": "trial-r6-healthy",
+  "control_source_sha256": "1e6ce90ccb607272437560e86bffbbaf4aa68540d1d201f35a6a8cdacc73da1c",
+  "mutant_baseline_sha256": "1e6ce90ccb607272437560e86bffbbaf4aa68540d1d201f35a6a8cdacc73da1c",
+  "exact_match": true,
+  "all_16_control_cases_pass": true
+}

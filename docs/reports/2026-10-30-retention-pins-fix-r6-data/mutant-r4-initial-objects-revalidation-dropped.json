@@ -1,0 +1,45 @@
+{
+  "label": "mutant-r4-initial-objects-revalidation-dropped",
+  "start": "2026-10-30T22:23:35.142118+00:00",
+  "loads": [
+    27.94189453125,
+    27.4482421875,
+    22.73193359375
+  ],
+  "seconds": 25.876966041993,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 5.967830042005517,
+      "properties": []
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]"
+  ],
+  "all_nodes": [
+    "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]"
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {},
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original_sha256": "6fcdeb65392b04e032c1bb1dd4770d5035f7ee9f2005400c2f91aca451a32794",
+      "baseline_sha256": "6fcdeb65392b04e032c1bb1dd4770d5035f7ee9f2005400c2f91aca451a32794",
+      "mutated_sha256": "239c0334e14faebc2432063995b6d3ae1b8a8aa70f23aa9ab8a42b7ed02a5947"
+    }
+  ],
+  "rss": 120193024
+}

@@ -1,0 +1,47 @@
+{
+  "label": "retention_sweep_race-explicit",
+  "start": "2026-10-30T23:49:34.952179+00:00",
+  "loads": [
+    39.68115234375,
+    50.35546875,
+    59.705078125
+  ],
+  "seconds": 209.677443958004,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 195.8987998329976,
+      "properties": []
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree"
+  ],
+  "all_nodes": [
+    "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree"
+  ],
+  "phases": {
+    "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {
+    "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree": {
+      "max_examples": 40,
+      "derandomize": false,
+      "phases": [
+        "Phase.explicit"
+      ],
+      "explicit_examples": 15
+    }
+  },
+  "loaded": [],
+  "rss": 117260288
+}

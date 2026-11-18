@@ -1,0 +1,25 @@
+{
+  "name": "guard-module-names",
+  "start": "2026-10-29T06:08:57.440441+00:00",
+  "load": [
+    19.58935546875,
+    23.552734375,
+    25.97607421875
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-011712-pr272-fix-r1",
+  "collected": [
+    "tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own"
+  ],
+  "phases": {
+    "tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

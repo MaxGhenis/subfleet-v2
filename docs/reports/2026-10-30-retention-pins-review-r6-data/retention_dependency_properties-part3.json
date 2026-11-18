@@ -1,0 +1,51 @@
+{
+  "label": "retention_dependency_properties-part3",
+  "start": "2026-10-30T19:59:04.731251+00:00",
+  "loads": [
+    54.01123046875,
+    53.86279296875,
+    51.34033203125
+  ],
+  "seconds": 192.13689716599765,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 170.61563066700182
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement"
+  ],
+  "all_nodes": [
+    "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement"
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {
+    "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement": {
+      "max_examples": 100,
+      "derandomize": false,
+      "phases": [
+        "Phase.explicit",
+        "Phase.reuse",
+        "Phase.generate",
+        "Phase.target",
+        "Phase.shrink",
+        "Phase.explain"
+      ],
+      "explicit_examples": 0
+    }
+  },
+  "loaded": [],
+  "rss": 132562944
+}

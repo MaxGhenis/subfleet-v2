@@ -79,7 +79,8 @@ assert mirror.store_dir().is_relative_to(Path.home())
 
 
 @pytest.mark.parametrize("change", ["removed", "wrong-token", "replacement", "missing-identity"])
-def test_session_requires_the_original_sentinel(live_session, monkeypatch, change):
+def test_session_requires_the_original_sentinel(live_session, monkeypatch, change, production_process):
+    """The environment rule's session lifetime; D-ST3's process rule is waived to read it."""
     base = live_session._subfleet_safe_home_base
     sentinel = base / home_paths.PYTEST_SENTINEL
     original = sentinel.stat()
@@ -104,7 +105,8 @@ def test_session_requires_the_original_sentinel(live_session, monkeypatch, chang
     assert not home_paths.under_pytest()
 
 
-def test_cleanup_expires_marker_when_store_directory_survives(live_session, monkeypatch):
+def test_cleanup_expires_marker_when_store_directory_survives(live_session, monkeypatch, production_process):
+    """The environment rule's session lifetime; D-ST3's process rule is waived to read it."""
     captured = cli.daemon_env(live_session._subfleet_safe_home_base / "daemon")
     base = live_session._subfleet_safe_home_base
     with monkeypatch.context() as cleanup:
@@ -118,7 +120,8 @@ def test_cleanup_expires_marker_when_store_directory_survives(live_session, monk
         assert not home_paths.under_pytest()
 
 
-def test_new_session_at_same_path_does_not_revive_old_capture(live_session, monkeypatch):
+def test_new_session_at_same_path_does_not_revive_old_capture(live_session, monkeypatch, production_process):
+    """The environment rule's session lifetime; D-ST3's process rule is waived to read it."""
     base = live_session._subfleet_safe_home_base
     captured = cli.daemon_env(base / "daemon")
     conftest.pytest_unconfigure(live_session)

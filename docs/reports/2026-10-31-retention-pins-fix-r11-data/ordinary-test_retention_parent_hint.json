@@ -1,0 +1,156 @@
+{
+  "name": "ordinary-test_retention_parent_hint",
+  "start": "2026-10-31T18:23:58.200705+00:00",
+  "load": [
+    62.60009765625,
+    60.60205078125,
+    57.90673828125
+  ],
+  "pytest_pid": 63794,
+  "failure_root": "/private/tmp/sf-fix272r11/failed-keep",
+  "args": [
+    "tests/fake/test_retention_parent_hint.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.9944234169961419,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.6447218339963001,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0013630839966936037,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_parent_hint.py::test_unused_parent_oversized_alternates_still_globally_pins",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5587621250015218,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_parent_hint.py::test_unused_parent_oversized_alternates_still_globally_pins",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.46814399999857415,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_parent_hint.py::test_unused_parent_oversized_alternates_still_globally_pins",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.001958792003279086,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "tests/fake/test_retention_parent_hint.py::test_unused_parent_oversized_alternates_still_globally_pins",
+      "key": "D-R7-1",
+      "value": {
+        "pointer": "/private/tmp/sf-fix272r11/real-tmp/ordinary-test_retention_parent_hint/pytest-of-maxghenis/pytest-0/test_unused_parent_oversized_a0/container/objects/info/alternates",
+        "bytes": 1048577,
+        "recorded": {
+          "git": [
+            "/private/tmp/sf-fix272r11/real-tmp/ordinary-test_retention_parent_hint/pytest-of-maxghenis/pytest-0/test_unused_parent_oversized_a0/container/worktrees/slot",
+            "/private/tmp/sf-fix272r11/real-tmp/ordinary-test_retention_parent_hint/pytest-of-maxghenis/pytest-0/test_unused_parent_oversized_a0/container",
+            "/private/tmp/sf-fix272r11/real-tmp/ordinary-test_retention_parent_hint/pytest-of-maxghenis/pytest-0/test_unused_parent_oversized_a0/container/objects",
+            "/private/tmp/sf-fix272r11/real-tmp/ordinary-test_retention_parent_hint/pytest-of-maxghenis/pytest-0/test_unused_parent_oversized_a0/container/worktrees/slot/objects"
+          ],
+          "incomplete": [
+            {
+              "file": "/private/tmp/sf-fix272r11/real-tmp/ordinary-test_retention_parent_hint/pytest-of-maxghenis/pytest-0/test_unused_parent_oversized_a0/container/objects/info/alternates",
+              "reason": "line exceeds 1048576 bytes"
+            }
+          ]
+        },
+        "maintenance": {
+          "pruned": [],
+          "errors": [],
+          "bytes_before": 20084,
+          "bytes_after": 20084,
+          "deferred": {},
+          "in_flight": [],
+          "reclaimed": [],
+          "conflicts": [],
+          "progressed": true,
+          "holder_scan_failed": false,
+          "tmpdir_left": [],
+          "freed_bytes": 0,
+          "freed_disk_bytes": 0,
+          "archived_bytes": 0,
+          "added_bytes": 0,
+          "pools": {
+            "detached": {
+              "jobs_before": 2,
+              "bytes_before": 20084,
+              "unmeasured": 0,
+              "unknown_size": 0,
+              "max_jobs": 0,
+              "max_bytes": 0,
+              "jobs_after": 2,
+              "bytes_after": 20084,
+              "freed_bytes": 0,
+              "freed_disk_bytes": 0,
+              "archived_bytes": 0,
+              "added_bytes": 0
+            },
+            "turn": {
+              "jobs_before": 0,
+              "bytes_before": 0,
+              "unmeasured": 0,
+              "unknown_size": 0,
+              "max_jobs": 2000,
+              "max_bytes": 4294967296,
+              "jobs_after": 0,
+              "bytes_after": 0,
+              "freed_bytes": 0,
+              "freed_disk_bytes": 0,
+              "archived_bytes": 0,
+              "added_bytes": 0
+            }
+          },
+          "protected": [
+            "borrower",
+            "owner"
+          ],
+          "jobs_after": 2,
+          "more": false,
+          "pin_reasons": {
+            "borrower": "active",
+            "owner": "dependency-incomplete: borrower: /private/tmp/sf-fix272r11/real-tmp/ordinary-test_retention_parent_hint/pytest-of-maxghenis/pytest-0/test_unused_parent_oversized_a0/container/objects/info/alternates (line exceeds 1048576 bytes)"
+          }
+        }
+      }
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage",
+    "tests/fake/test_retention_parent_hint.py::test_unused_parent_oversized_alternates_still_globally_pins"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-140216-pr272-fix-r11/subfleet/dependencies.py",
+  "product_sha256": "ebed2a43ddfc264b9faf0ee0101550081ea78df97acec789b8f16aeb82807a69",
+  "end": "2026-10-31T18:24:19.597380+00:00",
+  "seconds": 21.396299874999386,
+  "peak_rss_mib": 115.234375,
+  "exit": 0
+}

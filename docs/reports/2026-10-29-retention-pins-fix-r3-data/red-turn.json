@@ -1,0 +1,21 @@
+{
+  "label": "red-turn",
+  "start": "2026-10-29T20:07:07.000670+00:00",
+  "loads": [
+    16.6005859375,
+    16.580078125,
+    12.2783203125
+  ],
+  "seconds": 4.949614584000074,
+  "exit": 1,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 1.6251703750001525
+    }
+  ],
+  "rss": 120815616
+}

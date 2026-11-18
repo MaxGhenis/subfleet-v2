@@ -1,0 +1,11 @@
+{
+  "queued": "2026-10-31T07:38:21.955271+00:00",
+  "args": [
+    "tests/unit/test_retention_nested_leases.py",
+    "tests/fake/test_state_contract.py",
+    "tests/unit/test_test_module_names.py",
+    "tests/unit/test_invariants_index.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/real-tmp/nested-and-guards",
+  "linked": false
+}

@@ -1,0 +1,8 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 07:21:20Z slot B load 
+........................................................................ [ 75%]
+.......................                                                  [100%]
+95 passed in 97.94s (0:01:37)
+{"name": "regressions-r4-r2", "start": "2026-10-31T07:21:25.216394+00:00", "load": [30.79638671875, 31.2802734375, 33.361328125], "seconds": 102.91014766700027, "exit": 0}

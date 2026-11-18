@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T09:10:32.092552+00:00",
+  "args": [
+    "--mutant",
+    "r5-gitfile-colon-without-space-accepted",
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-no-space]"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r9/real-tmp/mutant-r5-gitfile-colon-without-space-accepted",
+  "linked": false,
+  "driver_pid": 14943,
+  "lock_process_group": 14976
+}

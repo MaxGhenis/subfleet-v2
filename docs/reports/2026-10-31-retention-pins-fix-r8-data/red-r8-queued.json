@@ -1,0 +1,9 @@
+{
+  "queued": "2026-10-31T07:07:35.612957+00:00",
+  "args": [
+    "--runxfail",
+    "tests/fake/test_retention_dependency_review_r8.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/real-tmp/red-r8",
+  "linked": false
+}

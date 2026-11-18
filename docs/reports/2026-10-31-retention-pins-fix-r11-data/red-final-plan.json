@@ -1,0 +1,9 @@
+[
+  [
+    "red-readable-final",
+    [
+      "--input-head",
+      "tests/unit/test_retention_location_readable.py"
+    ]
+  ]
+]

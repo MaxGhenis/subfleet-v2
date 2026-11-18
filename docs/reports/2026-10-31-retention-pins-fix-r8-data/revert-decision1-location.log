@@ -1,0 +1,58 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 07:31:34Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ test_location_inputs_keep_the_places_real_git_traverses ____________
+tests/unit/test_retention_location_inputs.py:159: in test_location_inputs_keep_the_places_real_git_traverses
+    suppress_health_check=[HealthCheck.function_scoped_fixture])
+         ^^^^^^^^^^^^^^^^^^
+tests/unit/test_retention_location_inputs.py:164: in test_location_inputs_keep_the_places_real_git_traverses
+    observation = check_location_input(Path(directory), data)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/maxghenis/.subfleet/worktrees/20261031-030606-pr272-fix-r8/docs/reports/2026-10-31-retention-pins-fix-r8-data/run.py:94: in observed
+    result = original(base, data)
+             ^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_retention_location_inputs.py:151: in check_location_input
+    assert held, recorded
+E   AssertionError: {'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision1-location/tmps9qhhdnn/stable/container/admin', '/private/tmp/sf-fix272r8/real-tmp/revert-decision1-location/tmps9qhhdnn/stable/container/admin/objects']}
+E   assert False
+E   Failing test case: test_location_inputs_keep_the_places_real_git_traverses(
+E       # The test always failed when commented parts were varied together.
+E       record_property=append_property,
+E       data={
+E           'position': 'gitfile-target',
+E           'chain': 1,  # or any other generated value
+E           'relative': False,  # or any other generated value
+E           'named': False,  # or any other generated value
+E           'entry': 'HEAD',  # or any other generated value
+E       },
+E   )
+E   {'position': 'gitfile-target',
+E    'chain': 1,
+E    'relative': False,
+E    'named': False,
+E    'entry': 'HEAD'}
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses
+1 failed in 17.32s
+{"name": "revert-decision1-location", "start": "2026-10-31T07:31:35.376136+00:00", "load": [29.96435546875, 32.1611328125, 33.201171875], "seconds": 17.920153541999753, "exit": 1}

@@ -1,0 +1,14 @@
+hold 22:53:25Z slot A load { 61.43 66.65 61.65 }
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____ test_required_locations_survive_two_relative_links[intermediate-HEAD] _____
+tests/unit/test_retention_locations.py:20: in test_required_locations_survive_two_relative_links
+    observation = check_location_input(tmp_path, dict(position=position, chain=2, relative=True,
+tests/unit/test_retention_location_inputs.py:151: in check_location_input
+    assert held, recorded
+E   AssertionError: {'git': ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r8-intermediate-link-walk-dropp...ediate-link-walk-dropped/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/stable/container/admin/objects']}
+E   assert False
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[intermediate-HEAD]
+1 failed in 27.22s
+MUTANT {"name": "r8-intermediate-link-walk-dropped", "rc": 1, "failed": 1, "killed": true, "same_as_fix_r12": true, "assertions": [["assert held, recorded"]]}

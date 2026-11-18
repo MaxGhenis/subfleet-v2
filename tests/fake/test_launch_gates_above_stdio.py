@@ -94,7 +94,7 @@ try:
         daemon.store.acquire_lease("lane:codex-1:slot:0", holder)
         daemon._save_probe({"holder": holder, "job_id": job_id, "lane_id": "codex-1", "model_id": "gpt-6-astra",
                             "directory": str(directory), "state": "reserved", "created_at": utcnow(),
-                            "deadline_at": after(60), "owned_identities": {}})
+                            "deadline_at": after(daemon.policy["admission"]["probe_deadline_s"]), "owned_identities": {}})
         for fd in closed:
             os.close(fd)
         outcome = daemon._execute_probe(daemon.store.get_job(job_id), daemon.store.get_lane("codex-1"),

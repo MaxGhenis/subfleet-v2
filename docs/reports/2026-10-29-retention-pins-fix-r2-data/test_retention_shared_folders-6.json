@@ -1,0 +1,84 @@
+{
+  "name": "test_retention_shared_folders-6",
+  "start": "2026-10-29T11:03:16.665834+00:00",
+  "load": [
+    32.041015625,
+    30.595703125,
+    22.8447265625
+  ],
+  "args": [
+    "tests/unit/test_retention_shared_folders.py",
+    "-k",
+    "test_a_restart_mid_retirement_keeps_the_canonical_fence or test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it or test_the_census_sees_a_turn_in_a_folder_inside_the_worktree or test_a_turn_beside_the_worktree_keeps_nothing"
+  ],
+  "results": [
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_restart_mid_retirement_keeps_the_canonical_fence",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[running]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[lost]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[TURN]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[READER]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[2]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[-copy]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[:x]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[parent]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    }
+  ],
+  "collected": [
+    "tests/unit/test_retention_shared_folders.py::test_a_restart_mid_retirement_keeps_the_canonical_fence",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[running]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[lost]",
+    "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_the_census_sees_a_turn_in_a_folder_inside_the_worktree[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[2]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[-copy]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[:x]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_beside_the_worktree_keeps_nothing[parent]"
+  ],
+  "seconds": 66.27332891699916,
+  "max_rss_bytes": 118456320,
+  "end": "2026-10-29T11:04:22.940091+00:00"
+}

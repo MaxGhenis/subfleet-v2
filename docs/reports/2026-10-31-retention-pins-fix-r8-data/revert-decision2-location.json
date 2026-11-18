@@ -1,0 +1,757 @@
+{
+  "name": "revert-decision2-location",
+  "start": "2026-10-31T07:32:30.875212+00:00",
+  "load": [
+    29.7265625,
+    31.6591796875,
+    32.943359375
+  ],
+  "args": [
+    "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.8243822500007809,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 16.340539166998497,
+      "failure": "tests/unit/test_retention_location_inputs.py:159: in test_location_inputs_keep_the_places_real_git_traverses\n    suppress_health_check=[HealthCheck.function_scoped_fixture])\n         ^^^^^^^^^^^^^^^^^^\ntests/unit/test_retention_location_inputs.py:164: in test_location_inputs_keep_the_places_real_git_traverses\n    observation = check_location_input(Path(directory), data)\n                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n/Users/maxghenis/.subfleet/worktrees/20261031-030606-pr272-fix-r8/docs/reports/2026-10-31-retention-pins-fix-r8-data/run.py:94: in observed\n    result = original(base, data)\n             ^^^^^^^^^^^^^^^^^^^^\ntests/unit/test_retention_location_inputs.py:151: in check_location_input\n    assert held, recorded\nE   AssertionError: {'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmprhkvz7g0/stable/container/admin', '/private/t...table/container/admin/objects', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmprhkvz7g0/stable/hop0']}\nE   assert False\nE   Failing test case: test_location_inputs_keep_the_places_real_git_traverses(\nE       # The test always failed when commented parts were varied together.\nE       record_property=append_property,\nE       data={\nE           'position': 'gitfile-pointer',\nE           'chain': 1,  # or any other generated value\nE           'relative': False,  # or any other generated value\nE           'named': False,  # or any other generated value\nE           'entry': 'HEAD',  # or any other generated value\nE       },\nE   )\nE   {'position': 'gitfile-pointer',\nE    'chain': 1,\nE    'relative': False,\nE    'named': False,\nE    'entry': 'HEAD'}\nE   Explanation:\nE       These lines were always and only run by failing test cases:\nE           /private/tmp/sf-fix272r8/reversion-decision2/tests/unit/test_retention_location_inputs.py:84\nE           /private/tmp/sf-fix272r8/reversion-decision2/tests/unit/test_retention_location_inputs.py:85\nE           /private/tmp/sf-fix272r8/reversion-decision2/tests/unit/test_retention_location_inputs.py:86"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00041758400038816035,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "key": "location-input",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 1, \"entry\": \"HEAD\", \"named\": false, \"position\": \"gitfile-target\", \"relative\": false}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpefp1g7b2/stable/container/admin\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpefp1g7b2/stable/container/admin/objects\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpefp1g7b2/owner/hop0\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "key": "location-input",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 1, \"entry\": \"HEAD\", \"named\": false, \"position\": \"git-entry\", \"relative\": false}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp_pau8o3i/stable/container/admin\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp_pau8o3i/stable/container/admin/objects\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp_pau8o3i/owner/hop0\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp_pau8o3i/stable/entry\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "key": "location-input",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 3, \"entry\": \"refs\", \"named\": false, \"position\": \"git-entry\", \"relative\": false}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp6lsmkewf/stable/container/admin\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp6lsmkewf/stable/container/admin/objects\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp6lsmkewf/owner/hop0\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp6lsmkewf/owner/hop1\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp6lsmkewf/owner/hop2\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp6lsmkewf/stable/entry\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "key": "location-input",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 1, \"entry\": \"HEAD\", \"named\": false, \"position\": \"git-entry\", \"relative\": true}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpn_id8cv2/stable/container/admin\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpn_id8cv2/stable/container/admin/objects\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpn_id8cv2/owner/hop0\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpn_id8cv2/stable/entry\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "key": "location-input",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 1, \"entry\": \"refs\", \"named\": true, \"position\": \"git-entry\", \"relative\": true}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp36nd6ds4/stable/container/worktrees/slot\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp36nd6ds4/stable/container\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp36nd6ds4/stable/container/objects\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp36nd6ds4/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp36nd6ds4/owner/hop0\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp36nd6ds4/stable/entry\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "key": "location-input",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 1, \"entry\": \"HEAD\", \"named\": true, \"position\": \"git-entry\", \"relative\": false}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp2fyd2_j7/stable/container/worktrees/slot\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp2fyd2_j7/stable/container\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp2fyd2_j7/stable/container/objects\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp2fyd2_j7/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp2fyd2_j7/owner/hop0\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp2fyd2_j7/stable/entry\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "key": "location-input",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 1, \"entry\": \"refs\", \"named\": true, \"position\": \"git-entry\", \"relative\": false}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpgn15mph8/stable/container/worktrees/slot\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpgn15mph8/stable/container\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpgn15mph8/stable/container/objects\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpgn15mph8/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpgn15mph8/owner/hop0\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpgn15mph8/stable/entry\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "key": "location-input",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 2, \"entry\": \"HEAD\", \"named\": false, \"position\": \"objects-info\", \"relative\": true}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp7x3fy2k4/stable/container/admin\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp7x3fy2k4/stable/container/admin/objects\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp7x3fy2k4/stable/source/.git/objects\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp7x3fy2k4/owner/hop0\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp7x3fy2k4/owner/hop1\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp7x3fy2k4/stable/object-info\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "key": "location-input",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 2, \"entry\": \"HEAD\", \"named\": true, \"position\": \"objects-info\", \"relative\": true}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpiyj88edr/stable/container/worktrees/slot\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpiyj88edr/stable/container\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpiyj88edr/stable/container/objects\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpiyj88edr/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpiyj88edr/stable/source/.git/objects\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpiyj88edr/owner/hop0\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpiyj88edr/owner/hop1\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpiyj88edr/stable/object-info\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "key": "location-input",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 2, \"entry\": \"HEAD\", \"named\": false, \"position\": \"objects\", \"relative\": false}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpjprkq0nl/stable/container/admin\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpjprkq0nl/stable/object-store\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpjprkq0nl/owner/hop0\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpjprkq0nl/owner/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "key": "location-input",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 1, \"entry\": \"refs\", \"named\": true, \"position\": \"commondir-target\", \"relative\": false}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpw8bkt8y7/stable/container/worktrees/slot\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpw8bkt8y7/stable/common\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpw8bkt8y7/stable/common/objects\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpw8bkt8y7/owner/hop0\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "key": "location-input",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 1, \"entry\": \"refs\", \"named\": true, \"position\": \"commondir-target\", \"relative\": true}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp0jr6tvta/stable/container/worktrees/slot\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp0jr6tvta/stable/common\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp0jr6tvta/stable/common/objects\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp0jr6tvta/owner/hop0\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "key": "location-input",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 2, \"entry\": \"refs\", \"named\": false, \"position\": \"commondir-target\", \"relative\": false}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp8a_9incz/stable/container/admin\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp8a_9incz/stable/common\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp8a_9incz/stable/common/objects\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp8a_9incz/owner/hop0\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp8a_9incz/owner/hop1\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "key": "location-input",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 1, \"entry\": \"refs\", \"named\": true, \"position\": \"gitfile-target\", \"relative\": true}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp3vcgz6tu/stable/container/worktrees/slot\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp3vcgz6tu/stable/container\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp3vcgz6tu/stable/container/objects\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp3vcgz6tu/stable/container/worktrees/slot/objects\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp3vcgz6tu/owner/hop0\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "key": "location-input",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 1, \"entry\": \"HEAD\", \"named\": false, \"position\": \"gitfile-target\", \"relative\": false}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpz7n87yfw/stable/container/admin\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpz7n87yfw/stable/container/admin/objects\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpz7n87yfw/owner/hop0\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "key": "location-input",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 1, \"entry\": \"HEAD\", \"named\": false, \"position\": \"intermediate\", \"relative\": false}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpl_7uozr_/stable/container/admin\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpl_7uozr_/stable/container/admin/objects\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpl_7uozr_/owner/hop0\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "key": "location-input",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 1, \"entry\": \"refs\", \"named\": false, \"position\": \"intermediate\", \"relative\": false}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmptkp2y5hw/stable/container/admin\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmptkp2y5hw/stable/container/admin/objects\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmptkp2y5hw/owner/hop0\"]}}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "key": "location-input",
+      "value": "{\"after\": 128, \"before\": 0, \"incomplete\": false, \"input\": {\"chain\": 2, \"entry\": \"HEAD\", \"named\": false, \"position\": \"intermediate\", \"relative\": false}, \"outcome\": \"needs-owner\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmppvxkocmo/stable/container/admin\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmppvxkocmo/stable/container/admin/objects\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmppvxkocmo/owner/hop0\", \"/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmppvxkocmo/owner/hop1\"]}}"
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses"
+  ],
+  "product_file": "/private/tmp/sf-fix272r8/reversion-decision2/subfleet/dependencies.py",
+  "product_sha256": "049f4789ec91658e622b003640671401c49d5adf2aef5fc173a844a253868ad6",
+  "attempts": [
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "chain": 1,
+        "relative": false,
+        "named": false,
+        "entry": "HEAD"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "git-entry",
+        "chain": 1,
+        "relative": false,
+        "named": false,
+        "entry": "HEAD"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "relative": false,
+        "position": "git-entry",
+        "chain": 3,
+        "entry": "refs",
+        "named": false
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "git-entry",
+        "chain": 1,
+        "relative": true,
+        "named": false,
+        "entry": "HEAD"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "entry": "refs",
+        "named": true,
+        "chain": 1,
+        "position": "git-entry",
+        "relative": true
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "git-entry",
+        "chain": 1,
+        "relative": false,
+        "named": true,
+        "entry": "HEAD"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "chain": 1,
+        "entry": "refs",
+        "relative": false,
+        "named": true,
+        "position": "git-entry"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "entry": "HEAD",
+        "named": false,
+        "chain": 2,
+        "position": "gitfile-pointer",
+        "relative": true
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpvsbbs5r3/stable/container/admin', '/private/t...ation/tmpvsbbs5r3/stable/hop0', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpvsbbs5r3/stable/hop1']}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "entry": "HEAD",
+        "named": true,
+        "chain": 2,
+        "position": "gitfile-pointer",
+        "relative": true
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpmmyl_b_0/stable/container/worktrees/slot', '/...ation/tmpmmyl_b_0/stable/hop0', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpmmyl_b_0/stable/hop1']}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "entry": "HEAD",
+        "relative": true,
+        "named": false,
+        "position": "objects-info",
+        "chain": 2
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "entry": "HEAD",
+        "relative": true,
+        "named": true,
+        "position": "objects-info",
+        "chain": 2
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "relative": false,
+        "entry": "HEAD",
+        "named": false,
+        "chain": 2,
+        "position": "objects"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "entry": "refs",
+        "position": "commondir-target",
+        "relative": false,
+        "named": true,
+        "chain": 1
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "entry": "refs",
+        "position": "commondir-target",
+        "relative": true,
+        "named": true,
+        "chain": 1
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "entry": "refs",
+        "position": "gitfile-pointer",
+        "chain": 1,
+        "relative": true,
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp_5vzespf/stable/container/worktrees/slot', '/...tainer/worktrees/slot/objects', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp_5vzespf/stable/hop0']}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "named": false,
+        "entry": "refs",
+        "relative": false,
+        "chain": 2,
+        "position": "commondir-target"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "entry": "refs",
+        "position": "gitfile-pointer",
+        "chain": 1,
+        "relative": true,
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpxqdiajm2/stable/container/worktrees/slot', '/...tainer/worktrees/slot/objects', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpxqdiajm2/stable/hop0']}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "entry": "refs",
+        "position": "gitfile-target",
+        "chain": 1,
+        "relative": true,
+        "named": true
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "entry": "HEAD",
+        "position": "gitfile-pointer",
+        "chain": 1,
+        "relative": true,
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpipek1xl1/stable/container/worktrees/slot', '/...tainer/worktrees/slot/objects', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpipek1xl1/stable/hop0']}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "entry": "HEAD",
+        "chain": 1,
+        "relative": true,
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpec1scntd/stable/container/worktrees/slot', '/...tainer/worktrees/slot/objects', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpec1scntd/stable/hop0']}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "entry": "HEAD",
+        "chain": 1,
+        "relative": true,
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpv23q0fxz/stable/container/admin', '/private/t...table/container/admin/objects', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpv23q0fxz/stable/hop0']}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "entry": "HEAD",
+        "chain": 1,
+        "relative": false,
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpooec_9k4/stable/container/admin', '/private/t...table/container/admin/objects', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpooec_9k4/stable/hop0']}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "entry": "HEAD",
+        "chain": 1,
+        "relative": false,
+        "named": false
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "named": false,
+        "chain": 1,
+        "relative": false,
+        "entry": "HEAD"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpeagcm4h5/stable/container/admin', '/private/t...table/container/admin/objects', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpeagcm4h5/stable/hop0']}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "relative": false,
+        "chain": 1,
+        "named": false,
+        "entry": "HEAD"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp4064t5j2/stable/container/admin', '/private/t...table/container/admin/objects', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp4064t5j2/stable/hop0']}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "intermediate",
+        "chain": 1,
+        "relative": false,
+        "named": false,
+        "entry": "HEAD"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "chain": 1,
+        "relative": false,
+        "named": false,
+        "entry": "HEAD"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpzk1jg7ul/stable/container/admin', '/private/t...table/container/admin/objects', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpzk1jg7ul/stable/hop0']}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "intermediate",
+        "chain": 1,
+        "relative": false,
+        "named": false,
+        "entry": "refs"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "intermediate",
+        "chain": 2,
+        "relative": false,
+        "named": false,
+        "entry": "HEAD"
+      },
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "chain": 2,
+        "relative": false,
+        "named": false,
+        "entry": "HEAD"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpxa7zacl1/stable/container/admin', '/private/t...ation/tmpxa7zacl1/stable/hop0', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpxa7zacl1/stable/hop1']}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "chain": 3,
+        "relative": false,
+        "named": false,
+        "entry": "HEAD"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpcivo8tk6/stable/container/admin', '/private/t...ation/tmpcivo8tk6/stable/hop1', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpcivo8tk6/stable/hop2']}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "chain": 1,
+        "relative": true,
+        "named": false,
+        "entry": "HEAD"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpykiqau0u/stable/container/admin', '/private/t...table/container/admin/objects', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpykiqau0u/stable/hop0']}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "chain": 1,
+        "relative": false,
+        "named": true,
+        "entry": "HEAD"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp9qjqi9k9/stable/container/worktrees/slot', '/...tainer/worktrees/slot/objects', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp9qjqi9k9/stable/hop0']}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "chain": 1,
+        "relative": false,
+        "named": false,
+        "entry": "refs"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmprzpagz4_/stable/container/admin', '/private/t...table/container/admin/objects', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmprzpagz4_/stable/hop0']}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "chain": 1,
+        "relative": true,
+        "named": true,
+        "entry": "HEAD"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp_83hoivm/stable/container/worktrees/slot', '/...tainer/worktrees/slot/objects', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp_83hoivm/stable/hop0']}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "chain": 2,
+        "relative": false,
+        "named": false,
+        "entry": "refs"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpo5mr3xb1/stable/container/admin', '/private/t...ation/tmpo5mr3xb1/stable/hop0', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpo5mr3xb1/stable/hop1']}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "chain": 3,
+        "relative": false,
+        "named": true,
+        "entry": "refs"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpkyqp13hc/stable/container/worktrees/slot', '/.../tmpkyqp13hc/stable/hop0', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpkyqp13hc/stable/hop1', ...]}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "chain": 3,
+        "relative": false,
+        "named": true,
+        "entry": "HEAD"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpwh62as7n/stable/container/worktrees/slot', '/.../tmpwh62as7n/stable/hop0', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpwh62as7n/stable/hop1', ...]}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "chain": 2,
+        "relative": false,
+        "named": true,
+        "entry": "HEAD"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpkuf8jelk/stable/container/worktrees/slot', '/...ation/tmpkuf8jelk/stable/hop0', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpkuf8jelk/stable/hop1']}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "chain": 2,
+        "relative": true,
+        "named": false,
+        "entry": "refs"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpeqr5rd7a/stable/container/admin', '/private/t...ation/tmpeqr5rd7a/stable/hop0', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpeqr5rd7a/stable/hop1']}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "chain": 2,
+        "relative": true,
+        "named": true,
+        "entry": "refs"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpb2g53q96/stable/container/worktrees/slot', '/...ation/tmpb2g53q96/stable/hop0', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpb2g53q96/stable/hop1']}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "chain": 2,
+        "relative": true,
+        "named": true,
+        "entry": "HEAD"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp3jzeclyk/stable/container/worktrees/slot', '/...ation/tmp3jzeclyk/stable/hop0', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp3jzeclyk/stable/hop1']}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "chain": 1,
+        "relative": true,
+        "named": false,
+        "entry": "refs"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpowgnb16c/stable/container/admin', '/private/t...table/container/admin/objects', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpowgnb16c/stable/hop0']}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "chain": 3,
+        "relative": true,
+        "named": true,
+        "entry": "refs"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpcsj17v9f/stable/container/worktrees/slot', '/.../tmpcsj17v9f/stable/hop0', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpcsj17v9f/stable/hop1', ...]}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "chain": 3,
+        "relative": false,
+        "named": false,
+        "entry": "refs"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpmj3revu9/stable/container/admin', '/private/t...ation/tmpmj3revu9/stable/hop1', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpmj3revu9/stable/hop2']}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "chain": 2,
+        "relative": true,
+        "named": false,
+        "entry": "HEAD"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpyybfqgdz/stable/container/admin', '/private/t...ation/tmpyybfqgdz/stable/hop0', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpyybfqgdz/stable/hop1']}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "chain": 1,
+        "relative": true,
+        "named": true,
+        "entry": "refs"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpe27abyut/stable/container/worktrees/slot', '/...tainer/worktrees/slot/objects', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpe27abyut/stable/hop0']}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "chain": 3,
+        "relative": true,
+        "named": false,
+        "entry": "refs"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp208fh9jo/stable/container/admin', '/private/t...ation/tmp208fh9jo/stable/hop1', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp208fh9jo/stable/hop2']}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "chain": 3,
+        "relative": true,
+        "named": true,
+        "entry": "HEAD"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp4hd4gcqm/stable/container/worktrees/slot', '/.../tmp4hd4gcqm/stable/hop0', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmp4hd4gcqm/stable/hop1', ...]}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "chain": 2,
+        "relative": false,
+        "named": true,
+        "entry": "refs"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpytkxkv7k/stable/container/worktrees/slot', '/...ation/tmpytkxkv7k/stable/hop0', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpytkxkv7k/stable/hop1']}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "chain": 1,
+        "relative": false,
+        "named": true,
+        "entry": "refs"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpqjrldi68/stable/container/worktrees/slot', '/...tainer/worktrees/slot/objects', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmpqjrldi68/stable/hop0']}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "chain": 3,
+        "relative": true,
+        "named": false,
+        "entry": "HEAD"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmphnbxqnv4/stable/container/admin', '/private/t...ation/tmphnbxqnv4/stable/hop1', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmphnbxqnv4/stable/hop2']}\nassert False"
+    },
+    {
+      "node": "tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "chain": 1,
+        "relative": false,
+        "named": false,
+        "entry": "HEAD"
+      },
+      "outcome": "failed",
+      "error": "{'git': ['/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmprhkvz7g0/stable/container/admin', '/private/t...table/container/admin/objects', '/private/tmp/sf-fix272r8/real-tmp/revert-decision2-location/tmprhkvz7g0/stable/hop0']}\nassert False"
+    }
+  ],
+  "end": "2026-10-31T07:32:50.457097+00:00",
+  "seconds": 19.581447874999867,
+  "peak_rss_mib": 124.34375,
+  "exit": 1
+}

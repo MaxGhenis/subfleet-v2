@@ -1,0 +1,31 @@
+import json, os, subprocess, shutil
+from pathlib import Path
+scratch=Path(__file__).parent
+root=scratch/'git-compare'
+root.mkdir(exist_ok=True)
+def git(*args, data=None):
+ return subprocess.run(['git',*(a if isinstance(a, bytes) else str(a) for a in args)],input=data,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+repo=root/'borrower'
+git('init','-q',repo)
+source=root/'source'
+git('init','-q',source)
+oid=git('-C',source,'hash-object','-w','--stdin',data=b'borrowed blob\n').stdout.strip()
+base=repo/'.git/objects'
+def target(name):
+ p=root/name
+ 
+ if not p.exists(): shutil.copytree(source/'.git/objects',p)
+ return os.fsencode(p)
+p=target('ordinary')
+non=target('non-\u00e9')
+quote=target('with"quote'); slash=target('with\\slash'); tab=target('with\ttab'); newline=target('with\nnewline')
+leading=target(' leading'); trailing=target('trailing ')
+def q(raw):return b'"'+raw+b'"'
+cases=[('quoted absolute',q(p)),('quoted relative',q(os.fsencode(os.path.relpath(os.fsdecode(p),base)))) ,('octal ASCII',q(p.replace(b'ordinary',b'\\157rdinary'))),('octal UTF-8',q(non.replace(b'\xc3\xa9',b'\\303\\251'))),('escaped quote',q(quote.replace(b'"',b'\\"'))),('escaped backslash',q(slash.replace(b'\\',b'\\\\'))),('escaped tab',q(tab.replace(b'\t',b'\\t'))),('escaped newline',q(newline.replace(b'\n',b'\\n'))),('comment',b'#'+p),('blank',b''),('leading outside',b' '+p),('trailing outside',p+b' '),('leading inside',q(leading)),('trailing inside',q(trailing)),('quoted trailing text',q(p)+b' garbage'),('bad escape',q(p+b'\\z')),('short octal',q(p.replace(b'ordinary',b'\\157rdinary').replace(b'\\157',b'\\15'))),('octal 400',q(p+b'\\400'))]
+rows=[]
+for name,line in cases:
+ (base/'info/alternates').write_bytes(line+b'\n')
+ result=git('-C',repo,'count-objects','-v')
+ read=git('-C',repo,'cat-file','-e',oid)
+ rows.append(dict(case=name,line=os.fsdecode(line),reads=read.returncode==0,output=os.fsdecode(result.stdout),error=os.fsdecode(result.stderr)))
+print(json.dumps(dict(version=os.fsdecode(git('--version').stdout).strip(),cases=rows),ensure_ascii=True,indent=2))

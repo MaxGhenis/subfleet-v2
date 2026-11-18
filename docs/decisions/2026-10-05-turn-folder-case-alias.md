@@ -44,7 +44,8 @@ What happens, as read in the code at 9e159ec9:
 ## Decision
 
 Option 2, with option 1's delay moved to where the row is taken. Option 3 is
-applied only to the comparisons that read a name not looked up.
+also applied to dependency pins and fences, which compare normalized paths
+folded even when their recorded names were fully spelled.
 
 - Admission spells the folder a row will name again, off the store lock, right
   before the reserving transaction (`folders.present`). This covers a turn's
@@ -74,8 +75,9 @@ applied only to the comparisons that read a name not looked up.
     turns do, and its message says retention is removing the tree.
   - **Otherwise its workspace (C-6.8).** It waits with backoff, the reason naming
     the folder, and fails after `caps.workspace_retry_max` tries.
-- `worktree-in-use` compares the tree itself without ASCII case
-  (`COLLATE NOCASE`), as its LIKE already compared a folder inside it. A turn
+- `worktree-in-use` compares normalized paths with `folders.fold`
+  (`dependencies.key`), for the tree itself and places inside it, without SQL
+  `LIKE` or `COLLATE NOCASE`. A turn
   waiting on the fence for `jOB` then keeps `Job` at the commit, and the
   retirement rolls back.
 - A turn also checks its actual cwd with `present`, fences it independently of
@@ -86,8 +88,8 @@ applied only to the comparisons that read a name not looked up.
 ## Why
 
 **Fix the producer of the spelling, not each reader.** `folders.py` rests on
-one folder having one string. Every check that reads a row compares strings
-exactly:
+one folder having one string. Every check that reads a TURN or READER row
+compares its folder string exactly:
 
 - retention's census, selecting transaction and commit;
 - admission's fence (`retiring`) and C-6.5's writer exclusion;
@@ -119,8 +121,8 @@ each pass archives for at most `SLICE_S` (120 s). C-6.8's retries are bounded:
 run out mid-retirement, fail the turn, and let the commit remove the folder.
 Waiting on the fence lasts exactly as long as the retirement.
 
-**Why fold only where a name was not looked up.** A spelled folder is the
-kernel's spelling, and so is retention's fence: exact comparison is right and
+**Why row-folder fences fold only where a name was not looked up.** A spelled
+folder is the kernel's spelling, and so is retention's fence: exact comparison is right and
 over-matches nothing. For a folder that could not be looked up, the names after
 the first missing one are as typed. `fold` is Unicode's canonical caseless form,
 NFD(casefold(NFD(s))) (D145). On this machine's APFS volume, nine pairs were
@@ -136,15 +138,18 @@ rows. Legacy conversation workspaces and native cwds are respelled when their
 turns are admitted. Folding retention's reads would over-match on case-sensitive
 volumes and require scanning every turn row in selection and commit transactions.
 
-**Why `worktree-in-use` changes.** Its LIKE (a folder inside the tree) already
-ignored ASCII case, but its `=` (the tree itself) did not. A queued turn whose
-folder was the tree in another case kept nothing, so the folded wait would end
+**Why `worktree-in-use` changes.** Its former SQL LIKE (a folder inside the
+tree) ignored ASCII case, but its `=` (the tree itself) did not. A queued turn
+whose folder was the tree in another case kept nothing, so the folded wait would end
 with the tree gone. A job id is `[0-9]{8}-[0-9]{6}-[a-z0-9-]+` (C-1.1). NOCASE and
 LIKE match an alias of a tree's own name in other ASCII capitals. They do not
 match one spelled with letters outside ASCII that APFS folds to its letters
 (`ﬁ` for `fi`, `ſ` for `s`, the Kelvin sign for `k`), since SQLite folds only
-ASCII. The folded fence still holds such a turn, and it takes no row; see the
-known limits.
+ASCII. The
+merged dependency pin uses Unicode canonical caseless comparison for both the tree itself and places
+inside it, including aliases SQLite did not match (`ﬁ` for `fi`, `ſ` for `s`,
+the Kelvin sign for `k`). The folded dependency fence holds such a job,
+and its queued job keeps the tree so the retirement rolls back.
 
 ## Invariants
 
@@ -163,12 +168,12 @@ These are tested in `tests/unit/test_retention_case_alias.py` and
   names the tree or a folder inside it. This now holds also when the turn was
   submitted under a case alias while the tree was in quarantine. Either the turn
   waits (and keeps the tree) or its row is on the one spelling (`turn-folder`).
-- **Bounded.** A turn whose folder never comes back fails after
-  `caps.workspace_retry_max` tries. It never waits forever and never takes a row.
-- **The two sides agree.** For ASCII names without LIKE's wildcards, the folded
-  fence holds a turn exactly when `worktree-in-use` keeps the tree for its job,
-  and exactly when the folder is within the tree up to ASCII case
-  (differential property).
+- **Bounded.** Without a retention fence, a turn whose folder never comes back
+  fails after `caps.workspace_retry_max` tries. While fenced it waits for the
+  retirement; neither wait takes a row on a missing folder.
+- **The two sides agree.** A dependency fence holds a job exactly when a
+  normalized dependency path is within its tree under `folders.fold`, the
+  comparison `worktree-in-use` uses too (differential properties).
 - **`present`.** Its first value is `spelling`'s. Its second is None exactly
   when every name of the path is there. A folder that is there is spelled as
   `canonical` spells any other spelling of it, and spelling that again gives
@@ -180,21 +185,25 @@ These are tested in `tests/unit/test_retention_case_alias.py` and
 
 ## Known limits
 
-- **Non-ASCII aliases.** A name above `worktrees/` typed in another case or
-  normal form, outside ASCII, is not matched by `worktree-in-use`. SQLite folds
-  only ASCII. The turn still waits on the fence and takes no row. If the
-  retirement commits, the turn fails after C-6.8's retries, and no row ever
-  names the removed tree.
+- **Non-ASCII aliases.** `worktree-in-use` now matches these with
+  `dependencies.key`, as dependency admission does; the former SQLite
+  ASCII-only gap is closed. SQLite folds
+  only ASCII. The turn still waits on the fence and takes no row. On a
+  case-sensitive volume these folded comparisons
+  can conservatively pin or hold a distinct tree whose name differs only in
+  case or canonical caseless form.
 - **Renamed trees.** A tree renamed to another case while a row names it
   (`mv Job JOB`) gives the tree a new one spelling that the row does not have.
 - **Firmlinked workdirs.** A queued turn whose workdir is typed through a
   firmlink (`/System/Volumes/Data/Users/…`) is held by the folded fence, since
   its folder is spelled through the kernel. `worktree-in-use` compares the job's
-  `workdir` string, so on this branch it does not keep the tree. The turn takes
-  no row, and fails after C-6.8's retries if the retirement commits (review of
+  recorded workdir, folder and dependency places folded; for a legacy job,
+  retention also spells its workdir canonically before the transaction. The
+  queued job therefore keeps the tree through its recorded folder or legacy
+  canonical path, and the retirement rolls back (the former gap was review of
   3410b4f0, P3). MaxGhenis/subfleet-v2#140 records `jobs.workdir` canonically at
   submit, for writers and turns alike, which keeps the tree for a workdir that
-  exists at submit. What is left is a non-ASCII name in a tail submit could not
-  look up (above).
+  exists at submit. A case or Unicode tail submit could not
+  look up is now compared folded by both the dependency pin and its fence.
 - **Earlier builds.** Rows reserved before this change by a build of
   integrate/2111-features are compared as before.

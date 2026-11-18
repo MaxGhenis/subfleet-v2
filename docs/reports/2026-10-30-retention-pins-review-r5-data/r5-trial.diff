@@ -1,0 +1,28 @@
+--- a/subfleet/dependencies.py
++++ b/subfleet/dependencies.py
+@@ -210,10 +210,10 @@
+ 
+ def _gitfile(dotgit: str, folder: str, *, aliases: _Aliases) -> str | None:
+     """The directory a `.git` file names (`gitdir: <path>`), or None."""
+-    text = (aliases.text(dotgit) or "").strip()
+-    if not text.startswith("gitdir:"):
++    text = (aliases.text(dotgit) or "").rstrip("\r\n")
++    if not text.startswith("gitdir: "):
+         return None
+-    named = text[len("gitdir:"):].strip()
++    named = text[len("gitdir: "):]
+     return aliases.resolve(os.path.join(folder, named)) if named else None
+ 
+ 
+@@ -222,8 +222,9 @@
+     """`gitdir`, its common directory, and the alternates of that repository's objects."""
+     common = gitdir
+     pointer = aliases.text(os.path.join(gitdir, "commondir"))
+-    if pointer is not None and pointer.strip():
+-        common = aliases.resolve(os.path.join(gitdir, pointer.strip()))
++    pointer = pointer.rstrip("\r\n") if pointer is not None else None
++    if pointer:
++        common = aliases.resolve(os.path.join(gitdir, pointer))
+     elif named and os.path.basename(os.path.dirname(gitdir)) == "worktrees":
+         common = os.path.dirname(os.path.dirname(gitdir))
+     objects = os.path.join(common, "objects")

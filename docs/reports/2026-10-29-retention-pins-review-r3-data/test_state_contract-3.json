@@ -1,0 +1,65 @@
+{
+  "name": "test_state_contract-3",
+  "start": "2026-10-29T14:42:19.078077+00:00",
+  "load": [
+    20.546875,
+    28.9716796875,
+    33.51708984375
+  ],
+  "phases": {
+    "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[False]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[True]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c4_4_state_missing_exit_receipt_never_accepts_success": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[False]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[True]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c4_3_state_acceptance_and_notice_share_one_transaction": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c8_2_state_deliverable_is_frozen_during_finalization_replay": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[False]",
+    "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[True]",
+    "tests/fake/test_state_contract.py::test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace",
+    "tests/fake/test_state_contract.py::test_c4_4_state_missing_exit_receipt_never_accepts_success",
+    "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[False]",
+    "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[True]",
+    "tests/fake/test_state_contract.py::test_c4_3_state_acceptance_and_notice_share_one_transaction",
+    "tests/fake/test_state_contract.py::test_c8_2_state_deliverable_is_frozen_during_finalization_replay"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 24.201961625003605,
+  "rss": 122781696
+}

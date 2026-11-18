@@ -396,13 +396,23 @@ def test_close_waits_for_a_read_in_progress_and_refuses_later_ones(tmp_path):
     assert store._in_use == {} and store._readers == []
 
 
-def test_close_does_not_wait_forever_for_a_read(tmp_path, monkeypatch):
+@pytest.mark.parametrize("expired_deadline", [False, True])
+def test_close_does_not_wait_forever_for_a_read(tmp_path, monkeypatch, expired_deadline):
     from subfleet import store as store_module
     monkeypatch.setattr(store_module, "CLOSE_WAIT_S", .2)
     store = Store(tmp_path / "state.sqlite3", readers=2)
+    waits = []
+    original_wait = store._returned.wait_for
+
+    def wait(predicate, timeout):
+        waits.append(timeout)
+        return original_wait(predicate, timeout=timeout)
+
+    monkeypatch.setattr(store._returned, "wait_for", wait)
     with Holding(store, 1) as holding:
         started = time.monotonic()
-        store.close()
+        store.close(deadline=started - 1 if expired_deadline else None)
+        assert waits == [0 if expired_deadline else .2]
         assert time.monotonic() - started < 3
         assert len(store._in_use) == 1                     # still reading, on its own open connection
         holding.release.set()
@@ -569,3 +579,40 @@ def test_a_long_read_is_reported_once_with_its_stack(store):
     assert "no checkpoint of the write-ahead log passes it" in reports[0] and "_run" in reports[0]
     watch.sample()
     assert watch._reads_sampled == set()                        # forgotten once it ends
+
+
+# #221 review r1b, P3-9: `julianday(reserved_at) BETWEEN ...` could use no index
+# (20.3 ms against 0.5 ms for an indexable range on 100,000 rows). The 24-hour
+# line is now a range on `attempts_reserved`, in the stored spelling.
+def _restricted_rows(store, rows):
+    with store.transaction("test.restricted") as tx:
+        tx.execute("INSERT INTO lanes(lane_id,provider,account_key,credential_kind,credential_ref,owner,desktop,created_at,updated_at) "
+                   "VALUES ('codex-1','codex','codex:fixture','home','/fake','v2',0,'2026-10-01T00:00:00Z','2026-10-01T00:00:00Z')")
+        for index, (job, reserved_at, capability) in enumerate(rows):
+            tx.execute("INSERT OR IGNORE INTO jobs(job_id,request_id,kind,state,workdir,prompt_path,sandbox,"
+                       "payload_digest,created_at) VALUES (?,?,'dispatch','succeeded','/w','/p','read-only','d',?)",
+                       (job, f"request-{job}", reserved_at))
+            tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,capability,state,reserved_at) "
+                       "VALUES (?,?,?,?,?,?,'succeeded',?)",
+                       (f"{job}/a{index}", job, index, "codex-1", "gpt-6.1-sol", capability, reserved_at))
+
+
+def test_restricted_runs_window_is_an_indexed_range(store):
+    from subfleet.store import RESTRICTED_RUNS_SQL, restricted_window
+    since, until = restricted_window("2026-10-18T12:00:00Z")
+    assert (since, until) == ("2026-10-17T12:00:00Z", "2026-10-18T12:00:00Z")
+    plan = " ".join(row[-1] for row in store.connection.execute("EXPLAIN QUERY PLAN " + RESTRICTED_RUNS_SQL,
+                                                                 (since, until)))
+    assert "USING INDEX attempts_reserved (reserved_at>? AND reserved_at<?)" in plan, plan
+    _restricted_rows(store, [
+        ("job-edge", "2026-10-17T12:00:00Z", "commands"),     # exactly 24 h: in
+        ("job-old", "2026-10-17T11:59:59Z", "none"),          # older: out
+        ("job-none", "2026-10-18T09:00:00Z", "none"),
+        ("job-none", "2026-10-18T10:00:00Z", "commands"),     # one job, counted once
+        ("job-writable", "2026-10-18T09:00:00Z", "writable"),
+        ("job-unlaunched", "2026-10-18T09:00:00Z", None),     # never launched (P3-2)
+        ("job-future", "2026-10-18T12:00:01Z", "none"),
+    ])
+    assert [row["job_id"] for row in store.query(RESTRICTED_RUNS_SQL, (since, until))] == ["job-edge", "job-none"]
+    from datetime import datetime, timezone
+    assert restricted_window(datetime(2026, 10, 18, 12, 0, 0, 123456, tzinfo=timezone.utc)) == (since, until)

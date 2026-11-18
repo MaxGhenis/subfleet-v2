@@ -1,0 +1,35 @@
+{
+  "name": "shared-property-2",
+  "start": "2026-10-29T05:46:14.045646+00:00",
+  "load": [
+    18.60009765625,
+    19.57275390625,
+    22.5810546875
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-011712-pr272-fix-r1",
+  "collected": [
+    "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine"
+  ],
+  "phases": {
+    "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [
+    {
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine",
+      "valid": 400,
+      "invalid": 0,
+      "calls": 490,
+      "settings_max": 400
+    }
+  ],
+  "explicit": {
+    "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine": 12
+  },
+  "mutant": null,
+  "loaded": []
+}

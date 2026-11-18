@@ -1,0 +1,1 @@
+{"label": "mutant-r2-post-read-identity-check-dropped", "queued": "2026-10-31T06:28:59.012940+00:00", "args": ["tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]"], "pid": 94938}

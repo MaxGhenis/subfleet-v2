@@ -1,0 +1,173 @@
+diff --git a/tests/fake/test_detached_retention_fence.py b/tests/fake/test_detached_retention_fence.py
+index 00534203d..ffc12c38e 100644
+--- a/tests/fake/test_detached_retention_fence.py
++++ b/tests/fake/test_detached_retention_fence.py
+@@ -35,8 +35,8 @@ from hypothesis import HealthCheck, example, given, settings, strategies as st
+ from subfleet import folders, render, retention
+ from subfleet import daemon as daemon_module
+ from subfleet import retention_archive as rarch
+-from tests.fake.test_admission_latency import fleet_daemon, submit
+-from tests.fake.test_admission_liveness import _end, _live
++from tests.fake.test_admission_latency import fleet_daemon, measure, submit
++from tests.fake.test_admission_liveness import CODEX, _end, _live
+ from tests.fake.test_writer_retention_fence import checkout, lease, look, measured
+ from tests.unit.retention_world import git, snapshot
+ from tests.unit.test_retention_shared_folders import nested_repository, retiring_tree
+@@ -811,8 +811,8 @@ def test_c8_4_c6_5_detached_reservation_agrees_with_an_oracle_on_any_leases(tmp_
+     that) and any `worktree:` leases on those folders and on the folders above them up
+     to `/`, held by retentions, a gate round or a job:
+     - the job is held before its workspace is prepared exactly when retention holds a
+-      lease on its folder or a folder it is inside (`folders.within`, whole names); its
+-      hold names exactly those keys, once each, all `retiring`, and its folder;
++      lease above its folder or a recorded dependency (`folders.within`, whole names);
++      its hold names all those keys once, and its folder or first needed place;
+     - a worktree writer not so held is held in its reserving transaction exactly when
+       retention holds a lease above the worktree cut for it (the writer's check on its
+       write target), naming those;
+@@ -838,11 +838,18 @@ def test_c8_4_c6_5_detached_reservation_agrees_with_an_oracle_on_any_leases(tmp_
+         @example(shape="worktree", where="sub", held=[(tree, "retention:a"), (nested, "retention:b")])
+         @example(shape="worktree", where="outer", held=[(jobs_dir, "retention:a")])
+         @example(shape="read-only", where="tree", held=[(tree, "20261005-000000-astra")])
++        @example(shape="read-only", where="nested", held=[(places_of["outer"], "retention:a")])
++        @example(shape="read-only", where="nested", held=[("/", "retention:a"),
++                                                          (places_of["outer"], "retention:b")])
+         @given(shape=st.sampled_from(sorted(SHAPES)), where=st.sampled_from(sorted(places_of)),
+                held=st.lists(st.tuples(st.sampled_from(places), st.sampled_from(holders)),
+                              max_size=4, unique_by=lambda pair: pair[0]))
+         def agrees(shape, where, held):
+             count[0] += 1
++            # Each example tests leases with available capacity. Refresh the
++            # fixture's readings rather than aging them across the whole run.
++            for lane_id in CODEX:
++                measure(daemon, lane_id)
+             folder = places_of[where]
+             job_id = detached_in(daemon, harness, folder, shape, caller_session=f"session-{count[0]}")
+             allocated = f"{jobs_dir}/{job_id}"
+@@ -854,14 +861,26 @@ def test_c8_4_c6_5_detached_reservation_agrees_with_an_oracle_on_any_leases(tmp_
+                                    (folders.exclusive_key(place), holder, "now"))
+                 fenced = {folders.exclusive_key(place) for place, holder in held
+                           if holder.startswith("retention:") and folders.within(folder, place)}
++                # Independent comparison of durable submission evidence: a linked
++                # checkout also needs its common repository outside its cwd.
++                depends = daemon._submitted(job_id)["depends"]
++                needs = [("review-root", depends.get("review_root")), ("output", depends.get("out_path")),
++                         *(("git-storage", path) for path in depends.get("git", []))]
++                needed = [(role, path, {folders.exclusive_key(place) for place, holder in held
++                                       if holder.startswith("retention:") and folders.within(path, place)})
++                          for role, path in needs if path]
++                needed = [(role, path, keys) for role, path, keys in needed if keys]
++                early = fenced | {key for _, _, keys in needed for key in keys}
+                 above_tree = {folders.exclusive_key(place) for place, holder in held
+                               if holder.startswith("retention:") and folders.within(allocated, place)
+                               } if shape == "worktree" else set()
+                 hold = look(daemon, job_id)
+-                if fenced:
++                if early:
+                     assert not _live(daemon, job_id) and workspaces.calls == [], (shape, where, held, hold)
+-                    assert hold["reason"] == "lease-held" and hold["folder"] == folder, (shape, where, held, hold)
+-                    assert sorted(hold["leases"]) == sorted(hold["retiring"]) == sorted(fenced), (shape, where, held, hold)
++                    role, named = (None, folder) if fenced else needed[0][:2]
++                    assert hold["reason"] == "lease-held" and hold["folder"] == named, (shape, where, held, hold)
++                    assert hold.get("needs") == role, hold
++                    assert sorted(hold["leases"]) == sorted(hold["retiring"]) == sorted(early), (shape, where, held, hold)
+                     assert len(hold["leases"]) == len(set(hold["leases"])), hold
+                 elif above_tree:
+                     assert not _live(daemon, job_id) and workspaces.calls == [job_id], (shape, where, held, hold)
+diff --git a/tests/fake/test_writer_retention_fence.py b/tests/fake/test_writer_retention_fence.py
+index 229b45dcf..5aa2c5b83 100644
+--- a/tests/fake/test_writer_retention_fence.py
++++ b/tests/fake/test_writer_retention_fence.py
+@@ -291,8 +291,8 @@ def test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases(tmp_pa
+     harness's checkout and a repository nested in that) and any `worktree:` leases on
+     those folders and on the folders above them up to `/`, held by retentions, a gate
+     round or a job: the writer is held exactly when a lease is on its own folder (any
+-    holder, contested as before) or retention holds one on a folder it is inside
+-    (`folders.within`, whole names). While retention's fence covers its folder, its hold
++    holder, contested as before) or retention holds one above its folder or a recorded
++    dependency (`folders.within`, whole names). While a retention fence covers either, its hold
+     names exactly the fences, once each, all `retiring`: the look before its workspace
+     is prepared holds it there whatever else it would also wait for (C-8.4). Otherwise
+     its hold names exactly its own key, not `retiring`; and with neither it is placed on
+@@ -319,6 +319,8 @@ def test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases(tmp_pa
+         @example(where="outer-nested", held=[("/", "retention:a"), (writers["outer-nested"], "gate-round:g")])
+         @example(where="nested", held=[(nested, "gate-round:g")])
+         @example(where="nested", held=[(nested, "retention:b"), (tree, "retention:a")])
++        @example(where="nested", held=[(writers["outer"], "retention:a")])
++        @example(where="nested", held=[("/", "retention:a"), (writers["outer"], "retention:b")])
+         @given(where=st.sampled_from(sorted(writers)),
+                held=st.lists(st.tuples(st.sampled_from(places), st.sampled_from(holders)),
+                              max_size=4, unique_by=lambda pair: pair[0]))
+@@ -333,8 +335,12 @@ def test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases(tmp_pa
+                     for place, holder in held:
+                         tx.execute("INSERT INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)",
+                                    (folders.exclusive_key(place), holder, "now"))
++                depends = daemon._submitted(writer)["depends"]
++                needed = [folder, depends.get("review_root"), depends.get("out_path"),
++                          *depends.get("git", [])]
+                 fenced = {folders.exclusive_key(place) for place, holder in held
+-                          if holder.startswith("retention:") and folders.within(folder, place)}
++                          if holder.startswith("retention:")
++                          and any(folders.within(path, place) for path in needed if path)}
+                 expected = fenced or {folders.exclusive_key(place) for place, holder in held if place == folder}
+                 hold = look(daemon, writer)
+                 if expected:
+diff --git a/tests/unit/test_retention_rediscovery.py b/tests/unit/test_retention_rediscovery.py
+index 46538c56b..40fdce216 100644
+--- a/tests/unit/test_retention_rediscovery.py
++++ b/tests/unit/test_retention_rediscovery.py
+@@ -102,7 +102,7 @@ def test_an_unspelled_turns_look_reads_the_external_top_its_reservation_names(tm
+             folders.canonical(job["workdir"]),
+         )
+         # Isolate the reserving transaction as the differential property does.
+-        patch.setattr(daemon, "_fence_hold", lambda *args: False)
++        patch.setattr(daemon, "_fence_hold", lambda *args, **kwargs: False)
+         daemon._admit_turns()
+         reservation = daemon._holds.get(turn) or {}
+         assert not _live(daemon, turn)
+@@ -310,7 +310,7 @@ def test_the_look_holds_on_retentions_fences_alone_where_the_transaction_names_e
+         # excluding the workspace snapshot as the generated differential does.
+         daemon.store.update_job(turn, state="queued", wait_reason=None, next_check_at=None)
+         daemon._capacity_waits.pop(turn)
+-        patch.setattr(daemon, "_fence_hold", lambda *args: False)
++        patch.setattr(daemon, "_fence_hold", lambda *args, **kwargs: False)
+         patch.setattr(daemon, "_workspace", lambda current: (nested, None, None, []))
+         daemon._admit_turns()
+         reserved = dict(daemon._holds[turn])
+diff --git a/tests/unit/test_retention_shared_folders.py b/tests/unit/test_retention_shared_folders.py
+index 4ded08fc7..e18e7ae93 100644
+--- a/tests/unit/test_retention_shared_folders.py
++++ b/tests/unit/test_retention_shared_folders.py
+@@ -797,7 +797,7 @@ def test_early_fences_equal_reservation_before_and_after_quarantine(tmp_path):
+                     daemon._capacity_waits.pop(turn, None)
+                     daemon._workspace_deferrals.pop(turn, None)
+                     prepared.clear()
+-                    patch.setattr(daemon, "_fence_hold", fence_hold if path == "look" else lambda *args: False)
++                    patch.setattr(daemon, "_fence_hold", fence_hold if path == "look" else lambda *args, **kwargs: False)
+                     daemon._admit_turns()
+                     hold = daemon._holds.get(turn, {})
+                     # The look holds a fenced turn before its workspace; otherwise it is prepared.
+@@ -864,12 +864,22 @@ def test_a_fence_taken_after_the_look_read_none_is_the_transactions_to_hold(tmp_
+ 
+         def taken(read, folder, *, folded=False):
+             found = real(read, folder, folded=folded)
+-            if not reads:
+-                assert daemon.store.acquire_lease(folders.exclusive_key(tree), "retention:retired")
+             reads.append(found)
+             return found
+ 
+         patch.setattr(folders, "retiring", taken)
++        look, landed = daemon._fence_hold, []
++
++        def after_look(*args, **kwargs):
++            held = look(*args, **kwargs)
++            if not landed:
++                # The complete early look includes recorded dependencies now.
++                assert not held
++                assert daemon.store.acquire_lease(folders.exclusive_key(tree), "retention:retired")
++                landed.append(True)
++            return held
++
++        patch.setattr(daemon, "_fence_hold", after_look)
+         spawned = git_spawns(patch)
+         daemon._admit_turns()
+         assert reads[:2] == [[], [folders.exclusive_key(tree)]], reads

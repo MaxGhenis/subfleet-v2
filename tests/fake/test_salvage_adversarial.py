@@ -77,7 +77,10 @@ def test_nested_repository_and_non_utf8_failure_end_after_bounded_retries(
 
 
 @pytest.mark.parametrize("turn", [False, True], ids=["detached", "turn"])
-def test_removed_workspace_during_finalization_records_failure_and_replays(state_daemon, turn):
+def test_removed_workspace_during_finalization_is_recorded_once_and_replays(state_daemon, turn):
+    """A turn's end snapshot of a removed workspace fails as git says. A detached job's salvage
+    records that the worktree is gone, which is no failure (D-SALV-MISSING1; release/217 recorded
+    `salvage failed: git rev-parse failed`). Either receipt is replayed unchanged."""
     daemon, harness = state_daemon
     workdir, job_id, attempt, adir = ending(daemon, harness, turn)
     moved = workdir.with_name(workdir.name + "-removed")
@@ -88,10 +91,13 @@ def test_removed_workspace_during_finalization_records_failure_and_replays(state
         assert lane_leases(daemon) == []
         receipt_path = adir / ("trees.json" if turn else "salvage.json")
         original = receipt_path.read_bytes()
-        stage = "end snapshot" if turn else "salvage"
-        assert json.loads(original)["error"] == f"{stage} failed: git rev-parse failed (exit 128); daemon.log has its output"
-        daemon._log_handler.flush()
-        assert "No such file or directory" in (daemon.root / "daemon.log").read_text()       # git's own words
+        if turn:
+            assert json.loads(original)["error"] == "end snapshot failed: git rev-parse failed (exit 128); daemon.log has its output"
+            daemon._log_handler.flush()
+            assert "No such file or directory" in (daemon.root / "daemon.log").read_text()       # git's own words
+        else:
+            assert json.loads(original) == {"result": None, "checkpoint": None, "error": None, "skipped": [],
+                                            "gone": True}
         daemon._finalize(attempt)
         assert receipt_path.read_bytes() == original
         assert (moved / "tracked.txt").read_text() == "provider progress\n"

@@ -1,0 +1,18 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 06:23:31Z slot B load 
+ADMITTED 2026-10-29T06:23:31.653264+00:00 LOAD (14.1904296875, 19.2939453125, 21.78271484375)
+......................................                                   [100%]OBSERVATION {"engines": [{"nodeid": "tests/unit/test_retention_folded_pin.py::test_the_pin_keeps_a_tree_exactly_when_the_folded_fence_holds_the_job", "valid": 500, "invalid": 11, "calls": 724, "settings_max": 500}, {"nodeid": "tests/unit/test_retention_folded_pin.py::test_dependency_hold_names_every_place_the_canonical_caseless_query_blocks", "valid": 100, "invalid": 0, "calls": 146, "settings_max": 100}, {"nodeid": "tests/unit/test_retention_folded_pin.py::test_on_the_volume_the_pin_keeps_a_tree_exactly_when_the_fence_holds_the_job", "valid": 150, "invalid": 0, "calls": 174, "settings_max": 150}], "explicit": {"tests/unit/test_retention_folded_pin.py::test_the_pin_keeps_a_tree_exactly_when_the_folded_fence_holds_the_job": 3, "tests/unit/test_retention_folded_pin.py::test_dependency_hold_names_every_place_the_canonical_caseless_query_blocks": 1}, "mutant": null, "loaded": []}
+
+=============================== warnings summary ===============================
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; _hypothesis_globals
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; hypothesis
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+38 passed, 2 warnings in 74.43s (0:01:14)

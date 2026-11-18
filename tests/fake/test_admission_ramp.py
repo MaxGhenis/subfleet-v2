@@ -23,7 +23,7 @@ import pytest
 from subfleet import capacity as capacity_module, daemon as daemon_module, scheduler, store as store_module
 from subfleet.contracts import Outcome, OutcomeClass
 from subfleet.disk import GB, epoch
-from subfleet.policy import MACHINE_GUARD_PROPOSAL
+from tests.machine_guard_reference import LEGACY_GUARD
 from tests.fake.test_admission_latency import add_codex_lanes, fleet_daemon, measure, submit_turn
 from tests.fake.test_state_contract import state_daemon  # noqa: F401
 from tests.unit.test_disk_admission import stamp
@@ -704,6 +704,12 @@ def first_difference(actual, previous, path="passes"):
 
 
 @DIFFERENTIAL
+@example(queue=[("ordinary", "trivial", "codex-1")], enabled=False, cap=None,
+         initial=180, advance=0, gate=None, restart=False)
+@example(queue=[("ordinary", "trivial", "codex-1")], enabled=False, cap=None,
+         initial=0, advance=0, gate=None, restart=False)
+@example(queue=[("ordinary", "hard", "codex-1")], enabled=False, cap=None,
+         initial=2910, advance=58, gate="disk", restart=False)
 @example(queue=[("ordinary", "trivial", None)] * 3, enabled=False, cap=None,
          initial=36, advance=0, gate="disk", restart=True)
 @given(queue=QUEUES, enabled=st.sampled_from([False, None]), cap=st.sampled_from([None, 1, 3]),
@@ -734,7 +740,7 @@ def test_disabled_absent_matches_frozen_pre_change_pass(tmp_path_factory, queue,
             if gate == "disk":
                 service.policy["admission"]["disk"]["enabled"] = True
             elif gate == "machine":
-                service.policy["admission"]["machine_guard"] = copy.deepcopy(MACHINE_GUARD_PROPOSAL)
+                service.policy["admission"]["machine_guard"] = copy.deepcopy(LEGACY_GUARD)
             for lane in service.store.list_lanes():
                 measure(service, lane.lane_id)
             jobs = [submit(service, harness, request_id=f"differential-{n}", caller_session=caller,

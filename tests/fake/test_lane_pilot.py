@@ -561,11 +561,12 @@ OPS = st.lists(st.sampled_from(["submit", "submit3", "admit", "admit", "answer",
 # Each `random.Random(0)` is built once and shared by the property and its mutation tests;
 # no example draws from it (one job, or no op that picks). One that does needs its own.
 @example(lanes=1, ops=["submit3", "admit"], pick=random.Random(0))     # the burst; its mutation meets it every run
+@example(lanes=2, ops=["submit", "admit", "finish-dead", "submit"], pick=random.Random(0))
 def test_c6_14_a_cold_lane_never_takes_a_second_unanswered_attempt(tmp_path_factory, lanes, ops, pick):
     """For any order of submissions, passes, answers, ends (on a lane that works or one
     that has gone auth-dead) and lanes going idle past the window:
 
-    - a pass never places an attempt on a lane that was unproven at the pass and already
+    - a pass never places an attempt on a lane that stays unproven during the pass and already
       had a detached attempt in flight that had not answered, and places at most one on
       an unproven lane that had none;
     - no job is held `lane-proving` unless some lane it could use has a pilot in flight
@@ -591,12 +592,17 @@ def test_c6_14_a_cold_lane_never_takes_a_second_unanswered_attempt(tmp_path_fact
         def admit():
             due(service)
             cold, before, unanswered = snapshot()
+            answers = dict(service._lane_answers)
             service._admit()
             new: dict[str, int] = {}
             for row in placed(service):
                 if row["attempt_id"] not in before:
                     new[row["lane_id"]] = new.get(row["lane_id"], 0) + 1
             for lane_id in cold:
+                # A moved-on job can trigger C-11.4's admission probe. Its
+                # successful model answer proves the lane during this pass.
+                if service._lane_answers.get(lane_id) != answers.get(lane_id):
+                    continue
                 assert new.get(lane_id, 0) <= (0 if unanswered.get(lane_id) else 1), (lane_id, new, unanswered)
             pilots = {row["lane_id"] for row in placed(service) if row["attempt_id"] not in service._attempt_answers}
             for job_id, hold in service._holds.items():

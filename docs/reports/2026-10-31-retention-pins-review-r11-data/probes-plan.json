@@ -1,0 +1,36 @@
+[
+  [
+    "route-independent",
+    [
+      "-p",
+      "tests.conftest",
+      "review-r11-data/round_probes.py"
+    ]
+  ],
+  [
+    "transaction-controls",
+    [
+      "-p",
+      "tests.conftest",
+      "review-r11-data/transaction_probes.py",
+      "-k",
+      "terminal_gone or recorded_link_entry or unused_link_width or r8_owner"
+    ]
+  ],
+  [
+    "edge-controls",
+    [
+      "-p",
+      "tests.conftest",
+      "review-r11-data/edge_probes.py"
+    ]
+  ],
+  [
+    "reader-differences",
+    [
+      "-p",
+      "tests.conftest",
+      "review-r11-data/reader_probes.py"
+    ]
+  ]
+]

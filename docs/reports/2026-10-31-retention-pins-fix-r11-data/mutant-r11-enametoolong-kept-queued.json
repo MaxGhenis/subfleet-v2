@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T18:39:16.675256+00:00",
+  "args": [
+    "--mutant",
+    "r11-enametoolong-kept",
+    "tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-ENAMETOOLONG]"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r11/real-tmp/mutant-r11-enametoolong-kept",
+  "linked": false,
+  "driver_pid": 57866,
+  "lock_process_group": 58127
+}

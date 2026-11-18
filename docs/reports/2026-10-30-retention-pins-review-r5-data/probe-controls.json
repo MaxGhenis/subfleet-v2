@@ -1,0 +1,50 @@
+{
+  "label": "probe-controls",
+  "start": "2026-10-30T14:16:28.958448+00:00",
+  "loads": [
+    28.591796875,
+    17.93115234375,
+    12.16748046875
+  ],
+  "seconds": 16.67314687500766,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "probes.py::test_changes[same-size-running]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.687562291001086
+    },
+    {
+      "nodeid": "probes.py::test_changes[symlink-info-running]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.7869431669969345
+    }
+  ],
+  "nodes": [
+    "probes.py::test_changes[same-size-running]",
+    "probes.py::test_changes[symlink-info-running]"
+  ],
+  "all_nodes": [
+    "probes.py::test_changes[same-size-running]",
+    "probes.py::test_changes[symlink-info-running]"
+  ],
+  "phases": {
+    "probes.py::test_changes[same-size-running]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "probes.py::test_changes[symlink-info-running]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 118505472
+}

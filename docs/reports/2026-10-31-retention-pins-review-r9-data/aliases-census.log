@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 08:42:06Z slot A load 
+............                                                             [100%]
+12 passed in 7.06s
+{"name": "aliases-census", "start": "2026-10-31T08:42:07.957526+00:00", "load": [32.6630859375, 32.51416015625, 31.02490234375], "seconds": 8.223280958001851, "exit": 0}

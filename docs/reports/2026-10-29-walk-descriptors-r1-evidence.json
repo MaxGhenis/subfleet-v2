@@ -1,0 +1,943 @@
+{
+  "base": "b1996dcf6bed875d7f781c6527c81f2abcc87fab",
+  "fixed_source_sha256": "0a54853fb58923320a4ea066a23acd041a921683699b8507e7d7d98f958d3128",
+  "regression_invocations": [
+    [
+      "A1",
+      [
+        "tests/unit/test_retention_archive.py",
+        "-m",
+        "not real_lsof",
+        "-k",
+        "test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit or test_bundle_alone_restores_the_commits_in_a_fresh_clone or test_scratch_source_clone_deleted_after_retirement_is_still_restorable or test_clone_of_a_local_repository_carries_its_whole_history or test_temporary_directory_source_is_scratch_by_default or test_blob_only_in_a_local_branch_is_archived_not_omitted or test_local_path_remote_is_not_a_remote or test_borrowed_or_shallow_object_store_is_scratch or test_a_remote_on_this_machine_is_no_network_remote or test_network_url_classification or test_corrupted_loose_object_is_not_trusted_for_omission or test_object_reader_hashes_every_byte or test_anchor_is_deterministic_and_create_is_idempotent or test_rollback_after_anchoring_then_next_pass_retires or test_pinned_at_commit_rolls_back_then_retires_when_unpinned or test_every_commit_only_the_admin_directory_names_survives_gc or test_file_written_after_the_final_check_is_kept_in_conflicts or test_new_file_before_commit_rolls_back_the_job or test_parked_jobs_take_turns_at_the_pass_time or test_a_slow_archive_parks_while_other_jobs_retire_in_the_same_pass or test_a_busy_oldest_job_does_not_block_the_queue or test_a_failed_process_listing_defers_the_batch or test_batch_bounds_a_pass_and_takes_the_oldest_first or test_a_pool_over_its_count_is_pruned_without_sizing_everything or test_an_unmeasurable_job_is_decided_and_backs_off or test_a_persistent_error_keeps_the_cache_and_backs_off or test_a_slice_moves_forward_when_one_file_outlasts_it or test_a_slice_moves_forward_when_the_cached_rewalk_outlasts_it or test_interrupted_removal_resumes_and_leaves_no_half_tree or test_a_crash_at_any_step_is_recovered_by_the_next_pass"
+      ]
+    ],
+    [
+      "A2",
+      [
+        "tests/unit/test_retention_archive.py",
+        "-m",
+        "not real_lsof",
+        "-k",
+        "not (test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit or test_bundle_alone_restores_the_commits_in_a_fresh_clone or test_scratch_source_clone_deleted_after_retirement_is_still_restorable or test_clone_of_a_local_repository_carries_its_whole_history or test_temporary_directory_source_is_scratch_by_default or test_blob_only_in_a_local_branch_is_archived_not_omitted or test_local_path_remote_is_not_a_remote or test_borrowed_or_shallow_object_store_is_scratch or test_a_remote_on_this_machine_is_no_network_remote or test_network_url_classification or test_corrupted_loose_object_is_not_trusted_for_omission or test_object_reader_hashes_every_byte or test_anchor_is_deterministic_and_create_is_idempotent or test_rollback_after_anchoring_then_next_pass_retires or test_pinned_at_commit_rolls_back_then_retires_when_unpinned or test_every_commit_only_the_admin_directory_names_survives_gc or test_file_written_after_the_final_check_is_kept_in_conflicts or test_new_file_before_commit_rolls_back_the_job or test_parked_jobs_take_turns_at_the_pass_time or test_a_slow_archive_parks_while_other_jobs_retire_in_the_same_pass or test_a_busy_oldest_job_does_not_block_the_queue or test_a_failed_process_listing_defers_the_batch or test_batch_bounds_a_pass_and_takes_the_oldest_first or test_a_pool_over_its_count_is_pruned_without_sizing_everything or test_an_unmeasurable_job_is_decided_and_backs_off or test_a_persistent_error_keeps_the_cache_and_backs_off or test_a_slice_moves_forward_when_one_file_outlasts_it or test_a_slice_moves_forward_when_the_cached_rewalk_outlasts_it or test_interrupted_removal_resumes_and_leaves_no_half_tree or test_a_crash_at_any_step_is_recovered_by_the_next_pass)"
+      ]
+    ],
+    [
+      "T",
+      [
+        "tests/unit/test_retention_turns.py"
+      ]
+    ],
+    [
+      "S1",
+      [
+        "tests/unit/test_retention_sweep_race.py",
+        "-k",
+        "not test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree"
+      ]
+    ],
+    [
+      "RDB",
+      [
+        "tests/unit/test_retention_readback.py"
+      ]
+    ],
+    [
+      "RG",
+      [
+        "tests/unit/test_retention_regenerable.py"
+      ]
+    ],
+    [
+      "RGP",
+      [
+        "tests/unit/test_retention_regenerable_properties.py"
+      ]
+    ],
+    [
+      "TI",
+      [
+        "tests/unit/test_timers_retention.py"
+      ]
+    ],
+    [
+      "FD",
+      [
+        "tests/fake/test_attempt_tmpdir_daemon.py"
+      ]
+    ],
+    [
+      "FL",
+      [
+        "tests/fake/test_attempt_tmpdir_leaks_daemon.py"
+      ]
+    ],
+    [
+      "UG",
+      [
+        "tests/unit/test_attempt_tmpdir_guardian.py"
+      ]
+    ],
+    [
+      "UL",
+      [
+        "tests/unit/test_attempt_tmpdir_leaks.py"
+      ]
+    ],
+    [
+      "UC",
+      [
+        "tests/unit/test_attempt_tmpdir_lifecycle.py"
+      ]
+    ],
+    [
+      "UM",
+      [
+        "tests/unit/test_attempt_tmpdir_mutations.py"
+      ]
+    ],
+    [
+      "UR",
+      [
+        "tests/unit/test_attempt_tmpdir_retention.py"
+      ]
+    ],
+    [
+      "US",
+      [
+        "tests/unit/test_attempt_tmpdir_sandboxes.py"
+      ]
+    ],
+    [
+      "C1",
+      [
+        "tests/fake/test_state_contract.py"
+      ]
+    ],
+    [
+      "C2",
+      [
+        "tests/unit/test_test_module_names.py"
+      ]
+    ],
+    [
+      "C3",
+      [
+        "tests/unit/test_invariants_index.py"
+      ]
+    ],
+    [
+      "S2E",
+      [
+        "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree"
+      ]
+    ],
+    [
+      "S2G",
+      [
+        "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree"
+      ]
+    ]
+  ],
+  "incomplete_runs": [
+    {
+      "run": "S2",
+      "start": "2026-10-29T14:59:23.897818+00:00",
+      "load": [
+        21.19873046875,
+        21.34619140625,
+        24.28564453125
+      ],
+      "test_args": [
+        "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree"
+      ],
+      "driver_exitstatus": 130,
+      "result": "interrupted; no session-finish record",
+      "interrupted_by": "native tool Ctrl-C near the ten-minute cap",
+      "process_gone_confirmed": true
+    }
+  ],
+  "runs": [
+    {
+      "run": "R",
+      "files": {
+        "tests/unit/test_retention_descriptor_review.py": {
+          "start": "2026-10-29T14:45:31.729092+00:00",
+          "load": [
+            15.64892578125,
+            22.86474609375,
+            29.97509765625
+          ],
+          "counts": {
+            "passed": 38,
+            "failed": 9
+          }
+        }
+      },
+      "start": "2026-10-29T14:45:26.527475+00:00",
+      "load": [
+        15.966796875,
+        23.04833984375,
+        30.0810546875
+      ],
+      "exitstatus": 1,
+      "duration": 9.518884999997681,
+      "end": "2026-10-29T14:45:36.046735+00:00",
+      "failed_nodeids": [
+        "tests/unit/test_retention_descriptor_review.py::test_walk_cleanup_interruption_closes_remaining_children[close]",
+        "tests/unit/test_retention_descriptor_review.py::test_walk_cleanup_interruption_closes_remaining_children[throw]",
+        "tests/unit/test_retention_descriptor_review.py::test_repository_cleanup_interruption_closes_remaining_children",
+        "tests/unit/test_retention_descriptor_review.py::test_descent_close_failure_owns_new_child[False-path]",
+        "tests/unit/test_retention_descriptor_review.py::test_descent_close_failure_owns_new_child[False-conflict]",
+        "tests/unit/test_retention_descriptor_review.py::test_descent_close_failure_owns_new_child[False-set-aside]",
+        "tests/unit/test_retention_descriptor_review.py::test_descent_close_failure_owns_new_child[True-path]",
+        "tests/unit/test_retention_descriptor_review.py::test_descent_close_failure_owns_new_child[True-conflict]",
+        "tests/unit/test_retention_descriptor_review.py::test_descent_close_failure_owns_new_child[True-set-aside]"
+      ]
+    },
+    {
+      "run": "P1",
+      "files": {
+        "tests/unit/test_retention_descriptor_review.py": {
+          "start": "2026-10-29T14:46:13.907945+00:00",
+          "load": [
+            19.70068359375,
+            23.05322265625,
+            29.7197265625
+          ],
+          "counts": {
+            "passed": 6
+          }
+        }
+      },
+      "start": "2026-10-29T14:46:09.569691+00:00",
+      "load": [
+        19.15234375,
+        23.00390625,
+        29.74169921875
+      ],
+      "exitstatus": 0,
+      "duration": 6.3269095410068985,
+      "end": "2026-10-29T14:46:15.897034+00:00",
+      "failed_nodeids": []
+    },
+    {
+      "run": "G",
+      "files": {
+        "tests/unit/test_retention_descriptor_review.py": {
+          "start": "2026-10-29T14:47:06.648020+00:00",
+          "load": [
+            22.36962890625,
+            23.25390625,
+            29.37548828125
+          ],
+          "counts": {
+            "passed": 47
+          }
+        }
+      },
+      "start": "2026-10-29T14:47:02.095043+00:00",
+      "load": [
+        22.6630859375,
+        23.326171875,
+        29.43701171875
+      ],
+      "exitstatus": 0,
+      "duration": 7.5936408750130795,
+      "end": "2026-10-29T14:47:09.689606+00:00",
+      "failed_nodeids": []
+    },
+    {
+      "run": "W1",
+      "files": {
+        "tests/unit/test_retention_walk_descriptors.py": {
+          "start": "2026-10-29T14:47:36.254206+00:00",
+          "load": [
+            20.62451171875,
+            22.78076171875,
+            29.02734375
+          ],
+          "counts": {
+            "passed": 20
+          }
+        }
+      },
+      "start": "2026-10-29T14:47:34.529095+00:00",
+      "load": [
+        20.62451171875,
+        22.78076171875,
+        29.02734375
+      ],
+      "exitstatus": 0,
+      "duration": 4.723306291998597,
+      "end": "2026-10-29T14:47:39.252777+00:00",
+      "failed_nodeids": []
+    },
+    {
+      "run": "W2",
+      "files": {
+        "tests/unit/test_retention_walk_descriptors.py": {
+          "start": "2026-10-29T14:48:55.998157+00:00",
+          "load": [
+            16.64111328125,
+            21.021484375,
+            27.79345703125
+          ],
+          "counts": {
+            "passed": 20
+          }
+        }
+      },
+      "start": "2026-10-29T14:48:50.062043+00:00",
+      "load": [
+        17.2197265625,
+        21.2080078125,
+        27.8984375
+      ],
+      "exitstatus": 0,
+      "duration": 10.876554792004754,
+      "end": "2026-10-29T14:49:00.940076+00:00",
+      "failed_nodeids": []
+    },
+    {
+      "run": "W3",
+      "files": {
+        "tests/unit/test_retention_walk_descriptors.py": {
+          "start": "2026-10-29T14:49:05.135351+00:00",
+          "load": [
+            16.59619140625,
+            20.87109375,
+            27.6611328125
+          ],
+          "counts": {
+            "passed": 20
+          }
+        }
+      },
+      "start": "2026-10-29T14:49:03.955077+00:00",
+      "load": [
+        16.59619140625,
+        20.87109375,
+        27.6611328125
+      ],
+      "exitstatus": 0,
+      "duration": 5.932622833002824,
+      "end": "2026-10-29T14:49:09.888270+00:00",
+      "failed_nodeids": []
+    },
+    {
+      "run": "W4",
+      "files": {
+        "tests/unit/test_retention_walk_descriptors.py": {
+          "start": "2026-10-29T14:49:20.465976+00:00",
+          "load": [
+            15.69970703125,
+            20.46728515625,
+            27.3984375
+          ],
+          "counts": {
+            "passed": 20
+          }
+        }
+      },
+      "start": "2026-10-29T14:49:16.043752+00:00",
+      "load": [
+        16.283203125,
+        20.6611328125,
+        27.50732421875
+      ],
+      "exitstatus": 0,
+      "duration": 6.629025333997561,
+      "end": "2026-10-29T14:49:22.673159+00:00",
+      "failed_nodeids": []
+    },
+    {
+      "run": "W5",
+      "files": {
+        "tests/unit/test_retention_walk_descriptors.py": {
+          "start": "2026-10-29T14:49:27.548236+00:00",
+          "load": [
+            18.55126953125,
+            20.9404296875,
+            27.486328125
+          ],
+          "counts": {
+            "passed": 20
+          }
+        }
+      },
+      "start": "2026-10-29T14:49:26.313222+00:00",
+      "load": [
+        18.6865234375,
+        21.00732421875,
+        27.54833984375
+      ],
+      "exitstatus": 0,
+      "duration": 6.87442262499826,
+      "end": "2026-10-29T14:49:33.187975+00:00",
+      "failed_nodeids": []
+    },
+    {
+      "run": "A1",
+      "files": {
+        "tests/unit/test_retention_archive.py": {
+          "start": "2026-10-29T14:50:28.908734+00:00",
+          "load": [
+            19.99560546875,
+            20.80810546875,
+            26.98291015625
+          ],
+          "counts": {
+            "passed": 38
+          }
+        }
+      },
+      "start": "2026-10-29T14:50:27.844674+00:00",
+      "load": [
+        19.99560546875,
+        20.80810546875,
+        26.98291015625
+      ],
+      "exitstatus": 0,
+      "duration": 169.09016995799902,
+      "end": "2026-10-29T14:53:16.938149+00:00",
+      "failed_nodeids": []
+    },
+    {
+      "run": "A2",
+      "files": {
+        "tests/unit/test_retention_archive.py": {
+          "start": "2026-10-29T14:53:22.058005+00:00",
+          "load": [
+            17.51904296875,
+            20.1953125,
+            25.63623046875
+          ],
+          "counts": {
+            "passed": 70
+          }
+        }
+      },
+      "start": "2026-10-29T14:53:21.376852+00:00",
+      "load": [
+        17.4775390625,
+        20.232421875,
+        25.681640625
+      ],
+      "exitstatus": 0,
+      "duration": 244.07130679099646,
+      "end": "2026-10-29T14:57:25.452851+00:00",
+      "failed_nodeids": []
+    },
+    {
+      "run": "T",
+      "files": {
+        "tests/unit/test_retention_turns.py": {
+          "start": "2026-10-29T14:58:15.315374+00:00",
+          "load": [
+            22.05029296875,
+            20.84130859375,
+            24.33740234375
+          ],
+          "counts": {
+            "passed": 7
+          }
+        }
+      },
+      "start": "2026-10-29T14:58:14.725171+00:00",
+      "load": [
+        22.05029296875,
+        20.84130859375,
+        24.33740234375
+      ],
+      "exitstatus": 0,
+      "duration": 5.478428665999672,
+      "end": "2026-10-29T14:58:20.208616+00:00",
+      "failed_nodeids": []
+    },
+    {
+      "run": "S1",
+      "files": {
+        "tests/unit/test_retention_sweep_race.py": {
+          "start": "2026-10-29T14:58:31.886635+00:00",
+          "load": [
+            26.52880859375,
+            22.0400390625,
+            24.69091796875
+          ],
+          "counts": {
+            "passed": 12
+          }
+        }
+      },
+      "start": "2026-10-29T14:58:29.595077+00:00",
+      "load": [
+        26.92333984375,
+        22.041015625,
+        24.70703125
+      ],
+      "exitstatus": 0,
+      "duration": 42.53489758299838,
+      "end": "2026-10-29T14:59:12.130910+00:00",
+      "failed_nodeids": []
+    },
+    {
+      "run": "RDB",
+      "files": {
+        "tests/unit/test_retention_readback.py": {
+          "start": "2026-10-29T15:09:45.720088+00:00",
+          "load": [
+            26.86572265625,
+            29.53173828125,
+            28.33642578125
+          ],
+          "counts": {
+            "passed": 37
+          }
+        }
+      },
+      "start": "2026-10-29T15:09:43.832672+00:00",
+      "load": [
+        26.86572265625,
+        29.53173828125,
+        28.33642578125
+      ],
+      "exitstatus": 0,
+      "duration": 228.21345141700294,
+      "end": "2026-10-29T15:13:32.049800+00:00",
+      "failed_nodeids": []
+    },
+    {
+      "run": "RG",
+      "files": {
+        "tests/unit/test_retention_regenerable.py": {
+          "start": "2026-10-29T15:15:41.206047+00:00",
+          "load": [
+            47.36474609375,
+            37.095703125,
+            31.73193359375
+          ],
+          "counts": {
+            "passed": 26
+          }
+        }
+      },
+      "start": "2026-10-29T15:15:38.458275+00:00",
+      "load": [
+        47.36474609375,
+        37.095703125,
+        31.73193359375
+      ],
+      "exitstatus": 0,
+      "duration": 197.77945550000004,
+      "end": "2026-10-29T15:18:56.241605+00:00",
+      "failed_nodeids": []
+    },
+    {
+      "run": "RGP",
+      "files": {
+        "tests/unit/test_retention_regenerable_properties.py": {
+          "start": "2026-10-29T15:19:20.539969+00:00",
+          "load": [
+            26.4189453125,
+            34.12451171875,
+            31.9013671875
+          ],
+          "counts": {
+            "passed": 1
+          }
+        }
+      },
+      "start": "2026-10-29T15:19:18.552270+00:00",
+      "load": [
+        26.4189453125,
+        34.12451171875,
+        31.9013671875
+      ],
+      "exitstatus": 0,
+      "duration": 81.04890125000384,
+      "end": "2026-10-29T15:20:39.602778+00:00",
+      "failed_nodeids": []
+    },
+    {
+      "run": "TI",
+      "files": {
+        "tests/unit/test_timers_retention.py": {
+          "start": "2026-10-29T15:20:52.294394+00:00",
+          "load": [
+            18.60302734375,
+            29.5615234375,
+            30.380859375
+          ],
+          "counts": {
+            "passed": 20
+          }
+        }
+      },
+      "start": "2026-10-29T15:20:50.495864+00:00",
+      "load": [
+        19.00390625,
+        29.82470703125,
+        30.4775390625
+      ],
+      "exitstatus": 0,
+      "duration": 10.82349058300315,
+      "end": "2026-10-29T15:21:01.319712+00:00",
+      "failed_nodeids": []
+    },
+    {
+      "run": "FD",
+      "files": {
+        "tests/fake/test_attempt_tmpdir_daemon.py": {
+          "start": "2026-10-29T15:21:52.756633+00:00",
+          "load": [
+            28.42578125,
+            30.5751953125,
+            30.7109375
+          ],
+          "counts": {
+            "passed": 24
+          }
+        }
+      },
+      "start": "2026-10-29T15:21:42.339913+00:00",
+      "load": [
+        29.18115234375,
+        30.7841796875,
+        30.78515625
+      ],
+      "exitstatus": 0,
+      "duration": 50.34836883300159,
+      "end": "2026-10-29T15:22:32.689496+00:00",
+      "failed_nodeids": []
+    },
+    {
+      "run": "FL",
+      "files": {
+        "tests/fake/test_attempt_tmpdir_leaks_daemon.py": {
+          "start": "2026-10-29T15:23:12.681389+00:00",
+          "load": [
+            36.36279296875,
+            33.0439453125,
+            31.6630859375
+          ],
+          "counts": {
+            "passed": 8
+          }
+        }
+      },
+      "start": "2026-10-29T15:23:01.230149+00:00",
+      "load": [
+        37.55859375,
+        33.0966796875,
+        31.6572265625
+      ],
+      "exitstatus": 0,
+      "duration": 22.088257458002772,
+      "end": "2026-10-29T15:23:23.318972+00:00",
+      "failed_nodeids": []
+    },
+    {
+      "run": "UG",
+      "files": {
+        "tests/unit/test_attempt_tmpdir_guardian.py": {
+          "start": "2026-10-29T15:23:56.613981+00:00",
+          "load": [
+            35.76171875,
+            33.44482421875,
+            31.8876953125
+          ],
+          "counts": {
+            "passed": 2
+          }
+        }
+      },
+      "start": "2026-10-29T15:23:55.001756+00:00",
+      "load": [
+        36.263671875,
+        33.50341796875,
+        31.89892578125
+      ],
+      "exitstatus": 0,
+      "duration": 7.402384208005969,
+      "end": "2026-10-29T15:24:02.404427+00:00",
+      "failed_nodeids": []
+    },
+    {
+      "run": "UL",
+      "files": {
+        "tests/unit/test_attempt_tmpdir_leaks.py": {
+          "start": "2026-10-29T15:24:38.427198+00:00",
+          "load": [
+            36.72412109375,
+            33.91015625,
+            32.12353515625
+          ],
+          "counts": {
+            "passed": 197
+          }
+        }
+      },
+      "start": "2026-10-29T15:24:28.507910+00:00",
+      "load": [
+        37.923828125,
+        34.04296875,
+        32.14892578125
+      ],
+      "exitstatus": 0,
+      "duration": 74.23934370899224,
+      "end": "2026-10-29T15:25:42.748730+00:00",
+      "failed_nodeids": []
+    },
+    {
+      "run": "UC",
+      "files": {
+        "tests/unit/test_attempt_tmpdir_lifecycle.py": {
+          "start": "2026-10-29T15:26:17.587643+00:00",
+          "load": [
+            26.16064453125,
+            31.5380859375,
+            31.43798828125
+          ],
+          "counts": {
+            "passed": 35
+          }
+        }
+      },
+      "start": "2026-10-29T15:26:15.536310+00:00",
+      "load": [
+        26.43603515625,
+        31.6826171875,
+        31.48779296875
+      ],
+      "exitstatus": 0,
+      "duration": 5.73047733301064,
+      "end": "2026-10-29T15:26:21.267038+00:00",
+      "failed_nodeids": []
+    },
+    {
+      "run": "UM",
+      "files": {
+        "tests/unit/test_attempt_tmpdir_mutations.py": {
+          "start": "2026-10-29T15:27:13.013658+00:00",
+          "load": [
+            23.1396484375,
+            29.927734375,
+            30.85107421875
+          ],
+          "counts": {
+            "passed": 85
+          }
+        }
+      },
+      "start": "2026-10-29T15:27:06.920120+00:00",
+      "load": [
+        24.109375,
+        30.23046875,
+        30.96240234375
+      ],
+      "exitstatus": 0,
+      "duration": 13.246010583010502,
+      "end": "2026-10-29T15:27:20.166703+00:00",
+      "failed_nodeids": []
+    },
+    {
+      "run": "UR",
+      "files": {
+        "tests/unit/test_attempt_tmpdir_retention.py": {
+          "start": "2026-10-29T15:27:53.417259+00:00",
+          "load": [
+            22.7333984375,
+            28.93994140625,
+            30.44384765625
+          ],
+          "counts": {
+            "passed": 6
+          }
+        }
+      },
+      "start": "2026-10-29T15:27:51.841725+00:00",
+      "load": [
+        22.7333984375,
+        28.93994140625,
+        30.44384765625
+      ],
+      "exitstatus": 0,
+      "duration": 5.66916483300156,
+      "end": "2026-10-29T15:27:57.511180+00:00",
+      "failed_nodeids": []
+    },
+    {
+      "run": "US",
+      "files": {
+        "tests/unit/test_attempt_tmpdir_sandboxes.py": {
+          "start": "2026-10-29T15:28:29.944553+00:00",
+          "load": [
+            23.1728515625,
+            28.296875,
+            30.1435546875
+          ],
+          "counts": {
+            "passed": 12
+          }
+        }
+      },
+      "start": "2026-10-29T15:28:27.241604+00:00",
+      "load": [
+        23.1728515625,
+        28.296875,
+        30.1435546875
+      ],
+      "exitstatus": 0,
+      "duration": 6.604196541986312,
+      "end": "2026-10-29T15:28:33.846937+00:00",
+      "failed_nodeids": []
+    },
+    {
+      "run": "C1",
+      "files": {
+        "tests/fake/test_state_contract.py": {
+          "start": "2026-10-29T15:29:14.676716+00:00",
+          "load": [
+            22.357421875,
+            27.42626953125,
+            29.7314453125
+          ],
+          "counts": {
+            "passed": 37
+          }
+        }
+      },
+      "start": "2026-10-29T15:29:10.575503+00:00",
+      "load": [
+        23.08544921875,
+        27.6533203125,
+        29.82421875
+      ],
+      "exitstatus": 0,
+      "duration": 40.63784100000339,
+      "end": "2026-10-29T15:29:51.214217+00:00",
+      "failed_nodeids": []
+    },
+    {
+      "run": "C2",
+      "files": {
+        "tests/unit/test_test_module_names.py": {
+          "start": "2026-10-29T15:30:13.687563+00:00",
+          "load": [
+            25.4267578125,
+            27.55126953125,
+            29.62890625
+          ],
+          "counts": {
+            "passed": 1
+          }
+        }
+      },
+      "start": "2026-10-29T15:30:13.537257+00:00",
+      "load": [
+        25.4267578125,
+        27.55126953125,
+        29.62890625
+      ],
+      "exitstatus": 0,
+      "duration": 2.260351791002904,
+      "end": "2026-10-29T15:30:15.797759+00:00",
+      "failed_nodeids": []
+    },
+    {
+      "run": "C3",
+      "files": {
+        "tests/unit/test_invariants_index.py": {
+          "start": "2026-10-29T15:30:23.483567+00:00",
+          "load": [
+            27.27294921875,
+            27.8779296875,
+            29.72021484375
+          ],
+          "counts": {
+            "passed": 25
+          }
+        }
+      },
+      "start": "2026-10-29T15:30:23.256568+00:00",
+      "load": [
+        27.27294921875,
+        27.8779296875,
+        29.72021484375
+      ],
+      "exitstatus": 0,
+      "duration": 2.4938491659995634,
+      "end": "2026-10-29T15:30:25.750601+00:00",
+      "failed_nodeids": []
+    },
+    {
+      "run": "S2E",
+      "files": {
+        "tests/unit/test_retention_sweep_race.py": {
+          "start": "2026-10-29T15:30:43.176716+00:00",
+          "load": [
+            30.4775390625,
+            28.55322265625,
+            29.91748046875
+          ],
+          "counts": {
+            "passed": 1
+          }
+        }
+      },
+      "start": "2026-10-29T15:30:41.361762+00:00",
+      "load": [
+        29.30078125,
+        28.29248046875,
+        29.8349609375
+      ],
+      "hypothesis": {
+        "max_examples": 40,
+        "phases": [
+          "explicit"
+        ]
+      },
+      "exitstatus": 0,
+      "duration": 199.01278154199827,
+      "end": "2026-10-29T15:34:00.377799+00:00",
+      "failed_nodeids": []
+    },
+    {
+      "run": "S2G",
+      "files": {
+        "tests/unit/test_retention_sweep_race.py": {
+          "start": "2026-10-29T15:34:57.860009+00:00",
+          "load": [
+            28.32177734375,
+            30.3037109375,
+            30.4970703125
+          ],
+          "counts": {
+            "passed": 1
+          }
+        }
+      },
+      "start": "2026-10-29T15:34:52.939839+00:00",
+      "load": [
+        27.82763671875,
+        30.24169921875,
+        30.4765625
+      ],
+      "hypothesis": {
+        "max_examples": 40,
+        "phases": [
+          "reuse",
+          "generate",
+          "target",
+          "shrink",
+          "explain"
+        ]
+      },
+      "exitstatus": 0,
+      "duration": 363.95665258399094,
+      "end": "2026-10-29T15:40:56.903229+00:00",
+      "failed_nodeids": []
+    }
+  ]
+}

@@ -1,0 +1,69 @@
+{
+  "marker": "b'gitdir:metadata\\n'",
+  "git_rc": 128,
+  "git_stdout": "",
+  "git_stderr": "fatal: invalid gitfile format: /private/tmp/sf-fix272r6/cases-2434/pytest/test_rejected_child_with_valid1/outside/child/.git\n",
+  "recorded": {
+    "git": [
+      "/private/tmp/sf-fix272r6/cases-2434/pytest/test_rejected_child_with_valid1/outside/.git",
+      "/private/tmp/sf-fix272r6/cases-2434/pytest/test_rejected_child_with_valid1/state/worktrees/owner/source/.git/objects"
+    ]
+  },
+  "maintenance": {
+    "pruned": [],
+    "errors": [],
+    "bytes_before": 48631,
+    "bytes_after": 48631,
+    "deferred": {},
+    "in_flight": [],
+    "reclaimed": [],
+    "conflicts": [],
+    "progressed": true,
+    "holder_scan_failed": false,
+    "tmpdir_left": [],
+    "freed_bytes": 0,
+    "freed_disk_bytes": 0,
+    "archived_bytes": 0,
+    "added_bytes": 0,
+    "pools": {
+      "detached": {
+        "jobs_before": 2,
+        "bytes_before": 48631,
+        "unmeasured": 0,
+        "unknown_size": 0,
+        "max_jobs": 0,
+        "max_bytes": 0,
+        "jobs_after": 2,
+        "bytes_after": 48631,
+        "freed_bytes": 0,
+        "freed_disk_bytes": 0,
+        "archived_bytes": 0,
+        "added_bytes": 0
+      },
+      "turn": {
+        "jobs_before": 0,
+        "bytes_before": 0,
+        "unmeasured": 0,
+        "unknown_size": 0,
+        "max_jobs": 2000,
+        "max_bytes": 4294967296,
+        "jobs_after": 0,
+        "bytes_after": 0,
+        "freed_bytes": 0,
+        "freed_disk_bytes": 0,
+        "archived_bytes": 0,
+        "added_bytes": 0
+      }
+    },
+    "protected": [
+      "borrower",
+      "owner"
+    ],
+    "jobs_after": 2,
+    "more": false,
+    "pin_reasons": {
+      "borrower": "active",
+      "owner": "worktree-in-use"
+    }
+  }
+}

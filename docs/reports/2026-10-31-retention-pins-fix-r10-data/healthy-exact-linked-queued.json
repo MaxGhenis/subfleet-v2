@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T13:53:30.673022+00:00",
+  "args": [
+    "tests/unit/test_retention_location_cycles.py",
+    "-k",
+    "test_readable_repository_beside_cycle_keeps_every_place"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r10/link-tmp/healthy-exact-linked",
+  "linked": true,
+  "driver_pid": 16509,
+  "lock_process_group": 17238
+}

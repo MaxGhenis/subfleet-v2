@@ -1,0 +1,49 @@
+{
+  "name": "archive-path-last",
+  "start": "2026-10-31T11:12:42.847809+00:00",
+  "load": [
+    36.1357421875,
+    38.50634765625,
+    38.0849609375
+  ],
+  "args": [
+    "tests/unit/test_retention_archive.py::test_survey_is_read_only_and_predicts_the_pass"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_archive.py::test_survey_is_read_only_and_predicts_the_pass",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.9012538749993837,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_survey_is_read_only_and_predicts_the_pass",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.4072063749990775,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_survey_is_read_only_and_predicts_the_pass",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002195167002355447,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_archive.py::test_survey_is_read_only_and_predicts_the_pass"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-063315-pr272-review-r10/subfleet/dependencies.py",
+  "product_sha256": "8b39d2f38cf73c92909ae6e241311cdc2cd32ed70295ee2cd240af39f4cb9920",
+  "end": "2026-10-31T11:12:59.061963+00:00",
+  "seconds": 16.213759958998708,
+  "peak_rss_mib": 115.84375,
+  "exit": 0
+}

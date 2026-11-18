@@ -1,0 +1,976 @@
+{
+  "name": "dependency-test_retention_folded_pin",
+  "start": "2026-10-31T20:45:35.694624+00:00",
+  "load": [
+    56.8876953125,
+    57.3330078125,
+    65.46826171875
+  ],
+  "pytest_pid": 40189,
+  "failure_root": "/private/tmp/sf-fix272r12/failed-keep",
+  "args": [
+    "tests/unit/test_retention_folded_pin.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_turn_whose_directory_names_the_tree_through_the_firmlink_keeps_it",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.24134974999469705,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_turn_whose_directory_names_the_tree_through_the_firmlink_keeps_it",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.004247082993970253,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_turn_whose_directory_names_the_tree_through_the_firmlink_keeps_it",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0027268749981885776,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-all]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.011486167000839487,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-all]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.003855458999169059,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-all]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004989791996194981,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-fi-ligature]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.007961374998558313,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-fi-ligature]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.002965000006952323,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-fi-ligature]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.003747249997104518,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-kelvin]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.011986124998657033,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-kelvin]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.004543167000520043,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-kelvin]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004138124990276992,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-long-s]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.008193125002435409,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-long-s]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.002619959006551653,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-long-s]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0025420840102015063,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-st-ligature]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.007067041005939245,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-st-ligature]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.002536291998694651,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-st-ligature]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0018275420006830245,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-all]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.004386208995128982,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-all]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00206041699857451,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-all]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0014941670087864622,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-fi-ligature]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.005798375001177192,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-fi-ligature]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.001363874995149672,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-fi-ligature]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0021267919946694747,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-kelvin]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.004558083994197659,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-kelvin]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0023665000044275075,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-kelvin]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002359167003305629,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-long-s]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.00584554199303966,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-long-s]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.007709708996117115,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-long-s]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0036482499999692664,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-st-ligature]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.15652791599859484,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-st-ligature]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0023267090000445023,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-st-ligature]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00275445899751503,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-all]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.007646250000107102,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-all]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.003166541995597072,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-all]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002457291993778199,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-fi-ligature]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.02037954199477099,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-fi-ligature]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.004765666992170736,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-fi-ligature]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0067666249960893765,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-kelvin]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.019563292007660493,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-kelvin]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.006536708009662107,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-kelvin]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.006140416007838212,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-long-s]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.011506167007610202,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-long-s]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.002524333991459571,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-long-s]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004507709003519267,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-st-ligature]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.012110124996979721,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-st-ligature]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00859716699051205,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-st-ligature]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0032841670035850257,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-all]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.010671375013771467,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-all]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.003016417002072558,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-all]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.006457750001573004,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-fi-ligature]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.007490499992854893,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-fi-ligature]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0025127920089289546,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-fi-ligature]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.003968916003941558,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-kelvin]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.009750875004101545,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-kelvin]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.004784500008099712,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-kelvin]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0024330419983016327,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-long-s]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.008359375002328306,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-long-s]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0022546660038642585,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-long-s]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0034212919999845326,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-st-ligature]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0069441249943338335,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-st-ligature]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.002665916006662883,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-st-ligature]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0026077500078827143,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[extends]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.006089875008910894,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[extends]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0025042079942068085,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[extends]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0018764580017887056,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[prefix]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.00684499999624677,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[prefix]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.001275916991289705,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[prefix]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0012279999937163666,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[before]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.006339707993902266,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[before]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.4207686250010738,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[before]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0021887500042794272,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[dotless-i]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.022057499998481944,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[dotless-i]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0019572079909266904,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[dotless-i]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0028725829906761646,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[succeeded]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.007411166996462271,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[succeeded]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0020678750006482005,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[succeeded]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0016889999969862401,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[failed]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.006906833004904911,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[failed]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00110675000178162,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[failed]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.001980583998374641,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[cancelled]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.00806070800172165,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[cancelled]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0034117079921998084,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[cancelled]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0025428329972783104,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[lost]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.01275991699367296,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[lost]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0027894579980056733,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[lost]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004144457998336293,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_what_submit_records_beside_the_row_is_read_whatever_its_shape",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.016423040986410342,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_what_submit_records_beside_the_row_is_read_whatever_its_shape",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.004872334000538103,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_what_submit_records_beside_the_row_is_read_whatever_its_shape",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.003952375001972541,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_the_pin_keeps_a_tree_exactly_when_the_folded_fence_holds_the_job",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002765417011687532,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_the_pin_keeps_a_tree_exactly_when_the_folded_fence_holds_the_job",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 37.52614474999427,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_the_pin_keeps_a_tree_exactly_when_the_folded_fence_holds_the_job",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00039508400368504226,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_dependency_hold_names_every_place_the_canonical_caseless_query_blocks",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0159829169861041,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_dependency_hold_names_every_place_the_canonical_caseless_query_blocks",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 69.32969774999947,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_dependency_hold_names_every_place_the_canonical_caseless_query_blocks",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0010360839951317757,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[TURN]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.04007437500695232,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[TURN]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.3177917920111213,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[TURN]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006709589943056926,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[READER]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.012415458011673763,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[READER]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.4092667090008035,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[READER]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006185840029502288,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[writer]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.03723333300149534,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[writer]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.8810227500071051,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[writer]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007982079987414181,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_turn_typed_with_letters_the_volume_folds_while_its_tree_is_away_keeps_it[TURN]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.018451208001351915,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_turn_typed_with_letters_the_volume_folds_while_its_tree_is_away_keeps_it[TURN]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.6355491669964977,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_turn_typed_with_letters_the_volume_folds_while_its_tree_is_away_keeps_it[TURN]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00041037499613594264,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_turn_typed_with_letters_the_volume_folds_while_its_tree_is_away_keeps_it[READER]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.007433874998241663,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_turn_typed_with_letters_the_volume_folds_while_its_tree_is_away_keeps_it[READER]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.125845916001708,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_a_turn_typed_with_letters_the_volume_folds_while_its_tree_is_away_keeps_it[READER]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00035562500124797225,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_on_the_volume_the_pin_keeps_a_tree_exactly_when_the_fence_holds_the_job",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.013286834000609815,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_on_the_volume_the_pin_keeps_a_tree_exactly_when_the_fence_holds_the_job",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 7.616009250006755,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_folded_pin.py::test_on_the_volume_the_pin_keeps_a_tree_exactly_when_the_fence_holds_the_job",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.3529229999985546,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_folded_pin.py::test_a_turn_whose_directory_names_the_tree_through_the_firmlink_keeps_it",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-all]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-fi-ligature]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-kelvin]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-long-s]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-submitted-st-ligature]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-all]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-fi-ligature]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-kelvin]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-long-s]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[recorded-workdir-st-ligature]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-all]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-fi-ligature]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-kelvin]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-long-s]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-submitted-st-ligature]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-all]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-fi-ligature]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-kelvin]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-long-s]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree[unrecorded-workdir-st-ligature]",
+    "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[extends]",
+    "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[prefix]",
+    "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[before]",
+    "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[dotless-i]",
+    "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[succeeded]",
+    "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[failed]",
+    "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[cancelled]",
+    "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[lost]",
+    "tests/unit/test_retention_folded_pin.py::test_what_submit_records_beside_the_row_is_read_whatever_its_shape",
+    "tests/unit/test_retention_folded_pin.py::test_the_pin_keeps_a_tree_exactly_when_the_folded_fence_holds_the_job",
+    "tests/unit/test_retention_folded_pin.py::test_dependency_hold_names_every_place_the_canonical_caseless_query_blocks",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[TURN]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[READER]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[writer]",
+    "tests/unit/test_retention_folded_pin.py::test_a_turn_typed_with_letters_the_volume_folds_while_its_tree_is_away_keeps_it[TURN]",
+    "tests/unit/test_retention_folded_pin.py::test_a_turn_typed_with_letters_the_volume_folds_while_its_tree_is_away_keeps_it[READER]",
+    "tests/unit/test_retention_folded_pin.py::test_on_the_volume_the_pin_keeps_a_tree_exactly_when_the_fence_holds_the_job"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-161028-pr272-fix-r12/subfleet/dependencies.py",
+  "product_sha256": "3d013f755b9b045e4104c7be192f027125d12991be2c191a3a315e4228c4f728",
+  "end": "2026-10-31T20:47:56.031389+00:00",
+  "seconds": 140.33435054200527,
+  "peak_rss_mib": 132.984375,
+  "exit": 0
+}

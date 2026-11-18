@@ -9,7 +9,7 @@ drives the daemon through the app's own engine, outbox and store state and
 records every exchange; this test checks its results, the daemon's store,
 and that every answer decodes into the app's models without losing a field.
 Nothing here touches ~/.subfleet. A failed run's state root and the probe's
-record are kept under /tmp/sf-failed, which CI uploads.
+record are kept under /tmp/sf-failed/<pid>/, which CI uploads.
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-import re
 import shutil
 import sqlite3
 import sys
@@ -64,9 +63,14 @@ def dev_daemon(request, core_probe, tmp_path):
                                                               "content": [{"type": "text", "text": "Here are the files."}]}},
     ]
     (project / f"{session}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    # D-STEER-PUMP1's reproduction, off unless this session's environment asks for it: the
+    # fake Claude's `slow` turns hold back `system init` that long, so step 14's turn is
+    # running and accepted but answers a steer `not-steerable` (tests/fake/interactive_claude.py).
+    late_init = os.environ.get("SUBFLEET_FAKE_LATE_INIT_S")
     started = closed = False
     try:
-        harness.start(env={"SUBFLEET_DEV_APP_EXECUTABLE": str(core_probe.resolve())})
+        harness.start(env={"SUBFLEET_DEV_APP_EXECUTABLE": str(core_probe.resolve()),
+                           **({"SUBFLEET_FAKE_LATE_INIT_S": late_init} if late_init else {})})
         started = True
         yield harness, session
     finally:
@@ -79,20 +83,21 @@ def dev_daemon(request, core_probe, tmp_path):
             # passed and deleted a failed run's root. The phase reports (conftest.py's
             # hook) say whether it failed, and a failed run's root is kept under
             # /tmp/sf-failed, as the e2e and fake harnesses keep theirs, for CI to upload.
-            reports = [getattr(request.node, "rep_" + when, None) for when in ("setup", "call")]
-            if not (started and closed) or any(report is not None and report.failed for report in reports):
+            from tests.failed_keep import setup_or_call_failed
+            if not (started and closed) or setup_or_call_failed(request.node):
                 keep_failed_root(request.node.name, root, tmp_path)
             else:
                 shutil.rmtree(root, ignore_errors=True)
 
 
 def keep_failed_root(name: str, root: Path, record: Path) -> Path | None:
-    """Copy a failed run's state root to /tmp/sf-failed/<test>, with the probe's record
+    """Copy a failed run's state root to /tmp/sf-failed/<pid>/<test>, with the probe's record
     beside it under probe/ (its checks, its stopped state, every exchange, the app's
     outbox and staged attachments), and delete the original. Sockets are left out, as
     the other harnesses leave them out. A copy that fails leaves the original in place."""
     from tests.e2e.conftest import _sockets
-    keep = Path("/tmp/sf-failed") / re.sub(r"[^A-Za-z0-9_.-]", "_", name)
+    from tests.failed_keep import failed_keep_dir
+    keep = failed_keep_dir(name)
     try:
         shutil.rmtree(keep, ignore_errors=True)
         shutil.copytree(root, keep, symlinks=True, ignore_dangling_symlinks=True, ignore=_sockets)
@@ -131,7 +136,9 @@ def test_the_app_core_drives_a_development_daemon(core_probe, tmp_path, dev_daem
                      "the card resolves from approval.resolved", "the follow-up ends interrupted (stopped)",
                      "the resend returns the stored receipt", "resent after the right predecessor",
                      "a late copy of the withdrawn send cannot land", "the provider received the image",
-                     "an approval in an unfocused conversation notifies", "a message continues the native session",
+                     "an approval in an unfocused conversation notifies",
+                     "the focused conversation on screen does not notify",
+                     "the focused conversation off screen notifies its completion", "a message continues the native session",
                      "a newer poll supersedes the waiting one"):
         assert required in names, required
 
@@ -163,4 +170,4 @@ def test_the_app_core_drives_a_development_daemon(core_probe, tmp_path, dev_daem
     assert {"capabilities", "models.list", "conversation.create", "message.submit", "conversation.open",
             "conversation.events", "conversation.watch", "message.status", "turn.interrupt", "approval.list",
             "approval.get", "approval.respond", "message.cancel", "attachment.add", "conversation.history",
-            "conversation.list", "catalog.refresh"} <= set(seen)
+            "conversation.list", "conversation.status", "catalog.refresh"} <= set(seen)

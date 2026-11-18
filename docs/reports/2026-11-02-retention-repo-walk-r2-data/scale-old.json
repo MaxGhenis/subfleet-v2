@@ -1,0 +1,10 @@
+{
+  "stage": "old",
+  "seconds": 114.00029054100742,
+  "git_processes": 2300,
+  "repositories": 3,
+  "jobs": 18000,
+  "distinct_workdirs": 5140,
+  "existing_workdirs": 2300,
+  "existing_owned_trees": 3
+}

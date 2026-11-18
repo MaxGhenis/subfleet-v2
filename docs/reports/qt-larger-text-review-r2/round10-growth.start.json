@@ -1,0 +1,17 @@
+{
+  "name": "round10-growth",
+  "start": "2026-10-31T06:44:32.989681+00:00",
+  "load": [
+    38.48876953125,
+    37.052734375,
+    35.6953125
+  ],
+  "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+  "args": [
+    "tests/frontend/test_review_r219_fix8_mutations.py",
+    "-k",
+    "growth_repins_dropped or test_scripted_regrow_then_shrink_reaches_the_growth_mutant_check",
+    "-s"
+  ],
+  "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+}

@@ -1,0 +1,464 @@
+{
+  "label": "generated-r6f2-original",
+  "start": "2026-10-31T05:39:28.008098+00:00",
+  "loads": [
+    31.11572265625,
+    32.2177734375,
+    29.4638671875
+  ],
+  "seconds": 145.91391020899937,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.6478287079989968,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 133.43186041600165,
+      "properties": [
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [18], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"directory\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \".git/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"directory\", \"named\": false, \"own\": \"alternate\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"absent\", \"target\": \"spaces\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"misspelled\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [17], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"empty\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"misspelled\", \"target\": \"spaces\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65290, 0], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [10], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"commondir\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [9, 65281], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"spaces\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [13], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"spaces\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65291, 2], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"alternate\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [10, 1], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"alternate\", \"pad_file\": \"commondir\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [9, 3], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"directory\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"colon-only\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [1], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"misspelled\", \"target\": \"spaces\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [12, 1], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \".git/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"directory\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"absent\", \"target\": \"padded\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"layout\": \"directory\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"padded\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [2], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"empty\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"alternate\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"colon-only\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [17, 0], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"absent\", \"pad_file\": \"commondir\", \"padding\": \"over\", \"prefix\": \"misspelled\", \"target\": \"padded\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [18, 65549], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-20852/tmpe7j9y_7j/owner/.git/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"directory\", \"named\": true, \"own\": \"absent\", \"pad_file\": \"commondir\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [11], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"alternate\", \"pad_file\": \"commondir\", \"padding\": \"under\", \"prefix\": \"colon-only\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [16], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"absent\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65288], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"empty\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"commondir\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"spaces\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [12, 0], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-20852/tmpyul2pkt7/container/worktrees/slot/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"directory\", \"named\": true, \"own\": \"alternate\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"misspelled\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [1], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-20852/tmpltxwxxea/owner/.git/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"directory\", \"named\": true, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"misspelled\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [9], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"empty\", \"layout\": \"directory\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"misspelled\", \"target\": \"padded\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [0], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-20852/tmpfrs_rgpa/owner/.git/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"directory\", \"named\": true, \"own\": \"alternate\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"colon-only\", \"target\": \"padded\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [11], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"commondir\", \"padding\": \"short\", \"prefix\": \"misspelled\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [16, 3], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-20852/tmpa6j8f9iv/owner/.git/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"padded\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [65298, 11], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"absent\", \"target\": \"padded\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [12, 1], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"alternate\", \"pad_file\": \"commondir\", \"padding\": \"over\", \"prefix\": \"absent\", \"target\": \"spaces\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [4, 65539], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-20852/tmpho44gyql/container/worktrees/slot/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"commondir\", \"padding\": \"over\", \"prefix\": \"present\", \"target\": \"padded\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [19], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-20852/tmpovvmkqnq/container/worktrees/slot/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"directory\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"misspelled\", \"target\": \"blank\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [1], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"empty\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"commondir\", \"padding\": \"short\", \"prefix\": \"absent\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [1, 0], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [10], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [18], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65296], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65296], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65296], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65296], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"commondir\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [17], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"directory\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"commondir\", \"padding\": \"over\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [17], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-20852/tmp18ccfx7b/elsewhere/admin/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [18], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-20852/tmpkf3je2f9/elsewhere/admin/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [65296], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-20852/tmptdc2vtvt/elsewhere/admin/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [65296], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-20852/tmpl8mdxpne/elsewhere/admin/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [65296], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-20852/tmpuafikz4c/elsewhere/admin/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [65296], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-20852/tmpzrchkk6v/elsewhere/admin/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"commondir\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [17], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \".git/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"directory\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-20852/tmpw56nyu02/elsewhere/admin/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"commondir\", \"padding\": \"over\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [17], \"read_rc\": 0}"
+        ]
+      ],
+      "failure": "+ Exception Group Traceback (most recent call last):\n  |   File \"/private/tmp/sf-r272r8/generated-r6f2/tests/unit/test_retention_pointer_inputs.py\", line 123, in test_pointer_inputs_keep_every_store_real_git_reads\n  |     suppress_health_check=[HealthCheck.function_scoped_fixture])\n  |          ^^^^^^^^^^^^^^^^^^\n  |   File \"/private/tmp/sf-r272r8/venv/lib/python3.14/site-packages/hypothesis/core.py\", line 2295, in wrapped_test\n  |     raise the_error_hypothesis_found\n  | ExceptionGroup: Hypothesis found 2 distinct failures. (2 sub-exceptions)\n  +-+---------------- 1 ----------------\n    | Traceback (most recent call last):\n    |   File \"/private/tmp/sf-r272r8/generated-r6f2/tests/unit/test_retention_pointer_inputs.py\", line 127, in test_pointer_inputs_keep_every_store_real_git_reads\n    |     observation = check_input(Path(directory), data)\n    |   File \"/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/docs/reports/2026-10-31-retention-pins-review-r8-data/run_hold.py\", line 62, in observing\n    |     result = _original(base, data)\n    |   File \"/private/tmp/sf-r272r8/generated-r6f2/tests/unit/test_retention_pointer_inputs.py\", line 99, in check_input\n    |     assert actual in recorded.get(\"git\", []) or recorded.get(\"incomplete\"), recorded\n    | AssertionError: {}\n    | assert ('/private/tmp/sf-r272r8/cases-20852/tmpdgzl14u0/owner/.git/objects' in [] or None)\n    |  +  where [] = <built-in method get of dict object at 0x1107267c0>('git', [])\n    |  +    where <built-in method get of dict object at 0x1107267c0> = {}.get\n    |  +  and   None = <built-in method get of dict object at 0x1107267c0>('incomplete')\n    |  +    where <built-in method get of dict object at 0x1107267c0> = {}.get\n    | Failing test case: test_pointer_inputs_keep_every_store_real_git_reads(\n    |     record_property=append_property,\n    |     data={\n    |         'layout': 'gitfile',\n    |         'prefix': 'present',  # or any other generated value\n    |         'target': 'normal',  # or any other generated value\n    |         'common': 'absent',  # or any other generated value\n    |         'own': 'symlink',  # or any other generated value\n    |         'named': False,  # or any other generated value\n    |         'padding': 'over',\n    |         'pad_file': 'gitfile',\n    |     },\n    | )\n    | {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"present\", \"target\": \"normal\"}\n    | {'git_path': b'/private/tmp/sf-r272r8/cases-20852/tmpdgzl14u0/elsewhere/admin/objects\\n',\n    |  'git_error': b'',\n    |  'read_error': b'',\n    |  'recorded': {}}\n    | Explanation:\n    |     These lines were always and only run by failing test cases:\n    |         /private/tmp/sf-r272r8/generated-r6f2/subfleet/sessions/transcripts.py:154\n    +---------------- 2 ----------------\n    | Traceback (most recent call last):\n    |   File \"/private/tmp/sf-r272r8/generated-r6f2/tests/unit/test_retention_pointer_inputs.py\", line 127, in test_pointer_inputs_keep_every_store_real_git_reads\n    |     observation = check_input(Path(directory), data)\n    |   File \"/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/docs/reports/2026-10-31-retention-pins-review-r8-data/run_hold.py\", line 62, in observing\n    |     result = _original(base, data)\n    |   File \"/private/tmp/sf-r272r8/generated-r6f2/tests/unit/test_retention_pointer_inputs.py\", line 115, in check_input\n    |     assert any(error[\"file\"] == str(pointer) for error in recorded.get(\"incomplete\", [])), recorded\n    | AssertionError: {}\n    | assert False\n    |  +  where False = any(<generator object check_input.<locals>.<genexpr> at 0x1103a23e0>)\n    | Failing test case: test_pointer_inputs_keep_every_store_real_git_reads(\n    |     # The test always failed when commented parts were varied together.\n    |     record_property=append_property,\n    |     data={\n    |         'layout': 'gitfile',\n    |         'prefix': 'present',  # or any other generated value\n    |         'target': 'normal',  # or any other generated value\n    |         'common': 'absent',  # or any other generated value\n    |         'own': 'absent',  # or any other generated value\n    |         'named': False,  # or any other generated value\n    |         'padding': 'over',\n    |         'pad_file': 'gitfile',\n    |     },\n    | )\n    | {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"present\", \"target\": \"normal\"}\n    | {'git_path': b'',\n    |  'git_error': b'fatal: not a git repository: (null)\\n',\n    |  'read_error': b'fatal: not a git repository: (null)\\n',\n    |  'recorded': {}}\n    | Explanation:\n    |     These lines were always and only run by failing test cases:\n    |         /private/tmp/sf-r272r8/generated-r6f2/subfleet/sessions/transcripts.py:154\n    |         /private/tmp/sf-r272r8/generated-r6f2/tests/unit/test_retention_pointer_inputs.py:115\n    +------------------------------------"
+    },
+    {
+      "nodeid": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.00055383300059475,
+      "properties": [
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [18], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"directory\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \".git/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"directory\", \"named\": false, \"own\": \"alternate\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"absent\", \"target\": \"spaces\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"misspelled\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [17], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"empty\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"misspelled\", \"target\": \"spaces\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65290, 0], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [10], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"commondir\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [9, 65281], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"spaces\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [13], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"spaces\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65291, 2], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"alternate\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [10, 1], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"alternate\", \"pad_file\": \"commondir\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [9, 3], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"directory\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"colon-only\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [1], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"misspelled\", \"target\": \"spaces\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [12, 1], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \".git/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"directory\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"absent\", \"target\": \"padded\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"crlf\", \"layout\": \"directory\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"padded\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [2], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"empty\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"alternate\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"colon-only\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [17, 0], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"absent\", \"pad_file\": \"commondir\", \"padding\": \"over\", \"prefix\": \"misspelled\", \"target\": \"padded\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [18, 65549], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-20852/tmpe7j9y_7j/owner/.git/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"directory\", \"named\": true, \"own\": \"absent\", \"pad_file\": \"commondir\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [11], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"alternate\", \"pad_file\": \"commondir\", \"padding\": \"under\", \"prefix\": \"colon-only\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [16], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"absent\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65288], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"empty\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"commondir\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"spaces\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [12, 0], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-20852/tmpyul2pkt7/container/worktrees/slot/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"directory\", \"named\": true, \"own\": \"alternate\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"misspelled\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [1], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-20852/tmpltxwxxea/owner/.git/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"directory\", \"named\": true, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"misspelled\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [9], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"empty\", \"layout\": \"directory\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"misspelled\", \"target\": \"padded\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [0], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-20852/tmpfrs_rgpa/owner/.git/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"directory\", \"named\": true, \"own\": \"alternate\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"colon-only\", \"target\": \"padded\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [11], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"commondir\", \"padding\": \"short\", \"prefix\": \"misspelled\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [16, 3], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-20852/tmpa6j8f9iv/owner/.git/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"padded\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [65298, 11], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"absent\", \"target\": \"padded\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [12, 1], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"lf\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"alternate\", \"pad_file\": \"commondir\", \"padding\": \"over\", \"prefix\": \"absent\", \"target\": \"spaces\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [4, 65539], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-20852/tmpho44gyql/container/worktrees/slot/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"commondir\", \"padding\": \"over\", \"prefix\": \"present\", \"target\": \"padded\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [19], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-20852/tmpovvmkqnq/container/worktrees/slot/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"target\", \"layout\": \"directory\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"misspelled\", \"target\": \"blank\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [1], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"empty\", \"layout\": \"gitfile\", \"named\": true, \"own\": \"symlink\", \"pad_file\": \"commondir\", \"padding\": \"short\", \"prefix\": \"absent\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [1, 0], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"blank\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [10], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [18], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65296], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65296], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65296], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [65296], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"commondir\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [17], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"directory\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"\", \"git_path_rc\": 128, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"absent\", \"pad_file\": \"commondir\", \"padding\": \"over\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"rejects\", \"pointer_bytes\": [17], \"read_rc\": 128}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-20852/tmp18ccfx7b/elsewhere/admin/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"short\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [18], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-20852/tmpkf3je2f9/elsewhere/admin/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [65296], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-20852/tmptdc2vtvt/elsewhere/admin/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [65296], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-20852/tmpl8mdxpne/elsewhere/admin/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [65296], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-20852/tmpuafikz4c/elsewhere/admin/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [65296], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-20852/tmpzrchkk6v/elsewhere/admin/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"commondir\", \"padding\": \"under\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [17], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \".git/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"directory\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"gitfile\", \"padding\": \"over\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [], \"read_rc\": 0}"
+        ],
+        [
+          "git-input",
+          "{\"git_path\": \"/private/tmp/sf-r272r8/cases-20852/tmpw56nyu02/elsewhere/admin/objects\", \"git_path_rc\": 0, \"incomplete\": false, \"input\": {\"common\": \"absent\", \"layout\": \"gitfile\", \"named\": false, \"own\": \"symlink\", \"pad_file\": \"commondir\", \"padding\": \"over\", \"prefix\": \"present\", \"target\": \"normal\"}, \"outcome\": \"reads-owner\", \"pointer_bytes\": [17], \"read_rc\": 0}"
+        ]
+      ],
+      "failure": null
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads"
+  ],
+  "all_nodes": [
+    "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads"
+  ],
+  "property_settings": {
+    "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads": {
+      "max_examples": 100,
+      "derandomize": true,
+      "database_none": true,
+      "explicit_examples": 0,
+      "phases": [
+        "Phase.explicit",
+        "Phase.reuse",
+        "Phase.generate",
+        "Phase.target",
+        "Phase.shrink",
+        "Phase.explain"
+      ],
+      "digest": "98f66e377410dbdac656a1072b10836131269a3e785eb637af89b400e901325685fae5df65e7c24932cfd6f5322cd8f1"
+    }
+  },
+  "loaded": [],
+  "dependency_source": {
+    "file": "/private/tmp/sf-r272r8/generated-r6f2/subfleet/dependencies.py",
+    "sha256": "3577ee0ea788106a5c8d096bd966af5ef0db158c0ff71f63eba7a07d62acab72"
+  },
+  "rss": 355237888
+}

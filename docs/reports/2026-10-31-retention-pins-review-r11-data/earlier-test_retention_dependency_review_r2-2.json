@@ -1,0 +1,51 @@
+{
+  "name": "earlier-test_retention_dependency_review_r2-2",
+  "start": "2026-10-31T16:35:51.437228+00:00",
+  "load": [
+    43.7333984375,
+    59.78076171875,
+    84.37255859375
+  ],
+  "pytest_pid": 50737,
+  "failure_root": "/private/tmp/sf-r272r11/failed-keep",
+  "args": [
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_unlinked_open_alternates_is_incomplete"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_unlinked_open_alternates_is_incomplete",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.5767565420028404,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_unlinked_open_alternates_is_incomplete",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.15434045800066087,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_unlinked_open_alternates_is_incomplete",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.035175834003894124,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_unlinked_open_alternates_is_incomplete"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/subfleet/dependencies.py",
+  "product_sha256": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+  "end": "2026-10-31T16:36:04.955467+00:00",
+  "seconds": 13.517883416003315,
+  "peak_rss_mib": 112.578125,
+  "exit": 0
+}

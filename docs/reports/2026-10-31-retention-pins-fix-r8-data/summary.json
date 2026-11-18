@@ -1,0 +1,23 @@
+{
+  "completed_runs": 70,
+  "ordinary_runs": 29,
+  "unique_ordinary_nodes": 788,
+  "unresolved_ordinary_failures": [],
+  "locked_runs": 70,
+  "longest_seconds": 464.13658941700123,
+  "peak_rss_mib": 203.515625,
+  "incomplete_runs": [],
+  "invalid_runs": [
+    "aborted-pre-correction-reversion1"
+  ],
+  "ordinary_failures": {
+    "archive": 1,
+    "converse-bound": 1,
+    "green-locations": 1
+  },
+  "mutants": {
+    "Survived": 7,
+    "Killed": 22
+  },
+  "peak_pytest_concurrency": 2
+}

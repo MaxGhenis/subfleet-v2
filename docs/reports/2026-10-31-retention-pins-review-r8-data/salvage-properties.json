@@ -1,0 +1,114 @@
+{
+  "label": "salvage-properties",
+  "start": "2026-10-31T05:39:55.559530+00:00",
+  "loads": [
+    32.61328125,
+    32.5,
+    29.6455078125
+  ],
+  "seconds": 168.73973316699994,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.1202254170002561,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 75.37366158300028,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0005779999992228113,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_retention_salvage_properties.py::test_every_kind_of_entry_and_a_resume_keep_unarchived_bytes",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.00381612499950279,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_retention_salvage_properties.py::test_every_kind_of_entry_and_a_resume_keep_unarchived_bytes",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 89.72585858400089,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_retention_salvage_properties.py::test_every_kind_of_entry_and_a_resume_keep_unarchived_bytes",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0004991250007151393,
+      "properties": [],
+      "failure": null
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent",
+    "tests/unit/test_retention_salvage_properties.py::test_every_kind_of_entry_and_a_resume_keep_unarchived_bytes"
+  ],
+  "all_nodes": [
+    "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent",
+    "tests/unit/test_retention_salvage_properties.py::test_every_kind_of_entry_and_a_resume_keep_unarchived_bytes"
+  ],
+  "property_settings": {
+    "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent": {
+      "max_examples": 20,
+      "derandomize": false,
+      "database_none": true,
+      "explicit_examples": 5,
+      "phases": [
+        "Phase.explicit",
+        "Phase.reuse",
+        "Phase.generate",
+        "Phase.target",
+        "Phase.shrink",
+        "Phase.explain"
+      ],
+      "digest": "4b1b8fbefa718e477c64957b169d8a1a4369715b398b5b66e1473301b8eb4a20ad3a792e69c58b3986ee26083c019181"
+    },
+    "tests/unit/test_retention_salvage_properties.py::test_every_kind_of_entry_and_a_resume_keep_unarchived_bytes": {
+      "max_examples": 24,
+      "derandomize": false,
+      "database_none": true,
+      "explicit_examples": 9,
+      "phases": [
+        "Phase.explicit",
+        "Phase.reuse",
+        "Phase.generate",
+        "Phase.target",
+        "Phase.shrink",
+        "Phase.explain"
+      ],
+      "digest": "29f7a47207a5af486d92061633370baa9dc973f6a7e3bcdb53936ff3453a22a4731740209bb695d418e70eaf95aafbe7"
+    }
+  },
+  "loaded": [],
+  "dependency_source": {
+    "file": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/subfleet/dependencies.py",
+    "sha256": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d"
+  },
+  "rss": 119472128
+}

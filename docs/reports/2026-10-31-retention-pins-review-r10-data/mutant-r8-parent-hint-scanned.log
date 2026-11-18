@@ -1,0 +1,16 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 10:43:09Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____________________ test_inferred_parent_is_not_scanned ______________________
+tests/unit/test_retention_locations.py:113: in test_inferred_parent_is_not_scanned
+    assert not any(folders.within(path, str(paths["unrelated"])) for path in recorded["git"]), recorded
+E   AssertionError: {'git': ['/private/tmp/sf-r272r10/real-tmp/mutant-r8-parent-hint-scanned/pytest-of-maxghenis/pytest-0/test_inferred_pa.../real-tmp/mutant-r8-parent-hint-scanned/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/owner/hop1', ...]}
+E   assert not True
+E    +  where True = any(<generator object test_inferred_parent_is_not_scanned.<locals>.<genexpr> at 0x10bed5040>)
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned
+1 failed in 5.73s
+{"name": "mutant-r8-parent-hint-scanned", "start": "2026-10-31T10:43:10.866211+00:00", "load": [41.6162109375, 39.15966796875, 37.08837890625], "seconds": 7.20940895899912, "exit": 1}

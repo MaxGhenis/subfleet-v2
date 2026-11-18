@@ -14,11 +14,13 @@ import threading
 import time
 from uuid import uuid4
 
+from .provider_env import ProviderEnvironment
+from .launch_env import helper_policy
 from . import capacity, claude_cards
 from .policy import cap as policy_cap, lane_slot_cap
 from .adapters.registry import get_adapter
 from .contracts import ClockSource, Closure, ClosureReason, Outcome, OutcomeClass, Reading, ReadingLabel
-from .credentials import resolve_credential
+from .credentials import resolve_credential, withheld_references
 from .sessions.transcripts import read_regular
 from .store import Store
 
@@ -39,11 +41,16 @@ def iso(value):
 
 class Timers:
     def __init__(self, store, root, policy, *, turn=None, adapter_factory=get_adapter,
-                 deliver=None, now=None, cards_sensor=None, demand=None):
+                 deliver=None, now=None, cards_sensor=None, demand=None, references=None):
         from .actions import ResetCredits, inhibit_path
         from .alerts import Alerts
         self.store, self.root, self.policy = store, Path(root), policy
         self.turn, self.adapter_factory = turn, adapter_factory
+        # D-ENV1: the names this kit's own launches withhold. The daemon supplies
+        # its own (`Daemon._withheld_references`), which add the hooks of the
+        # lanes.json rows startup ignored (review r1 of #248, P3-1); without it,
+        # the stored lanes' (`credentials.withheld_references`).
+        self.references = references
         # C-23.16 (a): the daemon's admission view of the jobs waiting on capacity
         # (`Daemon._reset_demand`). Without one no credit is ever spent, by the
         # timer or for an operator's `reset codex <lane>`.
@@ -180,7 +187,7 @@ class Timers:
                 self._status[name]['next_due'] = iso(self.now() + timedelta(seconds=interval))
                 pool = (self._mirror if name in ('mirror', 'mirror_hot')
                         else self._cards if name == 'claude_cards' else self._cycles)
-                pool.submit(self._run, name)
+                pool.submit(self._run_worker, self._run, name)
 
     def request(self, name, *, target=None):
         """Queue operator maintenance on the same workers and overlap guard."""
@@ -210,8 +217,12 @@ class Timers:
                 self._running.discard(name)
             raise
         callback = (lambda: self.reset_credits_cycle(target=target)) if name == 'reset_credits' else None
-        (self._cards if name == 'claude_cards' else self._cycles).submit(self._run, name, callback)
+        (self._cards if name == 'claude_cards' else self._cycles).submit(self._run_worker, self._run, name, callback)
         return {'status': 'scheduled', 'timer': name, 'target': target}
+
+    def _run_worker(self, function, *args):
+        with helper_policy(self.policy, withheld=self._withheld):
+            return function(*args)
 
     def _run(self, name, callback=None):
         error = None
@@ -448,6 +459,15 @@ class Timers:
                 for row in self.store.query("SELECT lane_id,identity,label,account_key,enabled FROM lanes "
                                             "WHERE provider='claude' ORDER BY created_at,rowid")]
 
+    def _withheld(self) -> frozenset[str]:
+        """D-ENV2: what the timers' launches and helper subprocesses withhold, read at
+        each: the daemon's set (`Daemon._withheld_references`), else the stored lanes'."""
+        return frozenset(self.references() if self.references else withheld_references(self.store.list_lanes()))
+
+    def _provider_environment(self) -> ProviderEnvironment:
+        """The daemon's launch selection: no lane's credential reference (D-ENV1)."""
+        return ProviderEnvironment(self.policy, references=self._withheld)
+
     def _card_sensor(self):
         if self._cards_sensor is None:
             from .adapters.claude import ENROLL_MODEL, ENROLL_PROMPT, home_login
@@ -458,8 +478,9 @@ class Timers:
             self._cards_sensor = claude_cards.Sensor(
                 login_reader=home_login,
                 heal=lambda home: claude_cards.heal_turn(home, claude_bin=claude_bin, model=ENROLL_MODEL,
-                                                         prompt=ENROLL_PROMPT, cancel=self.cancel),
-                version=lambda: claude_cards.cli_version(claude_bin),
+                                                         prompt=ENROLL_PROMPT, cancel=self.cancel,
+                                                         environment=self._provider_environment()),
+                version=lambda: claude_cards.cli_version(claude_bin, environment=self._provider_environment()),
                 now=self.now)
         return self._cards_sensor
 
@@ -619,7 +640,7 @@ class Timers:
                     self._io_busy.discard(key)
                 self._io_slots.release()
                 done.set()
-        threading.Thread(target=read, daemon=True, name='subfleet-usage-read').start()
+        threading.Thread(target=self._run_worker, args=(read,), daemon=True, name='subfleet-usage-read').start()
         deadline = time.monotonic() + min(15, self.policy.get('caps', {}).get('probe_timeout_s', 60))
         while not done.wait(.02):
             if self.cancel.is_set() or time.monotonic() >= deadline:
@@ -1008,7 +1029,7 @@ class Timers:
             self.cancel.wait(wait)
         if self.cancel.is_set():
             return
-        futures = [self._lanes.submit(self._probe_lane, lane) for lane in self.store.list_lanes()
+        futures = [self._lanes.submit(self._run_worker, self._probe_lane, lane) for lane in self.store.list_lanes()
                    if lane.enabled and lane.owner == 'v2']
         # Every holder this cycle took is released, whatever raised: one lane's
         # failure must not leave another lane's `slot:0` held until a restart
@@ -1044,7 +1065,7 @@ class Timers:
             raise failure
         # The same four-worker/read fences apply, but no idle probe lease is
         # held across busy reads, their Claude pacing, or their publication.
-        futures = [self._lanes.submit(self._busy_read, lane) for lane in busy]
+        futures = [self._lanes.submit(self._run_worker, self._busy_read, lane) for lane in busy]
         busy_results = [value for future in as_completed(futures) if (value := future.result())]
         results.extend(busy_results)
         for lane, probe, opened in busy_results:
@@ -1133,6 +1154,6 @@ class Timers:
             self._release(holder, quarantined=quarantined)
 
     def keepalive_cycle(self):
-        futures = [self._lanes.submit(self._keepalive_lane, lane) for lane in self.store.list_lanes()
+        futures = [self._lanes.submit(self._run_worker, self._keepalive_lane, lane) for lane in self.store.list_lanes()
                    if lane.provider == 'claude' and lane.enabled and lane.owner == 'v2' and not lane.desktop]
         return [future.result() for future in as_completed(futures)]

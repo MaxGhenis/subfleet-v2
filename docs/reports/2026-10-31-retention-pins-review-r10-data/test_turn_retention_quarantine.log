@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 11:03:38Z slot A load 
+..........                                                               [100%]
+10 passed in 43.57s
+{"name": "test_turn_retention_quarantine", "start": "2026-10-31T11:03:44.723901+00:00", "load": [36.755859375, 36.06640625, 37.546875], "seconds": 49.73515866700109, "exit": 0}

@@ -1,0 +1,33 @@
+{
+  "r6f1": {
+    "file": "subfleet/dependencies.py",
+    "patches": [
+      {
+        "old": "        inferred = os.path.dirname(os.path.dirname(gitdir))\n        own_objects = os.path.join(gitdir, \"objects\")\n        own = aliases.resolve(own_objects)\n        parent_objects = os.path.join(inferred, \"objects\")\n        parent = [inferred, aliases.resolve(parent_objects),\n                  *_alternates(parent_objects, incomplete=incomplete, aliases=aliases)]\n        alternates = _alternates(own_objects, incomplete=incomplete, aliases=aliases)\n        return list(dict.fromkeys([gitdir, *parent, own, *alternates]))\n",
+        "new": "        common = os.path.dirname(os.path.dirname(gitdir))\n"
+      }
+    ]
+  },
+  "r6f2": {
+    "file": "subfleet/dependencies.py",
+    "patches": [
+      {
+        "old": "except (FileNotFoundError, NotADirectoryError):\n            identity = None",
+        "new": "except FileNotFoundError:\n            identity = None"
+      },
+      {
+        "old": "        try:\n            value = os.fsdecode(read_regular(path, limit=_FILE_LIMIT))\n        except NotADirectoryError:\n            value = None\n        except (OSError, ValueError) as exc:\n            # A dangling link exists but is unreadable, just as for alternates.\n            if not (isinstance(exc, FileNotFoundError) and not os.path.lexists(path)):\n                self.errors.setdefault(path, str(exc))\n            value = None\n",
+        "new": "        value = _text(path)\n"
+      }
+    ]
+  },
+  "r7f1": {
+    "file": "subfleet/dependencies.py",
+    "patches": [
+      {
+        "old": "        parent_objects = os.path.join(inferred, \"objects\")\n        parent = [inferred, aliases.resolve(parent_objects),\n                  *_alternates(parent_objects, incomplete=incomplete, aliases=aliases)]\n",
+        "new": "        parent = _storage(inferred, named=False, incomplete=incomplete, aliases=aliases)\n"
+      }
+    ]
+  }
+}

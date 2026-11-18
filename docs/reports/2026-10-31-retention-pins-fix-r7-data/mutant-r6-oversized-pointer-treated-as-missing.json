@@ -1,0 +1,53 @@
+{
+  "name": "mutant-r6-oversized-pointer-treated-as-missing",
+  "start": "2026-10-31T03:58:22.547361+00:00",
+  "load": [
+    38.6552734375,
+    37.087890625,
+    38.21630859375
+  ],
+  "args": [
+    "--mutant",
+    "r6-oversized-pointer-treated-as-missing",
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[oversized]"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[oversized]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.9979901670003528,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[oversized]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.10492587499993533,
+      "failure": "tests/fake/test_retention_pointer_failures.py:37: in test_unreadable_common_pointer_keeps_allocated_trees\n    assert any(error[\"file\"] == str(pointer) for error in recorded.get(\"incomplete\", [])), recorded\nE   AssertionError: {'git': ['/private/tmp/sf-fix272r7/hold-mutant-r6-oversized-pointer-treated-as-missing/pytest-of-maxghenis/pytest-0/te...ersized-pointer-treated-as-missing/pytest-of-maxghenis/pytest-0/test_unreadable_common_pointer0/outside/.git/objects']}\nE   assert False\nE    +  where False = any(<generator object test_unreadable_common_pointer_keeps_allocated_trees.<locals>.<genexpr> at 0x109fd0400>)"
+    },
+    {
+      "node": "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[oversized]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.008268415999737044,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+      "mutated": "f783b8ec698b5a52212190efe60e952a30dae88dcd6ec45983e65d179dac0ec0"
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[oversized]"
+  ],
+  "end": "2026-10-31T03:58:28.599192+00:00",
+  "seconds": 6.051553166999838,
+  "peak_rss_mib": 114.765625,
+  "exit": 1
+}

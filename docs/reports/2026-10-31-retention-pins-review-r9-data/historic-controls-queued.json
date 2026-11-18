@@ -1,0 +1,15 @@
+{
+  "queued": "2026-10-31T09:00:10.338120+00:00",
+  "args": [
+    "-p",
+    "tests.conftest",
+    "--confcutdir=review-r9-data",
+    "review-r9-data/historic_probes.py",
+    "-k",
+    "not stable_pointer_alias_inside_retirable_tree_observation"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r9/link-tmp/historic-controls",
+  "linked": true,
+  "driver_pid": 69340,
+  "lock_process_group": 69594
+}

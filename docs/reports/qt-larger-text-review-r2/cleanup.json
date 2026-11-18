@@ -1,0 +1,12 @@
+{
+  "complete": true,
+  "at": "2026-10-31T06:54:05.080338+00:00",
+  "guarded_scratch_removed": "/private/tmp/sf-r284r2",
+  "workspace_paths_removed": [
+    "build",
+    ".diag/review-r2",
+    ".diag"
+  ],
+  "all_managed_tool_sessions_completed": true,
+  "no_generated_bytecode_remaining": true
+}

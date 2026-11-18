@@ -1,0 +1,12 @@
+{
+  "complete": false,
+  "planned_holds": 92,
+  "completed_holds": 96,
+  "missing_holds": {},
+  "unfinished_nodes": [
+    "tests/unit/test_retention_regenerable_properties.py::test_only_and_all_regenerable_output_is_dropped_and_the_rest_restored",
+    "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine"
+  ],
+  "unresolved_failures": {},
+  "skipped_nodes": []
+}

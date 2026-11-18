@@ -1,0 +1,1 @@
+["tests/unit/test_retention_dependency_units.py::test_d2_legacy_places_count_only_while_their_job_has_not_ended", "tests/unit/test_retention_dependency_units.py::test_d2_legacy_reads_only_jobs_queued_before_depends_was_recorded", "tests/unit/test_retention_dependency_units.py::test_a_legacy_firmlink_folder_is_spelled_before_the_pin_transaction"]

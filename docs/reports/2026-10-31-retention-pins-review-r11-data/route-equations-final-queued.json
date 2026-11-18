@@ -1,0 +1,14 @@
+{
+  "queued": "2026-10-31T16:55:15.801363+00:00",
+  "args": [
+    "-p",
+    "tests.conftest",
+    "review-r11-data/round_probes.py",
+    "-k",
+    "all_nine_routes"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/route-equations-final",
+  "linked": false,
+  "driver_pid": 79744,
+  "lock_process_group": 80379
+}

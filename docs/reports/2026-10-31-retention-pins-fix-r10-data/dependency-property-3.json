@@ -1,0 +1,60 @@
+{
+  "name": "dependency-property-3",
+  "start": "2026-10-31T14:00:36.261145+00:00",
+  "load": [
+    105.7236328125,
+    104.7119140625,
+    93.7119140625
+  ],
+  "pytest_pid": 22480,
+  "failure_root": "/private/tmp/sf-fix272r10/failed-keep",
+  "args": [
+    "tests/unit/test_retention_dependency_properties.py",
+    "-k",
+    "submitted_dependencies"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.9240224589957506,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 75.34728616600478,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.001458582999475766,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/subfleet/dependencies.py",
+  "product_sha256": "38f65f4089bee465ce3b8ac9d57cdb91a0dcae53d87542864cdba3720774f8a8",
+  "example_progress": {
+    "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted": {
+      "passed": 25,
+      "failures": [],
+      "interrupted": 0
+    }
+  },
+  "end": "2026-10-31T14:02:40.226001+00:00",
+  "seconds": 123.96303395799623,
+  "peak_rss_mib": 126.515625,
+  "exit": 0
+}

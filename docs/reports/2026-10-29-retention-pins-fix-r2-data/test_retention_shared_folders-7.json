@@ -1,0 +1,70 @@
+{
+  "name": "test_retention_shared_folders-7",
+  "start": "2026-10-29T11:04:30.046960+00:00",
+  "load": [
+    41.4482421875,
+    33.89697265625,
+    24.75830078125
+  ],
+  "args": [
+    "tests/unit/test_retention_shared_folders.py",
+    "-k",
+    "test_a_live_turn_keeps_no_in_place_job_in_its_folder or test_a_turn_row_keeps_no_job_without_its_own_tree or test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in"
+  ],
+  "results": [
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-folder]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-inside]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-folder]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-inside]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[read-only]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[workspace-write]",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    },
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in",
+      "phase": "call",
+      "outcome": "passed",
+      "xfail": null
+    }
+  ],
+  "collected": [
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-folder]",
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[TURN-inside]",
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-folder]",
+    "tests/unit/test_retention_shared_folders.py::test_a_live_turn_keeps_no_in_place_job_in_its_folder[READER-inside]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[read-only]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_row_keeps_no_job_without_its_own_tree[workspace-write]",
+    "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in"
+  ],
+  "seconds": 80.51746229099808,
+  "max_rss_bytes": 120635392,
+  "end": "2026-10-29T11:05:50.565495+00:00"
+}

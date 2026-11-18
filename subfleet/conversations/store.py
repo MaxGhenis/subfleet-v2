@@ -93,6 +93,12 @@ CREATE TABLE IF NOT EXISTS messages (
   UNIQUE (conversation_id, seq)
 );
 CREATE INDEX IF NOT EXISTS messages_by_state ON messages(conversation_id, state, seq);
+CREATE TABLE IF NOT EXISTS message_stop_requests (
+  message_id TEXT NOT NULL REFERENCES messages(message_id) ON DELETE CASCADE,
+  turn_seq INTEGER NOT NULL,
+  requester_json TEXT NOT NULL,
+  PRIMARY KEY (message_id, turn_seq)
+);
 CREATE TABLE IF NOT EXISTS final_wake_intents (
   message_id TEXT PRIMARY KEY REFERENCES messages(message_id) ON DELETE CASCADE,
   final_text TEXT NOT NULL, settled_at REAL NOT NULL
@@ -1245,7 +1251,8 @@ class ConversationStore:
             return tx.execute("SELECT 1 FROM messages WHERE message_id=? AND state=? AND job_id=?",
                               (message_id, WAITING, job_id)).fetchone() is not None
 
-    def withdraw(self, message_id: str, *, expect: tuple[str, ...], stop_at: str, unbound: bool = False) -> bool:
+    def withdraw(self, message_id: str, *, expect: tuple[str, ...], stop_at: str, unbound: bool = False,
+                 requester: dict | None = None) -> bool:
         """A person's withdrawal of a message (C-24.7): `cancelled`, reason
         `withdrawn`, only from `expect` and, with `unbound`, only while no job is
         bound to it, with the person's stop recorded in the same statement (an
@@ -1259,9 +1266,30 @@ class ConversationStore:
                              f"stop_requested_at=COALESCE(stop_requested_at, ?) WHERE {where}",
                              (CANCELLED, "withdrawn", utcnow(), stop_at, *params))
             if cur.rowcount:
+                self._save_stop_request(tx, message_id, requester)
                 row = tx.execute("SELECT conversation_id FROM messages WHERE message_id=?", (message_id,)).fetchone()
                 self._change(tx, row["conversation_id"], message_id, CANCELLED, reason="withdrawn")
             return bool(cur.rowcount)
+
+    @staticmethod
+    def _save_stop_request(tx, message_id: str, requester: dict | None) -> None:
+        if requester is not None:
+            tx.execute("INSERT OR IGNORE INTO message_stop_requests(message_id,turn_seq,requester_json) "
+                       "SELECT message_id,turn_seq,? FROM messages WHERE message_id=?",
+                       (json.dumps(requester), message_id))
+
+    def request_stop(self, message_id: str, *, stop_at: str, requester: dict) -> None:
+        """The stop and its first requester survive a pending job submission,
+        in one transaction. Each turn sequence has its own requester."""
+        with self.transaction() as tx:
+            tx.execute("UPDATE messages SET stop_requested_at=COALESCE(stop_requested_at,?),updated_at=? "
+                       "WHERE message_id=?", (stop_at, utcnow(), message_id))
+            self._save_stop_request(tx, message_id, requester)
+
+    def stop_requester(self, message_id: str, turn_seq: int) -> dict | None:
+        row = self.one("SELECT requester_json FROM message_stop_requests WHERE message_id=? AND turn_seq=?",
+                       (message_id, turn_seq))
+        return json.loads(row["requester_json"]) if row else None
 
     def update_message(self, message_id: str, **fields: Any) -> None:
         allowed = {"job_id", "turn_seq", "turn_ref", "served", "stop_requested_at", "resolution"}

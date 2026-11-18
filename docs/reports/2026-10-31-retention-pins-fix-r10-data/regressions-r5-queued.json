@@ -1,0 +1,11 @@
+{
+  "queued": "2026-10-31T12:32:59.433291+00:00",
+  "args": [
+    "tests/fake/test_retention_dependency_review_r5.py",
+    "tests/unit/test_retention_pointer_whitespace.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r10/real-tmp/regressions-r5",
+  "linked": false,
+  "driver_pid": 47724,
+  "lock_process_group": 47923
+}

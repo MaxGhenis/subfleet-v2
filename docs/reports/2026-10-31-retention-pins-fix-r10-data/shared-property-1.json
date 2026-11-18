@@ -1,0 +1,37 @@
+{
+  "name": "shared-property-1",
+  "start": "2026-10-31T14:09:59.995998+00:00",
+  "load": [
+    40.04248046875,
+    57.6279296875,
+    73.109375
+  ],
+  "pytest_pid": 67796,
+  "failure_root": "/private/tmp/sf-fix272r10/failed-keep",
+  "args": [
+    "tests/unit/test_retention_shared_folders.py",
+    "-k",
+    "test_early_fences_equal_reservation_before_and_after_quarantine"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.9773093749972759,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/subfleet/dependencies.py",
+  "product_sha256": "38f65f4089bee465ce3b8ac9d57cdb91a0dcae53d87542864cdba3720774f8a8",
+  "end": "2026-10-31T14:19:13.232716+00:00",
+  "seconds": 553.2351532920002,
+  "peak_rss_mib": 147.765625,
+  "exit": 2
+}

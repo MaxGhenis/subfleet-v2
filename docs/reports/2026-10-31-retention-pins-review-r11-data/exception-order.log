@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 16:41:49Z slot A load 
+..                                                                       [100%]
+2 passed in 9.62s
+{"name": "exception-order", "start": "2026-10-31T16:41:55.095652+00:00", "load": [37.45166015625, 45.71826171875, 69.05615234375], "seconds": 11.914786749999621, "exit": 0}

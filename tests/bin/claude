@@ -27,6 +27,13 @@ Environment:
                                 scenario does. The adapter itself never shells
                                 out for a profile: it calls the URL, and the
                                 harnesses replace the opener behind it.
+    SUBFLEET_FAKE_SETTINGS_REPORT
+                                when set, write there the value of each name in
+                                SUBFLEET_FAKE_SETTINGS_NAMES (comma-separated) as
+                                the session would see it, then exit 0 having done
+                                nothing else (D-WATCHDOG1). The settings are
+                                layered as `settings_env` says: an assumption
+                                about Claude Code, never evidence of it.
 
 Unknown flags are accepted and ignored: the point is to replay a fixture for
 whatever argv the adapter built, not to re-implement Claude Code. With
@@ -105,9 +112,72 @@ def print_profile(argv: list[str]) -> int:
     return 0 if status == 200 else 2
 
 
+def _settings_file(path: Path) -> dict:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def settings_env(argv: list[str]) -> tuple[dict[str, str], dict]:
+    """The `env` a session would apply over its process environment, and how it got it.
+
+    The layering is the one this repository records, not one any Claude run here
+    has shown: the user's file (`$CLAUDE_CONFIG_DIR/settings.json`, else
+    `$HOME/.claude/settings.json`), then the project's and the local file under
+    the cwd, each only when `--setting-sources` names it (all three without the
+    flag), and last every `--settings` in argv order, a JSON object or a path to
+    one, which load whatever `--setting-sources` names (`claude-help.txt`'s
+    `--restricted` entry: "--settings still apply"). That command-line settings
+    outrank the files is C-26.11's premise for project and local settings and,
+    for user settings, the 2026-10-22 live probe the hub reported (D-WATCHDOG1).
+    `--safe-mode` is not modelled: its help names no settings source.
+    """
+    sources_flag = flag_value(argv, "--setting-sources")
+    sources = ({"user", "project", "local"} if sources_flag is None
+               else {part.strip() for part in sources_flag.split(",") if part.strip()})
+    config = os.environ.get("CLAUDE_CONFIG_DIR")
+    files = {"user": Path(config) / "settings.json" if config else Path.home() / ".claude" / "settings.json",
+             "project": Path.cwd() / ".claude" / "settings.json",
+             "local": Path.cwd() / ".claude" / "settings.local.json"}
+    layers, loaded = [], []
+    for source in ("user", "project", "local"):
+        if source in sources:
+            layers.append(_settings_file(files[source]))
+            loaded.append(source)
+    flags = []
+    for index, item in enumerate(argv):
+        if item == "--settings" and index + 1 < len(argv):
+            flags.append(argv[index + 1])
+        elif item.startswith("--settings="):
+            flags.append(item.split("=", 1)[1])
+    for value in flags:
+        try:
+            parsed = json.loads(value) if value.lstrip().startswith("{") else _settings_file(Path(value))
+        except ValueError:
+            parsed = {}
+        layers.append(parsed if isinstance(parsed, dict) else {})
+    env: dict[str, str] = {}
+    for layer in layers:
+        if isinstance(layer.get("env"), dict):
+            env.update({str(k): str(v) for k, v in layer["env"].items()})
+    return env, {"sources": loaded, "settings_flags": len(flags)}
+
+
+def settings_report(argv: list[str], path: str) -> int:
+    env, how = settings_env(argv)
+    names = [name for name in os.environ.get("SUBFLEET_FAKE_SETTINGS_NAMES", "").split(",") if name]
+    seen = {name: env.get(name, os.environ.get(name)) for name in names}
+    Path(path).write_text(json.dumps({"seen": seen, **how, "argv": argv}, indent=1), encoding="utf-8")
+    return 0
+
+
 def main(argv: list[str]) -> int:
     if "--print-profile" in argv:
         return print_profile(argv)
+    if os.environ.get("SUBFLEET_FAKE_SETTINGS_REPORT"):
+        return settings_report(argv, os.environ["SUBFLEET_FAKE_SETTINGS_REPORT"])
     if flag_value(argv, "--input-format") == "stream-json":
         # A conversation turn (C-26): the interactive fake in tests/fake.
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))

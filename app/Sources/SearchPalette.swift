@@ -31,6 +31,15 @@
 
 import Foundation
 
+/// A message to scroll to once its conversation shows. Also drives container
+/// visibility in the Foundation layout, before any view task can run.
+struct SearchReveal: Equatable {
+    var conversationID: String
+    var itemID: String
+    /// Choosing the same message again scrolls again.
+    var token = UUID()
+}
+
 // MARK: - Folding
 
 /// Text as it is matched: its UTF-8 with case, diacritics and width folded

@@ -1,0 +1,8 @@
+{
+  "queued": "2026-10-31T07:37:06.533909+00:00",
+  "args": [
+    "tests/fake/test_detached_retention_fence.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/real-tmp/admission-git-holds",
+  "linked": false
+}

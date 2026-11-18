@@ -1,0 +1,44 @@
+{
+  "label": "mutant-r6-parent-common-fallback-restored",
+  "start": "2026-10-30T20:22:11.800069+00:00",
+  "loads": [
+    51.69384765625,
+    49.87744140625,
+    49.84716796875
+  ],
+  "seconds": 17.11441312500392,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-lf]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 5.684488291997695
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-lf]"
+  ],
+  "all_nodes": [
+    "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-lf]"
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-lf]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {},
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original_sha256": "3f6bcf87c8d78f26047f70f2e1d836796b3613d84917fe8f0ea3b88d026b9b0e",
+      "baseline_sha256": "1e6ce90ccb607272437560e86bffbbaf4aa68540d1d201f35a6a8cdacc73da1c",
+      "mutated_sha256": "28fcd9bcd95cacfdf937e53bc17b9e67a193c5c529576ddc2472e5aa299b7a18"
+    }
+  ],
+  "rss": 119832576
+}

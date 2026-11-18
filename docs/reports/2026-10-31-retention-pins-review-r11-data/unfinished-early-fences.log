@@ -1,0 +1,10 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 16:20:56Z slot B load 
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! KeyboardInterrupt !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/review-r11-data/run.py:178: KeyboardInterrupt
+(to show a full traceback on KeyboardInterrupt use --full-trace)
+no tests ran in 536.20s (0:08:56)
+{"name": "unfinished-early-fences", "start": "2026-10-31T16:21:17.388838+00:00", "load": [128.03466796875, 109.70849609375, 110.4638671875], "seconds": 548.8947410409965, "exit": 2}

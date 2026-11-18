@@ -49,7 +49,7 @@ def test_a_failing_release_step_does_not_hide_why_construction_failed(monkeypatc
     monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "fake-boot")
     monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "fake-start")
 
-    def seed(self):
+    def seed(self, *roster):           # round 5 of #222: seeding takes the roster it checked
         raise RuntimeError("the lane roster is unreadable")
     with tempfile.TemporaryDirectory(prefix="sfi-", dir="/tmp") as directory:
         before = open_descriptors()

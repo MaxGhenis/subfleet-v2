@@ -1,0 +1,47 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 22:26:52Z slot A load 
+START mutant-r6-dangling-pointer-treated-as-missing 2026-10-30T22:26:55.541638+00:00 load=(13.7919921875, 20.43505859375, 20.69775390625)
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________ test_unreadable_common_pointer_keeps_allocated_trees[dangling] ________
+
+world = World(base=PosixPath('/private/tmp/sf-fix272r6/cases-21002/pytest/test_unreadable_common_pointer0'), trusted=True, rem...ix272r6/cases-21002/pytest/test_unreadable_common_pointer0/state'), store=<subfleet.store.Store object at 0x109dbe3c0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1097cf950>
+defect = 'dangling'
+
+    @pytest.mark.parametrize("defect", ["dangling", "oversized", "permission", "oserror", "value"])
+    def test_unreadable_common_pointer_keeps_allocated_trees(world, monkeypatch, defect):
+        tree = world.job("owner")
+        admin = world.base / "outside" / ".git"
+        admin.mkdir(parents=True)
+        pointer = admin / "commondir"
+        if defect == "dangling":
+            pointer.symlink_to(world.base / "gone")
+        elif defect == "oversized":
+            pointer.write_bytes(b"\r\n" * (dependencies._FILE_LIMIT // 2 + 1))
+            with pytest.raises(TooLarge):
+                dependencies.read_regular(pointer, limit=dependencies._FILE_LIMIT)
+        else:
+            pointer.write_bytes(b"../common\n")
+            real = dependencies.read_regular
+            error = {"permission": PermissionError(errno.EACCES, "fixture denied"),
+                     "oserror": OSError(errno.EIO, "fixture interrupted"),
+                     "value": ValueError("fixture invalid read")}[defect]
+    
+            def reading(path, **kwargs):
+                if str(path) == str(pointer):
+                    raise error
+                return real(path, **kwargs)
+    
+            monkeypatch.setattr(dependencies, "read_regular", reading)
+        recorded = dependencies.record(str(admin.parent))
+>       assert any(error["file"] == str(pointer) for error in recorded.get("incomplete", [])), recorded
+E       AssertionError: {'git': ['/private/tmp/sf-fix272r6/cases-21002/pytest/test_unreadable_common_pointer0/outside/.git', '/private/tmp/sf-fix272r6/cases-21002/pytest/test_unreadable_common_pointer0/outside/.git/objects']}
+E       assert False
+E        +  where False = any(<generator object test_unreadable_common_pointer_keeps_allocated_trees.<locals>.<genexpr> at 0x109d40040>)
+
+tests/fake/test_retention_pointer_failures.py:37: AssertionError
+============================ Hypothesis Statistics =============================
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[dangling]
+1 failed in 20.66s

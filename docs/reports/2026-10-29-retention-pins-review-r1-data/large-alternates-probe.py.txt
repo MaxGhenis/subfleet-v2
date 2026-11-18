@@ -1,0 +1,21 @@
+from subfleet import dependencies,retention,procs
+from tests.unit.retention_world import World,git
+from tests.unit.test_retention_dependency_units import repo
+
+def test_large_valid_alternates_file_keeps_its_owner(tmp_path,monkeypatch):
+ monkeypatch.setattr(procs,'worktree_cwd_pids',lambda *a,**k:frozenset())
+ w=World(tmp_path)
+ try:
+  tree=w.job('owner');source=repo(tree/'objects-source');oid=git(source,'rev-parse','HEAD')
+  borrower=tmp_path/'borrower';git(tmp_path,'clone','--quiet','--shared',str(source),str(borrower))
+  line=str(source/'.git'/'objects')+'\n'
+  text=line*((64*1024)//len(line.encode())+1)
+  (borrower/'.git/objects/info/alternates').write_text(text)
+  assert len(text.encode())>64*1024
+  assert git(borrower,'cat-file','-t',oid)=='commit'
+  data=dependencies.record(str(borrower))
+  w.store.add_job(job_id='reader',request_id='reader',payload_digest='d',kind='dispatch',state='running',sandbox='read-only',workdir=str(borrower),prompt_path='/p')
+  w.store.add_event('job.submitted',job_id='reader',data={'depends':data})
+  result=retention.maintenance(w.store,w.root,max_jobs=0,max_bytes=0,holders=lambda *a,**k:{})
+  assert 'owner' not in result['pruned'],(data,result)
+ finally:w.close()

@@ -53,12 +53,13 @@ def test_d714_keeps_every_conversation_permission_mode_argv_unchanged(tmp_path, 
             "--permission-mode", "plan", "--tools", tools, "--allowedTools", tools,
             "--setting-sources", "", "--safe-mode", "--no-chrome", "--strict-mcp-config",
             "--mcp-config", '{"mcpServers":{}}', "--disable-slash-commands",
+            "--settings", '{"env":{"CLAUDE_CODE_RETRY_WATCHDOG":"0"}}',
         ]
     else:
         expected += [
             "--permission-mode", PERMISSIONS[permission], "--permission-prompt-tool", "stdio",
             "--disallowedTools", "Monitor,CronCreate,ScheduleWakeup,RemoteTrigger,EnterPlanMode,ExitPlanMode",
-            "--settings", '{"disableAllHooks":false}',
+            "--settings", '{"disableAllHooks":false,"env":{"CLAUDE_CODE_RETRY_WATCHDOG":"0"}}',
         ]
     assert launch.argv == tuple(expected)
     assert launch.env_add == {

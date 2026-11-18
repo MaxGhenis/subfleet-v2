@@ -1,0 +1,70 @@
+{
+  "label": "turn-job-property",
+  "start": "2026-10-31T06:31:12.886005+00:00",
+  "loads": [
+    34.66650390625,
+    33.7685546875,
+    33.6015625
+  ],
+  "seconds": 49.48322329199982,
+  "exit": 0,
+  "locked": false,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.13970791700012342,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 37.99787479099905,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0005735409995395457,
+      "properties": [],
+      "failure": null
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd"
+  ],
+  "all_nodes": [
+    "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd"
+  ],
+  "property_settings": {
+    "tests/fake/test_turn_retention_job_properties.py::test_t2_retention_never_moves_a_live_turns_actual_cwd": {
+      "max_examples": 40,
+      "derandomize": true,
+      "database_none": true,
+      "explicit_examples": 5,
+      "phases": [
+        "Phase.explicit",
+        "Phase.reuse",
+        "Phase.generate",
+        "Phase.target",
+        "Phase.shrink",
+        "Phase.explain"
+      ],
+      "digest": "454cf367190b763e8b56145d908ca88464eb798b761cc41bde77e8a4bd2439de4051a9a5ab22c8062baf04162ae694a2"
+    }
+  },
+  "loaded": [],
+  "dependency_source": {
+    "file": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/subfleet/dependencies.py",
+    "sha256": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d"
+  },
+  "rss": 126844928
+}

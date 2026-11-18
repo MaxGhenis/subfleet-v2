@@ -1,0 +1,15 @@
+{
+  "holds": 82,
+  "all_locked": true,
+  "ordinary_passes": 917,
+  "repository_passes": 915,
+  "mutants": 12,
+  "nonzero_ordinary": [
+    [
+      "retention_sweep_race-part2-interrupted",
+      2
+    ]
+  ],
+  "max_seconds": 581.8190303750016,
+  "max_rss_MiB": 320.25
+}

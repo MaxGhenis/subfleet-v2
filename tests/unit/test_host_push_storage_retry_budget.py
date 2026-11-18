@@ -239,3 +239,23 @@ def test_completion_fails_once_window_and_count_are_both_spent(completion, monke
     core._reap_push_workspaces({})
     assert len(failed) == 1 and f"after {PUSH_WORKSPACE_STORE_MAX_FAILURES} completion write failures" in failed[0]
     assert core._push_workspace_store_failures == {} and core._push_workspace_store_first_failure == {}
+
+
+def test_a_completion_write_failure_s_notice_names_its_class_only(completion, monkeypatch):
+    """C-25.7 (the sweep after review r1 of #233): the job's notice and its
+    `job.workspace_failed` record named sqlite's own words; a job's records name an
+    exception other than an OS error by its class."""
+    core, future, destination = completion
+
+    @contextmanager
+    def corrupt(*args, **kwargs):
+        error = sqlite3.DatabaseError("database disk image is malformed near token=SECRET7sqlite9")
+        error.sqlite_errorcode = sqlite3.SQLITE_CORRUPT
+        raise error
+        yield  # Keep the fault at the context-manager boundary.
+
+    monkeypatch.setattr(core.store, "transaction", corrupt)
+    failed = []
+    core._fail_queued = lambda job, detail, **kwargs: failed.append((detail, kwargs.get("kind")))
+    core._reap_push_workspaces({})
+    assert failed == [("workspace completion could not be recorded: DatabaseError", "job.workspace_failed")]

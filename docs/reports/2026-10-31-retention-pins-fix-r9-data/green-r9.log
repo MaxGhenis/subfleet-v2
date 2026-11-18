@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 10:00:06Z slot A load 
+....                                                                     [100%]
+4 passed in 17.02s
+{"name": "green-r9", "start": "2026-10-31T10:00:09.268802+00:00", "load": [35.541015625, 34.41162109375, 35.82080078125], "seconds": 18.369335667000996, "exit": 0}
