@@ -351,3 +351,111 @@ Each was run on the merge and on a `git archive` extraction of 2954abd77 with th
 | `test_review_subject_cli.py::test_the_daemon_advertises_review_subjects_beside_release_task_capabilities` | **Fails**: `AttributeError: module 'subfleet.protocol' has no attribute 'TASKS_IF_NOTE_PREFIX_V2_CAPABILITY'` | passed | Fails on 4aed7a3c9 (`no attribute 'REVIEW_SUBJECT_CAPABILITY'`). Fails on mutant C, service.py taken from release (`assert 'review.subject.v1' in (...)`). |
 
 The brief's one-line assertion for the third test, `REVIEW_SUBJECT_CAPABILITY in service.CAPABILITIES`, already passes at 2954abd77, because the PR added the capability there. So the test also asserts release's two capabilities: the merged tuple must hold all three. That second line is what fails at 2954abd77, and the first line fails on release's side and on mutant C.
+
+### Test runs
+
+Setup: `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"`, `UV_CACHE_DIR=$TMPDIR/uv-cache` and `uv sync --group dev` (exit 0; Python 3.15.2, pytest 9.1.1), with `PYTHONPATH` unset.
+
+Each run went through one script, `$TMPDIR/sf-a2-merge1/run.sh`, which does five things:
+- runs `uv run --no-sync --with 'pytest-xdist>=3.6' python -m pytest -p no:cacheprovider` in the tree under test;
+- gives each run a new `--basetemp` named `pytest-<label>-<epoch>`;
+- uses at most `-n 4` workers and sets no per-test timeout;
+- logs `uptime` at the start and end;
+- prints where `subfleet` was imported from.
+
+**Deselection.** A selection plugin (`-p sf_merge1_select`, loaded from the scratch folder) deselects some tests and logs each one with its reason. It wraps and patches nothing. It drops three kinds of test:
+- tests whose fixtures include `process_inspection_available`, because they start a production daemon child whose containment census reads the host's process table;
+- `real_lsof` and `real_cwd` tests;
+- exact nodes and files from fix round 1's safety audit, plus the brief's named test.
+
+| Run | What | Start (UTC, load) | End (UTC, load) | Result |
+| --- | --- | --- | --- | --- |
+| `new-on-merge` | 3 new tests, merge, before the marker | 17:46:06, 17.4 | 17:46:16, 17.6 | 4 passed, 1 failed (the retirement test; see "Semantic conflict") |
+| `review-subject-file-merge` | `test_retention_review_subject.py` + `test_prune_217.py`, merge, no marker | 17:47:14, 14.7 | 17:49:13, 61.4 | 36 passed, 11 failed |
+| `review-subject-file-merge2` | `test_retention_review_subject.py`, with marker | 17:51:03, 58.3 | 17:52:37, 23.0 | 11 passed |
+| `new-at-2954abd77` | 3 new tests at the PR head | 17:54:02, 29.1 | 17:55:03, 25.3 | 2 passed, 3 failed (as expected) |
+| `new-at-4aed7a3c9` / `new3-at-4aed7a3c9` | retirement / capability test on release | 17:58:54, 80.1 / 18:02:05, 32.9 | 17:59:30, 74.6 / 18:02:48, 50.8 | collection error (no `subfleet.review_subject`) / 1 failed |
+| `new-at-mutA` … `mutD` | 2 tests on each mutant | 17:59:30, 74.6 | 18:01:39, 41.5 | each mutant: 1 failed, 1 passed (as expected) |
+| `step1-collect` | step 1, collect only | 18:15:21, 51.5 | 18:15:42, 42.2 | 982 of 983 selected; 1 deselected |
+| `step1-b` | step 1: 16 files | 18:16:40, 40.8 | 18:19:00, 18.4 | **827 passed** |
+| `step1-a` | step 1: `test_prune_217`, `test_retention_archive`, `test_retention_review_subject` | 18:19:33, 31.3 | 18:27:45, 25.3 | **155 passed** |
+| `step2-collect` | 220 step-2 files, collect only | 18:35:22, 15.4 | 18:36:57, 13.9 | 7,021 of 7,328 selected; 307 deselected |
+| `step2-b00` | 21 fake files (439 tests) | 18:37:40, 49.4 | stopped about 18:57:40 (44.7 at 18:51) | 437 passed, 1 xfailed, 1 unfinished, 0 failed. The tool stopped it at its 20-minute limit. |
+| `step2-pA` | the conflicts' other sides: 8 files | 19:03:33, 25.6 | 19:07:54, 16.8 | **209 passed** |
+| `step3` | the four contract files | 19:08:32, 18.1 | 19:10:58, 96.9 | **449 passed** |
+| `cwdpin-merge` | `test_detached_cwd_pins.py::test_current_cwd_fence_and_pin_are_atomic_at_admission`, the last test active on b00's gw1 | 19:12:06, 87.5 | 19:12:31, 80.9 | 2 passed in 17.6 s |
+| `step2-u00` | 25 unit/frontend files (687 tests) | 19:13:09, 74.2 | stopped about 19:33:10 (106.7 at 19:30) | 521 passed, 1 failed, 8 errors, 157 unfinished. The tool stopped it at its 20-minute limit. |
+| `frontend-replay-merge` | u00's failed and errored nodes: all 7 + 8 parameters | 19:34:09, 67.6 | 19:37:41, 25.6 | **15 passed** |
+| `step2-key` | 10 files nearest the resolved code (including u00's unstarted `test_conversation_state_reads.py`) | 19:42:18, 45.8 | 19:45:48, 27.0 | **639 passed** |
+| `step2-u01` | 23 files | 19:46:00, 24.4 | 19:47:50, 17.4 | **643 passed** |
+| `step2-u02` | 9 files | 19:48:06, 18.7 | 19:49:14, 25.4 | **698 passed** |
+| `step2-u0304` | 22 files | 19:49:37, 23.7 | 19:58:42, 29.0 | **913 passed, 26 xfailed** |
+
+**Step 1.** All 19 PR files ran: 982 passed and 1 was deselected, `test_retention_archive.py::test_real_lsof_sees_a_process_whose_cwd_is_in_the_tree` (`real_lsof`).
+
+**Step 2.**
+- **The set.**
+  - The hub's `git grep -l -P` pattern returns 229 files on the merge, the same count as the trial. An AST import walk over every `tests/*test_*.py` found no multi-line import the pattern misses. Three of the 229 match only in strings (`test_conversation_fifo_reads`, `test_daemon_fifo_reads`, `test_live_store_guard_st3_children`); I kept them.
+  - All five task-hold and sandbox files are in the set. `test_notice_keep.py`, `fake/test_notice_keep_delivery.py` and `test_pin_notice_identity.py` are not: they import `retention_notices`, not `retention_archive`. I added them, which makes 232.
+  - 12 of the 232 had already run in step 1, which leaves 220.
+- **What ran on the merge.**
+  - 72 files completely: 3,128 passed, 26 xfailed, 0 failed.
+  - batch b00: 437 passed and 1 xfailed of 439.
+  - u00: 521 passed of 687. Its 1 failure and 8 errors were all in `tests/frontend/`, a timing-sensitive steer test and Swift-probe fixtures at load 74 to 107. All 15 parameters of those two tests passed on replay. Neither side changed either file.
+  - No failure remains.
+- **What didn't finish or run.**
+  - One test in b00, which the `-q` output doesn't name. The test active last on gw1 passes alone.
+  - 139 tests in u00. Of its 157 unfinished tests, the 18 in `test_conversation_state_reads.py` ran later in `step2-key`. By name the 139 belong to `test_conversation_service.py` (most), `test_conversation_handoff*.py`, `test_cli_batch.py`, `test_conversation_fifo_reads.py`, `test_conversation_peers_attachments.py`, `test_codex_turn.py`, `test_client_availability.py`, `test_conversation_catalog_lifecycle.py` and `test_app_cutover_daemon.py`.
+  - 90 files never started: 43 unit files (2,785 − 1,116 = 1,669 tests) and 47 fake files (1,116 tests).
+  - 13 files had nothing selected after deselection.
+
+**Step 3.** The four contract files: **449 passed** (`test_state_contract`, `test_test_module_names`, `test_invariants_index`, `test_handler_refusals`).
+
+**Step 4** (importers of `cli`, `contracts`, `daemon`, `refusals` and `store` beyond step 2's set) didn't start: the time ran out.
+
+### Not run, and why
+
+Deselected from step 2's selection (307 tests), each logged with its reason:
+- **271 by file.**
+  - The `worlds()` setup of 8 `test_host_push*` files runs `git push origin <head>:refs/heads/trunk`, a write-shaped command, before any test-specific refusal. Fix round 1 found 16 safe nodes in the mixed files; I didn't select them.
+  - `e2e/test_conversations.py` (44) runs `peers.process_chain` (`ps -axo`, `ps -Ewwp`) over real ancestry.
+  - `process/test_kill4_fix1_process.py` (3) runs the real containment census over the host table.
+- **30 by fixture** (`process_inspection_available`, a production daemon child): `fake/test_daemon_stacks.py` 5, `fake/test_descriptor_exhaustion.py` 2, `fake/test_gate_end_to_end.py` 1, `fake/test_lost_acknowledgement.py` 3, `fake/test_sessions_end_to_end.py` 6, `unit/test_daemon_verbs.py` 5, `unit/test_doctor.py` 2 and `unit/test_legacy_hold.py` 6.
+- **3 by node.**
+  - `fake/test_review_launch_permissions.py::test_the_installed_publish_hook_is_run_before_launch`, named in the brief.
+  - `unit/test_hooks.py::test_the_hook_command_with_the_daemons_markers_spawns_nothing_and_surfaces_only_jobs`, which runs `/bin/ps -axww -o command=`.
+  - `unit/test_live_store_guard_round6.py::test_probes_detect_a_launch_that_is_not_refused`, which launches a stand-in executable named `security`.
+- **3 by marker:** `real_lsof` or `real_cwd` in `test_retention_cwd_rechecks.py`.
+
+The exclusion list also names the `test_gate_merge.py` and `test_gate_service.py` (`gh pr merge` through FakeGh runners), `test_idle_cost` and `process/` census files. None of them is in this round's selection.
+
+The other `test_live_store_guard*` tests still ran. Following fix round 1's audit, they hand `security` argv to a guard or Python callback that refuses it, or to a stand-in on a synthetic `PATH`. Only the node above launches.
+
+### Folders and cleanup
+
+- **Scratch** is `$TMPDIR/sf-a2-merge1`, and it predated this attempt: a1 made it, empty. I deleted its `basetemp/` (1.1 GB), `trees/` (the two extracted parents and four mutants) and `probe/` with a guarded `shutil.rmtree`. The guard asserts `sf-a2-merge1` is in the path, and its error handler restores write permission on test-made read-only folders. I kept the run logs, the deselection logs, the checker scripts, the selection plugin and the batch lists (about 2 MB) for the hub.
+- **Outside scratch:** I created no folder myself. The suite's `conftest.py` made seven `sf-test-homes-*` folders under `$TMPDIR` during these runs, and they were still there at the end, probably from the two runs the tool stopped:
+  - `sf-test-homes-2bab_8zh`
+  - `sf-test-homes-4fli8el0`
+  - `sf-test-homes-683atcv6`
+  - `sf-test-homes-85yrjuo4`
+  - `sf-test-homes-b1yus6_5`
+  - `sf-test-homes-begh_jj3`
+  - `sf-test-homes-ibil81la`
+
+  Their paths don't contain `sf-a2-merge1`, so the guarded delete the brief requires refuses them. I left them, as rounds 1 and 2 left theirs. No `/tmp/sf-*` or `/tmp/sf-failed` folder from these runs remains.
+- `$TMPDIR/uv-cache` predates this job, so I kept it. The worktree's ignored `.venv` stays.
+
+### Deviations from the brief
+
+1. **Resumed, not started.** Attempt a1 had started the merge and resolved the five files in the working tree without staging or committing. I verified and kept its resolutions, and reran the contract script, whose output was identical.
+2. **The release ref moved:** it is now at 35f8615af locally and 024b23f80 on the remote. I merged 4aed7a3c9, as instructed.
+3. **One extra file changed for the merge.** `tests/unit/test_retention_review_subject.py` gained release's `retention_catch_up` marker, which release's b683f221d requires (see "Semantic conflict"). Without it, the PR's 10 existing retirement tests fail on the merge.
+4. **Three new tests, not two.** The brief's list has three, and I added all three. The capability test also asserts release's two capabilities. On its own, the one-line assertion the brief gives passes at 2954abd77.
+5. **The first new test fails at 2954abd77 for one parameter, not three.** Two of the three fixture dumps already carry `events_notice_retired`. The brief's description of `release-217-v10.sql` as the base's store is wrong: its header says a4aded885.
+6. **Step order.** I ran step 2's eight conflict-pair files, then step 3, then the rest of step 2, so that step 3 couldn't be cut off. Step 2 stayed incomplete and step 4 didn't start.
+7. **Two runs went past the 600 s foreground limit:** b00 and u00. The tool moved them to the background and stopped each at its 20-minute limit. I polled their logs and started no other test run while either was active. Later batches were sized to finish in the foreground.
+8. **One run collected nothing.** The first `step1-b` invocation passed its 16 file names as one argument (zsh doesn't split words) and collected no tests (exit 5). It was rerun at once under the same label, which overwrote its log.
+9. **Fake daemon tests weren't excluded wholesale.** Only tests with the `process_inspection_available` fixture were dropped. The PR's three fake files use `state_daemon`, which patches every `procs` reader with a synthetic table.
+
+Code and tests built: `54b2b0ae1dcf7c9360ba6155f53424c49f5e57ed` (merge 9292b0e64, then the tests commit). This section is committed on top of it; the job's final answer gives the resulting head.
