@@ -8,6 +8,7 @@ import pytest
 
 from subfleet import cli, launch_env, protocol
 from subfleet.contracts import Exit
+from subfleet.conversations import service
 
 JOB = "20261113-120000-review"
 
@@ -19,6 +20,14 @@ def _submitted(request):
 
 def _capabilities(request):
     return {"capabilities": [protocol.REVIEW_SUBJECT_CAPABILITY]}
+
+
+def test_the_daemon_advertises_review_subjects_beside_release_task_capabilities():
+    """Without review.subject.v1 the CLI refuses (exit 69) every submission that
+    carries a caller family, subject or round, which is every run from a Claude
+    or Codex session. Release/217's two task capabilities stay beside it."""
+    assert protocol.REVIEW_SUBJECT_CAPABILITY in service.CAPABILITIES
+    assert {protocol.TASKS_IF_NOTE_PREFIX_V2_CAPABILITY, protocol.TASKS_SANDBOX_CAPABILITY} <= set(service.CAPABILITIES)
 
 
 @pytest.mark.parametrize("detected", [

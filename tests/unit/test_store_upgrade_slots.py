@@ -54,6 +54,9 @@ def test_real_historical_store_upgrades_to_12_and_reopens_unchanged(tmp_path, re
         assert upgraded.query("SELECT * FROM caller_wake_sessions") == []
         assert upgraded.one("SELECT sql FROM sqlite_master WHERE name='notices_caller_wake'")
         assert upgraded.one("SELECT sql FROM sqlite_master WHERE name='jobs_review_subject'")
+        # release/217's C-8.4 index (D-NOTICE-KEEP1). The release and #307 dumps
+        # already carry it; the schema script adds it to old #314's on open.
+        assert upgraded.one("SELECT sql FROM sqlite_master WHERE type='index' AND name='events_notice_retired'")
         after = snapshot(upgraded)
     with Store(path) as reopened:
         assert snapshot(reopened) == after
