@@ -501,6 +501,6 @@ The other `test_live_store_guard*` tests still ran. Following fix round 1's audi
 7. **Two runs went past the 600 s foreground limit:** b00 and u00. The tool moved them to the background and stopped each at its 20-minute limit. I polled their logs and started no other test run while either was active. Later batches were sized to finish in the foreground.
 8. **One run collected nothing.** The first `step1-b` invocation passed its 16 file names as one argument (zsh doesn't split words) and collected no tests (exit 5). It was rerun at once under the same label, which overwrote its log.
 9. **Fake daemon tests weren't excluded wholesale.** Only tests with the `process_inspection_available` fixture were dropped. The PR's three fake files use `state_daemon`, which patches every `procs` reader with a synthetic table.
-10. **Network.** My only network use was one read-only `git fetch --dry-run`, to read where the remote release ref sits. It updated no ref.
+10. **Network.** All my network use was read-only: `gh pr view 314 --repo MaxGhenis/subfleet-v2` for the PR body, and one `git fetch --dry-run`, which read where the remote release ref sits and updated no ref.
 
 Code and tests built: `54b2b0ae1dcf7c9360ba6155f53424c49f5e57ed` (merge 9292b0e64, then the tests commit). This section is committed on top of it; the job's final answer gives the resulting head.
