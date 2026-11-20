@@ -332,6 +332,50 @@ A checker script (in my scratch folder) compared the three committed versions wi
 
 No clause text changes in the merge, so no change-log entry was added.
 
+The checker's output (argv `85769b826 2954abd77 4aed7a3c9 docs/acceptance-contract.md`; exit 0):
+
+```text
+lines (split): {'base': 843, 'head': 847, 'release': 866, 'merged': 870}  wc -l: {'base': 842, 'head': 846, 'release': 865, 'merged': 869}
+PASS file lines 870 == head + (release - base) = 847 + (866 - 843)
+change-log entries: {'base': 344, 'head': 345, 'release': 366, 'merged': 367}
+PR adds 1 entries, removes 0; release adds 23, removes 1
+PASS merged change log 367 == head + (release - base) = 345 + (366 - 344)
+release's change-log edits in place (base entry -> release entry):
+   base:    - C-5.12 (2026-10-22, D-KILL3 / PR #223 integration): counted expiry and last_observed_alive_at share the distinct-table gate. A repeated shared table
+   release: - C-5.12 (2026-10-22, D-KILL3 / PR #223 integration): counted expiry and last_observed_alive_at share the distinct-table gate. A repeated shared table
+so release adds 22 entries and edits 1 in place
+PASS merged change log == head + release - base as multisets (none lost, none twice)
+entries appearing twice: merged {'- C-20.6, C-23.28 (2026-10-15, D-ST1, PR #198 round 8): define the test harness ': 2}  base {'- C-20.6, C-23.28 (2026-10-15, D-ST1, PR #198 round 8): define the test harness ': 2}
+PASS no change-log entry appears twice in the merged file that did not already appear twice in the base
+PASS PR's entry is first
+PASS after the PR's entry, the merged change log is release's change log exactly, in order
+PASS the whole merged change-log section, blank lines included, is release's with the PR's line added
+base: 260 clauses with lettered ids, 257 by the script's pattern, duplicates []
+PASS base has no duplicate clause
+head: 263 clauses with lettered ids, 260 by the script's pattern, duplicates []
+PASS head has no duplicate clause
+release: 260 clauses with lettered ids, 257 by the script's pattern, duplicates []
+PASS release has no duplicate clause
+merged: 263 clauses with lettered ids, 260 by the script's pattern, duplicates []
+PASS merged has no duplicate clause
+PR adds ['C-3.8', 'C-6.21', 'C-6.22'] edits ['C-6.5', 'C-17.2'] removes []
+release adds [] edits ['C-4.5', 'C-5.12', 'C-6.10', 'C-8.4', 'C-9.3', 'C-11.10', 'C-15.3', 'C-17.1', 'C-23.14', 'C-23.25', 'C-23.26', 'C-25.7', 'C-29.9'] ( 13 ) removes []
+PASS PR adds exactly C-3.8, C-6.21, C-6.22
+PASS PR edits exactly C-6.5, C-17.2
+PASS release adds none
+PASS release edits exactly the 13 named clauses
+PASS no clause removed on either side
+PASS no clause edited on both sides ([])
+PASS merged clause count 263 == base 260 + PR's 3 new = 263
+PASS every merged clause equals the side that changed it, else the base's (mismatches [])
+PASS every base, head and release clause id is in the merged file
+PASS C-17.1 is release's line byte for byte
+PASS C-17.2 is the PR's line byte for byte
+PASS merged clause order equals head's order with release unchanged order
+PASS merged multiset of lines == base + both sides' additions - both sides' removals
+RESULT: ALL PASS
+```
+
 ### Semantic conflict outside the five files: one holder listing a pass
 
 Release's b683f221d (D-HOLDERS-LSOF1, change 2) takes one holder listing per retention pass. A job archived in a pass finishes its holder check 2 in the next pass. Every release test module that expects one `maintenance` call to retire a job carries `pytestmark = pytest.mark.retention_catch_up`. With that marker, `tests/conftest.py`'s `catch_up` runs up to three follow-up passes, as the daemon's catch-up would.
@@ -457,5 +501,6 @@ The other `test_live_store_guard*` tests still ran. Following fix round 1's audi
 7. **Two runs went past the 600 s foreground limit:** b00 and u00. The tool moved them to the background and stopped each at its 20-minute limit. I polled their logs and started no other test run while either was active. Later batches were sized to finish in the foreground.
 8. **One run collected nothing.** The first `step1-b` invocation passed its 16 file names as one argument (zsh doesn't split words) and collected no tests (exit 5). It was rerun at once under the same label, which overwrote its log.
 9. **Fake daemon tests weren't excluded wholesale.** Only tests with the `process_inspection_available` fixture were dropped. The PR's three fake files use `state_daemon`, which patches every `procs` reader with a synthetic table.
+10. **Network.** My only network use was one read-only `git fetch --dry-run`, to read where the remote release ref sits. It updated no ref.
 
 Code and tests built: `54b2b0ae1dcf7c9360ba6155f53424c49f5e57ed` (merge 9292b0e64, then the tests commit). This section is committed on top of it; the job's final answer gives the resulting head.
