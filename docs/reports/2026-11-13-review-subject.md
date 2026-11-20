@@ -278,3 +278,76 @@ Deviations and limits are explicit:
 Cleanup completed after all owned test commands returned. The [main journal](2026-11-13-review-subject-fix1-data/cleanup.jsonl) records all 3,485 inventory entries before deletion: 3,458 allocation records, nine known early roots, 16 generated workspace folders and two scratch roots. Eighteen guarded deletions removed the generated folders and both scratch roots; the nine early roots were already absent. A [supplemental journal](2026-11-13-review-subject-fix1-data/supplemental-cleanup.jsonl) records removal of the generated Hypothesis/frontend caches and disposal folder omitted from that inventory. The tracked pre-existing `.coverage` file is preserved. Guard removal verified 13 manifest paths: three installed files removed, ten overlay paths already absent, zero remaining. Deletions use descriptor-safe `shutil.rmtree` with the required `sf-a2-fix1` assertion, moving generated roots into a marked disposal path when necessary. The initial cleanup dry-run's quadratic protection check was interrupted before deletion and replaced by an equivalent precomputed ancestor set. Final `git diff --check` and AST parsing of all 19 changed/new product/test Python files passed. [Evidence hashes](2026-11-13-review-subject-fix1-data/sha256-manifest.json) cover the retained small ledgers, selectors, guard proofs and cleanup scripts; databases, archives, caches and full test logs were removed. Report completed **2026-11-16 01:53 UTC**, before the four-hour deadline. All fixes remain uncommitted because the shared index is denied.
 
 **Head built:** `5b06c1826bc0641f65b1293197a505b8c8a4843a`
+
+
+## Release merge 1
+
+Started **2026-11-20 17:36:39 UTC** (`date -u`, first command); deadline 20:36:39 UTC. The job resumed attempt a1's workspace (salvage ref `refs/subfleet-salvage/detached-20261120T162853Z-a1`, commit 4c31a7f58): a1 had started `git merge --no-ff --no-commit 4aed7a3c9` at 2954abd77, left the five conflicted paths resolved in the working tree but unstaged, and committed nothing. I checked each of a1's resolutions against the brief before staging it, reran the contract script and committed the merge.
+
+**Release moved on.** Local `origin/release/217` is at 35f8615af, 21 commits past 4aed7a3c9, and `git fetch --dry-run` shows the remote at 024b23f80. As the brief says, the merge takes 4aed7a3c9. Merge base 85769b826; release has 173 commits since it and the PR has 3.
+
+**Merge commit** 9292b0e640296067eea171bc12da7cbde5910ff7. Its parents (`git log -1 --format=%P`) are 2954abd77bb94ba10a3a082bd7a9ad01898b0cac and 4aed7a3c977d7813262cac21016fb65d37576ba2. `git diff --check` is clean. `git diff --check 2954abd77 HEAD` reports 295 trailing-whitespace lines, all in release's committed evidence logs under `docs/reports/2026-11-0*`; `git diff --check 85769b826 4aed7a3c9` reports the same 295, byte for byte.
+
+### Conflicted files
+
+1. **`subfleet/client.py`, `DaemonError.__init__`.** Release (7dea5c3a6) keeps `task-hold-condition` even when its details don't parse; before, the reason was dropped with the details. The PR keeps its own fixed reason `review-round-limit`, with no details. Result: release's `self.reason = reason if reason == "task-hold-condition" else None`, then the PR's two `review-round-limit` lines.
+2. **`subfleet/protocol.py`.**
+   - Constants: release's `TASKS_IF_NOTE_PREFIX_V2_CAPABILITY` (7dea5c3a6) and `TASKS_SANDBOX_CAPABILITY` (7918a8aad), then the PR's `REVIEW_SUBJECT_CAPABILITY`, each with its comment.
+   - `refuse()`: the brief's seven lines exactly. `condition` decides `task-hold-condition` whether or not its details parse. `review-round-limit`, as an exact `str`, replaces the public reason. The PR's comment above them stays.
+3. **`subfleet/conversations/service.py`.** `CAPABILITIES` ends `TASKS_IF_NOTE_PREFIX_CAPABILITY, TASKS_IF_NOTE_PREFIX_V2_CAPABILITY, TASKS_SANDBOX_CAPABILITY, REVIEW_SUBJECT_CAPABILITY`.
+4. **`subfleet/retention_archive.py`, `Retirement.commit`'s `else:` branch.**
+   - The PR's block comes first: it stamps `review_subject` and `review_round` on an accepted, successful review's event. Release's block (bc407d68e) follows: `rnotices.write_outcomes` writes the outcome notices and records `outcome_notices`. Both run before the `DELETE` statements.
+   - The two blocks set different keys of `data_event`. `rnotices` is imported at line 51, and `RetentionContext.notice_keep_s` exists at line 255.
+5. **`docs/acceptance-contract.md`.** The hub's script resolved it (below).
+
+### Schema slots (D-SCHEMA-SLOTS1)
+
+On the merge, `subfleet/store.py` has `PROVIDER_QOS_MIGRATION = 10`, `NOTICE_WAKE_MIGRATION = 11`, `REVIEW_SUBJECT_MIGRATION = 12` and `SCHEMA_VERSION = REVIEW_SUBJECT_MIGRATION`. `MIGRATIONS` has keys 4 to 12. Line 1 of `store_schema.sql` reads "version 12 (#307 storage, caller family and review subjects/rounds)", and line 331 is release's `CREATE INDEX IF NOT EXISTS events_notice_retired`. Release at 4aed7a3c9 is still version 10, with no `MIGRATIONS` key above 10.
+
+An AST read of `MIGRATIONS` shows that the merge's `[11]` equals 2954abd77's and #307's at both 963d1afb9 and 02ae7d1ed. `git diff 2954abd77 HEAD` touches nothing in `tests/fixtures/store/review-upgrade/` or `tests/fixtures/review_subject_release_217.py`. No slot was renumbered or added, and no fixture was regenerated.
+
+**The brief's premise about the v10 fixture is wrong.** `release-217-v10.sql` is not the base's store. Its first line says it was created from a4aded8859fc, release/217 on 2026-11-15, after bc407d68e, and it already contains `events_notice_retired`. So does `wake-caller-307-v11.sql`, which was created from 02ae7d1ed. Only `review-subject-old-v11.sql`, from 5b06c1826 on the base, lacks the index, and the schema script adds it on open. This is what the first new test can show (below).
+
+### Contract
+
+I ran `python3 /Users/maxghenis/reviews/subfleet-hub/host-runs/merge_contract.py HEAD 4aed7a3c977d7813262cac21016fb65d37576ba2` from the worktree root while the merge was stopped. It printed `merged against 85769b826: 260 clauses, none duplicated` and exited 0. Its output is byte-identical to a1's unstaged working file. No hand resolution was needed.
+
+A checker script (in my scratch folder) compared the three committed versions with the result, line by line. Every check passed:
+
+| Check | Base | PR head | Release | Merged |
+| --- | --- | --- | --- | --- |
+| File lines (split on `\n`; `wc -l` is one less) | 843 | 847 | 866 | **870** = 847 + (866 − 843) |
+| Change-log entries | 344 | 345 | 366 | **367** = 345 + (366 − 344) |
+| Clauses, lettered ids included | 260 | 263 | 260 | **263**, none duplicated |
+| Clauses, by the script's pattern (no lettered ids) | 257 | 260 | 257 | 260 |
+
+- **Change log.**
+  - The PR adds one entry. Release adds 22 and edits one more in place: its C-5.12 D-KILL3 entry (2026-10-22, PR #223) gained text. So "release − base = 22" is the net figure.
+  - The merged entries, as a multiset, are head + release − base. The PR's entry is first. After it, the merged change log is release's change log exactly and in order, blank line included. Two of release's new entries (C-29.9, 2026-10-12) sit further down, where release put them, not at the top.
+  - One entry, "C-20.6, C-23.28 (2026-10-15, D-ST1, PR #198 round 8)", appears twice in base, head, release and the merge. The duplicate predates both sides; neither side's change added it.
+- **Clauses.**
+  - The PR adds C-3.8, C-6.21 and C-6.22, and edits C-6.5 and C-17.2. Release adds none and edits exactly the 13 the brief names: C-4.5, C-5.12, C-6.10, C-8.4, C-9.3, C-11.10, C-15.3, C-17.1, C-23.14, C-23.25, C-23.26, C-25.7 and C-29.9.
+  - Neither side removes a clause, and no clause was edited on both sides. Every merged clause equals the line of the side that changed it, or the base's line where neither did. C-17.1 is release's line byte for byte, and C-17.2 is the PR's.
+  - Clause order equals the PR head's order. The whole file's line multiset equals base + both sides' additions − both sides' removals.
+
+No clause text changes in the merge, so no change-log entry was added.
+
+### Semantic conflict outside the five files: one holder listing a pass
+
+Release's b683f221d (D-HOLDERS-LSOF1, change 2) takes one holder listing per retention pass. A job archived in a pass finishes its holder check 2 in the next pass. Every release test module that expects one `maintenance` call to retire a job carries `pytestmark = pytest.mark.retention_catch_up`. With that marker, `tests/conftest.py`'s `catch_up` runs up to three follow-up passes, as the daemon's catch-up would.
+
+The PR's new module `tests/unit/test_retention_review_subject.py` predates that change and has no marker. On the bare merge, all 10 of its existing tests fail with `assert [] == ['review']`: the job is left in `awaiting_check2`. Run `review-subject-file-merge` recorded 11 failed (those 10 and my new one) and 36 `test_prune_217` passes. A probe confirmed the cause: the job was not pinned (`_pin_reasons` returned `{}`), and the pass returned `in_flight: ['review-unread']` and `awaiting_check2: ['review-unread']`.
+
+**Fix:** I added release's marker, with release's two-line comment, to that module (commit 54b2b0ae1). Its 11 tests then pass. No other file the PR changed calls retention without the marker: `test_retention_archive.py` already has release's.
+
+### New tests (commit 54b2b0ae1)
+
+Each was run on the merge and on a `git archive` extraction of 2954abd77 with the new test files copied in. Before trusting either run, I checked that `subfleet.__file__` resolved inside the tree under test.
+
+| Test | At 2954abd77 | On the merge | Other trees |
+| --- | --- | --- | --- |
+| `test_store_upgrade_slots.py::test_real_historical_store_upgrades_to_12_and_reopens_unchanged`, new assertion that `events_notice_retired` exists after the upgrade | **Fails** for `[review-subject-old-v11]`: `assert None` at line 59. Passes for `[release-217-v10]` and `[wake-caller-307-v11]`, whose dumps already carry the index (see "Schema slots"). | 3 passed | — |
+| `test_retention_review_subject.py::test_retiring_an_accepted_review_with_an_unread_notice_keeps_its_round_and_tells_the_session` | **Fails**: `assert [] == ['review-unread']`. At the PR head an unread notice pins its job for ever: a probe on that tree gave pin reason `unread-notice`. | passed | Fails on mutants of the merge: mutant A (release's block removed) gives no outcome notice; B (PR's block removed) gives `KeyError: 'review_subject'`; D (release's block moved after the `DELETE`s) gives no outcome notice, because the notices are gone. On 4aed7a3c9 the module can't import `subfleet.review_subject`. |
+| `test_review_subject_cli.py::test_the_daemon_advertises_review_subjects_beside_release_task_capabilities` | **Fails**: `AttributeError: module 'subfleet.protocol' has no attribute 'TASKS_IF_NOTE_PREFIX_V2_CAPABILITY'` | passed | Fails on 4aed7a3c9 (`no attribute 'REVIEW_SUBJECT_CAPABILITY'`). Fails on mutant C, service.py taken from release (`assert 'review.subject.v1' in (...)`). |
+
+The brief's one-line assertion for the third test, `REVIEW_SUBJECT_CAPABILITY in service.CAPABILITIES`, already passes at 2954abd77, because the PR added the capability there. So the test also asserts release's two capabilities: the merged tuple must hold all three. That second line is what fails at 2954abd77, and the first line fails on release's side and on mutant C.
