@@ -13,6 +13,10 @@ from subfleet import retention, retention_archive as rarch
 from subfleet.salvage import salvage
 from tests.unit.retention_world import Clock, World, git, snapshot
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
+
 
 @settings(max_examples=20, deadline=None, database=None)
 @example(skipped=True, present=True, archive="missing", data=b"private work")

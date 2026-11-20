@@ -196,7 +196,7 @@ def cancel_info(at: str, data_json: str) -> dict[str, Any]:
     return data
 
 
-def _pin_notice_key(data_json: str | None) -> tuple | None:
+def _pin_notice_key(data_json: str | None, *, include_outcome_digest: bool = False) -> tuple | None:
     """C-11.8: (id, session, creation time) of the service notice a `job.pin_noticed` event names."""
     try:
         data = json.loads(data_json or "{}")
@@ -204,22 +204,68 @@ def _pin_notice_key(data_json: str | None) -> tuple | None:
         return None
     if not isinstance(data, dict) or not isinstance(data.get("service_notice_id"), int):
         return None
-    return data["service_notice_id"], data.get("session_id"), data.get("created_at")
+    key = data["service_notice_id"], data.get("session_id"), data.get("created_at")
+    return (*key, data.get("outcome_sha256")) if include_outcome_digest else key
 
 
-#: C-11.8: the expression `events_pin_notice` indexes, character for character.
+#: C-11.8: the expression `events_pin_notice` (and `events_notice_retired`) indexes,
+#: character for character.
 PIN_NOTICE_ID = "(CASE WHEN json_valid(data_json) THEN json_extract(data_json,'$.service_notice_id') END)"
+
+#: The events that name a service notice about a job, each kind with its own
+#: partial index on `PIN_NOTICE_ID`: a pin's notice (C-11.8, `events_pin_notice`)
+#: and the outcome of a job retention retired with its notice unread (C-8.4,
+#: `retention_notices`, `events_notice_retired`).
+NOTICE_EVENT_KINDS = ("job.pin_noticed", "retention.notice_retired")
+
+
+def batch_submission_rows(query: Callable[[str, Sequence[Any]], Iterable[Any]],
+                          job_ids: Sequence[str]) -> list[Any]:
+    """Batch-bearing first submissions, bounded by jobs rather than their history.
+
+    Submit inserts each job and its submission atomically. Repeated submissions
+    (a fabricated history, or an archived id reused after clock rollback) use
+    the first identity, as dependencies and ``Daemon._submitted`` already do.
+    Keep the old literal batch filter here and leave JSON parsing and label
+    validation to each caller.
+    """
+    ids = sorted(set(job_ids))
+    found = []
+    for start in range(0, len(ids), 500):
+        chunk = ids[start:start + 500]
+        # The scalar lookup stops at the first submission in events_job order.
+        # Filtering the payload afterwards also stops a batch-less submission
+        # from walking the job's later events. +kind avoids events_kind's walk
+        # of all submissions. VALUES handles unknown ids without a jobs row.
+        found.extend(query(
+            "WITH wanted(job_id) AS (VALUES " + ",".join("(?)" for _ in chunk) + ") "
+            "SELECT e.job_id,e.data_json FROM wanted JOIN events e ON e.event_id=("
+            "SELECT first.event_id FROM events first WHERE first.job_id=wanted.job_id "
+            "AND +first.kind='job.submitted' ORDER BY first.event_id LIMIT 1) "
+            "WHERE e.data_json LIKE '%\"batch\"%'", chunk))
+    return found
 
 
 def pin_notice_jobs(query: Callable[[str, Sequence[Any]], Iterable[Any]],
-                    rows: Iterable[Mapping[str, Any]]) -> dict[int, str]:
+                    rows: Iterable[Mapping[str, Any]], *,
+                    kinds: Sequence[str] = NOTICE_EVENT_KINDS) -> dict[int, str]:
     """C-11.8, C-15.2: service notice id -> the job a pin's notice is about, from its
-    `job.pin_noticed` event. `rows` are service notice rows with their stored
+    `job.pin_noticed` event, or the job an outcome notice reports (C-8.4: retention
+    retired it with its notice unread), from its `retention.notice_retired` event;
+    `kinds` limits which. `rows` are service notice rows with their stored
     (positive) ids. A row matches its event by id, session and creation time
     together: a service notice's id is reused once the row with the highest id is
     deleted (it has no AUTOINCREMENT), and a ping, a nudge or an alert that gets an
-    old pin notice's id names none."""
-    wanted = {(row["notice_id"], row["session_id"], row["created_at"]): row["notice_id"] for row in rows}
+    old pin notice's id names none. A retirement event additionally requires the
+    outcome's full text digest, for every caller; events without one name no
+    row. Only rows matching a retirement event on the first three fields are
+    hashed, lazily and at most once per row. Pin events retain their three-field
+    identity, without hashing text."""
+    wanted = {}
+    for row in rows:
+        key = row["notice_id"], row["session_id"], row["created_at"]
+        wanted[key] = row
+    digests: dict[tuple, str] = {}
     found: dict[int, str] = {}
     ids = sorted({key[0] for key in wanted})
     # Exactly the events that name one of these notices, newest first, with no
@@ -228,19 +274,39 @@ def pin_notice_jobs(query: Callable[[str, Sequence[Any]], Iterable[Any]],
     # notice's event out of the newest 1,000 and left that notice unnamed. The
     # CASE keeps json_extract off a payload json_valid refuses, since SQLite does
     # not promise to test WHERE terms in written order. Such a row names no notice:
-    # a pin record holds strings, ints and lists of strings, never a float, so it
-    # is never a NaN or Infinity payload that json.loads would read and json_valid
-    # refuse. No ORDER BY: it would steer the planner to `events_kind`, which
-    # walks every pin event; the few matches are ordered here, newest first.
+    # a pin record holds strings, ints and lists of strings, never a float, and an
+    # outcome record's one float is finite or null, so neither is a NaN or Infinity
+    # payload that json.loads would read and json_valid refuse. No ORDER BY: it
+    # would steer the planner to `events_kind`, which walks every pin event; the
+    # few matches are ordered here, newest first. Each kind is named as a
+    # literal, so the planner can match its partial index.
     events = []
-    for start in range(0, len(ids), 500):
-        chunk = ids[start:start + 500]
-        events += query("SELECT event_id,job_id,data_json FROM events WHERE kind='job.pin_noticed' AND "
-                        f"{PIN_NOTICE_ID} IN ({','.join('?' * len(chunk))})", chunk)
+    for kind in kinds:
+        if kind not in NOTICE_EVENT_KINDS:
+            raise ValueError(f"not an event that names a service notice: {kind!r}")
+        for start in range(0, len(ids), 500):
+            chunk = ids[start:start + 500]
+            events += query(f"SELECT event_id,kind,job_id,data_json FROM events WHERE kind='{kind}' AND "
+                            f"{PIN_NOTICE_ID} IN ({','.join('?' * len(chunk))})", chunk)
     for event in sorted(events, key=lambda event: event["event_id"], reverse=True):
-        key = _pin_notice_key(event["data_json"])
-        if key in wanted and event["job_id"]:
-            found.setdefault(wanted[key], event["job_id"])
+        retired = event["kind"] == "retention.notice_retired"
+        key = _pin_notice_key(event["data_json"], include_outcome_digest=retired)
+        if key is None or not event["job_id"]:
+            continue
+        identity = key[:3]
+        if identity not in wanted:
+            continue
+        row = wanted[identity]
+        if row["notice_id"] in found:
+            continue
+        if retired:
+            if not key[3]:
+                continue
+            if identity not in digests:
+                digests[identity] = hashlib.sha256(str(row["text"]).encode("utf-8", "surrogatepass")).hexdigest()
+            if key[3] != digests[identity]:
+                continue
+        found[row["notice_id"]] = event["job_id"]
     return found
 
 
@@ -337,6 +403,10 @@ class Store:
         self._depth = 0
         # C-3.2: each open transaction's audit event, innermost last (`audit_as`).
         self._audits: list[list] = []
+        # D-ADMIT-IDLE1: connection-local mutation notices, published only after
+        # the outer transaction commits. No persistent schema or polling read.
+        self._admission_watch: Callable[[str], None] | None = None
+        self._admission_pending: set[str] = set()
         # Bumped by every committed top-level transaction that changed a row.
         # A reader compares it without taking `_lock` (an int read is atomic)
         # to learn whether anything it derived from the store can have changed.
@@ -451,6 +521,40 @@ class Store:
     def conn(self) -> sqlite3.Connection:
         return self.connection
 
+    def watch_admission(self, callback: Callable[[str], None]) -> None:
+        """Wake admission for committed queue/capacity changes on this writer.
+
+        Daemon and timer workers sometimes mutate rows through raw transaction
+        SQL, so method-specific hooks miss changes. TEMP triggers belong only
+        to this connection and collect categories; a rollback restores the set
+        alongside its savepoint. A callback must only update in-memory state.
+        """
+        with self._lock:
+            self._admission_watch = callback
+            self.connection.create_function(
+                "subfleet_admission_changed", 1, self._admission_pending.add)
+            triggers = [
+                ("jobs_insert", "INSERT", "jobs", "NEW.state IN ('queued','waiting')", "jobs"),
+                ("jobs_update", "UPDATE", "jobs",
+                 "NEW.state IN ('queued','waiting') AND ("
+                 "OLD.state NOT IN ('queued','waiting') OR "
+                 "(NEW.state='queued' AND OLD.state!='queued') OR "
+                 "(OLD.wait_reason='task-held' AND NEW.wait_reason IS NOT 'task-held'))", "jobs"),
+                ("leases_delete", "DELETE", "leases", "1", "lease"),
+            ]
+            for table, category, columns in (
+                    ("closures", "closure", ("lane_id", "scope", "until_at", "reason", "clock_source",
+                                              "source_event", "released_at")),
+                    ("lanes", "lane", tuple(sorted(self._columns["lanes"] - {"created_at", "updated_at"})))):
+                changed = " OR ".join(f"OLD.{column} IS NOT NEW.{column}" for column in columns)
+                for operation in ("INSERT", "DELETE", "UPDATE"):
+                    triggers.append((f"{table}_{operation.lower()}", operation, table,
+                                     changed if operation == "UPDATE" else "1", category))
+            for name, operation, table, condition, category in triggers:
+                self.connection.execute(
+                    f"CREATE TEMP TRIGGER IF NOT EXISTS admission_{name} AFTER {operation} ON main.{table} "
+                    f"WHEN {condition} BEGIN SELECT subfleet_admission_changed('{category}'); END")
+
     @contextmanager
     def transaction(self, kind: str = "state.changed", *, job_id: str | None = None,
                     attempt_id: str | None = None, lane_id: str | None = None,
@@ -468,6 +572,8 @@ class Store:
                 "snapshot")
         with self._lock:
             depth = self._depth
+            pending_before = self._admission_pending.copy()
+            notices: tuple[str, ...] = ()
             savepoint = f"store_{depth}"
             self.connection.execute("BEGIN IMMEDIATE" if depth == 0 else f"SAVEPOINT {savepoint}")
             self._depth += 1
@@ -483,7 +589,12 @@ class Store:
                 self.connection.execute("COMMIT" if depth == 0 else f"RELEASE SAVEPOINT {savepoint}")
                 if depth == 0 and self.connection.total_changes != before:
                     self.generation += 1
+                if depth == 0:
+                    notices = tuple(sorted(self._admission_pending))
+                    self._admission_pending.clear()
             except BaseException:
+                self._admission_pending.clear()
+                self._admission_pending.update(pending_before)
                 if depth == 0:
                     self.connection.rollback()
                 else:
@@ -493,6 +604,9 @@ class Store:
             finally:
                 self._audits.pop()
                 self._depth -= 1
+        if self._admission_watch is not None:
+            for category in notices:
+                self._admission_watch(category)
 
     def audit_as(self, kind: str | None, data: Mapping[str, Any] | None = None) -> None:
         """C-3.2: the audit event of the innermost transaction open on this thread is `kind`

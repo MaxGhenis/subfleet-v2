@@ -522,9 +522,15 @@ P-23.40 under provenance/attestation.
 ### P-23.26 — secondary records are pruned by age, never by a caller's window
 
 > **P-23.26** The maintenance pass deletes notices in state `surfaced` or `acknowledged` whose row is
-> older than 14 days, and never prunes a `pending` or `offered` notice by age. A provider scan-cache
-> entry is dropped only when its file no longer exists or its record is more than seven days old; a
-> narrower scan window never evicts an entry.
+> older than 14 days. An unread job notice addressed to a session pins its job for
+> `retention.notice_keep_days` after it was written (default 7; 0 keeps it for ever), then leaves
+> with the job's rows if retention retires it (C-8.4, D-NOTICE-KEEP1). Retirement writes its session
+> an outcome service notice that pins nothing; one still `pending` or `offered` after another
+> `notice_keep_days` is withdrawn, with an event recording what went. A later session can read
+> the archived outcome with `subfleet retention outcomes --session ID`. Other `pending` or `offered`
+> notices are never pruned by age. A provider scan-cache entry is dropped only when its file no
+> longer exists or its record is more than seven days old; a narrower scan window never evicts an
+> entry.
 
 - **Ledger rows:** 80 (`keep`, ops-hygiene), 141 (`keep`, ops-hygiene)
 - **Milestone:** 2 for the scan cache, 4 for notices
@@ -533,10 +539,13 @@ P-23.40 under provenance/attestation.
 - **Rationale:** both rows are age-based pruning of a sidecar store, the C-8.4 analogue for records
   C-8.4 does not reach. Row 80's rationale is "file growth"; row 141's is that "narrower callers
   would force rescans" — an eviction rule keyed on the current call's window makes every scan pay
-  for the last caller's narrowness. C-8.4 covers job retention and protects unread notices from *job*
-  pruning; it neither prunes notices nor knows the scan cache exists, so a C-8.4 test passes while
-  notices accumulate forever and the cache thrashes. C-10.3 makes `~/.codex` observed and never a
-  lane, which is the home this cache is usually built over.
+  for the last caller's narrowness. C-8.4 covers job retention and keeps a job with an unread notice
+  addressed to a session for `retention.notice_keep_days`; its unread notice leaves with its rows
+  on retirement. C-23.26 also withdraws the replacement outcome once it has waited that long
+  unread, so a session that never returns retains at most one window's outcomes. Other service
+  notices and the scan cache need their own pruning rules, so a C-8.4 test alone does not cover
+  their growth or cache thrashing. C-10.3 makes `~/.codex` observed and never a lane, which is the
+  home this cache is usually built over.
 
 ### P-23.27 — one monitoring cycle, one verdict
 

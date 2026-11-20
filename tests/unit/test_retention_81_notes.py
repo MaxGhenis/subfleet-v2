@@ -32,6 +32,10 @@ from subfleet import retention_fs as rfs
 from subfleet import retention_git as rgit
 from tests.unit.retention_world import Clock, World, git, snapshot, trust_temporary_directories
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
+
 
 @pytest.fixture
 def world(tmp_path, monkeypatch):

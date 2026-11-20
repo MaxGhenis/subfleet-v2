@@ -1,0 +1,559 @@
+{
+  "phase": "interleaved",
+  "measured_at": "2026-11-07T13:54:53.713055+00:00",
+  "python": "3.14.7 (main, Sep  1 2026, 14:05:28) [Clang 22.1.3 ]",
+  "source_sha256": {
+    "subfleet/store.py": "fcda43cf93be341314c8d2913a67212bf010edc0aff3d666761c723a363e1c98",
+    "subfleet/retention_notices.py": "bf6a8e2369fd1e5f28d5cf143f003544ffe52f5c6ec703e057539c7a55ff63ed"
+  },
+  "samples": 5,
+  "interleaved": {
+    "reference": "6382a8abaf52",
+    "order": "before/after on even pairs; after/before on odd pairs",
+    "samples_per_phase": 5,
+    "runs": [
+      {
+        "pair": 0,
+        "phase": "before",
+        "receipt": {
+          "phase": "interleaved-before-0",
+          "measured_at": "2026-11-07T13:55:05.223561+00:00",
+          "python": "3.14.7 (main, Sep  1 2026, 14:05:28) [Clang 22.1.3 ]",
+          "source_sha256": {
+            "subfleet/store.py": "8636241e2d940165a8337959543abbc471e24e093c1c5dc3d80d4d60f22e280c",
+            "subfleet/retention_notices.py": "3f98149b7730b301be2c2e48242ddc53e61c505d6ce72336c3ab42a557e40278"
+          },
+          "samples": 1,
+          "association": {
+            "listing": {
+              "fixture": "2000 unresolved service notices: 1600 pings, 200 pin notices, 200 retirement outcomes; 2 KiB text",
+              "samples": [
+                {
+                  "rows": 2000,
+                  "total_s": 0.09616341700893827,
+                  "write_s": 0,
+                  "write_transactions": 0,
+                  "read_queries": 10
+                }
+              ],
+              "median_s": 0.09616341700893827
+            },
+            "expiry": {
+              "fixture": "10000 due retirement outcomes; text='outcome'; 68 sessions",
+              "samples": [
+                {
+                  "rows": 10000,
+                  "total_s": 3.2881171659973916,
+                  "write_s": 0.8963604580058018,
+                  "write_transactions": 1,
+                  "read_queries": 21
+                }
+              ],
+              "median_s": 3.2881171659973916,
+              "median_write_s": 0.8963604580058018
+            }
+          }
+        },
+        "command": [
+          "/Users/maxghenis/.subfleet/worktrees/20261106-081758-nk-fix-r2/.venv/bin/python",
+          "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/notice-keep-r2-measure-vi6gv9sw/original-reference/tools/notice_keep_round2_measure.py",
+          "--phase",
+          "interleaved-before-0",
+          "--samples",
+          "1",
+          "--output",
+          "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/notice-keep-r2-measure-vi6gv9sw/before-0.json"
+        ]
+      },
+      {
+        "pair": 0,
+        "phase": "after",
+        "receipt": {
+          "phase": "interleaved-after-0",
+          "measured_at": "2026-11-07T13:55:17.523470+00:00",
+          "python": "3.14.7 (main, Sep  1 2026, 14:05:28) [Clang 22.1.3 ]",
+          "source_sha256": {
+            "subfleet/store.py": "fcda43cf93be341314c8d2913a67212bf010edc0aff3d666761c723a363e1c98",
+            "subfleet/retention_notices.py": "bf6a8e2369fd1e5f28d5cf143f003544ffe52f5c6ec703e057539c7a55ff63ed"
+          },
+          "samples": 1,
+          "association": {
+            "listing": {
+              "fixture": "2000 unresolved service notices: 1600 pings, 200 pin notices, 200 retirement outcomes; 2 KiB text",
+              "samples": [
+                {
+                  "rows": 2000,
+                  "total_s": 0.34743424999760464,
+                  "write_s": 0,
+                  "write_transactions": 0,
+                  "read_queries": 10
+                }
+              ],
+              "median_s": 0.34743424999760464
+            },
+            "expiry": {
+              "fixture": "10000 due retirement outcomes; text='outcome'; 68 sessions",
+              "samples": [
+                {
+                  "rows": 10000,
+                  "total_s": 2.4904427910078084,
+                  "write_s": 0.19355450000148267,
+                  "write_transactions": 1,
+                  "read_queries": 21
+                }
+              ],
+              "median_s": 2.4904427910078084,
+              "median_write_s": 0.19355450000148267
+            }
+          }
+        },
+        "command": [
+          "/Users/maxghenis/.subfleet/worktrees/20261106-081758-nk-fix-r2/.venv/bin/python",
+          "/Users/maxghenis/.subfleet/worktrees/20261106-081758-nk-fix-r2/tools/notice_keep_round2_measure.py",
+          "--phase",
+          "interleaved-after-0",
+          "--samples",
+          "1",
+          "--output",
+          "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/notice-keep-r2-measure-vi6gv9sw/after-0.json"
+        ]
+      },
+      {
+        "pair": 1,
+        "phase": "after",
+        "receipt": {
+          "phase": "interleaved-after-1",
+          "measured_at": "2026-11-07T13:55:33.443624+00:00",
+          "python": "3.14.7 (main, Sep  1 2026, 14:05:28) [Clang 22.1.3 ]",
+          "source_sha256": {
+            "subfleet/store.py": "fcda43cf93be341314c8d2913a67212bf010edc0aff3d666761c723a363e1c98",
+            "subfleet/retention_notices.py": "bf6a8e2369fd1e5f28d5cf143f003544ffe52f5c6ec703e057539c7a55ff63ed"
+          },
+          "samples": 1,
+          "association": {
+            "listing": {
+              "fixture": "2000 unresolved service notices: 1600 pings, 200 pin notices, 200 retirement outcomes; 2 KiB text",
+              "samples": [
+                {
+                  "rows": 2000,
+                  "total_s": 0.6058992500038585,
+                  "write_s": 0,
+                  "write_transactions": 0,
+                  "read_queries": 10
+                }
+              ],
+              "median_s": 0.6058992500038585
+            },
+            "expiry": {
+              "fixture": "10000 due retirement outcomes; text='outcome'; 68 sessions",
+              "samples": [
+                {
+                  "rows": 10000,
+                  "total_s": 2.1060770000040065,
+                  "write_s": 0.2241548750025686,
+                  "write_transactions": 1,
+                  "read_queries": 21
+                }
+              ],
+              "median_s": 2.1060770000040065,
+              "median_write_s": 0.2241548750025686
+            }
+          }
+        },
+        "command": [
+          "/Users/maxghenis/.subfleet/worktrees/20261106-081758-nk-fix-r2/.venv/bin/python",
+          "/Users/maxghenis/.subfleet/worktrees/20261106-081758-nk-fix-r2/tools/notice_keep_round2_measure.py",
+          "--phase",
+          "interleaved-after-1",
+          "--samples",
+          "1",
+          "--output",
+          "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/notice-keep-r2-measure-vi6gv9sw/after-1.json"
+        ]
+      },
+      {
+        "pair": 1,
+        "phase": "before",
+        "receipt": {
+          "phase": "interleaved-before-1",
+          "measured_at": "2026-11-07T13:55:48.415032+00:00",
+          "python": "3.14.7 (main, Sep  1 2026, 14:05:28) [Clang 22.1.3 ]",
+          "source_sha256": {
+            "subfleet/store.py": "8636241e2d940165a8337959543abbc471e24e093c1c5dc3d80d4d60f22e280c",
+            "subfleet/retention_notices.py": "3f98149b7730b301be2c2e48242ddc53e61c505d6ce72336c3ab42a557e40278"
+          },
+          "samples": 1,
+          "association": {
+            "listing": {
+              "fixture": "2000 unresolved service notices: 1600 pings, 200 pin notices, 200 retirement outcomes; 2 KiB text",
+              "samples": [
+                {
+                  "rows": 2000,
+                  "total_s": 0.6003946669952711,
+                  "write_s": 0,
+                  "write_transactions": 0,
+                  "read_queries": 10
+                }
+              ],
+              "median_s": 0.6003946669952711
+            },
+            "expiry": {
+              "fixture": "10000 due retirement outcomes; text='outcome'; 68 sessions",
+              "samples": [
+                {
+                  "rows": 10000,
+                  "total_s": 2.992824083994492,
+                  "write_s": 1.0121262499887962,
+                  "write_transactions": 1,
+                  "read_queries": 21
+                }
+              ],
+              "median_s": 2.992824083994492,
+              "median_write_s": 1.0121262499887962
+            }
+          }
+        },
+        "command": [
+          "/Users/maxghenis/.subfleet/worktrees/20261106-081758-nk-fix-r2/.venv/bin/python",
+          "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/notice-keep-r2-measure-vi6gv9sw/original-reference/tools/notice_keep_round2_measure.py",
+          "--phase",
+          "interleaved-before-1",
+          "--samples",
+          "1",
+          "--output",
+          "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/notice-keep-r2-measure-vi6gv9sw/before-1.json"
+        ]
+      },
+      {
+        "pair": 2,
+        "phase": "before",
+        "receipt": {
+          "phase": "interleaved-before-2",
+          "measured_at": "2026-11-07T13:56:04.419296+00:00",
+          "python": "3.14.7 (main, Sep  1 2026, 14:05:28) [Clang 22.1.3 ]",
+          "source_sha256": {
+            "subfleet/store.py": "8636241e2d940165a8337959543abbc471e24e093c1c5dc3d80d4d60f22e280c",
+            "subfleet/retention_notices.py": "3f98149b7730b301be2c2e48242ddc53e61c505d6ce72336c3ab42a557e40278"
+          },
+          "samples": 1,
+          "association": {
+            "listing": {
+              "fixture": "2000 unresolved service notices: 1600 pings, 200 pin notices, 200 retirement outcomes; 2 KiB text",
+              "samples": [
+                {
+                  "rows": 2000,
+                  "total_s": 0.7039530829933938,
+                  "write_s": 0,
+                  "write_transactions": 0,
+                  "read_queries": 10
+                }
+              ],
+              "median_s": 0.7039530829933938
+            },
+            "expiry": {
+              "fixture": "10000 due retirement outcomes; text='outcome'; 68 sessions",
+              "samples": [
+                {
+                  "rows": 10000,
+                  "total_s": 3.951642250001896,
+                  "write_s": 1.3128450410004007,
+                  "write_transactions": 1,
+                  "read_queries": 21
+                }
+              ],
+              "median_s": 3.951642250001896,
+              "median_write_s": 1.3128450410004007
+            }
+          }
+        },
+        "command": [
+          "/Users/maxghenis/.subfleet/worktrees/20261106-081758-nk-fix-r2/.venv/bin/python",
+          "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/notice-keep-r2-measure-vi6gv9sw/original-reference/tools/notice_keep_round2_measure.py",
+          "--phase",
+          "interleaved-before-2",
+          "--samples",
+          "1",
+          "--output",
+          "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/notice-keep-r2-measure-vi6gv9sw/before-2.json"
+        ]
+      },
+      {
+        "pair": 2,
+        "phase": "after",
+        "receipt": {
+          "phase": "interleaved-after-2",
+          "measured_at": "2026-11-07T13:56:19.390863+00:00",
+          "python": "3.14.7 (main, Sep  1 2026, 14:05:28) [Clang 22.1.3 ]",
+          "source_sha256": {
+            "subfleet/store.py": "fcda43cf93be341314c8d2913a67212bf010edc0aff3d666761c723a363e1c98",
+            "subfleet/retention_notices.py": "bf6a8e2369fd1e5f28d5cf143f003544ffe52f5c6ec703e057539c7a55ff63ed"
+          },
+          "samples": 1,
+          "association": {
+            "listing": {
+              "fixture": "2000 unresolved service notices: 1600 pings, 200 pin notices, 200 retirement outcomes; 2 KiB text",
+              "samples": [
+                {
+                  "rows": 2000,
+                  "total_s": 0.18904420800390653,
+                  "write_s": 0,
+                  "write_transactions": 0,
+                  "read_queries": 10
+                }
+              ],
+              "median_s": 0.18904420800390653
+            },
+            "expiry": {
+              "fixture": "10000 due retirement outcomes; text='outcome'; 68 sessions",
+              "samples": [
+                {
+                  "rows": 10000,
+                  "total_s": 1.3982804590050364,
+                  "write_s": 0.12294683301297482,
+                  "write_transactions": 1,
+                  "read_queries": 21
+                }
+              ],
+              "median_s": 1.3982804590050364,
+              "median_write_s": 0.12294683301297482
+            }
+          }
+        },
+        "command": [
+          "/Users/maxghenis/.subfleet/worktrees/20261106-081758-nk-fix-r2/.venv/bin/python",
+          "/Users/maxghenis/.subfleet/worktrees/20261106-081758-nk-fix-r2/tools/notice_keep_round2_measure.py",
+          "--phase",
+          "interleaved-after-2",
+          "--samples",
+          "1",
+          "--output",
+          "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/notice-keep-r2-measure-vi6gv9sw/after-2.json"
+        ]
+      },
+      {
+        "pair": 3,
+        "phase": "after",
+        "receipt": {
+          "phase": "interleaved-after-3",
+          "measured_at": "2026-11-07T13:56:31.010127+00:00",
+          "python": "3.14.7 (main, Sep  1 2026, 14:05:28) [Clang 22.1.3 ]",
+          "source_sha256": {
+            "subfleet/store.py": "fcda43cf93be341314c8d2913a67212bf010edc0aff3d666761c723a363e1c98",
+            "subfleet/retention_notices.py": "bf6a8e2369fd1e5f28d5cf143f003544ffe52f5c6ec703e057539c7a55ff63ed"
+          },
+          "samples": 1,
+          "association": {
+            "listing": {
+              "fixture": "2000 unresolved service notices: 1600 pings, 200 pin notices, 200 retirement outcomes; 2 KiB text",
+              "samples": [
+                {
+                  "rows": 2000,
+                  "total_s": 0.46051041600003373,
+                  "write_s": 0,
+                  "write_transactions": 0,
+                  "read_queries": 10
+                }
+              ],
+              "median_s": 0.46051041600003373
+            },
+            "expiry": {
+              "fixture": "10000 due retirement outcomes; text='outcome'; 68 sessions",
+              "samples": [
+                {
+                  "rows": 10000,
+                  "total_s": 1.2906852080050157,
+                  "write_s": 0.4256044999929145,
+                  "write_transactions": 1,
+                  "read_queries": 21
+                }
+              ],
+              "median_s": 1.2906852080050157,
+              "median_write_s": 0.4256044999929145
+            }
+          }
+        },
+        "command": [
+          "/Users/maxghenis/.subfleet/worktrees/20261106-081758-nk-fix-r2/.venv/bin/python",
+          "/Users/maxghenis/.subfleet/worktrees/20261106-081758-nk-fix-r2/tools/notice_keep_round2_measure.py",
+          "--phase",
+          "interleaved-after-3",
+          "--samples",
+          "1",
+          "--output",
+          "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/notice-keep-r2-measure-vi6gv9sw/after-3.json"
+        ]
+      },
+      {
+        "pair": 3,
+        "phase": "before",
+        "receipt": {
+          "phase": "interleaved-before-3",
+          "measured_at": "2026-11-07T13:56:43.397962+00:00",
+          "python": "3.14.7 (main, Sep  1 2026, 14:05:28) [Clang 22.1.3 ]",
+          "source_sha256": {
+            "subfleet/store.py": "8636241e2d940165a8337959543abbc471e24e093c1c5dc3d80d4d60f22e280c",
+            "subfleet/retention_notices.py": "3f98149b7730b301be2c2e48242ddc53e61c505d6ce72336c3ab42a557e40278"
+          },
+          "samples": 1,
+          "association": {
+            "listing": {
+              "fixture": "2000 unresolved service notices: 1600 pings, 200 pin notices, 200 retirement outcomes; 2 KiB text",
+              "samples": [
+                {
+                  "rows": 2000,
+                  "total_s": 0.3391916250111535,
+                  "write_s": 0,
+                  "write_transactions": 0,
+                  "read_queries": 10
+                }
+              ],
+              "median_s": 0.3391916250111535
+            },
+            "expiry": {
+              "fixture": "10000 due retirement outcomes; text='outcome'; 68 sessions",
+              "samples": [
+                {
+                  "rows": 10000,
+                  "total_s": 2.0075867910054512,
+                  "write_s": 0.8277702079940354,
+                  "write_transactions": 1,
+                  "read_queries": 21
+                }
+              ],
+              "median_s": 2.0075867910054512,
+              "median_write_s": 0.8277702079940354
+            }
+          }
+        },
+        "command": [
+          "/Users/maxghenis/.subfleet/worktrees/20261106-081758-nk-fix-r2/.venv/bin/python",
+          "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/notice-keep-r2-measure-vi6gv9sw/original-reference/tools/notice_keep_round2_measure.py",
+          "--phase",
+          "interleaved-before-3",
+          "--samples",
+          "1",
+          "--output",
+          "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/notice-keep-r2-measure-vi6gv9sw/before-3.json"
+        ]
+      },
+      {
+        "pair": 4,
+        "phase": "before",
+        "receipt": {
+          "phase": "interleaved-before-4",
+          "measured_at": "2026-11-07T13:56:57.008378+00:00",
+          "python": "3.14.7 (main, Sep  1 2026, 14:05:28) [Clang 22.1.3 ]",
+          "source_sha256": {
+            "subfleet/store.py": "8636241e2d940165a8337959543abbc471e24e093c1c5dc3d80d4d60f22e280c",
+            "subfleet/retention_notices.py": "3f98149b7730b301be2c2e48242ddc53e61c505d6ce72336c3ab42a557e40278"
+          },
+          "samples": 1,
+          "association": {
+            "listing": {
+              "fixture": "2000 unresolved service notices: 1600 pings, 200 pin notices, 200 retirement outcomes; 2 KiB text",
+              "samples": [
+                {
+                  "rows": 2000,
+                  "total_s": 0.08092175000638235,
+                  "write_s": 0,
+                  "write_transactions": 0,
+                  "read_queries": 10
+                }
+              ],
+              "median_s": 0.08092175000638235
+            },
+            "expiry": {
+              "fixture": "10000 due retirement outcomes; text='outcome'; 68 sessions",
+              "samples": [
+                {
+                  "rows": 10000,
+                  "total_s": 4.516168166999705,
+                  "write_s": 1.5838629159989068,
+                  "write_transactions": 1,
+                  "read_queries": 21
+                }
+              ],
+              "median_s": 4.516168166999705,
+              "median_write_s": 1.5838629159989068
+            }
+          }
+        },
+        "command": [
+          "/Users/maxghenis/.subfleet/worktrees/20261106-081758-nk-fix-r2/.venv/bin/python",
+          "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/notice-keep-r2-measure-vi6gv9sw/original-reference/tools/notice_keep_round2_measure.py",
+          "--phase",
+          "interleaved-before-4",
+          "--samples",
+          "1",
+          "--output",
+          "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/notice-keep-r2-measure-vi6gv9sw/before-4.json"
+        ]
+      },
+      {
+        "pair": 4,
+        "phase": "after",
+        "receipt": {
+          "phase": "interleaved-after-4",
+          "measured_at": "2026-11-07T13:57:15.093987+00:00",
+          "python": "3.14.7 (main, Sep  1 2026, 14:05:28) [Clang 22.1.3 ]",
+          "source_sha256": {
+            "subfleet/store.py": "fcda43cf93be341314c8d2913a67212bf010edc0aff3d666761c723a363e1c98",
+            "subfleet/retention_notices.py": "bf6a8e2369fd1e5f28d5cf143f003544ffe52f5c6ec703e057539c7a55ff63ed"
+          },
+          "samples": 1,
+          "association": {
+            "listing": {
+              "fixture": "2000 unresolved service notices: 1600 pings, 200 pin notices, 200 retirement outcomes; 2 KiB text",
+              "samples": [
+                {
+                  "rows": 2000,
+                  "total_s": 0.9771721249999246,
+                  "write_s": 0,
+                  "write_transactions": 0,
+                  "read_queries": 10
+                }
+              ],
+              "median_s": 0.9771721249999246
+            },
+            "expiry": {
+              "fixture": "10000 due retirement outcomes; text='outcome'; 68 sessions",
+              "samples": [
+                {
+                  "rows": 10000,
+                  "total_s": 2.422419541995623,
+                  "write_s": 0.4929136670107255,
+                  "write_transactions": 1,
+                  "read_queries": 21
+                }
+              ],
+              "median_s": 2.422419541995623,
+              "median_write_s": 0.4929136670107255
+            }
+          }
+        },
+        "command": [
+          "/Users/maxghenis/.subfleet/worktrees/20261106-081758-nk-fix-r2/.venv/bin/python",
+          "/Users/maxghenis/.subfleet/worktrees/20261106-081758-nk-fix-r2/tools/notice_keep_round2_measure.py",
+          "--phase",
+          "interleaved-after-4",
+          "--samples",
+          "1",
+          "--output",
+          "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/notice-keep-r2-measure-vi6gv9sw/after-4.json"
+        ]
+      }
+    ],
+    "summary": {
+      "before": {
+        "listing_median_s": 0.3391916250111535,
+        "expiry_median_s": 3.2881171659973916,
+        "expiry_median_write_s": 1.0121262499887962
+      },
+      "after": {
+        "listing_median_s": 0.46051041600003373,
+        "expiry_median_s": 2.1060770000040065,
+        "expiry_median_write_s": 0.2241548750025686
+      }
+    }
+  }
+}
