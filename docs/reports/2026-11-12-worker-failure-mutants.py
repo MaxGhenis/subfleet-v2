@@ -16,8 +16,9 @@ mutated files are hashed before and after: the runner never writes to them.
 
 Fix r1 replaced the build round's runner, which rewrote `subfleet/daemon.py` in place
 (review r1 of #308, P3). The build round's seven mutants (B1 to B7) are here with their
-anchors as the code reads now; fix r1's (F1 to F16), fix r2's (G1 to G6) and fix r3's (H1 to
-H6) follow.
+anchors as the code reads now; fix r1's (F1 to F16), fix r2's (G1 to G6), fix r3's (H1 to
+H3) and fix r4's (I1 to I6) follow. Fix r4 retired H4 to H6: they anchored on fix r3's
+approval rule, which it replaced.
 """
 from __future__ import annotations
 
@@ -39,6 +40,11 @@ DAEMON = "subfleet/daemon.py"
 DAEMON_LOG = "subfleet/daemon_log.py"
 REDACT = "subfleet/conversations/redact.py"
 R3 = "tests/unit/test_worker_failure_r3_properties.py"
+R4 = "tests/unit/test_worker_failure_r4_rework.py"
+#: Fix r4's approval tests: review r4's table and the exact-password cases, and the property.
+R4_TABLE = f"{R4}::test_r4_an_approval_shows_the_real_host_and_every_command"
+R4_EXACT = f"{R4}::test_r4_an_approval_masks_exactly_the_password_a_client_is_sent"
+R4_PROPERTY = f"{R3}::test_an_approval_masks_exactly_the_password_a_client_is_sent"
 ONE_SHOT = ('                    self.log.error("worker %s failed: %s", key, failure_class(exc), '
             'exc_info=True)')
 #: Fix r2 made the URL rule one line, its password one branch: to the last `@` before
@@ -223,30 +229,46 @@ MUTANTS = [
     mutant("H2-follower-context-not-read", DAEMON_LOG,
            [("        if around:\n            shown.append(", "        if False:  # MUTANT\n            shown.append(")],
            [f"{R3}::test_r3_an_invisible_key_split_across_feeds_is_still_a_password",
-            f"{R3}::test_r3_a_follower_fed_in_any_split_hides_what_it_hides_whole"],
+            f"{R3}::test_r3_a_follower_fed_in_any_split_hides_what_it_hides_whole",
+            f"{R4}::test_r4_a_follower_started_on_a_split_key_hides_the_value_fed_next"],
            "the follower's earlier text is not read as a terminal shows it"),
     mutant("H3-follower-settles-in-the-text-only", DAEMON_LOG,
            [("    for reading, _ in _readings(text):\n        read = reading(text)",
              "    for reading, _ in []:  # MUTANT\n        read = reading(text)")],
            [f"{R3}::test_r3_a_private_key_an_invisible_character_splits_is_held_until_it_ends"],
            "a break is settled by the text alone, not its terminal readings"),
-    # P1: an approval's URL password, each part of the fix undone alone.
-    mutant("H4-approval-password-stops-at-a-mask", REDACT,
-           [('    r"((?:" + _MASK + r"|(?!://)\\S)*(?=@))(@)")', '    r"((?:(?!://)\\S)*(?=@))(@)")  # MUTANT')],
-           [f"{R3}::test_r3_review_urls_mask_their_whole_password"],
-           "the head's URL password cannot read through release's mask"),
-    mutant("H5-approval-password-refused-for-a-metacharacter", REDACT,
-           [("                          match.group(1) + _masked_password(match.group(2), path) + match.group(3)))",
-             "                          match.group(0) if any(meta in match.group(2) for meta in _SHELL_META)"
-             " else match.group(1) + _masked_password(match.group(2), path) + match.group(3)))  # MUTANT")],
-           [f"{R3}::test_r3_review_urls_mask_their_whole_password",
-            f"{R3}::test_r3_an_approval_masks_every_password_character_but_shell_metacharacters"],
-           "a URL password holding a shell metacharacter is shown whole, as fix r2 had it"),
-    mutant("H6-approval-password-hides-metacharacters", REDACT,
-           [('_PASSWORD_KEPT_RE = re.compile(_MASK + "|" + "|".join(re.escape(meta) for meta in _SHELL_META))',
-             '_PASSWORD_KEPT_RE = re.compile(_MASK)  # MUTANT')],
-           [f"{R3}::test_r3_an_approval_masks_every_password_character_but_shell_metacharacters"],
-           "a shell metacharacter in a URL password is masked with it"),
+    # Fix r4 (review r4 of #308). H4 to H6 are retired: fix r4 replaced fix r3's approval rule.
+    # P1: an approval masks only the password a client is sent; each part of the rule undone.
+    mutant("I1-authority-not-ended-at-an-operator", REDACT,
+           [("        if char in _SHELL_OPERATORS and kind not in (_S, _D):", "        if False:  # MUTANT")],
+           [R4_TABLE, R4_PROPERTY],
+           "an unquoted shell operator does not end a URL's authority"),
+    mutant("I2-authority-not-ended-at-an-expansion", REDACT,
+           [(r'        if char in "$`\\" and kind != _S:', r'        if char == "\\" and kind != _S:  # MUTANT')],
+           [R4_TABLE, R4_PROPERTY],
+           "a `$` or backtick outside single quotes does not end a URL's authority"),
+    mutant("I3-userinfo-split-at-its-first-at", REDACT,
+           [("    userinfo = authority[:ats[-1]]", "    userinfo = authority[:ats[0]]  # MUTANT")],
+           [R4_EXACT, R4_PROPERTY],
+           "the userinfo ends at the authority's first `@`"),
+    mutant("I4-quotes-not-read", REDACT,
+           [("    kinds = _quoting(text)", '    kinds = b"u" * len(text)  # MUTANT')],
+           [R4_EXACT, R4_PROPERTY],
+           "every character reads as unquoted"),
+    mutant("I5-password-found-on-release-s-output", REDACT,
+           [("        found = [at for at in _password_positions(original) if original[at] not in _NEVER_MASKED]",
+             '        found = [at for at in _password_positions(_MASK_RE.sub(lambda m: "x" * len(m.group()), shown))'
+             " if shown[at] not in _NEVER_MASKED]  # MUTANT"),
+            ("        where = _shown_at(original, released, shown)",
+             "        where = (lambda masks: lambda at: None if any(a <= at < b for a, b in masks) else at)("
+             "[m.span() for m in _MASK_RE.finditer(shown)])  # MUTANT")],
+           [R4_EXACT],
+           "the password is found on release's output, an earlier mask read as password text (fix r3's reading)"),
+    mutant("I6-release-s-masks-not-aligned", REDACT,
+           [("        if source.startswith(mask.group(), at):", "        if True:  # MUTANT"),
+            ("    if j + len(shown) - i != len(source) or not all(", "    if False and not all(  # MUTANT")],
+           [R4_EXACT],
+           "release's masks are read as literal text, one character each"),
 ]
 
 
