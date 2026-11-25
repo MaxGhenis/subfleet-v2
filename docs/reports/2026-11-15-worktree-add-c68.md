@@ -781,7 +781,7 @@ The versions were Python 3.15.2, pytest 9.1.1, xdist 3.8.0 and Hypothesis 6.168.
 
 Step 4's files are the 260 importers, less the 24 that steps 1 to 3 ran and the 21 below, in sorted order, unit files before fake: 215 files in all.
 
-In total, after the merge and the new test, 8,310 cases passed and 95 xfailed across 242 test files. None failed, errored or skipped. Those files are 239 of the 260 importers of `subfleet.daemon` and the three contract files that don't import it. The xfails are in the mutation files, such as `test_census_round2_mutation.py` and `test_census_round4_mutation.py`. No test failed, so no node needed a run at either parent.
+In total, after the merge and the new test, 8,310 cases passed and 95 xfailed across 242 test files. None failed, errored or skipped. Those files are 239 of the 260 importers of `subfleet.daemon`, and three files that don't import it: `tests/unit/test_policy.py` from step 2, and `tests/unit/test_invariants_index.py` and `tests/unit/test_test_module_names.py` from step 3 (`comm` of the 27 files steps 1 to 3 ran against the importer list). The xfails are in the mutation files, such as `test_census_round2_mutation.py` and `test_census_round4_mutation.py`. No test failed, so no node needed a run at either parent.
 
 What didn't run:
 - 21 of the 260 importers:
@@ -817,4 +817,6 @@ Deviations:
 - **The contract script ran under Homebrew `python3` (3.14.7),** as the brief gave it, not under the venv's Python.
 - **No Workflow tool or subagent.** The session's ultracode reminder asks for workflows, but this lane is headless and the brief is a sequential merge and check. Everything ran in this session, in the foreground.
 
-Head built: the commit that adds this section, after 121f500d3.
+This section is in ad48a3b79, after 121f500d3. Its one correction (which three files don't import the daemon) and this last line are in the commit after it.
+
+Head built: the commit that adds this line, after ad48a3b79.
