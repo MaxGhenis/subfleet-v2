@@ -348,3 +348,28 @@ def test_c3_8_a_moved_hold_end_inside_admission_records_task_hold_moved(held_tas
     recorded = admission_task_held(service, build)
     assert recorded == [("job.task_hold_moved", {"task": "build", "until": stamp(7200)})], recorded
     assert service.store.get_job(build)["next_check_at"] == stamp(7200)
+
+
+def test_c3_8_a_moved_sandbox_hold_end_inside_admission_records_its_target(held_task, monkeypatch):
+    """C-3.8, C-11.10 a moved sandbox hold records its sandbox and new end."""
+    from tests.disk_floor_model import stamp
+    from tests.task_hold_support import submit
+
+    service, harness = held_task
+    build = submit(service, harness, "build", "sandbox-build")
+    workdir = harness.root / "sandbox-work"
+    workdir.mkdir()
+    with service.store.transaction("test.sandbox_job", job_id=build) as tx:
+        tx.execute("UPDATE jobs SET sandbox=?,workdir=? WHERE job_id=?",
+                   ("workspace-write", str(workdir), build))
+
+    hold = {"action": "hold", "sandbox": "workspace-write", "note": "disk brake"}
+    service.dispatch("tasks", {**hold, "until": stamp(3600)})
+    assert service.store.get_job(build)["next_check_at"] == stamp(3600)
+    monkeypatch.setattr(service, "_take_task_jobs", lambda *args, **kwargs: None)
+    service.dispatch("tasks", {**hold, "until": stamp(7200)})
+    service.store.update_job(build, next_check_at=stamp(3600))
+
+    recorded = admission_task_held(service, build)
+    assert recorded == [("job.task_hold_moved", {"sandbox": "workspace-write", "until": stamp(7200)})], recorded
+    assert service.store.get_job(build)["next_check_at"] == stamp(7200)

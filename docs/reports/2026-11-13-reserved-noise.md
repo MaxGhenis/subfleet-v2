@@ -286,3 +286,181 @@ Final `git diff --check`: **passed, exit 0**, repeated after the report metadata
 Commits were denied; the seven changed files remain in this workspace for collection.
 
 Head built: `d0a28f13a56e982b846acc2b9824647e84365f38`.
+
+## Release merge 1
+
+Started **2026-11-25 21:27:32 UTC** from the first `date -u`. The PR parent is `5b1854ffbcc6950b3e2bf1b220e817ec263b081b` and the pinned release parent is `53a7bac93d01afd9165588bcaf789dae75540757`. The local tracking ref and GitHub’s release ref both matched the pin. The base is `a4aded8859fca77678f59e10261ad701160aefb8`, with 18 PR commits and 144 release commits after it.
+
+### Merge and follow-up changes
+
+- `subfleet/store.py` keeps C-3.8’s audit dictionaries, nested rollback accounting and generation bump on kept changes. It also initializes D-ADMIT-IDLE1’s connection-local watcher and pending notices. The merged transaction publishes notices after a successful outer commit and retains both sides’ transaction and audit logic.
+- `docs/acceptance-contract.md` keeps the PR’s C-3.8, C-3.2 edit and change-log entry, then release’s entries and clause edits. C-6.10 retains the PR’s rollback text within release’s idle-pacing language. The hub script resolved both contract conflict regions and exited 0. The daemon and route-isolation test merged cleanly. The two route-isolation functions match their respective parent byte for byte. Both parents use schema version 10 and the same `store_schema.sql` blob.
+- **A, moved sandbox hold.** Admission’s transaction read `hold["task"]` when the hold carried only the sandbox target. On the merged code the new test failed with `KeyError: 'task'` and its task-hold neighbor passed. Both passed after the audit used `task_holds.target(hold)`. The test checks the sole event’s target and new end, and the committed job clock. The docstring, C-3.8 and the existing D-RESERVED-NOISE1 entry record both targets. The PR-side source diff contained one added `hold["task"]` read. Release’s remaining reads check for a sandbox first.
+- **B, commit-rate assertions.** C-3.8 lets an unchanged verdict advance the job clock and store generation without an audit event. On the merged code the prepared refresh case found zero `attempt.reserved` events where it expected seven, and the hourly test found zero events where it expected 24. The unprepared case passed with seven `job.unprepared_wait` events from its own transaction. `test_unchanged_verdict_can_commit_more_than_six_times_per_hour` now counts seven persisted `next_check_at` changes in 70 seconds and preserves the unprepared event count, decision count and empty attempt list. `test_c6_10_long_wait_commits_at_most_six_times_per_hour_per_job` now counts six persisted clock changes per job, 24 across four jobs. Both prepared paths also check for zero `job.capacity_waiting` and zero `attempt.reserved` events for the measured jobs. A source scan found no other in-scope repeated-wait test that uses events as the commit count.
+- **Lock order.** The watcher runs after `Store.transaction()` exits its own lock scope. When called inside `_capacity_wait_rollback`, the outer reentrant store lock is still held. `_wake_admission` can then take `_admission_pace_lock`. All five pacing-lock scopes were inspected. `_wake_admission` and `_admission_ready` operate on memory and clocks, `_admit_kind` releases the pacing lock before admission and expiry reads, and `_capacity_change_news` releases it before its store snapshot. No path acquired the store lock under the pacing lock.
+
+### Contract verification
+
+The script printed `merged against a4aded885: 258 clauses, none duplicated`. The Python check includes the three lettered clause IDs. The 870 newline-delimited elements count the final empty element after the terminal newline.
+
+```text
+base: entries=352, clauses=260, split lines=852, newline count=851
+PR: entries=353, clauses=261, split lines=854, newline count=853
+release: entries=368, clauses=260, split lines=868, newline count=867
+merge: entries=369, clauses=261, split lines=870, newline count=869
+step A: entries=369, clauses=261, split lines=870, newline count=869
+Release log edits: [('insert', 0, 16), ('replace', 1, 1)] 17 added or replaced lines; C-5.12 replacement kept
+Duplicate log entry unchanged: - C-20.6, C-23.28 (2026-10-15, D-ST1, PR #198 round 8) x2
+PR clause edits/addition: C-3.2, C-3.8, C-6.10
+Release clause edits: C-11.10, C-23.25, C-25.6, C-25.7, C-4.5, C-5.12, C-5.5, C-6.10, C-8.4, C-9.3
+C-6.10: exact PR insertion; removing it leaves release bytes
+All remaining clause lines match the expected source bytes; 258 numeric IDs and 3 lettered IDs
+Step A: only C-3.8 and its change-log entry changed
+```
+
+### Commands and deviations
+
+- `date -u`, the requested report/review reads, `gh pr view 315 --repo MaxGhenis/subfleet-v2`, and `gh api repos/MaxGhenis/subfleet-v2/git/ref/heads/release/217 --jq '.object.sha'` succeeded. Read-only `git status`, `rev-parse`, `merge-base`, `rev-list --count`, `cat-file`, `log`, `ls-files`, `show`, `ls-tree`, `diff`, `rg`, `sed`, `tail` and Python source checks confirmed the starting state and inspected the merge, tests and fixtures. Source probes for absent paths were corrected.
+- `git merge --no-ff --no-commit 53a7bac93d01afd9165588bcaf789dae75540757` exited 128 on `ORIG_HEAD.lock`. Named `git add -- <files>` attempts for the merge resolution, A test, A fix, B tests and report exited 128 on `index.lock`. The assigned checkout is detached and the repository metadata is outside the writable workspace. No merge state or commit was created.
+- The requested index-free fallback used `git diff --name-only --no-renames`, `git show` and `git merge-file -p`. It materialized 519 release-only files and merged the four shared paths. `python3 /Users/maxghenis/reviews/subfleet-hub/host-runs/merge_contract.py HEAD 53a7bac93d01afd9165588bcaf789dae75540757` exited 0. The Python blob and mode comparison against `6f65e0b6294644668c1a00f0d0b0162bfbbd538b` found exactly the two resolved paths. The per-file release-parent `git diff --no-index --check` printed no diagnostics across 17 changed paths. The first checker treated the normal no-index difference status 1 as an error. The corrected check accepted status 1 only with empty diagnostics. Commit-parent checks require the hub’s merge commit.
+- `getconf DARWIN_USER_TEMP_DIR` succeeded and `mkdir` for the prescribed scratch returned permission denied. The job-owned temp root supplied `sf-rnoise-merge-r1`, its cache and its test temp paths. `uv sync --group dev` succeeded against the resolved file tree with CPython 3.15.2, resolving 10 packages and installing 9. The xdist overlay was installed by the first `uv run`; transfers were sequential. A-before ran on the merged worktree with only the new test added. B-before ran from a scratch copy of the merged sources before A. An import assertion confirmed that copy supplied `subfleet`.
+- Each run used a fresh scratch basetemp and logged `uptime` and `df -H /` before and after. The scratch-only pytest isolation redirected retained failures and temporary folders, refused native subprocess and ctypes inspections, and blocked prohibited Git and GitHub commands before execution. A and B allowed a zero-signal probe of the test process’s own PID for its synthetic registry. From run 3 all zero-signal probes were blocked. Six synthetic data inputs tested the refusal guard without invoking any command. Existing tests that require native inspection skipped through their own checks. No synthetic process identity was added to enable those tests.
+- `test_intervening_success_should_not_delay_start_after_release[True]` was initially selected in run 4. Its workspace preparation reached a prohibited `git worktree add`. The guard blocked execution and the test saw no reservation. The test file is absent at `5b1854ffb` and byte-identical to release at `53a7bac93`. The release daemon’s `_workspace` method was also byte-identical, so the same restriction applies to that parent. `git archive 53a7bac93 subfleet tests tools pyproject.toml uv.lock | tar -x` created a scratch copy and the import assertion confirmed that copy supplied the code. The release-parent run passed the three allowed cases. The prohibited parameter was excluded in that run and in the corrected run 4. The timing-sensitive override case passed in run 3.
+- The A-after pytest process exited 0. Updating the scratch runner while its shell was finishing caused the shell wrapper to report exit 1 after recording pytest’s result. Later invocations used the settled runner.
+- The final Python blob and mode check compared all paths to the trial and found only the two resolutions, the A daemon and test edits, the B test pair, and the report. The release-parent whitespace check was clean across 19 changed paths. The append-only report check and its scoped `git diff --check` also passed.
+
+### Cleanup
+
+The job-owned scratch root was `/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-222606-rn-merge-r1-a1-_db6xspj/sf-rnoise-merge-r1`. Guarded `shutil.rmtree` removed `merge-before-step-a`, `at-53a7bac93`, and the per-run `pytest-<run>` and `pytest-<run>-state` folders. It removed the scratch root with its `uv-cache`, scripts and logs. Each explicit removal asserted `sf-rnoise-merge-r1` was in the path. The largest observed scratch usage was 177 MiB. The 11 MiB virtualenv is inside the assigned worktree.
+
+### Commit status and tests
+
+The final Git HEAD is still `5b1854ffbcc6950b3e2bf1b220e817ec263b081b`. The worktree holds the merge resolution, the standalone A regression, the A daemon and contract fix, the B test changes, and this report. The merge and four follow-up commits have no SHAs from this run because the Git metadata locks were denied. The merge is ready for the hub with message `Merge release/217 (53a7bac93) into fix/reserved-noise-217`, the two parents above and the two silent-conflict changes in subsequent commits.
+
+Common command, with `RUN` and the arguments below substituted for each row. `S` is the scratch root. The parent diagnostic uses its archive as the working directory and the worktree’s virtualenv.
+
+```bash
+uv run --no-sync --with 'pytest-xdist>=3.6' pytest -p merge_test_isolation -q -ra \
+  --timeout=1200 -m 'not real_lsof and not real_cwd' --basetemp="$S/pytest-$RUN" \
+  -o "cache_dir=$S/pytest-$RUN-state/pytest-cache" ARGS
+```
+
+- **A-before, A-after** `tests/fake/test_event_names.py -k "moved_hold_end or moved_sandbox_hold_end"`
+- **B-before, B-after** `-n 4 tests/fake/test_idle_capacity_refresh_bound.py tests/fake/test_idle_capacity_events.py`
+- **3** `-n 4 tests/fake/{test_event_names,test_event_name_properties,test_capacity_wait_rollback,test_probe_wait_rollback,test_fence_wait_rollback,test_store_contention_meter,test_waiting_queue_cost,test_probe_cancel,test_sessions_end_to_end,test_admission_route_isolation}.py tests/unit/{test_store_audit,test_daemon_qos_tools}.py` with run 3’s deselections.
+- **4, 4-corrected** `-n 4 tests/fake/{test_idle_admission_self_wake,test_idle_admission_pacing,test_idle_capacity_carried_clock,test_idle_capacity_guard_news,test_idle_capacity_news_sources,test_idle_capacity_pools,test_idle_capacity_queue_news,test_idle_route_deferrals,test_idle_cost,test_sandbox_hold_continuity,test_sandbox_hold_interleavings,test_sandbox_hold_properties,test_sandbox_hold_release_rows,test_task_hold_admission,test_capacity_wait_backoff,test_probe_turn,test_detached_retention_fence,test_capacity_steer_daemon,test_unadmittable_pin_review}.py` with run 4’s deselections.
+- **release-deferrals** `tests/fake/test_idle_route_deferrals.py --deselect=tests/fake/test_idle_route_deferrals.py::test_intervening_success_should_not_delay_start_after_release[True]` with the node argument quoted.
+- **5** `-n 4 tests/fake/test_state_contract.py tests/unit/{test_test_module_names,test_invariants_index,test_handler_refusals}.py`
+- **6a** `-n 4 tests/fake/{test_wall_retry,test_wall_running_time,test_writer_retention_fence}.py` with run 6a’s deselections.
+- **6b** `-n 4 tests/fake/{test_task_hold_cas,test_task_hold_cas_properties,test_task_hold_clocks,test_task_hold_mutants,test_task_hold_properties,test_task_hold_reset_demand}.py`
+
+| Run | Passed | Failed | Skipped | Pytest seconds | Load at start → end | Free disk at start → end |
+|---|---:|---:|---:|---:|---|---|
+| A-before | 1 | 1 | 0 | 36.80 | 54.04 65.69 60.22 → 39.59 59.85 58.36 | 106G → 106G |
+| A-after | 2 | 0 | 0 | 19.89 | 44.40 58.78 58.07 → 44.91 57.49 57.62 | 106G → 106G |
+| B-before | 56 | 2 | 0 | 70.41 | 46.04 57.51 57.63 → 62.04 59.32 58.27 | 106G → 106G |
+| B-after | 58 | 0 | 0 | 36.71 | 52.01 57.17 57.53 → 47.03 55.27 56.82 | 106G → 106G |
+| 3 | 167 | 0 | 10 | 141.55 | 39.94 52.97 55.94 → 30.33 46.05 52.79 | 106G → 108G |
+| 4 | 338 | 1 | 0 | 248.23 | 32.18 45.28 52.31 → 42.91 41.63 48.70 | 108G → 107G |
+| release-deferrals | 3 | 0 | 0 | 22.10 | 36.47 39.42 47.22 → 43.54 40.77 47.44 | 107G → 107G |
+| 4-corrected | 338 | 0 | 0 | 889.74 | 43.38 40.83 47.38 → 84.85 88.22 76.49 | 107G → 105G |
+| 5 | 437 | 0 | 0 | 126.25 | 85.72 88.16 76.88 → 64.12 81.21 75.98 | 105G → 106G |
+| 6a | 48 | 0 | 0 | 20.07 | 64.12 81.21 75.98 → 56.96 78.18 75.04 | 106G → 105G |
+| 6b | 153 | 0 | 6 | 136.39 | 56.96 78.18 75.04 → 71.63 76.12 74.65 | 105G → 105G |
+
+Explicit deselection node IDs, relative to `tests/fake/`. The initial run 4 omitted the last deferrals exclusion.
+
+The event-name property test and both idle-cost cases require native process inspection. The session exclusions call `git add -A` or probe live PIDs. The route and retention exclusions reach real `git worktree add`.
+
+<details>
+<summary>Step 3</summary>
+
+```text
+test_event_name_properties.py::TestAdmissionPasses
+test_admission_route_isolation.py::test_c6_12_a_refused_writable_job_leaves_no_worktree
+test_sessions_end_to_end.py::test_revive_is_refused_for_a_desktop_owned_session_unless_opted_in
+test_sessions_end_to_end.py::test_a_revive_records_the_requested_model_substitution
+test_sessions_end_to_end.py::test_revive_probes_lane_before_launch
+test_sessions_end_to_end.py::test_revive_census_refreshed_and_skips_running_twin
+test_sessions_end_to_end.py::test_a_revive_that_loses_the_lease_race_is_skipped_not_queued
+test_sessions_end_to_end.py::test_the_lease_is_session_scoped_and_released_with_the_job
+test_sessions_end_to_end.py::test_a_revive_resumes_the_named_session_rather_than_starting_a_new_one
+test_sessions_end_to_end.py::test_a_revive_of_a_session_on_main_is_refused_like_any_writable_job
+test_sessions_end_to_end.py::test_a_retry_of_an_accepted_continuation_finds_its_job_after_the_binding[revive]
+test_sessions_end_to_end.py::test_the_daemon_refuses_a_revive_of_a_conversations_session
+test_sessions_end_to_end.py::test_a_queued_revive_whose_session_becomes_a_conversations_fails_at_admission
+test_sessions_end_to_end.py::test_the_kit_refuses_before_the_daemon_is_asked
+test_sessions_end_to_end.py::test_handoff_dispatches_detached_through_the_normal_submit_path
+test_sessions_end_to_end.py::test_handoff_prompt_created_private_and_unlinked_after_dispatch
+test_sessions_end_to_end.py::test_a_sweep_writes_one_notice_per_interrupted_session
+test_sessions_end_to_end.py::test_a_sweep_against_the_daemon_leaves_a_conversations_session_alone
+test_sessions_end_to_end.py::test_the_nudge_record_is_a_durable_event_and_blocks_the_next_sweep
+```
+
+</details>
+
+<details>
+<summary>Step 4</summary>
+
+```text
+test_idle_cost.py::test_c5_12_running_attempts_share_one_ps_per_interval
+test_idle_cost.py::test_c5_12_the_idle_cost_measurement_runs
+test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it
+test_detached_retention_fence.py::test_c8_4_a_detached_job_waits_out_a_retirement_and_runs_once_the_fence_goes
+test_detached_retention_fence.py::test_c8_4_no_git_runs_for_an_in_place_writer_held_on_a_fence_above
+test_detached_retention_fence.py::test_c8_4_while_the_fence_is_held_it_is_the_whole_hold_and_the_next_look_finds_the_rest
+test_detached_retention_fence.py::test_c8_4_a_fence_on_an_in_place_writers_own_folder_after_the_early_look_is_named_once
+test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction
+test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes
+test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_stays_fenced_through_the_quarantine
+test_detached_retention_fence.py::test_c8_4_a_quarantine_landing_right_after_a_legacy_spelling_does_not_lose_the_fence
+test_detached_retention_fence.py::test_c8_4_the_transaction_reads_a_legacy_jobs_fence_folded_too
+test_detached_retention_fence.py::test_c8_4_a_workdir_replaced_by_a_symlink_into_a_fenced_tree_is_held_where_it_resolves
+test_detached_retention_fence.py::test_c8_4_the_folder_is_recorded_once_at_submit_and_read_for_the_fence
+test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_is_spelt_at_admission
+test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job
+test_detached_retention_fence.py::test_c8_4_c6_5_detached_reservation_agrees_with_an_oracle_on_any_leases
+test_detached_retention_fence.py::test_interleavings_never_run_a_detached_job_in_a_tree_being_retired
+test_detached_retention_fence.py::test_c6_16_a_fenced_priority_job_keeps_its_place_across_tiers
+test_detached_retention_fence.py::test_rediscovered_detached_write_target_is_checked_before_workspace
+test_detached_retention_fence.py::test_fenced_unspelled_detached_writer_retains_fence_hold_if_rediscovery_times_out
+test_detached_retention_fence.py::test_rediscovered_detached_absent_alias_is_fenced_before_workspace
+test_detached_retention_fence.py::test_unfenced_detached_rediscovery_timeout_keeps_workspace_retry_budget
+test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace
+test_detached_retention_fence.py::test_detached_row_presence_answer_survives_workspace_until_reservation
+test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers
+test_idle_route_deferrals.py::test_intervening_success_should_not_delay_start_after_release[True]
+```
+
+</details>
+
+<details>
+<summary>Step 6a</summary>
+
+```text
+test_writer_retention_fence.py::test_c8_4_a_detached_writer_nested_in_a_tree_being_retired_waits_for_its_fence
+test_writer_retention_fence.py::test_c8_4_a_nested_writer_waits_out_a_retirement_and_runs_once_the_fence_goes
+test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer
+test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target
+test_writer_retention_fence.py::test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases
+test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement
+test_writer_retention_fence.py::test_c8_4_a_writer_queued_on_the_tree_under_a_case_alias_keeps_it_from_selection
+test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree
+```
+
+</details>
+
+### Native-inspection skips in run 3
+
+- `test_event_names.py::test_c3_8_repro_passes_with_no_lane_record_no_empty_reservation`
+- `test_event_names.py::test_c3_8_a_pass_that_leaves_a_job_waiting_records_the_wait_not_a_reservation`
+- `test_event_names.py::test_c3_8_a_reservation_is_named_and_carries_its_attempt_and_lane`
+- `test_event_names.py::test_c3_8_a_full_fleet_names_the_wait_it_records`
+- `test_event_names.py::test_c3_8_a_hundred_looks_at_one_verdict_record_one_wait`
+- `test_event_names.py::test_c3_8_a_new_verdict_records_a_new_wait_and_a_reservation_ends_them`
+- `test_event_names.py::test_c3_8_a_restart_forgets_the_verdict_so_each_waiting_job_records_one_more`
+- `test_waiting_queue_cost.py::test_c6_10_a_waiting_queue_starts_no_process_between_its_rechecks`
+- `test_daemon_qos_tools.py::test_thread_priorities_reads_every_thread_of_a_clamped_process`
+- `test_sessions_end_to_end.py::test_world_shutdown_reaps_a_provider_still_writing_receipts`
+
+The A runs each deselected 12 cases by `-k`. Run 6b also had six opt-in mutant skips in `test_task_hold_properties.py` because `TASK_HOLD_MUTANT_MATRIX` was unset. All specified test groups, including both optional groups, reached a result. The listed exclusions and skips remain outside local coverage. The hub’s commit recording and merge-parent check are outstanding.

@@ -1660,8 +1660,8 @@ class Daemon:
         with no hold does.
 
         C-3.8: inside the caller's transaction (`tx`, admission's), that transaction records
-        `job.task_hold_moved` (`{task, until}`) when only the job's end moved, and nothing of
-        its own beside a take's `job.task_held` row."""
+        `job.task_hold_moved` (`{task, until}`, or `{sandbox, until}` for the sandbox hold, C-11.10)
+        when only the job's end moved, and nothing of its own beside a take's `job.task_held` row."""
         job_id = job["job_id"]
         paused = None
         if not (job["state"] == "waiting" and job["wait_reason"] == "task-held"
@@ -1678,7 +1678,8 @@ class Daemon:
                 if tx is not None:
                     tx.execute(sql, (hold["until"], job_id))
                     # C-3.8: the caller's transaction (admission's) says only the end moved.
-                    self.store.audit_as("job.task_hold_moved", {"task": hold["task"], "until": hold["until"]})
+                    self.store.audit_as("job.task_hold_moved",
+                                        {**task_holds.target(hold), "until": hold["until"]})
                 else:
                     with self.store.transaction("job.task_hold_moved", job_id=job_id,
                                                 data={**task_holds.target(hold), "until": hold["until"]}) as inner:
