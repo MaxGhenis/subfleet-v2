@@ -1037,7 +1037,7 @@ def test_the_cpu_measure_counts_a_grandchilds_cpu(tmp_path):
     """The CPU bounds below read RUSAGE_CHILDREN, which counts a descendant's CPU only once its parent has waited
     for it. A busy awk loop run inside `$(…)` by bash, as the blocks run their awk, shows its CPU there."""
     loop = "BEGIN { for (i = 0; i < 3000000; i++) s += i; print s }"
-    env = {"PATH": "/usr/bin:/bin"}
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin")}   # the session's, as the keychain exec guard needs
     direct, out = timed(["/usr/bin/awk", loop], "", env, tmp_path)
     nested, wrapped = timed(["/bin/bash", "-c", f"x=$(/usr/bin/awk '{loop}'); printf '%s\\n' \"$x\""], "", env,
                             tmp_path)
@@ -1116,7 +1116,8 @@ def link_fixture(fix: AxiomFixture) -> tuple[Path, Path]:
 def lands(shell: str, script: str, cwd: Path) -> str:
     """Where ``shell`` (no rc files) ends up after ``script``, which runs only cd, set -P and pwd."""
     out = subprocess.run([shell, "-f", "-c", script] if shell.endswith("zsh") else [shell, "--norc", "-c", script],
-                         capture_output=True, text=True, timeout=30, cwd=cwd, env={"PATH": "/usr/bin:/bin"})
+                         capture_output=True, text=True, timeout=30, cwd=cwd,
+                         env={"PATH": os.environ.get("PATH", "/usr/bin:/bin")})
     assert out.returncode == 0, out.stderr
     return out.stdout.strip()
 
@@ -1136,8 +1137,7 @@ def test_a_cd_through_a_link_and_dotdot_is_judged_where_the_shell_lands(tmp_path
     """Fix r3 (review r3's P2): the blocks resolved a `cd` target physically (`cd -P`), but bash and zsh resolve it
     logically by default, so from a/, with a/link -> x/y, `cd link/../rs` lands in a/rs while the block checked x/rs,
     which is not there, and allowed. Each block now takes a `cd` or `pushd` target's `..` off textually, as a
-    logical cd does, before `cd -P`: both sides deny, for the hand block and for the brief block (a/briefs has the
-    brief; x/briefs does not exist)."""
+    logical cd does, before `cd -P`: both sides deny."""
     fix = AxiomFixture(tmp_path)
     a, _x = link_fixture(fix)
     for shell in ("/bin/bash", "/bin/zsh"):
@@ -1146,6 +1146,14 @@ def test_a_cd_through_a_link_and_dotdot_is_judged_where_the_shell_lands(tmp_path
     for command in LINK_LOGICAL:
         reason = fix.same("hand-authored-rulespec", command, a)
         assert reason.startswith(HAND_PREFIX + f"{SECTION}.yaml. "), (command, reason)
+
+
+@needs_jq
+def test_a_cd_through_a_link_and_dotdot_reads_the_brief_where_the_shell_lands(tmp_path):
+    """Fix r3, the brief block's analogue: from a/, `cd link/../briefs` lands in a/briefs, which holds a brief without
+    the regime; x/briefs does not exist. Both sides deny (before the fix both read x/briefs, skipped it and allowed)."""
+    fix = AxiomFixture(tmp_path)
+    a, _x = link_fixture(fix)
     reason = fix.same("axiom-brief-regime", "cd link/../briefs && subfleet run -C ~/TheAxiomFoundation -p no-regime.md",
                       a)
     assert reason.startswith(BRIEF_REASON), reason
