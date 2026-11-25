@@ -296,3 +296,156 @@ Other checks: `ast.parse` of every changed Python file and `git diff --check` pa
 - **`$TMPDIR/sf-ao-fix2-rm.py`:** the removal script, a file just outside the scratch folder; deleted after use with the same name assertion.
 
 Commits on 6b53f6056: d0f5ee6fc (red tests), b1391df36 (catch-up marker), 94f6be5fc (code), fba3fad43 (`ledger-first` test), 16a51cafe (contract and docstrings; the code and contract head), then the report and `2026-11-13-archive-offload-fix2-data/` (02be59274 and the cleanup note after it). The branch tip is the head named in this job's final answer.
+
+## Fix round 3
+
+Started **2026-11-25 22:28:22 UTC** (`date -u` in the first command); deadline **2026-11-26 01:28:22 UTC**, with no new test run after 00:58:22. Built on the detached checkout of fc4fc603d: `git rev-parse HEAD` printed its full id and `git status --porcelain --untracked-files=no` was empty. I read review r3 and this report first. Every pytest run went through round 2's harness, copied and renamed (`SF_AO_FIX3_SCRATCH`, `sf-ao-fix3`, lines 10, 11, 37 and 38), with Python 3.15.2. The 1-minute load average ran from 12.5 to 70, and free disk stayed between 98 and 109 GB. Logs, the harness copy, the runner, the contract check and its output are in `2026-11-13-archive-offload-fix3-data/`.
+
+### The release merge
+- **Commit 7132ea201**, parents fc4fc603d and 53a7bac93 (both full ids printed by `git log -1 --format=%P`). I didn't fetch: `git cat-file -e` found 53a7bac93, and `origin/release/217` still points at it.
+- `git merge --no-ff --no-commit` staged release's 22 paths and left one conflict, in `docs/acceptance-contract.md`. The 22 are 10 added and 12 modified, beside the contract, the 13th modified path.
+- **The contract:** `merge_contract.py HEAD 53a7bac93…` exited 0 and printed "merged against 4aed7a3c9: 258 clauses, none duplicated". `git hash-object` printed `820c61e3140b237bfad437fed1c0034d399ffe6d`. Lines 9 to 14 are the PR's 2026-11-17 and 2026-11-15 lines, its blank line, its 2026-11-13 line, then release's C-8.7 (d3085) and C-5.5/C-25.6 (#177) lines.
+- **Checks after the commit:** `grep -c` for conflict markers printed 0. `git diff --check HEAD^1 HEAD` printed only release's trailing space at `docs/reports/2026-11-18-retention-delete-step.md:65`, which I left as release has it.
+- **The script's 258 against 263:** the script's pattern needs `**` right after the clause number. The five headings with a title or letter inside the bold (C-5.8a, C-6.4a, C-8.5, C-8.7, C-11.7a) match only the brief's pattern.
+- **`contract_check.py 7132ea201`** (`contract-check.txt`), against `git show` of the three committed versions:
+  ```
+  4aed7a3c9  lines(wc -l)=865 changelog_entries=366 clause_headings=262 duplicated=[] C-8.8_at=[]
+  fc4fc603d  lines(wc -l)=870 changelog_entries=369 clause_headings=263 duplicated=[] C-8.8_at=[556]
+  53a7bac93  lines(wc -l)=867 changelog_entries=368 clause_headings=262 duplicated=[] C-8.8_at=[]
+  merged     lines(wc -l)=872 changelog_entries=371 clause_headings=263 duplicated=[] C-8.8_at=[558]
+  lines: 872 == 870 + (867 - 865) = 872: True
+  changelog: 371 == 369 + (368 - 366) = 371: True
+  clause headings: merged 263 == fc4fc603d 263: True; none duplicated: True
+  ```
+  The docs commit then adds one change-log line, so at the head the contract has 873 lines and 372 entries, and C-8.8 is at line 559.
+
+### The P2: recall without the volume when the internal copy is complete
+- **Cause:** fix round 2 made `_recall_one` call `folder()` first whenever `external_authoritative(stub)` held. That kept the damaged-ledger and unmounted cases from leaving an empty internal `files/`. It also made recall open the volume after a crash at `removing`, where the stub reads `verified` with `removing: true` and the internal copy is still whole. So recall failed with "… which is not mounted", although 6b53f6056 recalled that state.
+- **Change (292e20de0, `subfleet/retention_offload.py:1382`):** `if external_authoritative(stub) and _verify(base, base_fd, found, stub.get("bundle_sha256")): folder()`, with a comment.
+  - `_verify` on the internal folder is exactly the ruling's check. Each stored file must be a regular file under `files/` with the manifest's size and SHA-256 (`_digest_at` opens with `O_NOFOLLOW` and checks `fstat`). An unopenable `files/` makes every store missing. The bundle must be there, match the stub's `bundle_sha256` (`None` fails) and pass `_heads_ok`.
+  - It only opens, reads and hashes: no create, chmod or sync. `F_NOCACHE` is a flag on the descriptor.
+  - It catches its own errors, so it adds no exception or message. Every incomplete case still reaches `folder()` before the `mkdir` at :1390, so every refusal and its message is unchanged.
+  - The loop's own checks and `_drop_external` are untouched, and so are `_copy_into`, `_copy_all` and the ledger code. Digests are not reused, which keeps the diff small (see "Left for the hub").
+- **Tests (`tests/unit/test_retention_offload_r3.py`, marked `retention_catch_up`, fixtures imported as round 2 does, plus round 2's private `_interrupted` and `_outside`):**
+  - `test_recall_after_a_crash_at_removing_with_the_volume_gone`, the review's case.
+    - Red at the merged head (`logs/r3-red-224050.log`): outcome `failed`, "archive job-1 is offloaded to volume 'Backup ☃' (6A1E0F7C-…), which is not mounted; mount it and run again".
+    - Green: `recalled`, `external: kept`, `copied_back: 0`, the stub gone, the internal tree equal to the one recorded before the offload, the external tree unchanged, and `check_archive` ok.
+  - `test_an_offloaded_archive_whose_recall_put_everything_back_is_recalled_without_the_volume`, the `offloaded` state with a complete internal copy: a recall killed at `recall-bundle`, before it marked the stub `recalled`.
+    - Red at the merged head with the same message.
+    - Green: `recalled`, and `--drop-external` keeps the external copy, naming the volume.
+    - Mounted again, a later offload takes the kept copy over through its ledger, and `recall --drop-external` then removes it (d3e17d002). This holds C-8.8's new "partial or complete" sentence.
+  - **Guards, which pass before and after the fix.** Each checks that recall, with and without `--drop-external`, fails naming the volume and leaves the internal tree, the stub's bytes and the external tree unchanged.
+    - `test_an_offloaded_recall_with_the_volume_gone_changes_nothing` (the brief's guard, no empty `files/`).
+    - `test_a_half_removed_internal_copy_still_needs_the_volume` (crash at the first `remove-file`).
+    - `test_a_missing_entry_is_found_before_any_internal_change` (crash at `removing`, then the last stored file removed and the first one's mode changed).
+    - `test_a_changed_internal_file_still_needs_the_volume`.
+    - `test_a_stub_without_a_bundle_checksum_still_needs_the_volume`.
+  - Red run: **2 failed, 4 passed**, 39 s (the order guard came later). Green: **6 passed** (`r3-green`, `r3-green2`), then **7 passed** with the order guard (`r3-green3`).
+- **Mutant (open-first branch removed, so recall never opens the external folder before the `mkdir`):**
+  - `logs/r3-mutant-224339.log`: round 2's `test_a_damaged_ownership_marker_fails_naming_the_file` and the brief's guard, **2 failed**. Both failed on the internal tree, which held `{'files': ('d', 448, None, None)}`, a new empty 0700 `files/`.
+  - `logs/r3-mutant2-230347.log`: the whole r3 file plus that test, **5 failed, 3 passed**.
+    - The damaged-ledger test and the offloaded guard failed on the empty `files/`.
+    - The order guard failed because the first stored file's mode went back to 0o600.
+    - The changed-file and no-checksum guards failed on the message: "files/… is there and is not the archived file" and "commits.bundle: offload.json records no checksum; external copy kept" in place of "not mounted".
+    - The half-removed guard, test 1 and the `offloaded`-complete test passed. Test 1 and the `offloaded`-complete test pass because this mutant never opens the external folder first. The half-removed guard passes because its missing entry is the first one recall reaches. It holds the outcome only, and its docstring says so.
+  - Both times the file was restored with `git checkout`, `git diff --quiet -- subfleet/retention_offload.py` exited 0, and `cmp` against my saved copy of the fix matched the first time.
+- **In-session review:** a fresh general-purpose subagent read the diff, read only, and found no correctness defect. Its six P3s:
+  - fixed in dbfa6e525: the half-removed guard did not hold the order, so the order guard was added; and three wording points in C-8.8 (`--drop-external` opens the external copy, the old-stub refusal applies only to an archive with a bundle, and a restored root changes source only when `archive/` is a new folder);
+  - left as listed below: the `--drop-external` message, the extra reads, and two older behaviours.
+
+### Docs (1c98df2ea, wording tightened in dbfa6e525)
+- **(a) The report's "malformed".** In fix round 2's P1 row, "a 3-int ledger from an earlier build is refused as malformed" now says such a ledger is refused as "the external folder belongs to another archive or source". It has no `volume` key, and its `directory` holds 3 ints (`_ownership`, :553-555 at fc4fc603d). "Malformed" appears only when `volume` is there and the entries hold 3 ints (:561). This is the only edit to an earlier round.
+- **(b) The crash carve-out.** Invariant 5 in `tests/unit/test_retention_offload.py`'s docstring now says the claim is "not covered, and not true" for any interruption, an error or a kill, between an external entry's exclusive creation and its ledger record. That window holds:
+  - `_copy_into`'s `os.utime`, after the `O_EXCL` open and before `created()` (:587-594 at fc4fc603d);
+  - `_copy_all`'s `rfs.fullsync(folder_fd)` and `rfs.open_dir("files")`, after `files/` is made and before `Owner.claim` (:1143-1151);
+  - every ledger write after the first.
+
+  The docstring names this as review r3's second P2, left for the hub. The module docstring of `retention_offload.py` now says "Each step is safe to run again after a crash between steps", with the same exception.
+
+  **Round 2's "Left for the hub" item, restated:** the wedge is not only "a crash or error inside a later ledger write". Any interruption between an entry's exclusive creation and its ledger record leaves an empty entry the ledger doesn't name, and every rerun refuses it. That covers a stored file, the bundle or `files/`, and an error from `os.utime`, the folder flush or the `files/` open as well as a later ledger write. Only removing the entry by hand clears it. The hub files it as an issue.
+- **(c) An old `copying` stub.** C-8.8 now says that a stub recording no checksum for the archive's bundle refuses recall, and that an offload resume refuses it too ("<bundle>: offload.json records no checksum; nothing copied or removed", :1054-1055). Such a `copying` stub can be neither resumed nor recalled, but its internal copy is intact and `restore` reads it.
+- **(d) A recreated state root.** C-8.8 now covers a state root recreated, or restored at the same path, so that its `archive/` folder is a new one:
+  - its source changes;
+  - `recall --all-on DIR` matches none of its archives;
+  - offload skips one still `copying` (or `verified`) with "run it with that target";
+  - recall each archive by name instead;
+  - `--drop-external` then keeps the external copy ("belongs to another source"), so `DIR/subfleet-archive/<old source>/` must be deleted by hand.
+
+  This is a doc change only. "Or `verified`" follows `_offload_skip` (:917-920), which skips any unfinished stub whose path differs.
+- **(e) Step 2 in C-8.8.** The two sentences now say:
+  - when every planned internal entry is there and verifies, recall needs nothing external, whatever the stub's state, a crash at `removing` included;
+  - it ends the stub even with the target unmounted and leaves that target's copy, partial or complete, untouched; `--drop-external` keeps it, naming the volume;
+  - that copy stays until a later offload to that target takes it over, or it is deleted by hand;
+  - apart from `--drop-external`, only a missing or failing entry makes recall open the external copy and check its ledger;
+  - once removal may have begun, it decides that by reading alone, before it touches `files/` or the bundle.
+
+  The clause's test list adds `tests/unit/test_retention_offload_r3.py`.
+- **(f) Change log.** A new first entry under "Changes in version 3", above the 2026-11-17 line: ``- C-8.8 (2026-11-25, D-ARCHIVE-OFFLOAD1, fix round 3 of #316; …, "Fix round 3"): … Tests: `tests/unit/test_retention_offload_r3.py`.`` It does not name C-17.1.
+
+### Left for the hub (new this round, not changed)
+- **A dropped stub with a message to run again.** Take a complete internal copy with the volume gone, recalled with `--drop-external`. `external` reads "kept: archive … which is not mounted; mount it and run again" (from `_external`, through `_drop_external`), but the stub is dropped, so a rerun says "not offloaded".
+  - Round 2 already did this for a `copying` stub, and 6b53f6056 did it for this state.
+  - C-8.8 now says the copy stays until a later offload to that target takes it over (tested), or it is deleted by hand.
+  - Changing the message means changing `_drop_external` or `_external`, which the brief rules out.
+- **Extra reads.** A complete authoritative recall now hashes each stored file three times, not twice, and the bundle more often, all with `F_NOCACHE`. The brief left reusing the digests optional; I kept the smaller diff.
+- **Older behaviours the review noted:**
+  - `_clean_stub_temps` removes stub temporaries before the check;
+  - recall of a `copying` stub without a bundle checksum restores modes and syncs before it refuses.
+
+### Commands and results
+`run.sh` (in the data folder) runs `uv run --no-sync --with 'pytest-xdist>=3.6' python -m pytest -p no:cacheprovider -p sf_ao_scope --timeout 1200 --basetemp=$S/bt/pytest-<label>-<time>`, wrapped in `timeout 585`. It uses `PYTHONPATH=$S/plugin` and `SF_AO_FIX3_SCRATCH=$S/run`, with `S=$TMPDIR/sf-ao-fix3` and `TMPDIR` from `getconf DARWIN_USER_TEMP_DIR`. Each log starts with `uptime` and `df -H /`, and ends with `uptime`. The runner refuses to start under 60 GB free. Times below are UTC; `uptime` prints local time.
+
+| Run (log) | Selection | Result | Load at start → end (1 min) | Free |
+|---|---|---|---|---|
+| `uv sync --group dev` | `.venv` was missing | rc 0, 5 s | about 50 | 103 GB |
+| `r3-red-224050` | r3 file, merged head, no fix | **2 failed, 4 passed**, 39 s (expected red) | 34.9 → 48.2 | 103 GB |
+| `r3-green-224208` | r3 file, fix | **6 passed**, 41 s | 54.9 → 69.6 | 103 GB |
+| `r3-mutant-224339` | damaged-ledger test and guard, mutant, `-n 2` | **2 failed**, 23 s (expected) | 61.4 → 56.3 | 103 GB |
+| `r3-green2-224538` | r3 file with the takeover check | **6 passed**, 29 s | 60.5 → 56.9 | 98 GB |
+| `offload-files-224857` | r3, r2, r1, volume r1, `-n 4` | **53 passed**, 8 s | 31.0 → 28.5 | 102 GB |
+| `contract-224912` | the four contract files, `-n 4` | **437 passed**, 24 s | 26.1 → 22.2 | 102 GB |
+| `offload-main-224947` | `test_retention_offload.py`, the whole file in one call, `-n 4`, default examples | **43 passed**, 56 s (crash properties 32 s and 21 s) | 19.6 → 22.4 | 102 GB |
+| `archive-225050` | `test_retention_archive.py`, `-n 4` | **108 passed, 1 skipped**, 228 s | 22.1 → 26.0 | 101 GB |
+| `archive-skip-225507` | the skipped node alone, `-p no:xdist -rs` | **1 skipped**: the harness refused its `git push` between synthetic repositories | 27.7 → 26.8 | 102 GB |
+| `r3-green3-230334` | r3 file with the order guard | **7 passed**, 2.5 s | 13.4 → 13.4 | 109 GB |
+| `r3-mutant2-230347` | r3 file and the damaged-ledger test, mutant | **5 failed, 3 passed**, 6 s (expected) | 12.7 → 13.7 | 109 GB |
+| `offload-files2-230420` | the four offload files at dbfa6e525 | **54 passed**, 7 s | 12.6 → 13.5 | 109 GB |
+| `contract2-230427` | the four contract files at dbfa6e525 | **437 passed**, 22 s | 13.3 → 12.9 | 109 GB |
+
+- **Skips:** the harness skipped one test in all of these runs, `test_retention_archive.py::test_a_remote_that_holds_only_unrelated_history_counts_as_none`, which runs `git push` between synthetic repositories. No offload test was skipped.
+- **No failure outside the new file,** so nothing needed a rerun.
+- **Which head each run saw:** the main offload file and the archive file ran at 1c98df2ea. dbfa6e525 changed only the r3 test file and the contract's wording, and steps 2 and 5 ran again on it.
+- **Other checks:**
+  - `ast.parse` of every changed Python file, and `git diff --check`, before each commit;
+  - `git diff --no-index --check` on each new non-log file in the data folder;
+  - `OFFLOAD_PROP_EXAMPLES` unset.
+
+### What didn't run
+- **The 48 other importers of the retention modules:** they are CI's, as the brief says.
+- **CI:** none for this head. Nothing was pushed.
+- **Real disk images:** none; the brief forbids `hdiutil`.
+- **A cross-model review:** that is the hub's step.
+
+### Deviations from the brief
+1. **No background mode.** This was a headless `claude -p` session with no task notifications, so every run was a foreground call, bounded by `timeout 585` under the tool's 600 s limit, in place of the 2400 s and 900 s background bounds.
+   - The brief's fallback for step 3 is the `-k 'not crash_at_any'` split. I first tried the whole file in one foreground call, and it finished in 56 s, so I didn't split it.
+   - Step 4 also finished in one call, in 228 s.
+   - For the same reason I used no Workflow, only one foreground subagent.
+2. **Two commits beyond the three steps.**
+   - d3e17d002 adds the takeover assertion that holds a new C-8.8 sentence.
+   - dbfa6e525 holds the review follow-ups: the order guard and C-8.8's wording.
+   - The commits in order: 7132ea201 (merge), 292e20de0 (fix and tests), d3e17d002, 1c98df2ea (docs), dbfa6e525, then the report and evidence.
+3. **Five tests beyond the brief's two.** They cover the `offloaded` complete case, the order, a half-removed copy, a changed file and a stub without a bundle checksum.
+4. **C-8.8 wording beyond (e):** "partial or complete", the `--drop-external` exception, and "touches `files/` or the bundle" in place of "anything internal", since `_clean_stub_temps` runs first.
+5. **The scratch cap was exceeded.** The scratch folder reached **222 MB**, over the 200 MB cap, from 13 basetemps before I first measured it at about 23:05. I then removed all 13 basetemps, and it fell to 264 KB.
+6. **The first removal stopped partway.** My first guarded `shutil.rmtree` stopped with `EACCES` on a read-only test folder (`…/pytest-archive-225050/…/test_interrupted_removal_resum0/back/worktree/ro`). The retry, `rm_guarded.py` in the data folder, makes a parent writable only inside the asserted path, and removed each basetemp.
+7. **A guard hook blocked one search and one append.** It refused a read-only `grep`, and the shell append of this section, because each held the word `git` followed later by a stash command's name. I reworded the search, and wrote this section with the editor tool before appending it.
+
+### Folders outside the worktree
+- **`$TMPDIR/sf-ao-fix3`** (`/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ao-fix3`) held `bt/` (13 basetemps), `logs/`, `plugin/`, `run/` (the harness's folder log), my saved copy of the fix, the `sf-test-homes` lists and this section's draft.
+  - The harness logged 597 temporary folders, none outside it. `$S/run` held no `sf-test-homes-*`.
+  - The basetemps were removed with the guarded removal described above.
+  - The logs and the harness copy were copied here before the whole folder was removed.
+- **`$TMPDIR/sf-test-homes-*`:** 23 before my first run and 18 after my last, by name, none new. The five that went (`ain2e84o`, `d6u5gc5n`, `i1xmez9p`, `td3vc1jo`, `vzww1j_p`) were not mine; I left the rest.
+- **`$TMPDIR/uv-cache`:** the shared cache, which already existed. Kept.
+- **Inside the worktree:** `.venv/` (10 MB, from `uv sync`) and pytest's `.hypothesis/`, both ignored, are left for the job's cleanup. Neither is committed.

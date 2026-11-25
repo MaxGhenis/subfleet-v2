@@ -1,0 +1,18 @@
+$ python3 docs/reports/2026-11-13-archive-offload-fix3-data/contract_check.py 7132ea201   (merge commit)
+4aed7a3c9  lines(wc -l)=865 changelog_entries=366 clause_headings=262 duplicated=[] C-8.8_at=[]
+fc4fc603d  lines(wc -l)=870 changelog_entries=369 clause_headings=263 duplicated=[] C-8.8_at=[556]
+53a7bac93  lines(wc -l)=867 changelog_entries=368 clause_headings=262 duplicated=[] C-8.8_at=[]
+merged     lines(wc -l)=872 changelog_entries=371 clause_headings=263 duplicated=[] C-8.8_at=[558]
+lines: 872 == 870 + (867 - 865) = 872: True
+changelog: 371 == 369 + (368 - 366) = 371: True
+clause headings: merged 263 == fc4fc603d 263: True; none duplicated: True
+lines 9-14 of the result:
+  9: - C-8.8, C-17.1 (2026-11-17, D-ARCHIVE-OFFLOAD1, fix round 2 of #316; `docs/reports/2026-11-13-archive-offload
+  10: - C-8.8, C-17.1 (2026-11-15, D-ARCHIVE-OFFLOAD1, fix round 1 of #316): external archives use a source-specific
+  11:
+  12: - C-8.8, C-17.1 (2026-11-13, D-ARCHIVE-OFFLOAD1): `subfleet retention offload --to DIR` moves settled retentio
+  13: - C-8.7 (2026-11-18, d3085 under d3152; `docs/reports/2026-11-18-retention-delete-step.md`): a pass that leave
+  14: - C-5.5, C-25.6 (2026-11-14, PR #177 rebased onto release/217; D-CEN1; `docs/decisions/2026-09-27-marker-non-a
+rc=0
+$ git show 7132ea201:docs/acceptance-contract.md | git hash-object --stdin
+820c61e3140b237bfad437fed1c0034d399ffe6d
