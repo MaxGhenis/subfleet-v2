@@ -690,11 +690,12 @@ def test_a_process_that_raises_a_group_over_the_bound_writes_it_scrubbed(tmp_pat
 
 LOG_METHODS = frozenset({"debug", "info", "warning", "error", "exception", "critical", "log"})
 #: What may carry a caught exception into a log call: the scrubbers (`detail_line`
-#: scrubs whole), its class, its errno or exit status, or a test of its class.
+#: scrubs whole), its class (`daemon.failure_class`, C-5.10, returns only its name), its
+#: errno or exit status, or a test of its class.
 SCRUBBERS = frozenset({"refusals.scrubbed_words", "refusals.scrubbed_line", "refusals.fixed_error",
                        "refusals.detail_line", "detail_line",
                        "refusals.class_name", "refusals.errno_text", "scrubbed_words", "suggestions.scrub_error",
-                       "suggestions.scrubbed_line", "type", "isinstance"})
+                       "suggestions.scrubbed_line", "type", "isinstance", "failure_class"})
 NUMBERS = frozenset({"errno", "returncode"})
 
 
@@ -864,6 +865,8 @@ OLD_RUNNER_LINES = ('self._unacknowledged(f"relay status: {exc}")', 'self._unack
     ("try:\n    pass\nexcept Exception as exc:\n    log.warning('x %s', refusals.scrubbed_words(exc))\n", False),
     ("try:\n    pass\nexcept OSError as exc:\n    log.error('x %s %s', errno.errorcode.get(exc.errno, exc.errno), type(exc).__name__)\n", False),
     ("try:\n    pass\nexcept Exception as exc:\n    log.error('x', exc_info=exc)\n", False),
+    # #308 review r4: `daemon.failure_class` returns only the class name (C-5.10).
+    ("try:\n    pass\nexcept Exception as exc:\n    log.error('%s', failure_class(exc))\n", False),
     ("try:\n    pass\nexcept Exception as exc:\n    raise ValueError(f'x {exc}')\n", False),
     # Review r2 of #233: into a string another function of the module logs.
     (RELAYED + "            self.lost(f'relay status: {exc}')\n", True),
