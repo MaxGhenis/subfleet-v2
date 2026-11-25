@@ -1375,8 +1375,12 @@ def _recall_one(root: Path, name: str, stub: dict[str, Any], drop_external: bool
 
     base_fd = _archive_fd(root, name)
     try:
-        if external_authoritative(stub):
-            folder()       # its volume and ledger answer before anything internal changes
+        if external_authoritative(stub) and _verify(base, base_fd, found, stub.get("bundle_sha256")):
+            # A planned internal entry is missing or does not verify (this
+            # check only reads): the external copy's volume and ledger answer
+            # before anything internal changes. A complete internal copy
+            # needs nothing external, whatever the stub's state.
+            folder()
         if found.stores or modes.get("files") is not None:
             try:
                 os.mkdir("files", 0o700, dir_fd=base_fd)
