@@ -1,0 +1,156 @@
+{
+  "checkout_sha256": {
+    "subfleet/conversations/redact.py": "725786debc6a5766d5667a91594a1a048a1a176210dae7dec5d191d1ca93e82c",
+    "subfleet/daemon.py": "938356a95d7d8dc11bb94347c930536d269af50a7e5f83143bd7385e0b13b7c0",
+    "subfleet/daemon_log.py": "802ebf4b3d472e8dcf45efcf14e1b77d51e0ad979f6c29985c9e1f2b9154206b",
+    "subfleet/sessions/handoff.py": "cefe4e108aa4ff12ea763efeb40adc0f81b1ef1df82916acc75a68710ca5e230"
+  },
+  "results": [
+    {
+      "name": "H2-follower-context-not-read",
+      "file": "subfleet/daemon_log.py",
+      "what": "the follower's earlier text is not read as a terminal shows it",
+      "tests": [
+        "tests/unit/test_worker_failure_r3_properties.py::test_r3_an_invisible_key_split_across_feeds_is_still_a_password",
+        "tests/unit/test_worker_failure_r3_properties.py::test_r3_a_follower_fed_in_any_split_hides_what_it_hides_whole",
+        "tests/unit/test_worker_failure_r4_rework.py::test_r4_a_follower_started_on_a_split_key_hides_the_value_fed_next"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "summary": "2 failed, 1 passed in 3.59s",
+      "failed": [
+        "tests/unit/test_worker_failure_r3_properties.py::test_r3_a_follower_fed_in_any_split_hides_what_it_hides_whole",
+        "tests/unit/test_worker_failure_r4_rework.py::test_r4_a_follower_started_on_a_split_key_hides_the_value_fed_next"
+      ],
+      "restored_sha256": "802ebf4b3d472e8dcf45efcf14e1b77d51e0ad979f6c29985c9e1f2b9154206b",
+      "seconds": 4.1,
+      "load_start": 9.8,
+      "load_end": 11.1
+    },
+    {
+      "name": "I1-authority-not-ended-at-an-operator",
+      "file": "subfleet/conversations/redact.py",
+      "what": "an unquoted shell operator does not end a URL's authority",
+      "tests": [
+        "tests/unit/test_worker_failure_r4_rework.py::test_r4_an_approval_shows_the_real_host_and_every_command",
+        "tests/unit/test_worker_failure_r3_properties.py::test_an_approval_masks_exactly_the_password_a_client_is_sent"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "summary": "5 failed, 6 passed in 2.15s",
+      "failed": [
+        "tests/unit/test_worker_failure_r4_rework.py::test_r4_an_approval_shows_the_real_host_and_every_command[semicolon]",
+        "tests/unit/test_worker_failure_r4_rework.py::test_r4_an_approval_shows_the_real_host_and_every_command[pipe]",
+        "tests/unit/test_worker_failure_r4_rework.py::test_r4_an_approval_shows_the_real_host_and_every_command[redirect]",
+        "tests/unit/test_worker_failure_r4_rework.py::test_r4_an_approval_shows_the_real_host_and_every_command[and-list]",
+        "tests/unit/test_worker_failure_r3_properties.py::test_an_approval_masks_exactly_the_password_a_client_is_sent"
+      ],
+      "restored_sha256": "725786debc6a5766d5667a91594a1a048a1a176210dae7dec5d191d1ca93e82c",
+      "seconds": 2.6,
+      "load_start": 11.1,
+      "load_end": 11.1
+    },
+    {
+      "name": "I2-authority-not-ended-at-an-expansion",
+      "file": "subfleet/conversations/redact.py",
+      "what": "a `$` or backtick outside single quotes does not end a URL's authority",
+      "tests": [
+        "tests/unit/test_worker_failure_r4_rework.py::test_r4_an_approval_shows_the_real_host_and_every_command",
+        "tests/unit/test_worker_failure_r3_properties.py::test_an_approval_masks_exactly_the_password_a_client_is_sent"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "summary": "2 failed, 9 passed in 1.85s",
+      "failed": [
+        "tests/unit/test_worker_failure_r4_rework.py::test_r4_an_approval_shows_the_real_host_and_every_command[backtick]",
+        "tests/unit/test_worker_failure_r3_properties.py::test_an_approval_masks_exactly_the_password_a_client_is_sent"
+      ],
+      "restored_sha256": "725786debc6a5766d5667a91594a1a048a1a176210dae7dec5d191d1ca93e82c",
+      "seconds": 2.2,
+      "load_start": 11.1,
+      "load_end": 10.9
+    },
+    {
+      "name": "I3-userinfo-split-at-its-first-at",
+      "file": "subfleet/conversations/redact.py",
+      "what": "the userinfo ends at the authority's first `@`",
+      "tests": [
+        "tests/unit/test_worker_failure_r4_rework.py::test_r4_an_approval_masks_exactly_the_password_a_client_is_sent",
+        "tests/unit/test_worker_failure_r3_properties.py::test_an_approval_masks_exactly_the_password_a_client_is_sent"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "summary": "2 failed, 8 passed in 1.61s",
+      "failed": [
+        "tests/unit/test_worker_failure_r4_rework.py::test_r4_an_approval_masks_exactly_the_password_a_client_is_sent[release-then-head]",
+        "tests/unit/test_worker_failure_r3_properties.py::test_an_approval_masks_exactly_the_password_a_client_is_sent"
+      ],
+      "restored_sha256": "725786debc6a5766d5667a91594a1a048a1a176210dae7dec5d191d1ca93e82c",
+      "seconds": 1.9,
+      "load_start": 10.9,
+      "load_end": 10.9
+    },
+    {
+      "name": "I4-quotes-not-read",
+      "file": "subfleet/conversations/redact.py",
+      "what": "every character reads as unquoted",
+      "tests": [
+        "tests/unit/test_worker_failure_r4_rework.py::test_r4_an_approval_masks_exactly_the_password_a_client_is_sent",
+        "tests/unit/test_worker_failure_r3_properties.py::test_an_approval_masks_exactly_the_password_a_client_is_sent"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "summary": "6 failed, 4 passed in 1.02s",
+      "failed": [
+        "tests/unit/test_worker_failure_r4_rework.py::test_r4_an_approval_masks_exactly_the_password_a_client_is_sent[double-quoted-semicolon]",
+        "tests/unit/test_worker_failure_r4_rework.py::test_r4_an_approval_masks_exactly_the_password_a_client_is_sent[single-quoted-semicolon]",
+        "tests/unit/test_worker_failure_r4_rework.py::test_r4_an_approval_masks_exactly_the_password_a_client_is_sent[double-quoted-and-pipe]",
+        "tests/unit/test_worker_failure_r4_rework.py::test_r4_an_approval_masks_exactly_the_password_a_client_is_sent[single-quoted-and-pipe]",
+        "tests/unit/test_worker_failure_r4_rework.py::test_r4_an_approval_masks_exactly_the_password_a_client_is_sent[quoted-inside-the-url]",
+        "tests/unit/test_worker_failure_r3_properties.py::test_an_approval_masks_exactly_the_password_a_client_is_sent"
+      ],
+      "restored_sha256": "725786debc6a5766d5667a91594a1a048a1a176210dae7dec5d191d1ca93e82c",
+      "seconds": 1.3,
+      "load_start": 10.9,
+      "load_end": 10.9
+    },
+    {
+      "name": "I5-password-found-on-release-s-output",
+      "file": "subfleet/conversations/redact.py",
+      "what": "the password is found on release's output, an earlier mask read as password text (fix r3's reading)",
+      "tests": [
+        "tests/unit/test_worker_failure_r4_rework.py::test_r4_an_approval_masks_exactly_the_password_a_client_is_sent"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "summary": "3 failed, 6 passed in 0.90s",
+      "failed": [
+        "tests/unit/test_worker_failure_r4_rework.py::test_r4_an_approval_masks_exactly_the_password_a_client_is_sent[release-crosses-hash]",
+        "tests/unit/test_worker_failure_r4_rework.py::test_r4_an_approval_masks_exactly_the_password_a_client_is_sent[release-crosses-query]",
+        "tests/unit/test_worker_failure_r4_rework.py::test_r4_an_approval_masks_exactly_the_password_a_client_is_sent[release-then-head]"
+      ],
+      "restored_sha256": "725786debc6a5766d5667a91594a1a048a1a176210dae7dec5d191d1ca93e82c",
+      "seconds": 1.2,
+      "load_start": 10.9,
+      "load_end": 10.9
+    },
+    {
+      "name": "I6-release-s-masks-not-aligned",
+      "file": "subfleet/conversations/redact.py",
+      "what": "release's masks are read as literal text, one character each",
+      "tests": [
+        "tests/unit/test_worker_failure_r4_rework.py::test_r4_an_approval_masks_exactly_the_password_a_client_is_sent"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "summary": "1 failed, 8 passed in 0.88s",
+      "failed": [
+        "tests/unit/test_worker_failure_r4_rework.py::test_r4_an_approval_masks_exactly_the_password_a_client_is_sent[release-then-head]"
+      ],
+      "restored_sha256": "725786debc6a5766d5667a91594a1a048a1a176210dae7dec5d191d1ca93e82c",
+      "seconds": 1.1,
+      "load_start": 10.9,
+      "load_end": 10.9
+    }
+  ]
+}
