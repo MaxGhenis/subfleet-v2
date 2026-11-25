@@ -265,6 +265,9 @@ def test_a_stale_folder_shaped_bundle_lock_defers_and_preserves_leftovers(tmp_pa
     assert notes == []
 
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+@pytest.mark.retention_catch_up
 @pytest.mark.parametrize("left", ["neither", "tmp", "lock", "both"])
 def test_the_bundle_step_succeeds_whatever_an_earlier_attempt_left(world, monkeypatch, left):
     """Invariant 4, and mutant 2's witness: an attempt killed during `git bundle
@@ -299,6 +302,7 @@ def test_the_bundle_step_succeeds_whatever_an_earlier_attempt_left(world, monkey
     assert rarch.check_archive(w.root, "job-b")["ok"]
 
 
+@pytest.mark.retention_catch_up
 def test_a_bundle_lock_under_ten_minutes_old_defers_and_changes_nothing(world, monkeypatch, caplog):
     """The hub's ruling on D-RET-STALE-LOCK1, both sides of the line on a fixed
     clock: a lock 599 s old may still be a running git's (one a hard-killed

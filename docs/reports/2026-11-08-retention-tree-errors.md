@@ -371,3 +371,81 @@ Final report/data staging named exactly 23 files; `git add` and `git commit -m '
 Finished **2026-11-17 17:25:14 UTC**, within the three-hour limit (**35 m 9 s**).
 
 Head built: **b600369127850e0314cec857fed5a544b98a52eb**
+
+## Fix round 3
+
+Started **2026-11-25 21:26:45 UTC**, from `date -u` in the first command, at **38dca0d23b0e45a891081bbad04f91596331f42c**. Read the hub's CI note, the previous report and its mutant table, the #297 commits, the `catch_up` fixture and contract history, and the draft PR body via `gh pr view 321 --repo MaxGhenis/subfleet-v2`.
+
+### Reproduction and cause
+
+The serial run on unchanged sources with Python **3.15.2** reproduced all six failures from CI run **44222439500** on Python 3.12 and 3.14. The four bundle retry cases failed at `test_rte_walk_bundle.py:292` with `AssertionError: {}`. The lock-age test failed at `:342` with the same message and logged that it removed the 254-byte lock at 600 seconds. The ACL reclaim case failed at `test_rte_reclaim_acl.py:121` with `AssertionError: {'pruned': [], 'errors': [], 'bytes_before': 0, 'bytes_after': 0, ...}`.
+
+In each failing real pass, the probe recorded `pruned=[]`, `deferred={}`, `progressed=true`, `listings=1`, `holder_scan_failed=false` and `interrupted=null`. The job was in `awaiting_check2`. The second serial run added `retention_catch_up` only to the six collected cases and passed every assertion. Each reproduced pass had the same recorded result, then the next pass took one listing and returned the job in `pruned` with `awaiting_check2=[]`. The row numbers below refer to `pytest-reproduce.probe.jsonl` and `pytest-catch-up.probe.jsonl`.
+
+| Case | Waiting job and real call | Reproduction rows, wait and ACL count | Catch-up rows, wait and retire | `_clear_entry_acl` calls per run |
+|---|---|---|---|---|
+| Bundle retry `[neither]` | `job-b`, 2 | 2, 3 | 2, 3 | 0 |
+| Bundle retry `[tmp]` | `job-b`, 2 | 5, 6 | 6, 7 | 0 |
+| Bundle retry `[lock]` | `job-b`, 2 | 8, 9 | 10, 11 | 0 |
+| Bundle retry `[both]` | `job-b`, 2 | 11, 12 | 14, 15 | 0 |
+| Ten-minute lock boundary | `job-y`, 3 | 15, 16 | 19, 20 | 0 |
+| Retired job with deny-delete ACL | `job-acl`, 1 | 17, 18 | 22, 23 | 0 |
+
+This proves guess A for all six cases. The release merge brought in #297's one-listing-per-pass rule. The pass that archives a job leaves it waiting for holder check 2, and the next pass can retire it. These tests still expected retirement from a single call and lacked the catch-up marker that #297 added to comparable tests. The zero ACL repair calls rule out guess B in every case, so no older `attempt_tmp` module was loaded.
+
+### Change
+
+Added `retention_catch_up` per test to the two bundle retirement functions so the separate deferral tests still exercise one pass. Added it alongside the existing ACL skip in the module-level `pytestmark` list in `test_rte_reclaim_acl.py`, using #297's comment. The other tests in that module exercise `Reclaim` and rename directly. All assertions, expected values and fixtures are preserved. The patch touches only tests, so C-8.4 and C-12.10 continue to describe the same production behavior.
+
+| Other RTE module | Maintenance or retirement expectation |
+|---|---|
+| `test_rte_tmpdir_acl.py` | Exercises TMPDIR removal and sweep plus filesystem walking. No maintenance call or retirement expectation. |
+| `test_rte_tmpdir_acl_guards.py` | Exercises TMPDIR repair guards. No maintenance call or retirement expectation. |
+| `test_rte_tmpdir_acl_iterator.py` | Exercises ACL entry iteration during TMPDIR removal. No maintenance call or retirement expectation. |
+
+These three modules need no marker.
+
+### Commands and results
+
+The Darwin-temp scratch mkdir was denied. I used the prescribed `.sf-rte-fix3` fallback and `/private/tmp/sf-rte-fix3-uv` for the uv cache. The worktree lacked a virtual environment, so `uv sync --group dev` built `.venv` successfully. Every run loaded `-p sf_rte_safe`, used a fresh `pytest-<run>` basetemp and separate pytest cache, and checked `df -H /` and `du -sh` before starting. No basetemp path part was named `tmp`, `temp` or `.tmp` or contained `scratch`.
+
+The isolation plugin is the round 2 copy with the three `/private/tmp/sf-rte-fix2` path literals replaced with this checkout's `.sf-rte-fix3` path. Those paths govern failed-test keeps, the lexical-path seam and the synthetic-repository guard. The local fetches stand in for pushes in the synthetic repository. The audit guard and daemon-module skips stayed enabled throughout.
+
+The three serial runs named `reproduce`, `catch-up` and `fixed` all selected these nodes.
+
+```text
+tests/unit/test_rte_walk_bundle.py::test_the_bundle_step_succeeds_whatever_an_earlier_attempt_left
+tests/unit/test_rte_walk_bundle.py::test_a_bundle_lock_under_ten_minutes_old_defers_and_changes_nothing
+tests/unit/test_rte_reclaim_acl.py::test_a_retired_job_s_deny_delete_file_ends_in_retention_conflicts_and_the_pass_finishes
+```
+
+Each row below is a separate `python3 .sf-rte-fix3/run.py` invocation in execution order. The arguments, expanded pytest command, exit status, disk checks and wall time for each run are recorded in the corresponding JSON file in `docs/reports/2026-11-08-retention-tree-errors-fix-r3-data/`, alongside the logs, probes, plugins and runner. The timings in the table are pytest's.
+
+| Runner arguments | Result |
+|---|---|
+| `reproduce -p sf_rte_probe` with the six cases | **6 failed**, 229.37 s, matching CI |
+| `catch-up -p sf_rte_probe -p sf_rte_catch_up` with the six cases | **6 passed**, 98.75 s |
+| `fixed` with the six cases | **6 passed**, 48.86 s |
+| `rte tests/unit/test_rte_*.py -n 4` | **48 passed**, 105.67 s |
+| `mutant-2 --mutant 2` with bundle retry `[lock]` and `[both]` | **2 failed**, 24.42 s. Both caught Git's `File exists` error with the lock left behind. |
+| `mutant-7 --mutant 7` with the ten-minute lock test | **1 failed**, 18.07 s. The young-lock assertion caught the premature retirement at 599 seconds. |
+| `mutant-7b --mutant 7b` with bundle retry `[lock]` | **1 failed**, 13.94 s. The retirement assertion caught the lock still deferring at exactly 600 seconds. |
+| `final tests/fake/test_state_contract.py tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py tests/unit/test_handler_refusals.py -n 4` | **437 passed**, 89.16 s |
+
+All three mutants were killed with the permanent marker. The verifier applied each mutation in memory after checking for a unique source match. Git confirmed the production files and contract match the starting commit. The unchanged production modules made the importer sweep inapplicable. The whole suite and separate runs on CI's Python versions were outside this local run. No timing failure required an isolated retry. The release merge and GitHub PR edits remain with the hub.
+
+### Cleanup and commits
+
+Before cleanup, the scratch folder used 42 MiB, the fallback uv cache 21 MiB and `.venv` 10 MiB. Each run started with at least 106 GB free as reported by `df -H /`. The sole folder created outside the worktree was `/private/tmp/sf-rte-fix3-uv`. The scratch folder inside the worktree was `/Users/maxghenis/.subfleet/worktrees/20261125-222604-rte-fix-r3/.sf-rte-fix3`. The evidence was copied to the report-data directory before cleanup.
+
+The guarded `shutil.rmtree` removed both folders and exited successfully. The worktree's `.venv` remained and reported Python 3.15.2 after cleanup. The shared Darwin uv cache was left alone.
+
+Git denied named-file staging and both separate commit attempts with `index.lock: Operation not permitted` (exit 128 for all four commands). The verified changes remain in the assigned worktree.
+
+- `tests/unit/test_rte_walk_bundle.py` and `tests/unit/test_rte_reclaim_acl.py`
+- `docs/reports/2026-11-08-retention-tree-errors.md`
+- In `docs/reports/2026-11-08-retention-tree-errors-fix-r3-data/`, `run.py`, `verify.py`, `sf_rte_safe.py`, `sf_rte_probe.py`, `sf_rte_catch_up.py`, both `pytest-*.probe.jsonl` files, and the `.json` and `.log` pair for each of the eight named runs
+
+Finished **2026-11-25 21:45:28 UTC**, within the three-hour budget.
+
+Unchanged head **38dca0d23b0e45a891081bbad04f91596331f42c**

@@ -34,7 +34,12 @@ from subfleet import retention_fs as rfs
 from tests.unit.retention_world import World, trust_temporary_directories
 from tests.unit.rte_acl import add_acl, has_acl, restore, restored  # noqa: F401 - restored: the fixture
 
-pytestmark = pytest.mark.skipif(not rfs.ACL_AVAILABLE, reason="needs libSystem's ACL calls (macOS)")
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = [
+    pytest.mark.skipif(not rfs.ACL_AVAILABLE, reason="needs libSystem's ACL calls (macOS)"),
+    pytest.mark.retention_catch_up,
+]
 
 
 def entries_of(root: Path) -> dict[str, dict]:
