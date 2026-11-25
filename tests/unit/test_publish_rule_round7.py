@@ -448,6 +448,32 @@ def test_real_codex_sandbox_keeps_the_git_denial_under_inherit_core(tmp_path):
     assert landed() == ''
 
 
+@pytest.mark.skipif(not CODEX, reason='the real Codex CLI is not installed here')
+def test_real_codex_sandbox_passes_the_git_denial_pins_under_inherit_core(tmp_path):
+    """D-CODEX-0169: the case above runs only on codex-cli 0.159, where it was
+    measured. On any installed Codex, this checks the half that a version change
+    can move: under a lane's `shell_environment_policy.inherit="core"`, a `codex
+    sandbox` command loses the three variables without the launch's `-c` pins
+    and sees exactly the pinned values with them. It runs `env` only, never git."""
+    launch = protected(tmp_path, provider='codex')
+    pins, values = codex_pins(launch.argv)
+    assert set(values) == {'GIT_ALLOW_PROTOCOL', 'GIT_CONFIG_PARAMETERS', 'SUBFLEET_PUBLISH_DENIED'}
+    (tmp_path / 'codex-home').mkdir()
+    env = {'PATH': os.environ['PATH'], 'HOME': str(tmp_path), 'CODEX_HOME': str(tmp_path / 'codex-home'),
+           **{name: value for name, value in launch.env_add.items() if name not in ('PATH', 'CODEX_HOME')}}
+    base = [CODEX, 'sandbox', '-c', 'sandbox_mode="workspace-write"', '-c', 'shell_environment_policy.inherit="core"']
+
+    def seen(argv):
+        done = subprocess.run(argv + ['--', '/usr/bin/env'], cwd=launch.cwd, env=env, capture_output=True,
+                              text=True, timeout=120)
+        assert done.returncode == 0, done.stderr[-2000:]
+        lines = dict(line.split('=', 1) for line in done.stdout.splitlines() if '=' in line)
+        return {name: lines.get(name) for name in values}
+
+    assert seen(base) == dict.fromkeys(values), 'the harness reproduces review r2: the policy drops the denial'
+    assert seen(base + [word for pin in pins for word in ('-c', pin)]) == {name: str(value) for name, value in values.items()}
+
+
 # P3-6: a writable Claude review loads only the user's settings and the hook.
 @pytest.mark.parametrize('kind', ['dispatch', 'resume'])
 def test_writable_claude_review_loads_only_user_settings_and_the_publish_hook(tmp_path, kind):
