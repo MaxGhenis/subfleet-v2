@@ -1,16 +1,19 @@
 """Regression cases from archive offload review round 3 (C-8.8).
 
-Recall reads nothing external when every planned internal entry is there and
-verifies, whatever the stub's state: a crash at `removing`, with the volume
-gone afterwards, must still be recallable. Only a missing or wrong internal
-entry makes recall open the external folder, and then before it changes
-anything internal (`test_a_damaged_ownership_marker_fails_naming_the_file` in
-round 2's module, and the guards below).
+Recall needs nothing external when every planned internal entry is there and
+verifies, whatever the stub's state (`--drop-external` still tries to remove
+the external copy, and keeps it when the volume is gone): a crash at
+`removing`, with the volume gone afterwards, must still be recallable. Apart
+from that, only a missing or wrong internal entry makes recall open the
+external folder, and once removal may have begun it does so before it touches
+`files/` or the bundle (`test_a_damaged_ownership_marker_fails_naming_the_file`
+in round 2's module, and the guards below).
 """
 from __future__ import annotations
 
 import json
 import os
+import stat
 
 import pytest
 
@@ -132,14 +135,35 @@ def test_an_offloaded_recall_with_the_volume_gone_changes_nothing(archives, env,
 
 
 def test_a_half_removed_internal_copy_still_needs_the_volume(archives, env, volumes, monkeypatch):
-    """A crash after the first internal removal: an entry is missing, so the
-    external copy is opened, and found unmounted, before anything internal
-    changes."""
+    """A crash after the first internal removal: an entry is missing, so
+    recall needs the volume, and fails naming it, changing nothing. The
+    missing entry is the first one recall reaches, so this holds the outcome,
+    not the order; the next test holds the order."""
     name = install(archives.build(RICH), env)
     _interrupted(env, name, monkeypatch, "remove-file")
     stub = rof.read_stub(env.root, name)
     assert stub["state"] == "verified" and stub["removing"] is True
     _unchanged_failure(env, name, volumes, why="remove-file")
+
+
+def test_a_missing_entry_is_found_before_any_internal_change(archives, env, volumes, monkeypatch):
+    """A crash at `removing`, then the last stored file goes and the first
+    one's mode changes. Recall must find the gap by reading and fail on the
+    volume before it gives the first file its recorded mode back: without
+    the check up front it reaches the first file, restores its mode, and
+    only then finds the volume gone."""
+    name = install(archives.build(RICH), env)
+    _interrupted(env, name, monkeypatch, "removing")
+    stores = sorted(rof.plan(env.root, name).stores)
+    assert len(stores) >= 2, stores
+    folder = env.archive(name) / "files"
+    first, last = folder / stores[0], folder / stores[-1]
+    folder_mode = stat.S_IMODE(folder.stat().st_mode)
+    os.chmod(folder, folder_mode | 0o700)
+    last.unlink()
+    os.chmod(folder, folder_mode)
+    os.chmod(first, stat.S_IMODE(first.stat().st_mode) ^ 0o040)
+    _unchanged_failure(env, name, volumes, why="missing last file, first file's mode changed")
 
 
 def test_a_changed_internal_file_still_needs_the_volume(archives, env, volumes, monkeypatch):
