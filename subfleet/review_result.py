@@ -60,9 +60,9 @@ DEFINITION_OPENINGS = {
 _FENCE = re.compile(r"(?:[ \t>]|[-*+][ \t]++|\d{1,9}[.)][ \t]++)*+(`{3,}|~{3,})(.*)$")
 #: Preserve the base closer rule independently of the opening containers.
 _FENCE_CLOSE = re.compile(r"[ \t>]*(`{3,}|~{3,})(.*)$")
-#: A quote marker removes at most one separator space or tab. Four further spaces,
-#: or a tab, introduce code, just as they do outside a quote (review r2).
-_INDENTED_CODE = re.compile(r"(?: {0,3}>[ \t]?)*+(?: {4}|\t)")
+#: On a tab-expanded line, a quote marker removes at most one separator
+#: column. Four further columns introduce code, just as outside a quote.
+_INDENTED_CODE = re.compile(r"(?: {0,3}> ?)*+ {4}")
 _NO_FINDINGS = re.compile(r" {0,3}FINDINGS: none[ \t]*$")
 
 
@@ -73,7 +73,7 @@ def _finding_level(line: str) -> str | None:
     definition are not findings.
     """
     prefix = line[:FINDING_PREFIX_CHARS]
-    if _INDENTED_CODE.match(prefix):
+    if _INDENTED_CODE.match(prefix.expandtabs(4)):
         return None
     match = _FINDING.match(prefix)
     if match is None:

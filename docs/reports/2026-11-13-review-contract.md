@@ -750,3 +750,224 @@ Cleanup completed: the recorded folder was relocated into S/cleanup, its resolve
 Final report staging and commit were also denied (both exit 128, index.lock). No commits were created; all six named changed files remain for hub collection. Final verification passed: four Python ASTs, both restored-source SHA-256 values, `git diff --check`, exactly six modified files, no untracked or ignored files, and scratch/.venv absent. HEAD remains the starting checkpoint.
 
 Head built: 0c2995c04623cdda2c3f7c84a2af7ba06ba4959b
+
+## Release merge 1
+
+PR #313, D-REVIEW-CONTRACT1. Started 2026-11-25 at 21:20:37 UTC from clean detached head `73fa5566a9190cd204467be155ff821f4b76b38c`. `origin/release/217` matched `53a7bac93d01afd9165588bcaf789dae75540757`. The base was `4aed7a3c9`, with 26 commits on release and 14 on the PR. I read review a1-r4's approval, the existing report, and the PR body with the read-only `gh pr view 313 --repo MaxGhenis/subfleet-v2`.
+
+### Merge and contract
+
+`git merge --no-ff --no-commit 53a7bac93d01afd9165588bcaf789dae75540757` exited 128 when Git tried to create `ORIG_HEAD.lock`. The sandbox then denied `index.lock` on the named `git add` and `git commit` for the merge. I built and tested the merged worktree without the index. Its intended parents are `73fa5566a9190cd204467be155ff821f4b76b38c` and `53a7bac93d01afd9165588bcaf789dae75540757`.
+
+I copied the 21 release-only paths with `git show`, preserving their modes, and used `git merge-file -p` on the PR, base, and release versions of `subfleet/daemon.py`. It exited 0 with blob `bfec6b70e7a87f80cddd3a91366d8656c4a60eed`. Nine lines mention `_retention_delete_owed`, and the daemon still imports and calls `parse_review_deliverable`. Before the tab fix, the parser SHA-256 was `e46058749ee041b1d8c5b8972685b1028901486f9a9269132521df3a7658fb44`.
+
+After reading the hub script's docstring, I ran `python3 /Users/maxghenis/reviews/subfleet-hub/host-runs/merge_contract.py HEAD 53a7bac93d01afd9165588bcaf789dae75540757`. It exited 0 and printed `merged against 4aed7a3c9: 258 clauses, none duplicated`. The merge-only contract is 1,050,773 bytes, blob `fba6c9fc8e05eff945b2894a980bd5b087903e9a`, SHA-256 `2689a15a4ed15bc53a0597b35c54cd5463334e99e961339b5f67d95d0f6474fd`.
+
+Python compared the worktree result with the three `git show <rev>:docs/acceptance-contract.md` inputs.
+
+| Version | Lines | Change-log entries | Script clauses | With lettered IDs | All clause lines |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Base | 865 | 366 | 257 | 260 | 262 |
+| PR | 870 | 370 | 258 | 261 | 263 |
+| Release | 867 | 368 | 257 | 260 | 262 |
+| Merge | 872 | 372 | 258 | 261 | 263 |
+
+Lines 9–14 put the PR's four entries before release's two. All existing entries survive in order. The base's repeated C-20.6, C-23.28 entry (2026-10-15, D-ST1, PR #198 round 8) appears twice in each version. The script excludes C-5.8a, C-6.4a, and C-11.7a. The first two clause counts also exclude C-8.5 and C-8.7, whose bold text runs past their IDs. All clause IDs are unique. The PR supplies C-12.11 at line 629 and the C-6.7 edit at line 524. Release supplies C-5.5 at line 502, C-25.6 at line 816, and the C-8.7 continuation at line 561 (base line 555). Each matches its source parent, with every other line accounted for against the base and both sides. The merge itself adds no change-log entry.
+
+A `git ls-tree -r -z 9d3426d0b` manifest comparison verified all 9,151 paths and modes. The only merge difference was the resolved contract, excluding the new tab tests that were being added during the comparison. `git diff --check 73fa5566a 9d3426d0b -- . ':(exclude)docs/acceptance-contract.md'` exited 2 and flagged only release's existing trailing whitespace at `docs/reports/2026-11-18-retention-delete-step.md:65`. The resolved contract passed its worktree whitespace check. The release line was preserved.
+
+### Review a1-r4 P2
+
+The six new parser cases failed on the merged worktree before the fix. Both `APPROVE` with `FINDINGS: none` and `REQUEST_CHANGES` with the example as the only possible finding now produce these P1 counts.
+
+| Input, with tabs written as `\t` | P1 before | P1 after |
+| --- | ---: | ---: |
+| `>\t  P1: x` | 1 | 0 |
+| `> \tP1: x` | 0 | 1 |
+| `>   \tP1: x` | 1 | 0 |
+
+The old matcher consumed the entire separator tab or treated a later tab as a full indentation unit. The indentation check now expands tabs at four-column stops. A quote's separator consumes one column, leaving 4, 2, and 6 columns in the three cases. The tests also check validity and consistency. C-12.11 now states the one-column separator and four-column tab-stop rule, with one new entry for this P2. The post-fix contract has 873 lines and 373 change-log entries, with blob `a08953888bbdd0c50688ac292674c797cabe968b`. The separate named-file staging and fix commit both exited 128 on `index.lock`.
+
+### Test setup
+
+`getconf DARWIN_USER_TEMP_DIR` succeeded. The sandbox denied creation of its direct `sf-rva1-merge-r1` child and denied the shared cache on `uv sync --group dev` (exit 2). I used the assigned writable temp directory's `sf-rva1-merge-r1` child, called `S` below, with `UV_CACHE_DIR=S/uv-cache`. The fallback `uv sync --group dev` exited 0 and installed the nine development packages into a new `.venv` using CPython 3.15.2. The shared cache was left alone. The fallback path qualified for retention tests.
+
+Each run used a fresh `S/pytest-LABEL`. The temporary pytest plugin set `tempfile.tempdir` to that run's `allocations` and `tests.failed_keep.ROOT` to its private `failed` directory before collection. This confined pytest's test-home allocations and failed-state pruning to the run. The runner set the prescribed `TMPDIR`, disabled bytecode and pytest's cache, and directed Hypothesis storage into the run directory. It recorded `uptime` and `df -H /` at both ends and removed each run directory with guarded `shutil.rmtree`. The four contract guards passed the same 437 tests as at the PR head. Release changed neither the handler refusal reasons nor those test definitions.
+
+The command tables use this shell function. `S` is the job's temporary folder, and `sf_release_paths` is the isolation plugin described above.
+
+```sh
+run() {
+  label="$1"
+  shift
+  workers=4
+  timeout=600
+  case "$label" in
+    optional-*) timeout=1200 ;;
+    daemon-paths-probe-retry) workers=0; timeout=1800 ;;
+  esac
+  case "$label" in
+    optional-*) set -- -rs "$@" ;;
+  esac
+  case "$label" in
+    daemon-paths-*|optional-fake-a) set -- -o tmp_path_retention_policy=failed "$@" ;;
+  esac
+  uv run --no-sync --with 'pytest-xdist>=3.6' pytest -q -n "$workers" \
+    -p sf_release_paths -p no:cacheprovider --timeout="$timeout" --timeout-method=thread \
+    --tb=short --basetemp "$S/pytest-$label/pytest-base" "$@"
+}
+```
+
+### Test failures and retry
+
+The six `tabs-before` cases reproduced the three tab-column errors in both verdict formats. They all passed in `review`. The selected retention tests, contract guards and readers, and daemon-path unit tests passed on their first runs.
+
+In `daemon-paths-fake`, `tests/fake/test_review_r223_wall_probes.py::test_probe_sql_prior_sum_is_never_below_the_exact_sum` lost its worker 600.67 seconds after the fixture directory was created. It runs 2,000 seeded submissions through SQLite. The file and store source are byte-identical on both parents and the worktree, and AST comparison matched `LIVE_TICK` and `_running_s` on all three. The isolated retry with pytest's 1,800-second limit passed in 253.22 seconds. No merge-specific failure required a source fix.
+
+The first optional fake run reported two teardown errors for `test_canonical_identity_fix5.py::test_resolver_propagates_nonmissing_errors`. The early temporary-directory cleanup option invoked `shutil.rmtree` while the test still had a one-argument `os.lstat` double installed. Both assertions passed in that run. I restored pytest's default cleanup for the retry and subsequent optional runs. Both retry cases passed.
+
+In `optional-fake-b`, `tests/fake/test_probe_cancel.py::TestProbeCancelMachine::runTest` failed while its constructor tried to create a temporary directory directly under the prescribed system `TMPDIR`. The sandbox denied that mkdir before daemon setup. The test file has blob `a1635956b4c60cd6b1939e74221e153de181266e` on both parents and in the worktree. This optional failure remains unretried.
+
+### Exclusions
+
+- `tests/unit/test_host_push*.py` was excluded because the fixtures execute Git push. Of the 22 matching files, 11 are in the daemon search. `tests/fake/test_review_launch_permissions.py::test_the_installed_publish_hook_is_run_before_launch` was excluded because it runs the installed hook's self-test.
+- For retention, the table of commands names all six selected cases from `test_attempt_tmpdir_daemon.py` and `test_attempt_tmpdir_leaks_daemon.py`. The remaining cases in those two files and all four parameters of `test_unrun_worktrees.py::test_c6_9_the_younger_job_fares_as_it_did_before_c6_20` run admission against a fixture registry that triggers an unrestricted process-table read.
+- The daemon-path selection comes from 52 matching files, or 59 distinct files with the eight retention files. Earlier groups covered six of the 52. The daemon-path run selected 44 files after excluding `test_host_push.py` and `test_admission_stateful.py`. The latter stages a registry that triggers full host process validation. I also excluded the five admission cases in `test_unadmittable_pin_rereview.py` for the same reason.
+- `test_census_cwd_outcome.py::test_real_daemon_rc_zero_after_eight_seconds_keeps_deliverable_with_observer` launches a daemon that enumerates processes across the host. Its `test_cwd_only_preserves_outcome_and_holds_only_worktree[start-grace]` parameter and the four named `test_daemon_settle.py` exclusions query a synthetic PID through the real process reader. Other selected process tests use test doubles or inspect their own processes.
+
+- In `optional-fake-b`, `test_notice_delivery.py::test_c15_3_state_a_pin_notice_is_a_message_surfaced_once` and the unselected cases in the node-scoped fake files use a routing registry or guardian path that can read the host process table. The exact positive selections appear below.
+- Pytest skipped one descriptor case at `tests/fake/test_daemon_descriptors.py:194` because `kern.ipc.somaxconn` reported 0, and five cases in `tests/fake/test_daemon_stacks.py` at lines 84, 104, 124, 136 and 161 because macOS boot identity was unavailable in the sandbox.
+
+The daemon importer search listed 258 files. The required groups selected cases from 56 of those files, and the optional groups reached 79 more, for 135 total. The remaining 123 were wholly unselected. The later optional fake, unit, process and frontend batches did not start.
+
+### Footprint
+
+The largest recorded run had 521,352 KiB of scratch at teardown, above the 200 MB limit. It was `optional-fake-b`, whose retained run directory occupied 497,772 KiB. I deleted that run directory after recording its results and ended optional testing. The completed-run directories measured about 1.04 GB in aggregate before deletion, plus the private cache and virtual environment. Free disk at the recorded checkpoints stayed at or above 102 GB.
+
+### Test commands and results
+
+| Run | Passed | Failed | Other | Exit | Pytest time | Local time | Load start → end (1, 5, 15 min) | Free disk start → end |
+| --- | ---: | ---: | --- | ---: | ---: | --- | --- | --- |
+| `tabs-before` | 0 | 6 | — | 1 | 53.26s | 22:24 → 22:25 | 59.13 50.71 48.98 → 55.24 51.65 49.50 | 108G → 108G |
+| `review` | 822 | 0 | — | 0 | 249.60s | 22:26 → 22:30 | 62.74 53.59 50.26 → 73.12 65.71 56.51 | 107G → 107G |
+| `retention` | 213 | 0 | — | 0 | 218.58s | 22:32 → 22:36 | 75.50 67.52 57.94 → 53.55 65.39 60.14 | 107G → 106G |
+| `guards` | 437 | 0 | — | 0 | 167.90s | 22:37 → 22:40 | 43.76 60.05 58.45 → 56.09 58.12 57.86 | 106G → 106G |
+| `readers` | 15 | 0 | — | 0 | 34.38s | 22:40 → 22:40 | 53.84 57.62 57.69 → 49.85 56.08 57.12 | 106G → 106G |
+| `daemon-paths-fake` | 857 | 1 | — | 1 | 1309.20s | 22:40 → 23:02 | 47.03 55.27 56.82 → 89.79 93.34 75.62 | 106G → 106G |
+| `daemon-paths-unit` | 241 | 0 | — | 0 | 229.93s | 23:04 → 23:15 | 86.16 90.22 75.85 → 75.91 84.46 76.97 | 105G → 106G |
+| `daemon-paths-probe-retry` | 1 | 0 | — | 0 | 253.22s | 23:15 → 23:19 | 64.12 81.21 75.98 → 42.27 64.69 70.35 | 106G → 105G |
+| `optional-fake-a` | 410 | 0 | 6 skipped, 9 xfailed, 2 errors | 1 | 100.55s | 23:19 → 23:21 | 41.53 64.16 70.13 → 36.50 56.10 66.31 | 105G → 105G |
+| `optional-fake-a-teardown-retry` | 2 | 0 | — | 0 | 7.55s | 23:21 → 23:22 | 38.05 54.83 65.55 → 38.34 54.33 65.25 | 105G → 105G |
+| `optional-unit-a` | 1010 | 0 | 12 xfailed | 0 | 75.62s | 23:22 → 23:23 | 38.34 54.33 65.25 → 39.84 50.50 62.77 | 105G → 105G |
+| `optional-fake-b` | 323 | 1 | — | 1 | 752.48s | 23:23 → 23:36 | 39.21 50.19 62.59 → 43.72 50.04 56.06 | 105G → 102G |
+
+<details>
+<summary>Exact pytest targets by run</summary>
+
+```sh
+run tabs-before tests/unit/test_review_result.py::test_quoted_findings_use_four_column_tab_stops
+run review tests/unit/test_review_contract_prompt.py tests/unit/test_review_result.py \
+  tests/unit/test_review_result_cli.py tests/unit/test_review_result_storage.py
+run retention tests/unit/test_retention_delete_daemon.py tests/fake/test_admission_ramp_retention.py \
+  'tests/fake/test_attempt_tmpdir_daemon.py::test_provider_starts_with_private_tmpdir[probe]' \
+  'tests/fake/test_attempt_tmpdir_daemon.py::test_provider_starts_with_private_tmpdir[enrollment]' \
+  tests/fake/test_attempt_tmpdir_daemon.py::test_retention_cadence_sweeps_even_when_archiving_is_dormant \
+  tests/fake/test_attempt_tmpdir_daemon.py::test_probe_scratch_is_kept_between_containment_and_finalization \
+  tests/fake/test_attempt_tmpdir_leaks_daemon.py::test_p3_1_an_unknown_folders_tombstone_is_finished_after_restart \
+  tests/fake/test_attempt_tmpdir_leaks_daemon.py::test_t1_a_folder_a_crash_left_unmarked_is_the_stores_by_its_journal \
+  tests/fake/test_native_maintenance_startup.py tests/fake/test_retention_dormant.py tests/fake/test_review130_ab.py \
+  tests/fake/test_unrun_worktrees.py \
+  --deselect=tests/fake/test_unrun_worktrees.py::test_c6_9_the_younger_job_fares_as_it_did_before_c6_20
+run guards tests/fake/test_state_contract.py tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py \
+  tests/unit/test_handler_refusals.py
+run readers tests/unit/test_desktop_ledger.py tests/unit/test_protocol_registry.py \
+  tests/unit/test_retention_turn_contract.py tests/unit/test_notice_keep.py::test_changelog_names_pr_294 \
+  tests/unit/test_live_store_guard_round8.py::test_acceptance_contract_names_d_st1_boundary_and_trap_exclusions \
+  tests/unit/test_live_store_guard_round9.py::test_p3_4_docstring_and_contract_name_exactly_the_checked_programs \
+  tests/unit/test_live_store_guard_round10.py::test_contract_and_docstring_state_the_command_word_and_nesting_rule \
+  tests/unit/test_live_store_guard_round10.py::test_r2_p3_docstring_and_contract_list_the_same_out_of_scope_items
+run daemon-paths-fake tests/fake/test_admission_priority.py tests/fake/test_capacity_steer_daemon.py \
+  tests/fake/test_census_cwd_outcome.py tests/fake/test_census_inspection_finalization.py \
+  tests/fake/test_census_recycled_pid_daemon.py tests/fake/test_census_round3_interleavings.py \
+  tests/fake/test_census_round4_endings.py tests/fake/test_census_round6_cascade.py \
+  tests/fake/test_codex_turn_completed_fake.py tests/fake/test_fake_provider.py tests/fake/test_finalization_replay.py \
+  tests/fake/test_frozen_stream_nonregular.py tests/fake/test_lane_fault.py tests/fake/test_lane_pilot.py \
+  tests/fake/test_main_refusal_write_dir.py tests/fake/test_mcp_job_contract.py tests/fake/test_notice_header.py \
+  tests/fake/test_policy_sandbox.py tests/fake/test_prompt_seam.py tests/fake/test_record_secrecy.py \
+  tests/fake/test_reserve_authorization.py tests/fake/test_resume_contract.py tests/fake/test_retry_for_good_refusals.py \
+  tests/fake/test_review_launch_permissions.py tests/fake/test_review_needs_shell.py \
+  tests/fake/test_review_r223_wall_probes.py tests/fake/test_salvage_adversarial.py \
+  tests/fake/test_salvage_finalization.py tests/fake/test_salvage_worktree_gone.py tests/fake/test_turn_trees.py \
+  tests/fake/test_unadmittable_pin_rereview.py::test_rr_a_codex_heal_that_misses_is_never_retried_in_its_epoch \
+  tests/fake/test_wall_retry.py tests/fake/test_wall_running_time.py tests/fake/test_workspace_contract.py \
+  --deselect=tests/fake/test_census_cwd_outcome.py::test_real_daemon_rc_zero_after_eight_seconds_keeps_deliverable_with_observer \
+  '--deselect=tests/fake/test_census_cwd_outcome.py::test_cwd_only_preserves_outcome_and_holds_only_worktree[start-grace]' \
+  --deselect=tests/fake/test_review_launch_permissions.py::test_the_installed_publish_hook_is_run_before_launch
+run daemon-paths-unit tests/unit/test_census_round2.py tests/unit/test_census_round3.py tests/unit/test_census_round4.py \
+  tests/unit/test_daemon_settle.py tests/unit/test_kill4_boot_scope.py tests/unit/test_kill4_fix1.py \
+  tests/unit/test_kill4_fix2b.py tests/unit/test_kill4_properties.py tests/unit/test_kill4_terminal_containment.py \
+  tests/unit/test_liveness_write_pacing.py \
+  --deselect=tests/unit/test_daemon_settle.py::test_c4_2_start_grace_reads_the_receipts_again_after_its_census \
+  --deselect=tests/unit/test_daemon_settle.py::test_c4_2_start_grace_without_a_receipt_still_decides_from_its_census \
+  --deselect=tests/unit/test_daemon_settle.py::test_c4_2_start_grace_with_start_json_alone_is_a_running_attempt \
+  --deselect=tests/unit/test_daemon_settle.py::test_c4_2_start_grace_takes_only_a_receipt_the_tick_would_take
+run daemon-paths-probe-retry \
+  tests/fake/test_review_r223_wall_probes.py::test_probe_sql_prior_sum_is_never_below_the_exact_sum
+run optional-fake-a tests/fake/test_admission_disk.py tests/fake/test_admission_ramp.py \
+  tests/fake/test_canonical_identity_fix5.py tests/fake/test_census_round3_leases.py \
+  tests/fake/test_census_round3_mutation.py tests/fake/test_census_round4_endings_mutation.py \
+  tests/fake/test_census_round6_cascade_mutation.py tests/fake/test_daemon_descriptors.py \
+  tests/fake/test_daemon_stacks.py tests/fake/test_lanes_enroll.py tests/fake/test_machine_guard_daemon.py \
+  tests/fake/test_notice_keep_delivery.py tests/fake/test_picker_native.py tests/fake/test_request_routing.py \
+  tests/fake/test_review_r185_adversarial.py tests/fake/test_task_hold_admission.py tests/fake/test_wall_cancel_races.py \
+  tests/fake/test_wall_inspection_order.py tests/fake/test_wall_stop_deliveries.py tests/fake/test_workspace_enospc.py \
+  tests/fake/test_workspace_transient.py tests/fake/test_writable_fanout.py tests/fake/test_canonical_identity.py \
+  tests/fake/test_task_hold_clocks.py tests/fake/test_task_hold_reset_demand.py tests/fake/test_reset_credit_incident.py
+run optional-fake-a-teardown-retry \
+  tests/fake/test_canonical_identity_fix5.py::test_resolver_propagates_nonmissing_errors
+run optional-unit-a tests/unit/test_batch_submission_queries.py tests/unit/test_census_boot_seeds.py \
+  tests/unit/test_census_counted.py tests/unit/test_census_counted_expiry.py \
+  tests/unit/test_census_inspection_properties.py tests/unit/test_census_merge_liveness.py \
+  tests/unit/test_census_procargs.py tests/unit/test_census_recycled_pid.py \
+  tests/unit/test_census_responsibility_failures.py tests/unit/test_census_responsibility_identity.py \
+  tests/unit/test_census_responsibility_races.py tests/unit/test_census_round1_mutations.py \
+  tests/unit/test_census_round2_mutation.py tests/unit/test_census_round4_mutation.py \
+  tests/unit/test_census_survivors_review.py tests/unit/test_census_worktree_recheck_pacing.py \
+  tests/unit/test_daemon_connections.py tests/unit/test_daemon_fifo_reads.py tests/unit/test_daemon_init_release.py \
+  tests/unit/test_daemon_inspection_load.py tests/unit/test_daemon_inspection_properties.py \
+  tests/unit/test_daemon_integration.py tests/unit/test_disk_admission.py tests/unit/test_enrollment_runner.py \
+  tests/unit/test_fake_daemon_borrowed_methods.py tests/unit/test_frozen_provider_streams.py \
+  tests/unit/test_protocol_secrecy.py tests/unit/test_review_pr127_service.py tests/unit/test_store_readers.py
+run optional-fake-b tests/fake/test_admission_lease_waiters.py tests/fake/test_admission_liveness.py \
+  tests/fake/test_daemon_launch.py tests/fake/test_detached_cwd_pins.py tests/fake/test_detached_retention_fence.py \
+  tests/fake/test_identity_rollback.py tests/fake/test_launch_env_helper_scope.py \
+  tests/fake/test_launch_env_providers.py tests/fake/test_launch_provider_qos.py tests/fake/test_probe_cancel.py \
+  tests/fake/test_provider_cap_review_evidence.py tests/fake/test_sandbox_hold_interleavings.py \
+  tests/fake/test_writer_retention_fence.py tests/fake/test_idle_admission_pacing.py tests/fake/test_notice_delivery.py \
+  --deselect=tests/fake/test_notice_delivery.py::test_c15_3_state_a_pin_notice_is_a_message_surfaced_once \
+  tests/fake/test_launch_env_ignored_hook.py::test_bounded_property_the_daemon_withholds_every_lanes_hook \
+  tests/fake/test_timers_end_to_end.py::test_hung_usage_cannot_block_api_or_shutdown \
+  tests/fake/test_timers_end_to_end.py::test_socket_timer_status \
+  tests/fake/test_idle_admission_self_wake.py::test_only_the_pass_threads_own_queue_transition_is_ignored \
+  tests/fake/test_admission_latency.py::test_c6_3_admission_never_exceeds_a_cap_or_double_books_across_commits \
+  tests/fake/test_admission_latency.py::test_c6_3_a_check_lets_a_decision_stand_exactly_when_a_full_evaluation_there_agrees \
+  tests/fake/test_admission_latency.py::test_c26_9_an_idle_turn_pass_is_one_statement \
+  tests/fake/test_admission_properties.py::test_c6_12_submit_refuses_exclusions_that_are_not_lane_names \
+  tests/fake/test_provider_active_cap_fake.py::test_mixed_chains_wait_only_for_selected_provider_with_existing_caps \
+  tests/fake/test_provider_active_cap_fake.py::test_random_arrivals_and_completions_never_overbook_at_reservation \
+  tests/fake/test_route_view.py::test_the_route_statements_read_no_evidence_and_use_the_live_index \
+  tests/fake/test_routing_end_to_end.py::test_c11_1_lane_pin_to_unconfigured_provider_is_key_named_invalid_input \
+  tests/fake/test_unadmittable_pin_admission.py::test_c6_9_c11_8_in_the_daemon_no_job_waits_behind_a_job_no_lane_can_admit
+```
+
+</details>
+
+Across all runs, pytest reported 4,331 passes, eight failures, six skips, 21 expected failures and two teardown errors. Counts include retries and the intentional pre-fix failures.
+
+### Cleanup and final head
+
+Guarded `shutil.rmtree` removed all 12 `S/pytest-LABEL` directories in the test table, including pytest's test homes and failed-state directories. It then removed `S`, which was `/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-rva1-merge-r1-a1-bfizczph/sf-rva1-merge-r1`. This included the private `uv-cache`, helpers, logs, and `cleanup-venv`, where I relocated the new worktree `.venv` for removal. I also removed four test-generated bytecode directories inside the checkout. No job-created temp folder was left.
+
+The Git object and graph reads, path inventory, hash checks and Python contract comparisons succeeded. Final validation found exactly the 26 expected changed paths, no ignored files, the original report sections byte-for-byte intact and three valid Python ASTs. The named-file whitespace check passed. The one release whitespace finding is recorded above.
+
+Final report staging and commit both exited 128 on `index.lock`. Git HEAD is `73fa5566a9190cd204467be155ff821f4b76b38c`. The verified merge, tab fix and report are in the assigned worktree for collection. The Git commits, the optional property-test retry and the remaining optional selections are outstanding.

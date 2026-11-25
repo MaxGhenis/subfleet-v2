@@ -171,6 +171,21 @@ def test_indented_code_in_a_quote_is_not_a_finding(prefix, p1):
     assert result["consistent"] is (p1 == 0)
 
 
+@pytest.mark.parametrize("verdict", ["APPROVE", "REQUEST_CHANGES"])
+@pytest.mark.parametrize(("line", "p1"), [
+    pytest.param(">\t  P1: x", 0, id="tab-then-two-spaces"),
+    pytest.param("> \tP1: x", 1, id="space-then-tab"),
+    pytest.param(">   \tP1: x", 0, id="three-spaces-then-tab"),
+])
+def test_quoted_findings_use_four_column_tab_stops(verdict, line, p1):
+    approval = verdict == "APPROVE"
+    declaration = "FINDINGS: none\n" if approval else ""
+    result = parse_review_result(f"VERDICT: {verdict}\n{declaration}{line}")
+    assert result["levels"] == {**NONE, "P1": p1}
+    assert result["valid"] is (approval or p1 == 1)
+    assert result["consistent"] is (p1 == (0 if approval else 1))
+
+
 @pytest.mark.parametrize(("line", "level"), [
     ("P0: 0 (none found)", None),
     ("- P1: 2 (both fixed in round 2)", None),
