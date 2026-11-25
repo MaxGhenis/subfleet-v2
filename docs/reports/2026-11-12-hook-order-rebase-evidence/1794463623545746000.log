@@ -1,0 +1,3 @@
+aacdfeac9c16e77939080dafee8785741d06d037 Test hook install against the frozen release/217 loop (C-23.25)
+511322701b3a66ff193a2ae29de0671b1e2e54e4 C-23.25 names the hook-install equality rule; the hooks reference cites parallel hooks
+a84182d5862bad5470295de0bdcd9a8889a7ff97 Hook install: v2's entry is installed once and equal at any position (C-23.25)

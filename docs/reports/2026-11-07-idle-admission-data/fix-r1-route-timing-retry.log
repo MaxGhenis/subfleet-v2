@@ -1,0 +1,16 @@
+.F                                                                       [100%]
+=================================== FAILURES ===================================
+____ test_c6_3_an_override_that_ends_before_the_reservation_is_judged_again ____
+tests/fake/test_admission_route_isolation.py:591: in test_c6_3_an_override_that_ends_before_the_reservation_is_judged_again
+    assert early == [("codex-1", ("act-1", ends.strftime("%Y-%m-%dT%H:%M:%SZ")))]  # held out, 99% did not count
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AssertionError: assert [(None, None)] == [('codex-1', ...T14:53:09Z'))]
+E     
+E     At index 0 diff: (None, None) != ('codex-1', ('act-1', '2026-11-13T14:53:09Z'))
+E     Use -v to get more diff
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4454649872:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4454649872:daemon.py:1087 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_admission_route_isolation.py::test_c6_3_an_override_that_ends_before_the_reservation_is_judged_again
+1 failed, 1 passed in 50.78s

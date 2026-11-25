@@ -1,0 +1,63 @@
+F.........................                                               [100%]
+=================================== FAILURES ===================================
+_________ test_busy_store_completion_cancel_pass_restart_interleavings _________
+
+self = <test_host_push_store_interleavings.BusyRows.transaction.<locals>.Connection object at 0x10bdb22d0>
+sql = 'SELECT kind, task, sandbox FROM jobs WHERE job_id=?', parameters = ('0',)
+
+    def execute(self, sql, parameters=()):
+        if sql.split()[0] in {"UPDATE", "INSERT", "DELETE"}:
+            owner.write()
+>       return owner.connection.execute(sql, parameters)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       sqlite3.OperationalError: no such column: kind
+
+tests/unit/test_host_push_store_interleavings.py:54: OperationalError
+
+During handling of the above exception, another exception occurred:
+
+tmp_path = PosixPath('/private/tmp/sf-sbh-c1/pytest-repro-store-interleavings/test_busy_store_completion_can0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109963740>
+
+    @settings(max_examples=120, deadline=None,
+>             suppress_health_check=[HealthCheck.function_scoped_fixture])
+                   ^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_host_push_store_interleavings.py:224: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_host_push_store_interleavings.py:232: in test_busy_store_completion_cancel_pass_restart_interleavings
+    busy_interleavings(Path(directory), count, steps, patch)
+tests/unit/test_host_push_store_interleavings.py:147: in busy_interleavings
+    detached_pass()
+tests/unit/test_host_push_store_interleavings.py:130: in detached_pass
+    if core._push_workspace_ready(job):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:6359: in _push_workspace_ready
+    self._finish_push_workspace(job, None)
+subfleet/daemon.py:6234: in _finish_push_workspace
+    self._fail_queued(job, f"workspace completion could not be recorded{tail}: {refusals.fixed_error(exc)}",
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+job = {'job_id': '0', 'state': 'queued', 'cancel_requested_at': None, 'worktree': None, ...}
+detail = 'workspace completion could not be recorded: OperationalError'
+kind = 'job.workspace_failed'
+
+    def fail_queued(job, detail, *, kind):
+        # The small table has no production notice schema. Exercise the same
+        # atomic state/audit boundary here; real-Store tests check the notice.
+        job_id = job["job_id"]
+>       assert core._push_workspace_store_failures[job_id] == PUSH_WORKSPACE_STORE_MAX_FAILURES
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: '0'
+E       Failing test case: test_busy_store_completion_cancel_pass_restart_interleavings(
+E           # The test always failed when commented parts were varied together.
+E           tmp_path=PosixPath('/private/tmp/sf-sbh-c1/pytest-repro-store-interleavings/test_busy_store_completion_can0'),
+E           monkeypatch=<_pytest.monkeypatch.MonkeyPatch object at 0x109963740>,
+E           count=1,  # or any other generated value
+E           steps=[('pass', 0)],  # or any other generated value
+E       )
+
+tests/unit/test_host_push_store_interleavings.py:91: KeyError
+=========================== short test summary info ============================
+FAILED tests/unit/test_host_push_store_interleavings.py::test_busy_store_completion_cancel_pass_restart_interleavings
+1 failed, 25 passed in 563.24s (0:09:23)

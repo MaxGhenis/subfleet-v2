@@ -1,0 +1,31 @@
+bringing up nodes...
+bringing up nodes...
+
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_ test_c6_10_a_closure_added_brings_every_eligible_wait_forward[provider-limit-on-the-held-lane] _
+[gw0] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpjiP1wT/bin/python
+tests/fake/test_idle_capacity_news_sources.py:82: in test_c6_10_a_closure_added_brings_every_eligible_wait_forward
+    assert sorted(looked) == sorted([job, *others])
+E   AssertionError: assert [] == ['20261114-21...1515-terra-1']
+E     
+E     Right contains 3 more items, first extra item: '20261114-211514-terra'
+E     Use -v to get more diff
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4456166608:daemon.py:999 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4456166608:daemon.py:1092 reset credits: automatic redemption off; no-reset marker absent
+_ test_c6_10_a_closure_added_brings_every_eligible_wait_forward[operator-hold-on-another-lane] _
+[gw1] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpjiP1wT/bin/python
+tests/fake/test_idle_capacity_news_sources.py:82: in test_c6_10_a_closure_added_brings_every_eligible_wait_forward
+    assert sorted(looked) == sorted([job, *others])
+E   AssertionError: assert [] == ['20261114-21...1515-terra-1']
+E     
+E     Right contains 3 more items, first extra item: '20261114-211514-terra'
+E     Use -v to get more diff
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4428955728:daemon.py:999 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4428955728:daemon.py:1092 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_idle_capacity_news_sources.py::test_c6_10_a_closure_added_brings_every_eligible_wait_forward[provider-limit-on-the-held-lane]
+FAILED tests/fake/test_idle_capacity_news_sources.py::test_c6_10_a_closure_added_brings_every_eligible_wait_forward[operator-hold-on-another-lane]
+2 failed in 13.80s

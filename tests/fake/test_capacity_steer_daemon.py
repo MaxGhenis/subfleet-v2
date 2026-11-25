@@ -619,7 +619,9 @@ def test_r7_an_empty_steered_chain_keeps_no_slot_during_a_far_operator_hold(
         fleet, r6_clock, monkeypatch, cap, route_moves, due):
     """C-11.8: a far operator hold releases FIFO without starting retry grace.
 
-    Unlike disabled lanes, these still reach #207's empty-decision checks.
+    Unlike disabled lanes, these still reach #207's empty-decision checks. The two closures
+    are capacity news (C-6.10), so the first pass looks at the older job's wait whether or
+    not its own clock is due; the next pass, with no news, leaves a wait that isn't due alone.
     """
     daemon, harness = fleet
     daemon.policy["caps"]["max_active_attempts"] = cap
@@ -643,14 +645,18 @@ def test_r7_an_empty_steered_chain_keeps_no_slot_during_a_far_operator_hold(
 
     monkeypatch.setattr(daemon, "_route_stands", check)
     daemon._admit()
-    assert len(checks) == ((daemon_module.ROUTE_TRIES if route_moves else 1) if due else 0)
+    assert len(checks) == (daemon_module.ROUTE_TRIES if route_moves else 1)
     assert all(not decision.evaluations and not decision.chain for decision in checks)
     assert len(daemon.store.list_attempts(older)) == 1
     assert all(len(daemon.store.list_attempts(job)) == 1 for job in later), daemon._holds
     assert all(daemon.store.list_attempts(job)[0]["model_requested"] == OPUS for job in later)
     assert not daemon._pin_episodes.get(older, {}).get("open")
-    if not (due and route_moves):
+    if not route_moves:
         assert all(reason.startswith("closed:account:") for reason in daemon._holds[older]["for_good"])
+    checks.clear()
+    daemon._admit()
+    if not (due and route_moves):                       # a moved route leaves a due wait due
+        assert checks == []
 
 
 @pytest.mark.parametrize("reason", [ClosureReason.OPERATOR_HOLD, ClosureReason.PROVIDER_LIMIT])
