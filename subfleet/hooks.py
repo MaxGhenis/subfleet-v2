@@ -510,9 +510,16 @@ def session_event(event: str, payload: dict[str, Any], root: Path,
                                     personal=not own_envelope)
             with delivery_lock(root, session) as held:
                 if held:
-                    # Keeps this session's activity files to one, plus any a
-                    # concurrent hook publishes (review r4 of #307).
-                    fold_activity(root, session)
+                    # A successful fold leaves five recursive entries with a
+                    # receipt and no leftovers. A hook that publishes while
+                    # delivery is locked or whose fold misses the activity lock
+                    # leaves one record until the next successful fold or
+                    # reconcile. Stopped folds can leave aggregate temporaries,
+                    # and record temporaries in .activity.d stay in the count.
+                    try:
+                        fold_activity(root, session)
+                    except OSError:
+                        pass  # The receipt still fences delivery after a fold I/O error.
                     pending = _offline_pending(root, session)
                     if launched:
                         pending = [row for row in pending if names_a_job(row)]

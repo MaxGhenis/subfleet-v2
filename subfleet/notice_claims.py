@@ -17,6 +17,7 @@ from pathlib import Path
 from time import monotonic as _monotonic, sleep as _sleep, time_ns as _time_ns
 from uuid import uuid4
 
+from .sessions.nudge import notice_source_allows
 from .store import notice_fingerprint
 
 
@@ -27,12 +28,11 @@ def receipt_path(root: Path, session: str) -> Path:
 
 #: How often a waiting `delivery_lock` or `activity_lock` tries the lock again.
 LOCK_POLL_S = 0.01
-#: The longest anyone waits for a caller's activity lock (review r4 of #307).
-#: A hook holds it to publish one record (a rename) or, under the delivery lock,
-#: to fold a session's few records; a wake's claim holds it through its
-#: transaction. A hook that cannot take it in time publishes all the same, and a
-#: claim that cannot leaves its caller's notices for a later pass, so neither a
-#: stopped hook nor a slow claim stalls the other side.
+#: The polling budget per acquisition of a caller's activity lock. A hook holds
+#: it to publish one record or, under the delivery lock, to fold a snapshot of
+#: activity. A wake claim holds it through its transaction and shares a
+#: pass-wide wait budget with the other claims. A hook publishes even when it
+#: misses the lock. A claim that misses the lock leaves the notices pending.
 ACTIVITY_LOCK_WAIT_S = 0.25
 
 
@@ -104,11 +104,10 @@ def activity_path(root: Path, session: str) -> Path:
 def activity_lock(root: Path, session: str, *, wait_s: float):
     """Order activity publication against the final wake claim, never rendering.
 
-    Yields whether the lock is held; it is tried for at most `wait_s`, so no
-    holder stalls a hook or the pass (review r4 of #307). `wait_s` has no
-    default: a caller that forgot it would run its body unlocked. Hooks release this
-    short lock before attempting delivery_lock. The daemon, and a hook's fold,
-    take delivery_lock first, so the two locks cannot form a wait cycle.
+    Yields whether the lock was acquired within the caller's required `wait_s`
+    polling budget. Hooks release the publication lock before attempting
+    delivery_lock. The daemon and a hook's fold take delivery_lock first, so
+    the two locks cannot form a wait cycle.
     """
     with _file_lock(activity_path(root, session).with_suffix(".lock"), wait_s=wait_s) as held:
         yield held
@@ -151,15 +150,20 @@ def _activity_records(root: Path, session: str) -> list[tuple[Path, dict]]:
     return records
 
 
+def _activity_order(at: float, source: str | None) -> tuple[float, bool, bool, str]:
+    """Prefer newer activity, then a holding source, then lexical order with None first."""
+    return at, not notice_source_allows(source), source is not None, source or ""
+
+
 def _merge_activity(records: list[tuple[Path, dict]]) -> dict | None:
-    latest = None
-    human_at = None
-    for _path, value in records:
-        if latest is None or value["at"] >= latest["at"]:
-            latest = value
-        if value["human_at"] is not None:
-            human_at = max(value["human_at"], human_at or 0)
-    return {**latest, "human_at": human_at} if latest is not None else None
+    latest = max((value for _path, value in records),
+                 key=lambda value: _activity_order(value["at"], value["source"]),
+                 default=None)
+    if latest is None:
+        return None
+    human_at = max((value["human_at"] for _path, value in records if value["human_at"] is not None),
+                   default=None)
+    return {**latest, "human_at": human_at}
 
 
 def read_activity(root: Path, session: str) -> dict | None:
@@ -202,32 +206,26 @@ def record_offline_activity(root: Path, session: str, *, event: str, source: str
 
 
 def _fsync_directory(path: Path) -> None:
-    try:
-        fd = os.open(path, os.O_RDONLY)
-    except OSError:
-        return
+    fd = os.open(path, os.O_RDONLY)
     try:
         os.fsync(fd)
-    except OSError:
-        pass
     finally:
         os.close(fd)
 
 
 def fold_activity(root: Path, session: str) -> int:
-    """Called under delivery_lock: keep a session's activity files bounded.
+    """Under delivery_lock, merge published records and clean stopped folds.
 
-    Each offline hook publishes one record. A hook that holds the delivery lock
-    then folds every record it reads into the aggregate file with one atomic
-    replace and unlinks exactly the records it folded, as `reconcile` does
-    (review r4 of #307). The fold equals `_merge_activity` over those records:
-    the latest `at` with its `source`, and the latest `human_at`. The delivery
-    lock orders it against `reconcile` and the wake claim; it takes the activity
-    lock second, the daemon's order. A record published after its snapshot
-    survives. A crash between the replace and the unlinks leaves the folded
-    records beside the aggregate, which merge to the same value. A corrupt
-    record raises ValueError before anything is written or removed, so it still
-    fences its caller. Returns how many published records it folded: none when
+    Under the activity lock, it snapshots activity and replaces the aggregate
+    with `_merge_activity` of that snapshot, preserving the latest activity,
+    the source tie rule and the latest human input. It then unlinks the
+    published records it folded. Late publications and duplicates left after
+    replacement still merge with the aggregate. Holding both locks lets it
+    remove abandoned aggregate temporaries even with no records to fold.
+
+    A corrupt record raises ValueError before any files are written or removed
+    and fences delivery. The hook can still deliver after an OSError from this
+    housekeeping. Returns the number of published records folded, or zero if
     the activity lock stays taken past `ACTIVITY_LOCK_WAIT_S`.
     """
     aggregate = activity_path(root, session)
@@ -235,6 +233,11 @@ def fold_activity(root: Path, session: str) -> int:
         if not held:
             return 0
         records = _activity_records(root, session)
+        # Aggregate temporaries are written only while holding both locks.
+        # A temporary still present here belongs to a fold that has stopped.
+        temporary_pattern = f"{aggregate.name}." + "[0-9a-f]" * 32 + ".tmp"
+        for abandoned in aggregate.parent.glob(temporary_pattern):
+            abandoned.unlink(missing_ok=True)
         folded = [path for path, _value in records if path != aggregate]
         if not folded:
             return 0
@@ -282,17 +285,20 @@ def apply_activity(tx, session: str, activity: dict | None) -> None:
     """Apply a snapshot without consuming files, also inside a final wake claim."""
     if activity is None:
         return
-    clock = tx.execute("SELECT last_wake_at FROM caller_wake_sessions WHERE session_id=?",
+    clock = tx.execute("SELECT active_at,source,last_wake_at FROM caller_wake_sessions WHERE session_id=?",
                        (session,)).fetchone()
     last_wake = clock["last_wake_at"] if clock else None
     human_at = activity["human_at"]
     reset = human_at is not None and (last_wake is None or human_at >= last_wake)
+    at, source = activity["at"], activity["source"]
+    if (clock is not None
+            and _activity_order(clock["active_at"], clock["source"]) > _activity_order(at, source)):
+        at, source = clock["active_at"], clock["source"]
     tx.execute("INSERT INTO caller_wake_sessions(session_id,active_at,source) VALUES(?,?,?) "
-               "ON CONFLICT(session_id) DO UPDATE SET active_at=max(active_at,excluded.active_at),"
-               "source=CASE WHEN excluded.active_at>=active_at THEN excluded.source ELSE source END,"
+               "ON CONFLICT(session_id) DO UPDATE SET active_at=excluded.active_at,source=excluded.source,"
                "wake_streak=CASE WHEN ? THEN 0 ELSE wake_streak END,"
                "last_wake_at=CASE WHEN ? THEN NULL ELSE last_wake_at END",
-               (session, activity["at"], activity["source"], reset, reset))
+               (session, at, source, reset, reset))
 
 
 def reconcile(daemon, session: str) -> None:

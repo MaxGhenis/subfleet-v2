@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import bisect
 from collections import defaultdict
+from collections.abc import Callable
+from contextlib import AbstractContextManager, contextmanager
 from datetime import datetime, timezone
 import os
 import time
@@ -30,6 +32,8 @@ CLOSED_FAILURES = frozenset({"session-not-registered", "session-not-running"})
 #: Callers one pass examines, woken or not (review r1, finding 8). The next pass
 #: starts after the last caller this one examined, so every caller is reached.
 MAX_GROUPS_PER_PASS = 32
+#: Activity-lock waits share this polling budget across all callers in one pass.
+ACTIVITY_LOCK_PASS_WAIT_S = 1.0
 #: A caller found held is not judged again (no transcript tail read, no session
 #: facts) until its notices, registry row, transcript file or wake clock change,
 #: its earliest time gate lapses, or this long has passed.
@@ -359,21 +363,10 @@ class CallerWakeEngine:
                             reason if again or not retry else "retry-expired", row["notice_id"], row["job_id"],
                             row["session_id"], row["created_at"], row["text"]))
 
-    def pass_once(self) -> dict:
-        policy = self.daemon.policy
-        limits = nudge.caps(policy)
-        result = {"delivered": 0, "sessions": 0, "examined": 0}
-        if not policy.get("sessions", {}).get("notice_wake_enabled", True) or not nudge.enabled():
-            return result
-        now = self.now()
-        # `offered` is left out: PostToolUse (layer 2) or `wait` already showed it
-        # to the caller, and the prompt hooks still show it (review r1, finding 1).
+    def _expire(self, rows: list[dict], now: float) -> list[dict]:
+        """Record stale first attempts and expired retries, and return the remaining rows."""
         due, stale, expired = [], [], []
-        for row in self.store.query(
-                "SELECT n.* FROM notices n JOIN jobs j USING(job_id) "
-                "WHERE n.job_id IS NOT NULL AND n.state='pending' AND n.wake_state IS NULL "
-                "AND j.kind<>'turn' AND (n.wake_next_at IS NULL OR n.wake_next_at<=?) "
-                "ORDER BY n.created_at,n.notice_id", (now,)):
+        for row in rows:
             if now < _deadline(row, now):
                 due.append(row)
             elif row["wake_attempts"]:
@@ -384,21 +377,49 @@ class CallerWakeEngine:
             self._stale(stale, now)
         if expired:
             self._failure(expired, "retry-expired", now, retry=False)
+        return due
+
+    def pass_once(self) -> dict:
+        policy = self.daemon.policy
+        limits = nudge.caps(policy)
+        result = {"delivered": 0, "sessions": 0, "examined": 0}
+        if not policy.get("sessions", {}).get("notice_wake_enabled", True) or not nudge.enabled():
+            return result
+        now = self.now()
+        # `offered` is left out: PostToolUse (layer 2) or `wait` already showed it
+        # to the caller, and the prompt hooks still show it (review r1, finding 1).
+        due = self._expire(self.store.query(
+            "SELECT n.* FROM notices n JOIN jobs j USING(job_id) "
+            "WHERE n.job_id IS NOT NULL AND n.state='pending' AND n.wake_state IS NULL "
+            "AND j.kind<>'turn' AND (n.wake_next_at IS NULL OR n.wake_next_at<=?) "
+            "ORDER BY n.created_at,n.notice_id", (now,)), now)
         groups = defaultdict(list)
         for row in due:
             groups[row["session_id"] or ""].append(row)
         self._held = {session: memo for session, memo in self._held.items() if session in groups}
         order = sorted(groups)
         start = bisect.bisect_right(order, self._cursor) if self._cursor is not None else 0
+        activity_wait_left = ACTIVITY_LOCK_PASS_WAIT_S
+
+        @contextmanager
+        def claim_lock(session: str):
+            nonlocal activity_wait_left
+            wait_s = min(notice_claims.ACTIVITY_LOCK_WAIT_S, activity_wait_left)
+            started = _monotonic()
+            with notice_claims.activity_lock(self.daemon.root, session, wait_s=wait_s) as locked:
+                activity_wait_left = max(0.0, activity_wait_left - (_monotonic() - started))
+                yield locked
+
         for session in order[start:] + order[:start]:
             if result["sessions"] >= limits["max_sessions"] or result["examined"] >= MAX_GROUPS_PER_PASS:
                 break
             result["examined"] += 1
             self._cursor = session
-            self._wake(session, groups[session], limits, now, result)
+            self._wake(session, groups[session], limits, now, result, claim_lock)
         return result
 
-    def _wake(self, session: str, candidates: list[dict], limits: dict, now: float, result: dict) -> None:
+    def _wake(self, session: str, candidates: list[dict], limits: dict, now: float, result: dict,
+              claim_lock: Callable[[str], AbstractContextManager[bool]]) -> None:
         if not session:
             self._failure(candidates, "no-caller-session", now, retry=False)
             return
@@ -459,16 +480,16 @@ class CallerWakeEngine:
                 self._failure(rows, "header-unavailable", now, retry=True)
                 return
             try:
-                # Publication and the final claim share a short lock: an offline
-                # hook that completed before this claim must be visible here,
-                # even though this pass held delivery_lock during its prompt.
-                # No files are consumed here, so a rollback cannot lose input.
-                # The wait is bounded (review r4 of #307): if a hook holds the
-                # lock longer, this caller's notices stay pending, unclaimed, for
-                # a later pass, and this pass goes on to the next caller.
-                with notice_claims.activity_lock(self.daemon.root, session,
-                                                 wait_s=notice_claims.ACTIVITY_LOCK_WAIT_S) as locked:
+                # A hook can publish during a claim after a timed lock miss. The
+                # final read sees publications that land before its snapshot.
+                # A claim lock miss leaves the notices pending for another pass.
+                # The final read leaves the files in place for reconcile.
+                with claim_lock(session) as locked:
                     if not locked:
+                        return
+                    claim_at = self.now()
+                    rows = self._expire(rows, claim_at)
+                    if not rows:
                         return
                     with self.store.transaction("notice.wake_claimed", data={"session_id": session}) as tx:
                         notice_claims.apply_activity(tx, session,
@@ -479,18 +500,18 @@ class CallerWakeEngine:
                         entry = notify_push.find_session(session)
                         if entry is None or not entry["alive"] or not entry["socket_present"]:
                             return
-                        current = transcripts.turn_state(path, now=datetime.fromtimestamp(now, timezone.utc))
+                        current = transcripts.turn_state(path, now=datetime.fromtimestamp(claim_at, timezone.utc))
                         if current.fingerprint != before.fingerprint or not self._eligibility(
-                                session, entry, current, limits, now)[0]:
+                                session, entry, current, limits, claim_at)[0]:
                             return
                         previous_clock = self.store.one(
                             "SELECT wake_streak,last_wake_at FROM caller_wake_sessions WHERE session_id=?",
                             (session,)) or {}
-                        claimed = reserve(tx, session, rows, transport="caller-wake", at=now, wake=True)
+                        claimed = reserve(tx, session, rows, transport="caller-wake", at=claim_at, wake=True)
                         if claimed:
                             tx.execute("INSERT INTO caller_wake_sessions(session_id,last_wake_at,wake_streak) "
                                        "VALUES(?,?,1) ON CONFLICT(session_id) DO UPDATE SET "
-                                       "last_wake_at=excluded.last_wake_at,wake_streak=wake_streak+1", (session, now))
+                                       "last_wake_at=excluded.last_wake_at,wake_streak=wake_streak+1", (session, claim_at))
             except (OSError, ValueError, KeyError):
                 # Raised anywhere in the claim: invalid activity, the conversation
                 # binding, the registry or transcript read, the eligibility
@@ -512,7 +533,7 @@ class CallerWakeEngine:
                     tx.executemany("UPDATE notices SET wake_state='delivered',wake_reason=NULL "
                                    "WHERE notice_id=? AND job_id=? AND session_id=? AND created_at=? AND text=? "
                                    "AND wake_at=? AND wake_state='claimed'",
-                                   [(row["notice_id"], row["job_id"], session, row["created_at"], row["text"], now)
+                                   [(row["notice_id"], row["job_id"], session, row["created_at"], row["text"], claim_at)
                                     for row in claimed])
                 result["delivered"] += len(claimed)
                 return
@@ -531,13 +552,13 @@ class CallerWakeEngine:
                                "AND wake_at=? AND wake_state='claimed'",
                                (row["state"] if safe else "surfaced", row["transport"] if safe else "caller-wake",
                                 None if safe else "undeliverable", reason if safe else "send-uncertain",
-                                row["notice_id"], row["job_id"], session, row["created_at"], row["text"], now))
+                                row["notice_id"], row["job_id"], session, row["created_at"], row["text"], claim_at))
                 if safe:
                     # No bytes were attempted. Give back the session
                     # slot too, without undoing newer human activity.
                     tx.execute("UPDATE caller_wake_sessions SET wake_streak=?,last_wake_at=? "
                                "WHERE session_id=? AND last_wake_at=?",
                                (previous_clock.get("wake_streak") or 0, previous_clock.get("last_wake_at"),
-                                session, now))
+                                session, claim_at))
             if safe:
-                self._failure(claimed, reason, now, retry=True)
+                self._failure(claimed, reason, claim_at, retry=True)

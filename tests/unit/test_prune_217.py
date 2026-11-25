@@ -188,6 +188,34 @@ def test_current_schema_has_no_decision_dependents_and_hashes_every_table(tmp_pa
         assert store.query("SELECT name FROM sqlite_master WHERE type='trigger'") == []
 
 
+def _indexes_naming_column(conn, table, column):
+    # index_info lists only key columns. A partial index can name the column
+    # in its WHERE clause alone, which still prevents DROP COLUMN.
+    # SQLite identifiers are case-insensitive. The word boundaries also match
+    # when the name is double-quoted, bracketed, or backticked.
+    named = re.compile(rf'\b{re.escape(column)}\b', re.IGNORECASE)
+    column_name = column.lower()
+    indexes = {index[1] for index in conn.execute(f'PRAGMA index_list("{table}")')
+               if any(name is not None and name.lower() == column_name
+                      for _, _, name in conn.execute(f'PRAGMA index_info("{index[1]}")'))}
+    indexes.update(name for name, sql in conn.execute(
+        "SELECT name,sql FROM sqlite_master WHERE type='index' AND tbl_name=? AND sql IS NOT NULL",
+        (table,)) if named.search(sql))
+    return indexes
+
+
+@pytest.mark.parametrize('identifier', ['WAKE_STATE', '"WAKE_STATE"', '[WAKE_STATE]', '`WAKE_STATE`'],
+                         ids=['bare', 'double-quoted', 'bracketed', 'backticked'])
+def test_prune_finds_partial_indexes_naming_case_variants(identifier):
+    with sqlite3.connect(':memory:') as conn:
+        conn.execute('CREATE TABLE notices (job_id TEXT, wake_state TEXT)')
+        conn.execute(f'CREATE INDEX pending_wakes ON notices(job_id) WHERE {identifier} IS NULL')
+        for name in _indexes_naming_column(conn, 'notices', 'wake_state'):
+            conn.execute(f'DROP INDEX "{name}"')
+        conn.execute('ALTER TABLE notices DROP COLUMN wake_state')
+        assert [row[1] for row in conn.execute('PRAGMA table_info(notices)')] == ['job_id']
+
+
 @pytest.mark.parametrize('table,column', [
     pytest.param(parts[2], parts[5], id=f'{parts[2]}.{parts[5]}')
     for statements in MIGRATIONS.values() for statement in statements
@@ -198,17 +226,7 @@ def test_prune_requires_every_migrated_column(tmp_path, table, column):
     _seed(tmp_path, [])
     database = tmp_path / 'state.sqlite3'
     with sqlite3.connect(database) as conn:
-        # `PRAGMA index_info` lists only an index's key columns. A partial index
-        # can name the column in its WHERE clause alone (`notices_caller_wake`
-        # filters on `wake_state IS NULL`), and DROP COLUMN fails on it, so an
-        # index whose definition names the column is dropped too (review r4, P1).
-        named = re.compile(rf'\b{re.escape(column)}\b')
-        drop = {index[1] for index in conn.execute(f'PRAGMA index_list("{table}")').fetchall()
-                if column in {row[2] for row in conn.execute(f'PRAGMA index_info("{index[1]}")')}}
-        drop |= {name for name, sql in conn.execute(
-            "SELECT name,sql FROM sqlite_master WHERE type='index' AND tbl_name=? AND sql IS NOT NULL",
-            (table,)) if named.search(sql)}
-        for name in sorted(drop):
+        for name in sorted(_indexes_naming_column(conn, table, column)):
             conn.execute(f'DROP INDEX "{name}"')
         conn.execute(f'ALTER TABLE "{table}" DROP COLUMN "{column}"')
     before = _tables(database)

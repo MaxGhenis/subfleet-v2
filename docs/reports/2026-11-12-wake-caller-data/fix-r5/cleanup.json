@@ -1,0 +1,41 @@
+{
+  "removed_roots": [
+    "/private/tmp/sf-wcall-fix5-221914/sf-wcall-fix5",
+    "/private/tmp/sf-wcall-fix5-221914",
+    "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wcall-fix-r5-a1-7x65682i/sf-wcall-fix5"
+  ],
+  "scratch_subdirectories": [
+    "bytecode",
+    "compiled",
+    "draw-probe",
+    "hypothesis",
+    "logs",
+    "plugins",
+    "roots",
+    "tmp",
+    "uv-cache"
+  ],
+  "retired_basetemps": [
+    "pytest-before",
+    "pytest-after",
+    "pytest-full",
+    "pytest-repeat20",
+    "pytest-repeat20-k",
+    "pytest-importers-a",
+    "pytest-importers-b",
+    "pytest-importers-c",
+    "pytest-importers-c-short",
+    "pytest-live-store-guards",
+    "pytest-live-store-guards-draws",
+    "pytest-compat",
+    "pytest-guards"
+  ],
+  "workspace_bytecode_directories": [
+    "subfleet/__pycache__",
+    "subfleet/adapters/__pycache__",
+    "subfleet/conversations/__pycache__",
+    "subfleet/sessions/__pycache__",
+    ".venv/lib/python3.15/site-packages/__pycache__"
+  ],
+  "finished_utc": "2026-11-25T22:20:19.732477+00:00"
+}

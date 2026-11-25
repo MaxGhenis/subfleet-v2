@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import errno
 import fcntl
 import io
+import itertools
 import json
 import os
 from pathlib import Path
@@ -12,6 +14,7 @@ import threading
 import time
 from types import SimpleNamespace
 
+from hypothesis import HealthCheck, example, given, settings, strategies as st
 import pytest
 
 from subfleet import caller_wakes, hooks, notice_claims, notify_push, protocol
@@ -154,12 +157,21 @@ def test_c15_9_corrupt_receipts_fail_closed_without_blocking_the_hook(core, cont
 def test_c15_9_receipt_write_failure_prints_nothing_and_leaves_no_partial_receipt(core, monkeypatch, failure):
     """The hook prints only after its delivery receipt is durably published."""
     add_notice(core)
+    reserve = notice_claims.reserve_offline
+    faults = []
 
     def refused(*_args, **_kwargs):
+        faults.append(failure)
         raise OSError("fixture receipt publication failed")
 
-    monkeypatch.setattr(notice_claims.os, failure, refused)
+    def reserve_with_io_failure(*args, **kwargs):
+        with monkeypatch.context() as receipt_fault:
+            receipt_fault.setattr(notice_claims.os, failure, refused)
+            return reserve(*args, **kwargs)
+
+    monkeypatch.setattr(notice_claims, "reserve_offline", reserve_with_io_failure)
     assert offline_hook(core) == ""
+    assert faults == [failure]
     path = notice_claims.receipt_path(core.root, SESSION)
     assert not path.exists()
     assert not path.with_suffix(".tmp").exists()
@@ -399,6 +411,105 @@ def test_c15_9_invalid_activity_timestamps_fail_closed_without_blocking_the_hook
     assert offline_hook(core) == ""
     assert path.read_text() == contents
     assert core.store.one("SELECT state FROM notices")["state"] == "pending"
+
+
+def test_c15_9_a_fold_preserves_the_wake_decision_for_equal_activity_times(core, monkeypatch):
+    """A late, earlier-named compact must not outrank a clear in the fold snapshot."""
+    clock = [1800000000.0]
+    engine, sent = wake_engine(core, monkeypatch, clock)
+    names = iter((2, 1))  # The clear publishes first, but sorts after the compact.
+    monkeypatch.setattr(notice_claims, "_time_ns", lambda: next(names))
+    aggregate = notice_claims.activity_path(core.root, SESSION)
+    raw_session = "raw-records"
+    raw_records = notice_claims.activity_path(core.root, raw_session).with_suffix(".d")
+    raw_records.mkdir(parents=True)
+    replace = os.replace
+    before_replace = []
+
+    def publish_during_replace(source, destination):
+        if Path(destination) == aggregate:
+            # The fold holds both locks. This hook misses the activity lock,
+            # publishes anyway, and misses the delivery lock as well.
+            assert offline_hook(core, event="SessionStart", source="compact") == ""
+            before_replace.append(notice_claims.read_activity(core.root, SESSION))
+            for record in aggregate.with_suffix(".d").glob("*.json"):
+                (raw_records / record.name).write_bytes(record.read_bytes())
+        replace(source, destination)
+
+    monkeypatch.setattr(notice_claims.os, "replace", publish_during_replace)
+    with notice_claims.delivery_lock(core.root, SESSION) as held:
+        assert held
+        assert offline_hook(core, event="SessionStart", source="clear") == ""
+        assert notice_claims.fold_activity(core.root, SESSION) == 1
+    cleared = {"at": clock[0], "source": "clear", "human_at": None}
+    assert before_replace == [cleared]
+    assert notice_claims.read_activity(core.root, raw_session) == cleared
+    after_replace = notice_claims.read_activity(core.root, SESSION)
+    add_notice(core)
+    with core.store.transaction() as tx:
+        tx.execute("INSERT INTO notices(job_id,session_id,text,state,created_at) "
+                   "VALUES ('job-done',?,?,'pending',?)", (raw_session, TEXT, CREATED))
+    clock[0] += 301
+    engine.pass_once()
+    rows = core.store.query("SELECT session_id,state,wake_state FROM notices ORDER BY session_id")
+    assert (after_replace, rows, [sid for sid, _ in sent]) == (cleared, [
+        {"session_id": raw_session, "state": "pending", "wake_state": None},
+        {"session_id": SESSION, "state": "pending", "wake_state": None},
+    ], [])
+
+
+def test_c15_9_applying_equal_time_activity_preserves_a_holding_source(core):
+    stamp = 1800000000.0
+    with core.store.transaction() as tx:
+        tx.execute("INSERT INTO caller_wake_sessions(session_id,active_at,source) VALUES (?,?,'clear')",
+                   (SESSION, stamp))
+        notice_claims.apply_activity(tx, SESSION, {"at": stamp, "source": "compact", "human_at": None})
+    assert core.store.one("SELECT active_at,source FROM caller_wake_sessions WHERE session_id=?",
+                          (SESSION,)) == {"active_at": stamp, "source": "clear"}
+
+
+ACTIVITY_EXAMPLES = itertools.count()
+
+
+@settings(max_examples=100, deadline=None, derandomize=True, database=None,
+          suppress_health_check=[HealthCheck.function_scoped_fixture])
+@given(records=st.lists(st.tuples(
+    st.integers(0, 2), st.sampled_from((None, "startup", "resume", "compact", "clear")),
+    st.one_of(st.none(), st.integers(0, 2)), st.sampled_from(("reconciled", "folded", "late")),
+), min_size=1, max_size=12))
+@example(records=[(0, "compact", None, "late"), (0, "clear", None, "folded")])
+@example(records=[(0, "compact", None, "late"), (0, "clear", None, "reconciled")])
+def test_c15_9_activity_merge_is_independent_of_fold_and_reconcile_grouping(core, records):
+    """The final claim's read and apply agree with merging all the raw records."""
+    session = f"grouped-{next(ACTIVITY_EXAMPLES)}"
+    raw = f"{session}-raw"
+
+    def write_records(sid, include):
+        directory = notice_claims.activity_path(core.root, sid).with_suffix(".d")
+        directory.mkdir(parents=True, exist_ok=True)
+        for index, (at, source, human_at, group) in enumerate(records):
+            if group in include:
+                path = directory / f"{index:020d}-{'0' * 32}.json"
+                path.write_text(json.dumps({"at": at, "source": source, "human_at": human_at}))
+
+    write_records(raw, {"reconciled", "folded", "late"})
+    expected = notice_claims.read_activity(core.root, raw)
+    assert expected["at"] == max(record[0] for record in records)
+    assert expected["human_at"] == max((record[2] for record in records if record[2] is not None),
+                                       default=None)
+    with notice_claims.delivery_lock(core.root, session) as held:
+        assert held
+        write_records(session, {"reconciled"})
+        notice_claims.reconcile(core, session)
+        write_records(session, {"folded"})
+        notice_claims.fold_activity(core.root, session)
+        write_records(session, {"late"})
+        with notice_claims.activity_lock(core.root, session, wait_s=0) as held:
+            assert held
+            with core.store.transaction() as tx:
+                notice_claims.apply_activity(tx, session, notice_claims.read_activity(core.root, session))
+    assert core.store.one("SELECT active_at,source FROM caller_wake_sessions WHERE session_id=?",
+                          (session,)) == {"active_at": expected["at"], "source": expected["source"]}
 
 
 # --- review r4 of #307: a bounded activity journal and bounded activity-lock waits ---
@@ -664,5 +775,99 @@ def test_c15_9_an_offline_hook_returns_while_another_process_holds_the_activity_
         os.close(fd)
         hook.join(60)
     assert TEXT in result["output"]
+    assert notice_claims.read_activity(core.root, SESSION) == {
+        "at": clock[0], "source": None, "human_at": clock[0]}
+
+
+@pytest.mark.parametrize("failure", ["replace", "unlink"])
+def test_c15_9_a_fold_io_failure_still_surfaces_the_notice(core, monkeypatch, failure):
+    """A failed aggregate replace or record unlink leaves the activity readable
+    and still allows a working receipt to authorize delivery."""
+    clock = [1800000000.0]
+    wake_engine(core, monkeypatch, clock)
+    assert offline_hook(core, event="SessionStart", source="clear") == ""
+    aggregate = notice_claims.activity_path(core.root, SESSION)
+    original = json.loads(aggregate.read_text())
+    records = aggregate.with_suffix(".d")
+    clock[0] += 1
+    with notice_claims.delivery_lock(core.root, SESSION) as held:
+        assert held
+        assert offline_hook(core) == ""
+    human_at = clock[0]
+    wire_id = add_notice(core)
+    replace = os.replace
+    unlink = Path.unlink
+
+    def replace_except_aggregate(source, destination):
+        if Path(destination) == aggregate:
+            raise OSError(errno.EIO, "fixture aggregate replacement failed")
+        return replace(source, destination)
+
+    def unlink_except_records(path, *args, **kwargs):
+        if path.parent == records and path.suffix == ".json":
+            raise OSError(errno.EIO, "fixture published record unlink failed")
+        return unlink(path, *args, **kwargs)
+
+    if failure == "replace":
+        monkeypatch.setattr(notice_claims.os, "replace", replace_except_aggregate)
+    else:
+        monkeypatch.setattr(Path, "unlink", unlink_except_records)
+
+    clock[0] += 1
+    output = offline_hook(core, event="SessionStart", source="compact")
+    merged = {"at": clock[0], "source": "compact", "human_at": human_at}
+    assert len(list(records.glob("*.json"))) == 2
+    assert not list(aggregate.parent.glob(f"{aggregate.name}.*.tmp"))
+    assert json.loads(aggregate.read_text()) == (original if failure == "replace" else merged)
+    assert notice_claims.read_activity(core.root, SESSION) == merged
+    assert core.store.one("SELECT state FROM notices")["state"] == "pending"
+    receipts = notice_claims.read_receipts(core.root, SESSION)
+    assert TEXT in output, (output, receipts)
+    assert [item["notice_id"] for item in receipts] == [wire_id]
+
+    clock[0] += 1
+    assert offline_hook(core) == ""
+    assert notice_claims.read_receipts(core.root, SESSION) == receipts
+
+
+@pytest.mark.parametrize("pending_records", [0, 8])
+def test_c15_9_a_fold_removes_stopped_folds_temporaries(core, monkeypatch, pending_records):
+    """A successful fold cleans up stopped folds, even when there is nothing to merge."""
+    clock = [1800000000.0]
+    wake_engine(core, monkeypatch, clock)
+    add_notice(core)
+    assert TEXT in offline_hook(core)
+    aggregate = notice_claims.activity_path(core.root, SESSION)
+    spool = aggregate.parent
+    assert len(list(spool.iterdir())) == len(session_entries(core.root, SESSION)) == 5
+
+    with notice_claims.delivery_lock(core.root, SESSION) as held:
+        assert held
+        for _ in range(pending_records):
+            clock[0] += 1
+            assert offline_hook(core) == ""
+    # Eight prompts under the delivery lock add eight records inside .activity.d.
+    assert len(list(spool.iterdir())) == 5
+    assert len(session_entries(core.root, SESSION)) == 5 + pending_records
+    if pending_records:
+        clock[0] += 1
+        assert offline_hook(core) == ""
+        assert len(session_entries(core.root, SESSION)) == 5
+
+    for index in range(3):
+        temporary = aggregate.with_name(f"{aggregate.name}.{index:032x}.tmp")
+        temporary.write_text(aggregate.read_text())
+    assert len(list(spool.iterdir())) == 8
+
+    if pending_records:
+        clock[0] += 1
+        assert offline_hook(core) == ""
+    else:
+        with notice_claims.delivery_lock(core.root, SESSION) as held:
+            assert held
+            assert notice_claims.fold_activity(core.root, SESSION) == 0
+    assert activity_records(core.root, SESSION) == [aggregate]
+    assert len(list(spool.iterdir())) == 5
+    assert len(session_entries(core.root, SESSION)) == 5
     assert notice_claims.read_activity(core.root, SESSION) == {
         "at": clock[0], "source": None, "human_at": clock[0]}

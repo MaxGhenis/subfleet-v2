@@ -1,0 +1,24 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.15.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5
+configfile: pyproject.toml
+plugins: xdist-3.8.0, timeout-2.4.0, hypothesis-6.168.1
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+created: 4/4 workers
+4 workers [151 items]
+
+........................................................................ [ 47%]
+........................................................................ [ 95%]
+.......                                                                  [100%]
+============================= slowest 8 durations ==============================
+50.52s call     tests/unit/test_prune_217.py::test_partition_unfinished_jobs_readers_and_backup_restore
+17.42s call     tests/fake/test_caller_notice_wakes.py::test_c15_9_once_over_generated_finish_hook_failure_and_restart_histories
+16.20s call     tests/unit/test_notice_claims.py::test_c15_9_activity_merge_is_independent_of_fold_and_reconcile_grouping
+15.56s call     tests/fake/test_caller_notice_wakes.py::test_c15_9_never_both_over_generated_finish_hook_failure_and_restart_histories
+13.99s call     tests/fake/test_caller_notice_wakes.py::test_c15_9_eventually_over_generated_finish_hook_failure_and_restart_histories
+8.39s call     tests/fake/test_caller_notice_wakes.py::test_c15_9_activity_lock_waits_share_one_pass_budget
+8.24s call     tests/fake/test_caller_notice_wakes.py::test_c15_9_a_backlog_never_wakes_for_stale_notices_and_wakes_at_most_the_cap_per_pass
+5.42s call     tests/fake/test_caller_notice_wakes.py::test_c15_9_a_persons_prompt_still_resets_the_streak
+======================= 151 passed in 170.40s (0:02:50) ========================

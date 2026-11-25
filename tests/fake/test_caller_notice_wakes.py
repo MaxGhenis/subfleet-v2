@@ -7,6 +7,7 @@ transcript, registry and inbox are fake; no provider or session is launched.
 from __future__ import annotations
 
 from collections import Counter
+from contextlib import ExitStack
 from datetime import datetime, timezone
 import fcntl
 import io
@@ -1332,3 +1333,97 @@ def test_c15_9_an_offline_hook_does_not_wait_out_a_wake_claim(callers, monkeypat
     assert notice_claims.read_activity(callers.daemon.root, sid) == {
         "at": callers.now, "source": None, "human_at": callers.now}
     assert callers.counts()[notice] == 1
+
+
+def test_c15_9_activity_lock_waits_share_one_pass_budget(callers, monkeypatch):
+    from subfleet import notice_claims
+
+    held = [f"a-budget-held-{index:02d}" for index in range(32)]
+    free = "b-budget-free"
+    for sid in [*held, free]:
+        callers.register(sid)
+    held_notices = [callers.finish(sid) for sid in held]
+    free_notice = callers.finish(free)
+    lock = notice_claims.activity_lock
+    waits = []
+
+    def record_wait(root, sid, *, wait_s):
+        waits.append((sid, wait_s))
+        return lock(root, sid, wait_s=wait_s)
+
+    monkeypatch.setattr(notice_claims, "activity_lock", record_wait)
+    with ExitStack() as locks:
+        for sid in held:
+            locks.callback(os.close, hold_activity_lock(callers.daemon.root, sid))
+        start = time.monotonic()
+        first = callers.pass_once()
+        elapsed = time.monotonic() - start
+        assert first == {"delivered": 0, "sessions": 0, "examined": 32}
+        assert callers.attempts == []
+        for notice in held_notices:
+            row = callers.row(notice)
+            assert (row["state"], row["transport"], row["wake_state"], row["wake_attempts"],
+                    row["wake_at"], row["wake_next_at"]) == ("pending", None, None, 0, None, None)
+        # Allow 125 ms per caller for store, registry, transcript, rendering and scheduling work.
+        limit = 1.0 + 0.125 * len(held)
+        assert elapsed < limit, f"pass took {elapsed:.3f} s with {len(held)} activity locks held"
+        assert [sid for sid, _ in waits] == held
+        assert all(0 <= wait <= notice_claims.ACTIVITY_LOCK_WAIT_S for _, wait in waits)
+        assert waits[-1][1] == 0
+
+        callers.pass_once()
+        assert callers.counts() == Counter({free_notice: 1})
+
+
+def test_c15_9_a_retry_can_expire_between_the_pass_start_and_claim(callers, monkeypatch):
+    retry_sid = "b-retry-expiring"
+    expires_at = EPOCH + 0.5
+    callers.now = EPOCH - 4
+    callers.register(retry_sid)
+    retry = callers.finish(retry_sid, created=expires_at - RETRY_WINDOW_S)
+    callers.failures[retry_sid] = "no-peer-token"
+    callers.pass_once()
+    assert callers.row(retry)["wake_next_at"] < EPOCH < expires_at
+    callers.failures.pop(retry_sid)
+    callers.attempts.clear()
+
+    callers.now = EPOCH
+    fresh = callers.finish(retry_sid)
+    held = [f"a-expiry-held-{index}" for index in range(4)]
+    for sid in held:
+        callers.register(sid)
+        callers.finish(sid)
+
+    started = None
+
+    def clock():
+        nonlocal started
+        now = time.monotonic()
+        if started is None:
+            started = now
+        return EPOCH + (now - started)
+
+    send_times = []
+
+    def timed_push(*args, **kwargs):
+        send_times.append(clock())
+        return callers.push(*args, **kwargs)
+
+    monkeypatch.setattr(notify_push, "push_to_session", timed_push)
+    engine = caller_wakes.CallerWakeEngine(callers.daemon, now=clock)
+    with ExitStack() as locks:
+        for sid in held:
+            locks.callback(os.close, hold_activity_lock(callers.daemon.root, sid))
+        engine.pass_once()
+
+    [sent_at] = send_times
+    assert callers.counts() == Counter({fresh: 1}), f"send took place {sent_at - expires_at:.3f} s after expiry"
+    row = callers.row(retry)
+    assert (row["state"], row["transport"], row["wake_state"], row["wake_reason"],
+            row["wake_next_at"]) == ("pending", None, "undeliverable", "retry-expired", None)
+    fresh_row = callers.row(fresh)
+    assert fresh_row["wake_state"] == "delivered"
+    assert expires_at <= row["wake_at"] == fresh_row["wake_at"] <= sent_at
+    session_clock = callers.daemon.store.one(
+        "SELECT last_wake_at,wake_streak FROM caller_wake_sessions WHERE session_id=?", (retry_sid,))
+    assert session_clock == {"last_wake_at": fresh_row["wake_at"], "wake_streak": 1}

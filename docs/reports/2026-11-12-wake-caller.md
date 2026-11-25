@@ -576,3 +576,94 @@ All on the detached HEAD, each adding named files only:
 - This list's update and the `required-wait` log follow in their own commit.
 
 Head built: the commit that updates this section, on top of `1b6fe3958`.
+
+## Fix round 5
+
+Fixed both P1s and all three P2s for PR #307. Started **2026-11-25 21:20:32 UTC** from the first command's `date -u`. The assigned checkout was detached at `d37092161599266d52c5921b40ca1326ae639302`. The 13 new cases ran with that implementation before the fixes. The prune helper was extracted with its original match for that run. [Baseline log](2026-11-12-wake-caller-data/fix-r5/before.log) · [Fixed cases](2026-11-12-wake-caller-data/fix-r5/after.log)
+
+### Fold I/O and offline delivery
+
+Round 4's deviation 6 let a fold I/O error suppress the offline hook's receipt and print. It now catches `OSError` around the fold in `session_event`, where the hook can continue to the receipt while `fold_activity` reports the housekeeping failure. A corrupt snapshot still raises `ValueError` into the outer handler. A receipt write failure still stops printing. If syncing the replaced aggregate's directory fails, the fold keeps its input records. If an unlink fails, the record it could not remove and any following records still merge with the aggregate, which also covers records already removed.
+
+Both `test_c15_9_a_fold_io_failure_still_surfaces_the_notice` cases failed at the starting head with empty output and no receipt. The replacement failure was injected at the aggregate destination alone. After the fix both cases printed once, wrote a receipt, preserved readable merged activity, and left no aggregate temporary. The unlink case kept both input records beside the successfully replaced aggregate. The corrupt-record check passed. The two existing receipt-write test cases passed with fault injection scoped to `reserve_offline`, ensuring their fsync and replace faults reached the receipt. [Before](2026-11-12-wake-caller-data/fix-r5/before.log) · [After](2026-11-12-wake-caller-data/fix-r5/after.log)
+
+### Equal activity times
+
+The old merge replaced the source on ties in reading order. Moving a record into the aggregate changed that order, so round 4's conclusion that either source was correct led to different wake decisions. File merges and SQLite reconciliation now use the same order. Latest `at` wins. On a tie, a source that holds wakes according to `notice_source_allows` wins so the notice can wait for the next prompt. For sources with the same eligibility, the lexicographically greatest string wins, with `None` before all strings. The merge takes maximum `human_at` independently. Online `_record_activity` continues to use daemon arrival order.
+
+- `test_c15_9_a_fold_preserves_the_wake_decision_for_equal_activity_times` publishes an earlier-named `compact` from an actual offline hook after the fold's snapshot, with the same `at` and `human_at` as the later-named `clear` in the snapshot. The real engine held the raw representation and sent from the folded one at the starting head. It now holds both.
+- `test_c15_9_applying_equal_time_activity_preserves_a_holding_source` previously stored incoming `compact` over equal-time `clear`. It now retains `clear`.
+- `test_c15_9_activity_merge_is_independent_of_fold_and_reconcile_grouping` failed on both explicit tied splits. It now passes with `max_examples=100` and two explicit examples. It compares the final claim's read and apply across reconciled, folded and late-published groups with the merge of all raw records. The generated records use three possible activity times, all five requested sources and independently generated personal-input times.
+- Existing tests that depend on earlier and later source activity already supplied distinct times. This round required zero timestamp adjustments.
+
+[Before](2026-11-12-wake-caller-data/fix-r5/before.log) · [After](2026-11-12-wake-caller-data/fix-r5/after.log)
+
+### Activity spool bound
+
+A stopped fold could leave its aggregate temporary indefinitely. A fold now removes this session's aggregate temporaries while holding both locks, including when it has no published records. It validates activity before cleanup so a corrupt snapshot still preserves the evidence. The tests created three files with the fold's actual temporary naming format to model stopped folds. Both `test_c15_9_a_fold_removes_stopped_folds_temporaries` cases left eight entries at the starting head and returned to five after the fix, with and without new records to fold.
+
+The bound is **five recursive entries** under `hooks/notice-receipts/` for a session after a successful fold with a receipt and no leftovers. Add one published record for each hook that publishes while the delivery lock is held or whose fold misses the activity lock, until a successful fold or reconcile consumes it. A late publication outside the snapshot survives. The test with eight contending prompts verifies **13 recursive entries and five top-level entries**, then **five recursive entries** after another hook. A fold I/O error or interruption can leave extra files. The fold leaves record temporaries inside `.activity.d/` because an active hook can write one before acquiring the lock. Those temporaries add to the recursive count. [Before](2026-11-12-wake-caller-data/fix-r5/before.log) · [After](2026-11-12-wake-caller-data/fix-r5/after.log)
+
+### Activity-lock wait budget and claim clock
+
+The first pass with 32 held activity locks previously spent **9.903 s** before returning. Each pass now shares **1 s** of activity-lock polling, charging elapsed monotonic time spent acquiring each lock. An acquisition allows up to **0.25 s** or the remaining budget. After exhaustion, later callers get one nonblocking attempt. A hook can spend up to 0.25 s polling for publication and another 0.25 s for its fold. `test_c15_9_activity_lock_waits_share_one_pass_budget` passed with a **125 ms per caller** allowance for ordinary work and scheduling, or **5 s** total for the 32 held callers. It verifies pending and unclaimed notices with zero attempts and a successful next-pass wake for caller 33 while the other locks remain held.
+
+The earlier pass sent the due retry **0.637 s after its 24-hour cutoff** using a timestamp from before expiry. The final claim now reads `self.now()` once after it acquires the activity lock. That reading drives retry expiry, the final eligibility and transcript recheck, `wake_at`, `last_wake_at` and the matching post-send and rollback writes. Using the same time throughout keeps the final judgement and persisted claim consistent. `test_c15_9_a_retry_can_expire_between_the_pass_start_and_claim` now records the retry as `undeliverable` with reason `retry-expired` and sends only the fresh notice for the same caller. [Before](2026-11-12-wake-caller-data/fix-r5/before.log) · [After](2026-11-12-wake-caller-data/fix-r5/after.log)
+
+C-15.9 and the version 3 changelog record the new fold, tie and lock behavior and the claim clock. They describe the reviewed race. In review r5, a prompt published and returned in 0.36 s while reservation was paused after the activity read. Before the final activity read, its activity is visible and holds the wake. After that read, the wake can go through and the next reconcile resets the streak for personal input timestamped at or after the claim.
+
+### Prune index detection
+
+`PRAGMA index_info` lists key columns, so a partial index can hide a column in its predicate. The prune test now calls a helper that matches the column case-insensitively in key columns and SQL. Word boundaries cover bare, double-quoted, bracketed and backticked identifiers. A string literal can also match. Dropping an extra test index is harmless because the disposable test still drops the target column and verifies prune's independent missing-column refusal.
+
+All four `test_prune_finds_partial_indexes_naming_case_variants` cases failed at `DROP COLUMN` with the old match and passed after the fix. All 20 migrated-column parameters reached `PruneRefused` naming the expected `table.column`. `git diff d37092161 -- subfleet/store.py subfleet/store_schema.sql` was empty. [Before](2026-11-12-wake-caller-data/fix-r5/before.log) · [After](2026-11-12-wake-caller-data/fix-r5/after.log) · [Full files](2026-11-12-wake-caller-data/fix-r5/full.log)
+
+### PR body replacements for the hub
+
+- **Migration.** “Schema 11 (numbered, additive) adds notice-local wake state and a `caller_wake_sessions` table for activity, streak and cooldown. #314 also carries slot 11. The hub coordinates the two under D-SCHEMA-SLOTS1.”
+- **Hooks.** “Online hooks claim notices atomically. PostToolUse claims its job's notice under the per-caller delivery lock. Offline prompt and start hooks publish an activity record before trying the delivery lock, including after a 0.25 s activity-lock miss. A hook holding both locks folds its snapshot and cleans stopped aggregate temporaries. The receipt still governs delivery if the fold hits an I/O error. The latest activity wins, with equal timestamps favoring sources that hold wakes. A successful fold with a receipt and no leftovers leaves five recursive entries. Contending or skipped folds can leave one record per hook until a successful fold or reconcile, and record temporaries add to the count.”
+- **Invariant 4.** “Reachable quiet notices are delivered after their gate or retry falls due when the rotation reaches the caller and the claim can acquire its locks. A pass examines at most 32 callers and wakes at most eight by default. Activity-lock acquisition budgets are 0.25 s per caller and 1 s per pass, followed by a single no-wait attempt for later callers. A missed lock leaves the notice pending for a later pass. Retry expiry and wake timestamps use the claim's clock.”
+- **Guards.** “The state contract, module names, invariants index and handler refusals checks passed 437 tests.”
+- **Next.** “Scoped review round 6. The hub resolves the acceptance-contract conflict and runs full CI on the resulting head.”
+
+### Setup, isolation and commits
+
+`gh pr view 307 --repo MaxGhenis/subfleet-v2` succeeded as a read. `uv sync --group dev` created the missing project `.venv` on Python 3.15.2. `uv pip install --python .venv/bin/python 'pytest-xdist>=3.6'` added xdist for the three live-store guard files, whose child-script checks use the project interpreter. [Environment setup](2026-11-12-wake-caller-data/fix-r5/uv-sync.log) · [Direct xdist install](2026-11-12-wake-caller-data/fix-r5/uv-xdist.log)
+
+The sandbox denied the requested location under `getconf DARWIN_USER_TEMP_DIR`. The job's writable temp directory held `sf-wcall-fix5` and its private uv cache. A short symlink, `/private/tmp/sf-wcall-fix5-221914`, initially pointed socket fixtures to the in-scratch `roots` directory. The first descriptor run failed because the daemon resolved the symlink before binding. Five connection tests hit the macOS socket path limit and two later tests saw daemon state left by those failures. The retry put socket fixture roots in a second private scratch directory, `/private/tmp/sf-wcall-fix5-221914/sf-wcall-fix5`, which kept their canonical paths short. This was the additional scratch location outside the job temp directory. The runner kept each basetemp, Hypothesis data and the child temp directory in scratch and set `PYTHONDONTWRITEBYTECODE=1`. Each run checked `df -H /` before starting. The isolation plugin came from round 4, with an expanded read-only GitHub command check, socket fixture redirection and exact skipped node IDs. [Runner](2026-11-12-wake-caller-data/fix-r5/run.py.txt) · [Isolation plugin](2026-11-12-wake-caller-data/fix-r5/r5_isolation.py.txt)
+
+After the live-store timeout, a synthetic-home Python probe ran the draw script with a 12 s faulthandler trace and a 35 s cap. It was compiling pytest source when the trace fired. `.venv/bin/python -m compileall -q` over the installed libraries, `subfleet` and the guard fixture sources prepared a 19 MB scratch cache and exited 0, reporting one absent `tests/unit/__init__.py` target. The ordinary isolated pytest retry passed in 286.11 s using the same interpreter command and timeout as the full live-store run. [Import probe](2026-11-12-wake-caller-data/fix-r5/draw-probe.log) · [Compile log](2026-11-12-wake-caller-data/fix-r5/compileall.log)
+
+`git diff --check` passed. Git denied `index.lock` when staging the regressions, the implementation and contract, and the report. The assigned checkout holds the complete changes and evidence for collection.
+
+After copying the logs, I removed both scratch locations with a guarded `shutil.rmtree`. The job scratch held `bytecode`, `compiled`, `draw-probe`, `hypothesis`, `logs`, `plugins`, `roots`, `tmp`, `uv-cache`. Each of the 13 named `pytest-*` basetemps was retired after its log was copied. The first socket symlink was removed before retrying with the short canonical directory. The project `.venv` and shared uv cache are available. Removed worktree bytecode caches from `subfleet/__pycache__`, `subfleet/adapters/__pycache__`, `subfleet/conversations/__pycache__`, `subfleet/sessions/__pycache__`, `.venv/lib/python3.15/site-packages/__pycache__`. [Cleanup manifest](2026-11-12-wake-caller-data/fix-r5/cleanup.json)
+
+### Head built
+
+`d37092161599266d52c5921b40ca1326ae639302`, with the round 5 changes in the assigned worktree. The sandbox prevented creating a new commit.
+
+### Tests run
+
+The overlay command was `uv run --no-sync --with 'pytest-xdist>=3.6' pytest`, with `-p r4_isolation -p no:cacheprovider -n 4 --timeout=300 --basetemp=<scratch>/pytest-<run> -ra --durations=8` and the selection below. The repeats added `--with 'pytest-repeat>=0.9'` before `pytest` and `--count=20` after it. The live-store guard run used `.venv/bin/python -m pytest` with the same pytest options. Exact commands, UTC times, exit codes and disk checks are in the manifest. [Commands](2026-11-12-wake-caller-data/fix-r5/runs.jsonl)
+
+| Run | Selection | Result |
+| --- | --- | --- |
+| `before` | New regression cases at `d37092161` | **13 expected failures** |
+| `after` | Same cases, corrupt folded record, and both receipt-write faults | **16 passed** |
+| `full` | `test_notice_claims.py`, `test_caller_notice_wakes.py`, `test_prune_217.py` | **151 passed** (44, 70, 37) |
+| `repeat20` | Round 3 cases by exact parameter IDs | 0 collected, exit 5. Pytest-repeat rewrote the IDs. |
+| `repeat20-k` | Round 3 cases by name and parameter with `-k` | **60 passed** (20 `[busy]`, 20 `[socket]`, 20 `[offline]`) |
+| `importers-a` | Caller notice wakes, notice claims, hooks, sessions notice wake, notice rendering | **290 passed**, 1 skipped |
+| `importers-b` | Notice delivery and headers, both pin review modules, stopped daemon, operator notices, suggest hint | **177 passed**, 36 skipped |
+| `importers-c` | Descriptor review fixes, doctor, hook cost, native hook guard, PR127 service, both hook-install modules | 156 passed, 3 skipped, **7 socket-fixture failures** |
+| `importers-c-short` | Same files with a short canonical socket fixture path | **163 passed**, 3 skipped |
+| `live-store-guards` | Three live-store guard modules on the project interpreter | **345 passed**, 1 child-draw property timed out at 300 s |
+| `live-store-guards-draws` | `test_the_property_draws_the_same_environments_in_every_process` alone on the project interpreter | **1 passed** (286.11 s in the test) |
+| `compat` | `test_compat.py` | **1,614 passed**, 1 skipped |
+| `guards` | State contract, test module names, invariants index, handler refusals | **437 passed** |
+
+The `git grep -l` importer list includes the resolver fixture and its ST3 child coverage. `tests/e2e/test_conversations.py` was omitted because its real-daemon fixture needs live process inspection. The importer runs skipped 41 named cases for process inspection or the detached SessionStart worker. Each exact node ID and reason is recorded. [Importer files](2026-11-12-wake-caller-data/fix-r5/importer-files.txt) · [Skipped tests](2026-11-12-wake-caller-data/fix-r5/skipped-tests.txt)
+
+### Remaining
+
+The code, contract, report and logs are ready for hub collection. Creating commits and obtaining clean Git status are blocked by the denied index lock. The hub owns the PR body edits, the contract conflict with `release/217`, scoped review round 6, full CI and the startup sweep follow-up. A missing registry row alone is insufficient grounds to remove a session's activity. Run 44130002325 on `d37092161` had nine passing shards and five cancellations before any steps ran. It supplied no prune result. The full suite stays with CI.
