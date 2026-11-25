@@ -547,9 +547,8 @@ def _resume_pin(policy: dict, recorded: Any, model_id: str) -> str:
 
     The attempt's recorded alias, while `resolve_model` still maps it to an entry
     at that ID (a retired alias included), so the alias's entry supplies the
-    effort. Otherwise the ID itself, which `submit` resolves to its first current
-    entry, or refuses when none holds it: a resume launches only at its source's
-    ID (`resume-identity-mismatch`), so an alias now at another ID is not kept.
+    effort. Otherwise the short name of the first current entry with that ID.
+    If no entry holds the ID, return the ID itself for `submit` to refuse at the pin.
     """
     if isinstance(recorded, str):
         try:
@@ -558,7 +557,7 @@ def _resume_pin(policy: dict, recorded: Any, model_id: str) -> str:
             entry = None
         if isinstance(entry, dict) and entry.get("id") == model_id:
             return recorded
-    return model_id
+    return next((short for short, entry in policy["models"].items() if entry["id"] == model_id), model_id)
 
 
 def imported_external(attempt: dict) -> bool:
@@ -3263,20 +3262,25 @@ class Daemon:
                 # repository inside one). Admission reads retention's fence on each,
                 # and retention keeps a tree any of them is in (`dependencies`).
                 depends = dependencies.record(str(workdir), review_root=review_root, out_path=out)
-                model = args.pinned_model
-                if model is not None:
+                pin = args.pinned_model
+                model = None
+                if pin is not None:
+                    pin_error = None
                     try:
-                        model = resolve_model(self.policy, model)
+                        model = resolve_model(self.policy, pin)
                     except PolicyError as exc:
+                        pin_error = exc
+                    if model is None or (resume is not None
+                                         and self.policy["models"][model]["id"] != resume["model_id"]):
                         # C-12.4: a resume's pin is its source attempt's model, which its
                         # caller cannot change (`_resume_submission`): its repair is a fresh job.
-                        raise AdapterError(f"unknown pinned model {model!r}; policy models: "
+                        raise AdapterError(f"unknown pinned model {pin!r}; policy models: "
                                            + ", ".join(self.policy["models"]), code=7,
                                            fix=refusals.RESUME_PIN_FIX if resume is not None
                                            else "pin a model from the live policy",
                                            reason="unknown-pinned-model",
-                                           details={"model": model, **({refusals.RESUME_PIN: True}
-                                                                       if resume is not None else {})}) from exc
+                                           details={"model": pin, **({refusals.RESUME_PIN: True}
+                                                                     if resume is not None else {})}) from pin_error
                 if args.needs_shell is not None and type(args.needs_shell) is not bool:
                     raise ValueError("needs_shell must be true or false")
                 if args.provider_qos is not None and (type(args.provider_qos) is not str
@@ -3332,9 +3336,9 @@ class Daemon:
                 if not isinstance(max_wall_s, (int, float)) or not 0 < max_wall_s <= caps["max_wall_s"]:
                     raise ValueError("max_wall_s must be positive and within policy caps")
                 # C-6.2: retain the pre-alias-fix normalization for accepted
-                # resume retries. The resume block binds the source attempt;
-                # routing still keeps that attempt's selected policy alias. The
-                # pin above already refused a source ID that no entry holds.
+                # resume retries. The digest can still resolve a key or retired
+                # alias spelled like the source ID. Routing uses the model pinned
+                # above, whose ID has already been checked against the source.
                 digest_model = resolve_model(self.policy, resume["model_id"]) if resume else model
                 digest = ids.payload_digest(prompt, workdir=str(workdir), workdir_head=head,
                     task=args.task, tier=args.tier, pinned_model=digest_model, pinned_lane=digest_pin,
@@ -3743,11 +3747,10 @@ class Daemon:
         # C-12.4: model IDs can have several policy aliases with different
         # efforts (including none), so the source attempt's recorded alias is
         # kept while it still names an entry at the attempt's provider model ID.
-        # Otherwise the resume pins that ID, as before the alias was kept: an
-        # attempt with no alias, an imported one whose alias is v1's own
-        # spelling (the importer resolved it without case and by scope), or an
-        # alias since removed or moved to another ID. The evidence is read in
-        # memory, never rewritten (C-23.32).
+        # Otherwise the first current entry at that provider model ID supplies
+        # the pin, including for imported v1 spellings. Submit refuses at the
+        # pin if no entry holds the ID. Read the source evidence in memory
+        # and leave the row intact (C-23.32).
         evidence = json.loads(attempt["evidence_json"] or "{}")
         pinned_model = _resume_pin(self.policy, evidence.get("model_short") if isinstance(evidence, dict) else None,
                                    attempt["model_requested"])

@@ -447,3 +447,57 @@ Other commands, all exit 0: `date -u`; `git status`/`log`/`diff`/`rev-parse`/`me
 - **Never touched:** live state, live processes, credentials, `git push`, GitHub writes and history rewrites.
 
 Head built: this section's last commit, the one that adds `cleanup.json`; its hash ends the final answer. Code and tests end at `2df2c11d6`, and the report's first commit is `7fc3286f4`.
+
+## Fix round 4
+
+Fixed the C-12.4 P1 from PR #310 review r4. Work started at **2026-11-25 21:20:36 UTC** on detached HEAD `804a0b533bd3368770a246a9ca24743178e9f269`. The pytest start cutoff was 23:50:36 UTC and the job deadline was 00:20:36 UTC on November 26.
+
+### Reproduction and fix
+
+At `804a0b533`, Haiku's current entry moved to a synthetic successor ID and a retired alias spelled like the old ID pointed to Haiku. The policy loaded and submit accepted the resume pinned to `haiku`. In that same test run, `launch_resume` admitted the job and called `Daemon._launch`. The adapter's `resume_launch` received zero calls. The test observed `resume-identity-mismatch`, and the attempt was `finalizing` with `rc: 7`, `child_pid: null`, and this `spawn_error` in its exit receipt.
+
+```text
+resume source identity is missing or does not match this attempt; fix: resubmit the resume from the original job
+```
+
+Pytest reported `DID NOT RAISE AdapterError`. The two other regressions also failed. With a retired alias shadowing an ID still held by `haiku_legacy`, the job pinned `haiku` and the adapter saw no call. The imported v1 case pinned the current key spelled `gpt-6-astra`, which pointed to a different ID, and the adapter again saw no call. The four existing controls passed. [Before-fix output](2026-11-12-effort-env-data/fix-r4/new-before.txt)
+
+The fallback passed the raw source ID to `resolve_model`, which checks current keys and retired aliases ahead of entry IDs. The fix round 3 summary's claim about fallback and submit-time refusal was false at `804a0b533` for these collisions. It holds after this round with the fallback now pinned by short name.
+
+`_resume_pin` retains a recorded alias that still resolves to the source attempt's `model_requested`. Otherwise it scans current entries in policy order for the first exact ID and returns that entry's short name. The fallback leaves the raw ID available for the refusal when there is no match. Submit compares the resolved entry's ID with the resume manifest's `model_id` at the existing pin check. This reuses normal pin resolution and the existing refusal, with the submitted pin in the message and details. In the retired-alias case the resolver can log a warning before the refusal. A missing source ID returns `AdapterError`, `unknown-pinned-model`, code 7, and `RESUME_PIN_FIX`. The details are exactly `{"model": old_id, "resume_pin": True}`. The public refusal carries neither a policy path nor a `pinned_model` key, and no job is created.
+
+The digest expression still uses the earlier normalization for requests that reach it, including policy-name shadowing. The launch identity check still runs. A same-`request_id` retry of the previously accepted missing-ID case reaches the new refusal before the digest and existing-job lookup. It gets the same code-7 refusal and leaves the existing job row intact. That result follows from the unchanged retry path's position after the pin.
+
+The rollover regression now reaches the adapter at the old ID with `haiku_legacy`'s `medium` effort, ahead of a second entry at the same ID with `low` effort. The imported case launches at the source ID through `astra`, and the source row including its evidence is identical after submit and launch (C-23.32). Both no-entry cases assert the exact refusal, wire text and job count. C-12.4, the D-EFFORT-ENV1 change log and the three daemon explanations now describe this behavior.
+
+Both P3s stay with the hub's existing disposition. The hub owns the PR body's “Sites” list. The fix round 3 report already corrects the before-state named in commit `561c2c8ef`, and history was preserved. The hub will handle the release/217 contract conflict and scoped review r5.
+
+### Test commands and results
+
+Each pytest invocation used `uv run --no-sync --with 'pytest-xdist>=3.6' pytest -n 4 -p no:cacheprovider -p round4_isolation --basetemp=<fresh pytest directory> -q -rs` with the selections below. The logs record exact selectors, basetemps, free disk, exit codes and counts. [Validation output](2026-11-12-effort-env-data/fix-r4/validation.txt)
+
+| Selection | Result | Exit |
+| --- | --- | --- |
+| Three focused functions in `tests/fake/test_resume_contract.py` before source edits | 3 failed as expected, 4 passed | 1 |
+| Same focused selection after the fix | 7 passed | 0 |
+| `tests/fake/test_resume_contract.py` | 41 passed | 0 |
+| `tests/unit/test_legacy_hold.py` | 50 passed, 6 skipped | 0 |
+| `tests/unit/test_handler_refusals.py` | 384 passed | 0 |
+| `tests/fake/test_review_needs_shell.py` | 23 passed | 0 |
+| `tests/frontend/test_visual_report_hygiene.py` | 60 passed | 0 |
+| `tests/fake/test_admission_priority.py tests/fake/test_census_round3_leases.py tests/fake/test_census_round3_interleavings.py` | 42 passed | 0 |
+| `tests/fake/test_state_contract.py tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py` | 63 passed | 0 |
+| `tests/frontend/test_visual_report_hygiene.py` after appending the report | 60 passed | 0 |
+| `tests/frontend/test_visual_report_hygiene.py` after correcting the cleanup record | 60 passed | 0 |
+
+The first hygiene run emitted a pytest shutdown warning after all tests passed. `git diff --check` passed. The static comparison to the review head matched the digest expression, launch identity check, retry lookup and non-resume fix text byte for byte.
+
+The six legacy-hold skips require a macOS boot identity that the sandbox denied. CI run `44129929237` cancelled eight jobs. Neither Python 3.12 nor 3.14 ran shards 2/7 or 4/7. The local `test_review_needs_shell.py` and `test_resume_contract.py` results cover those required files pending the hub's push. The other daemon-importing tests outside the requested list, counted as 257 in round 3, and the full suite were left to CI. No live CLI or provider tests ran.
+
+### Workspace and cleanup
+
+The sandbox denied the DARWIN temp child and shared uv-cache writes. I used the job-private scratch folder `/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4` and cloned the 50 MiB uv cache into it. The private `uv sync --group dev` succeeded with CPython 3.15.2 using the cache offline. A temporary pytest plugin redirected failed-test retention into scratch and limited native host PID enumeration to each worker's own PID. The selected tests ran in the requested order with four workers and no exclusions. The temporary launch observation ran only in the before-fix test. Each test started above 60 GB free.
+
+Guarded `shutil.rmtree` removed the named pytest basetemps, scratch including its private `uv-cache` and residual pytest temporary homes, and the generated worktree `.venv` and `.hypothesis`. The shared `uv-cache` remains. Setup, staging and cleanup commands and their results are in the evidence. [Command notes](2026-11-12-effort-env-data/fix-r4/commands.txt) · [Cleanup paths](2026-11-12-effort-env-data/fix-r4/cleanup.txt)
+
+**Final head built** `804a0b533bd3368770a246a9ca24743178e9f269` plus the tested working-tree changes. All three named-file staging attempts exited 128 because the assigned worktree's `index.lock` was denied. The report and evidence are in the assigned workspace for the hub to collect. The pending work is to commit those files, merge the contract at the hub and run scoped review r5 and CI.

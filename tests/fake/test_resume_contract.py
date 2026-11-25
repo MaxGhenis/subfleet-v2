@@ -154,8 +154,8 @@ def test_resume_keeps_source_effort_when_policy_aliases_share_a_model_id(
     assert daemon._children == {}
 
 
-# Review r3 of #310 (D-EFFORT-ENV1 fix round 3): the recorded alias is kept only while it
-# names an entry at the source attempt's provider model ID; otherwise the resume pins that ID.
+# Review r3/r4 of #310 (D-EFFORT-ENV1): keep a recorded alias that still names an entry
+# at the source model ID. Otherwise, select a current entry by its ID.
 
 #: A synthetic successor ID for `haiku`, so its old ID is left to another alias or to none.
 NEXT_HAIKU_ID = "claude-haiku-9-9-synthetic"
@@ -237,26 +237,55 @@ def test_c23_32_imported_resume_runs_at_its_source_model_id_whatever_v1_named_it
     assert source_attempt["evidence_json"] == evidence
 
 
-@pytest.mark.parametrize("change", ["id-rollover", "alias-removed", "alias-retired"])
+def test_imported_resume_pins_source_id_when_a_current_key_shadows_it(state_daemon, monkeypatch):
+    """C-12.4, C-23.32: a current key spelled like the source ID can point to a different model."""
+    daemon, harness = state_daemon
+    source_id, attempt = finished_source(daemon, harness)
+    evidence = json.dumps({"imported": True, "imported_external": False,
+                           "model_short": "astra-v1-only-name", "v1_class": None, "v1_lane": "codex-a",
+                           "v1_meta": "/legacy/runs/20260905-111855-astra/meta.json", "salvage_refs": []},
+                          sort_keys=True)
+    daemon.store.update_attempt(attempt["attempt_id"], evidence_json=evidence)
+    source_attempt = daemon.store.get_attempt(attempt["attempt_id"])
+    old_id = source_attempt["model_requested"]
+    models = daemon.policy["models"]
+    models[old_id] = {**models["astra"], "id": "gpt-6-astra-synthetic", "effort": "low"}
+    reload_policy(daemon)
+
+    resumed_id = resume_job(daemon, harness, source_id)
+    assert daemon.store.get_attempt(attempt["attempt_id"]) == source_attempt
+    launched = launch_resume(daemon, monkeypatch, resumed_id)
+    assert (daemon.store.get_job(resumed_id)["pinned_model"], launched) == ("astra", [
+        (source_attempt["lane_id"], "native-source-session", old_id,
+         daemon.policy["models"]["astra"].get("effort"))])
+    assert_resume_pins_source_model_id(daemon, resumed_id)
+    assert daemon.store.get_attempt(attempt["attempt_id"]) == source_attempt
+
+
+@pytest.mark.parametrize("change", ["id-rollover", "alias-removed", "alias-retired", "id-rollover-retired-shadow"])
 def test_resume_after_a_policy_change_pins_an_entry_at_its_source_model_id(state_daemon, monkeypatch, change):
-    """C-12.4 (review r3 of #310, P2 and P3): after the source's alias moved to a new ID with
-    the old one kept under another alias, or the alias was removed, the resume pins the old
-    ID; the first current entry at that ID supplies the effort, as before the alias was kept,
-    and the launch passes its identity check. A retired alias still resolves (control)."""
+    """C-12.4: after an ID rollover or alias removal, the first current entry at the
+    source ID supplies the launch effort, even when a retired alias shadows that ID.
+    The recorded alias can itself be retired while still resolving to the source ID."""
     daemon, harness = state_daemon
     models = daemon.policy["models"]
     models["opus"]["effort"] = "low"
     models["opus_alternate"] = {**models["opus"], "effort": "high"}
     reload_policy(daemon)
     claude_lane(daemon)
-    source_model = "haiku" if change == "id-rollover" else "opus_alternate"
+    rollover = change.startswith("id-rollover")
+    source_model = "haiku" if rollover else "opus_alternate"
     source_id, source_attempt = finished_source(daemon, harness, pinned_lane="claude-1", pinned_model=source_model)
     old_id = source_attempt["model_requested"]
     assert json.loads(source_attempt["evidence_json"])["model_short"] == source_model
     models = daemon.policy["models"]
-    if change == "id-rollover":
+    if rollover:
         models["haiku_legacy"] = {**models["haiku"]}
         models["haiku"] = {**models["haiku"], "id": NEXT_HAIKU_ID, "effort": "high"}
+        if change == "id-rollover-retired-shadow":
+            daemon.policy["retired"][old_id] = "haiku"
+            models["haiku_legacy"]["effort"] = "medium"
+            models["haiku_alternate"] = {**models["haiku_legacy"], "effort": "low"}
         expected = "haiku_legacy"
     else:
         del models["opus_alternate"]
@@ -272,7 +301,9 @@ def test_resume_after_a_policy_change_pins_an_entry_at_its_source_model_id(state
     assert_resume_pins_source_model_id(daemon, resumed_id)
 
 
-def test_resume_is_refused_unknown_pinned_model_when_no_entry_holds_its_source_model_id(state_daemon):
+@pytest.mark.parametrize("retired_shadow", [False, True], ids=["no-alias", "retired-shadow"])
+def test_resume_is_refused_unknown_pinned_model_when_no_entry_holds_its_source_model_id(
+        state_daemon, retired_shadow):
     """C-12.4, C-25.7 (review r3 of #310, P2 and P3): when no policy entry holds the source
     attempt's model ID, the resume is refused at its pin, before the request digest, as
     `unknown-pinned-model` (code 7) naming no policy path. The caller cannot change a resume's
@@ -282,6 +313,8 @@ def test_resume_is_refused_unknown_pinned_model_when_no_entry_holds_its_source_m
     source_id, source_attempt = finished_source(daemon, harness, pinned_lane="claude-1", pinned_model="haiku")
     old_id = source_attempt["model_requested"]
     daemon.policy["models"]["haiku"]["id"] = NEXT_HAIKU_ID
+    if retired_shadow:
+        daemon.policy["retired"][old_id] = "haiku"
     reload_policy(daemon)
     with pytest.raises(AdapterError) as raised:
         resume_job(daemon, harness, source_id)
@@ -291,6 +324,7 @@ def test_resume_is_refused_unknown_pinned_model_when_no_entry_holds_its_source_m
     assert str(refusal) == (f"unknown pinned model {old_id!r}; policy models: "
                             + ", ".join(daemon.policy["models"]))
     assert "policy.json" not in str(refusal) and "pinned_model" not in str(refusal)
+    assert refusal.details == {"model": old_id, "resume_pin": True}
     assert refusal.fix == RESUME_MODEL_FIX
     assert protocol.refusal_text(refusal) == (f"unknown pinned model {old_id}", RESUME_MODEL_FIX)
     assert [job["job_id"] for job in daemon.store.list_jobs()] == [source_id]

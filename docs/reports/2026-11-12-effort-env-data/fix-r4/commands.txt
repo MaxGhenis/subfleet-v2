@@ -1,0 +1,137 @@
+Round 4 command notes
+
+Start and initial reads
+- git rev-parse HEAD && date -u '+%Y-%m-%d %H:%M:%S UTC' — exit 0, 804a0b533bd3368770a246a9ca24743178e9f269 at 2026-11-25 21:20:36 UTC.
+- cat /Users/maxghenis/reviews/subfleet-hub/effort-env-2026-11-10/review-r4.md — exit 0.
+- cat docs/reports/2026-11-12-effort-env.md and tail -n +310 on the same report — exit 0.
+- gh pr view 310 --repo MaxGhenis/subfleet-v2 — exit 0, read.
+- git status --short --ignored and git worktree list --porcelain — exit 0; clean at the start, detached assigned checkout. git symbolic-ref -q --short HEAD — exit 1, confirming detached HEAD.
+- rg and sed inspected only the relevant workspace code, test harness, and contract. No local AGENTS.md was found by the workspace filename scan.
+- getconf DARWIN_USER_TEMP_DIR, command -v uv, command -v python3, uv --version, and df -H / — exit 0. Tool-provided job temp was used after the DARWIN temp path was denied.
+- ls -ld for the shared uv cache and the worktree's .venv and .hypothesis — exit 1 because the worktree folders did not exist.
+- mkdir of the requested DARWIN temp scratch returned permission denied; mkdir of the job-private sf-eff-fix4 succeeded.
+- du -sh of the shared cache and its entries — exit 0, 50 MiB total.
+- cp -cR of the shared cache to job-private scratch — exit 0.
+- git diff --quiet HEAD -- subfleet immediately before new-before — exit 0. git rev-parse HEAD still returned 804a0b533bd3368770a246a9ca24743178e9f269.
+- Baseline probe added with apply_patch. The probe's launch observation was removed with apply_patch after the failing run; the case and all refusal assertions remained.
+- apply_patch for daemon and python3 exact-text substitutions for contract — exit 0. The report was appended under a base-prefix assertion.
+- git diff --check and the Python check of git show output — exit 0. The pinned-model digest expression, launch identity check, non-resume fix string and existing-job lookup match base.
+- Test runs used the scratch runner below. The actual invocations, free-disk checks, pass/fail counts, exits and scratch sizes are in new-before.txt and validation.txt.
+- Guarded cleanup removed the first three completed basetemps early and all remaining job scratch and generated worktree folders after the final hygiene test. Absolute paths are in cleanup.txt.
+
+Named-file commit attempts
+- git add -- tests/fake/test_resume_contract.py docs/reports/2026-11-12-effort-env-data/fix-r4/new-before.txt
+- git add -- subfleet/daemon.py docs/acceptance-contract.md
+- git add -- docs/reports/2026-11-12-effort-env.md docs/reports/2026-11-12-effort-env-data/fix-r4/commands.txt docs/reports/2026-11-12-effort-env-data/fix-r4/validation.txt docs/reports/2026-11-12-effort-env-data/fix-r4/cleanup.txt
+Each staging command exited 128, denied the linked worktree's index.lock by the filesystem sandbox. The chained git commit commands were therefore unreachable.
+
+uv sync --group dev, requested shared cache (exit 2)
+error: Failed to initialize cache at `/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache`
+  Caused by: failed to open file `/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/sdists-v9/.git`: Operation not permitted (os error 1)
+
+uv sync --group dev, cloned job-private cache with UV_OFFLINE=1 (exit 0)
+Using CPython 3.15.2
+Creating virtual environment at: .venv
+Resolved 10 packages in 3ms
+   Building subfleet @ file:///Users/maxghenis/.subfleet/worktrees/20261125-221915-eff-fix-r4
+      Built subfleet @ file:///Users/maxghenis/.subfleet/worktrees/20261125-221915-eff-fix-r4
+Prepared 1 package in 2.83s
+Installed 9 packages in 194ms
+ + hypothesis==6.168.1
+ + iniconfig==2.3.0
+ + packaging==26.3
+ + pluggy==1.6.0
+ + pygments==2.21.0
+ + pytest==9.1.1
+ + pytest-timeout==2.4.0
+ + sortedcontainers==2.4.0
+ + subfleet==2.0.0a0 (from file:///Users/maxghenis/.subfleet/worktrees/20261125-221915-eff-fix-r4)
+
+Scratch test runner
+#!/bin/bash
+set -eu -o pipefail
+scratch=$(cd "$(dirname "$0")" && pwd -P)
+label=$1
+shift
+stamp=$(date -u '+%Y%m%dT%H%M%SZ')
+basetemp="$scratch/pytest-$label-$stamp"
+log="$scratch/$label.txt"
+export TMPDIR="$scratch"
+export UV_CACHE_DIR="$scratch/uv-cache"
+export UV_OFFLINE=1
+export PYTHONDONTWRITEBYTECODE=1
+export PYTHONPATH="$scratch"
+{
+    printf 'Started %s UTC\n' "$stamp"
+    df -H /
+    available=$(df -k / | awk 'NR==2 {print $4}')
+    if [ "$available" -lt 58593750 ]; then
+        printf '%s\n' 'Below the 60 GB free-disk limit.'
+        exit 70
+    fi
+    if [[ "$stamp" > 20261125T235035Z ]]; then
+        printf '%s\n' 'Past the new-test start deadline.'
+        exit 71
+    fi
+    command=(uv run --no-sync --with 'pytest-xdist>=3.6' pytest -n 4 -p no:cacheprovider
+        -p round4_isolation "--basetemp=$basetemp" -q -rs "$@")
+    printf 'Command'
+    printf ' %q' "${command[@]}"
+    printf '\n'
+    result=0
+    "${command[@]}" || result=$?
+    printf 'Finished %s, exit %s\n' "$(date -u '+%Y-%m-%d %H:%M:%S UTC')" "$result"
+    du -sh "$scratch"
+    exit "$result"
+} 2>&1 | tee "$log"
+
+Scratch-only pytest isolation module
+import os
+import tempfile
+from pathlib import Path
+
+import pytest
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_configure(config):
+    from subfleet import procs
+    from tests import failed_keep
+
+    failed_keep.ROOT = Path(tempfile.gettempdir()) / "sf-failed"
+    procs.kernel.pids = lambda: [os.getpid()]
+
+Final report staging error
+fatal: Unable to create '/Users/maxghenis/subfleet-v2/.git/worktrees/20261125-221915-eff-fix-r4/index.lock': Operation not permitted
+
+Final cleanup command: python3 "$job_scratch/cleanup.py" "$job_scratch"
+from datetime import datetime, timezone
+from pathlib import Path
+import shutil
+import sys
+
+workspace = Path.cwd().resolve()
+assert workspace == Path("/Users/maxghenis/.subfleet/worktrees/20261125-221915-eff-fix-r4")
+scratch = Path(sys.argv[1])
+assert not scratch.is_symlink()
+assert scratch == scratch.resolve(strict=True)
+assert scratch.name == "sf-eff-fix4" and "sf-eff-fix4" in scratch.parts
+assert scratch.parent.name.startswith("subfleet-attempt-20261125-221915-eff-fix-r4-")
+
+print(f"Cleanup started {datetime.now(timezone.utc).isoformat()}")
+for name in (".venv", ".hypothesis"):
+    path = workspace / name
+    assert path.name in {".venv", ".hypothesis"}
+    assert not path.is_symlink() and path.resolve(strict=True).parent == workspace
+    shutil.rmtree(path)
+    assert not path.exists()
+    print(f"Removed {path}")
+
+for child in sorted(scratch.iterdir()):
+    if child.is_dir():
+        assert child.parent == scratch
+        print(f"Removed with scratch {child}")
+shutil.rmtree(scratch)
+assert not scratch.exists()
+print(f"Removed {scratch}")
+print(f"Cleanup finished {datetime.now(timezone.utc).isoformat()}, exit 0")
