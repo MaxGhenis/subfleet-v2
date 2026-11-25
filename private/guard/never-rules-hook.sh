@@ -387,8 +387,14 @@ fi
 # (-Cdir, -pfile, -p=file) or not, and a relative one resolves against that folder, as subfleet resolves
 # it; more than 16 briefs to read is refused.
 # Guard sync fix r2 (2026-11-17): a path's `.` and repeated `/` collapse, and each brief's folder is
-# resolved (cd -P, pwd -P) before the brief is read, so every spelling of one brief is read once. More than
-# 64 paths to resolve, or more than 16 distinct briefs, is refused.
+# resolved (cd -P, pwd -P) before the brief is read, so every spelling that resolves to one brief is read
+# once. More than 64 paths to resolve, or more than 16 distinct briefs, is refused.
+# Guard sync fix r3 (2026-11-26): each folder stays in that form as the words are read, so a cd costs its own
+# words and one copy of its folder, never a new split of it. A cd/pushd target's `..` takes off the word before
+# it, as bash and zsh do by default; where its physical spelling (`..` kept, as cd -P, set -P or zsh's
+# CHASE_LINKS resolve it) differs, that folder is read from too, and both count toward the 64. -C and -p keep
+# `..` as written, as subfleet resolves them. More than 4096 folders to examine (each folder for each
+# subfleet run after it, once more for each -C and -p) is refused.
 if printf '%s' "$command" | grep -qE 'subfleet[[:space:]]+run'; then
   ab_list=$(printf '%s' "$command" | LC_ALL=C awk -v cwd="$cwd" -v home="$HOME" '
     function expand(p) {
@@ -407,7 +413,41 @@ if printf '%s' "$command" | grep -qE 'subfleet[[:space:]]+run'; then
       if (file && o != "/" && p ~ /\/\.?$/) o = o "/"
       return o
     }
-    function join(base, p, file) { p = expand(p); return norm(substr(p, 1, 1) == "/" ? p : base "/" p, file) }
+    # norm(base "/" p, file) for a folder base already in the form norm gives, or norm(p, file) for an absolute p:
+    # only the words of p are split, so a stored folder is copied once and never split again
+    function join(base, p, file,   a, n, i, r) {
+      p = expand(p)
+      if (substr(p, 1, 1) == "/") base = "/"
+      n = split(p, a, "/"); r = ""
+      for (i = 1; i <= n; i++) if (a[i] != "" && a[i] != ".") r = r "/" a[i]
+      if (r != "") base = (base == "/" ? "" : base) r
+      if (file && base != "/" && ("/" p) ~ /\/\.?$/) base = base "/"
+      return base
+    }
+    # where a logical cd or pushd (the default in bash and zsh) lands: join, but each `..` takes off the word
+    # before it, by name, as the shell does before it enters the folder; at `/` it does nothing, after `.` or `..`
+    # it stays
+    function cdl(base, p,   a, n, i, st, t, e, s, w, r) {
+      p = expand(p)
+      if (substr(p, 1, 1) == "/") base = "/"
+      n = split(p, a, "/"); t = 0; e = length(base)
+      for (i = 1; i <= n; i++) {
+        w = a[i]
+        if (w == "" || w == ".") continue
+        if (w != "..") { st[++t] = w; continue }
+        if (t && st[t] != "..") { t--; continue }
+        if (!t) {
+          for (s = e; s > 0 && substr(base, s, 1) != "/"; s--) ;
+          w = substr(base, s + 1, e - s)
+          if (w == "") continue
+          if (w != "." && w != "..") { e = s > 1 ? s - 1 : 1; continue }
+        }
+        st[++t] = ".."
+      }
+      base = substr(base, 1, e); r = ""
+      for (i = 1; i <= t; i++) r = r "/" st[i]
+      return r == "" ? base : (base == "/" ? r : base r)
+    }
     { text = text $0 "\n" }
     END {
       if (cwd == "") cwd = "."
@@ -415,15 +455,19 @@ if printf '%s' "$command" | grep -qE 'subfleet[[:space:]]+run'; then
       gsub(/\\\n/, "", text); gsub(/\$\{HOME\}/, "$HOME", text); gsub(/["'\''\\]/, "", text)
       gsub(/[;&|()`{}<>\n]/, " ; ", text)
       n = split(text, w, /[ \t]+/)
-      nd = 1; dirs[1] = cwd; known[cwd] = 1; cur = cwd; prev = cwd; no = 0
+      nd = 1; dirs[1] = cwd; known[cwd] = 1; cur = cwd; prev = cwd; pcur = cwd; pprev = cwd; no = 0; wk = 0
       for (i = 1; i <= n; i++) {
         t = w[i]
         if (t == "cd" || t == "pushd" || t == "popd") {
           for (k = i + 1; k <= n && (w[k] ~ /^-[LPe@]+$/ || w[k] == "--"); k++) ;
           v = (t == "popd") ? "-" : w[k]
-          if (v == "-") { v = cur; cur = prev; prev = v; continue }
-          prev = cur; cur = (k > n || v == ";" || v == "") ? home : join(cur, v)
+          if (v == "-") { v = cur; cur = prev; prev = v; v = pcur; pcur = pprev; pprev = v; continue }
+          # cur: where the shell lands resolving `..` by name; pcur: resolving links first, `..` kept for cd -P
+          prev = cur; pprev = pcur
+          if (k > n || v == ";" || v == "") cur = pcur = home
+          else { cur = cdl(cur, v); pcur = join(pcur, v) }
           if (!(cur in known)) { known[cur] = 1; dirs[++nd] = cur }
+          if (!(pcur in known)) { known[pcur] = 1; dirs[++nd] = pcur }
           continue
         }
         if ((t != "subfleet" && t !~ /\/subfleet$/) || w[i + 1] != "run") continue
@@ -437,6 +481,7 @@ if printf '%s' "$command" | grep -qE 'subfleet[[:space:]]+run'; then
           if (substr(o, 2, 1) == "C") cs[++nc] = v; else ps[++np] = v
         }
         for (k = 1; k <= nd && np; k++) {
+          if ((wk += 1 + nc + np) > 4096) { print "TOOMANY"; exit }
           ax = !nc && index(dirs[k], "TheAxiomFoundation")
           for (c = 1; c <= nc; c++) if (index(join(dirs[k], cs[c]), "TheAxiomFoundation")) ax = 1
           if (!ax) continue
@@ -451,7 +496,7 @@ if printf '%s' "$command" | grep -qE 'subfleet[[:space:]]+run'; then
       }
       for (k = 1; k <= no; k++) print out[k]
     }')
-  ab_many="[axiom-brief-regime] This command names more than 16 briefs to read, or more than 64 paths to them (each -p from each folder the shell can be in); the guard cannot read them all in time. Dispatch one subfleet run per command."
+  ab_many="[axiom-brief-regime] This command names more than 16 briefs to read, or more than 64 paths to them (each -p from each folder the shell can be in), or more than 4096 folders to examine (each folder for each subfleet run after it, once more for each -C and -p); the guard cannot read them all in time. Dispatch one subfleet run per command."
   [ "$ab_list" != "TOOMANY" ] || block "$ab_many"
   # Each brief is keyed by its folder's physical path (the trailing x keeps a newline that ends it) and
   # its name; a brief that is not a file is not read, as before.
@@ -488,12 +533,21 @@ fi
 # against the folder before it), with each -C applied. One cat-file --batch-check reads every manifest, so a
 # large index costs a few processes, not four per file; a folder that is not there costs none.
 # Guard sync fix r2 (2026-11-17): a path's `.` and repeated `/` collapse, and each folder is resolved (cd -P,
-# pwd -P) before git runs, so every spelling of one checkout is checked once; more than 64 paths to resolve
-# is refused. The git work is bounded by time: before each git call for a third or later folder, the block
-# denies once 15 s have passed since it began, and never allows (the hook's 60 s timeout allows). The first
-# two folders, the payload cwd and the one a command names, are always checked in full, so load alone does
-# not refuse a commit from one checkout. Staged names are read raw (-z, --no-relative), so
+# pwd -P) before git runs, so every spelling that resolves to one folder is checked once (a subfolder of a
+# checkout is a folder of its own); more than 64 paths to resolve is refused. The git work is bounded by time:
+# before each git call for a third or later folder, the block denies once 15 s have passed since it began,
+# and never allows (the hook's 60 s timeout allows). The first two folders are checked in full: the first two
+# distinct (resolved folder, --git-dir) keys that exist, in the awk's order (each git … commit in command
+# order, from each folder met before it, the payload cwd first and then each cd/pushd target, with that
+# commit's -C applied); a folder that is not there is skipped and not counted. So `cd a && cd b && git commit`
+# can be refused under load: b is the third. Staged names are read raw (-z, --no-relative), so
 # each name under the anchor is looked up with its own bytes, and one holding a newline is denied.
+# Guard sync fix r3 (2026-11-26): each folder stays in that form as the words are read, so a cd costs its own
+# words and one copy of its folder, never a new split of it. A cd/pushd target's `..` takes off the word before
+# it, as bash and zsh do by default; where its physical spelling (`..` kept, as cd -P, set -P or zsh's
+# CHASE_LINKS resolve it) differs, that folder is checked too, and both count toward the 64. -C, --git-dir and
+# GIT_DIR= keep `..` as written, as git resolves them. More than 4096 folders to examine (each folder for each
+# git … commit after it, once more for each -C) is refused.
 if printf '%s' "$command" | grep -qE 'git[[:space:]].*(commit|\\$)'; then
   hr_t0=$SECONDS
   hr_list=$(printf '%s' "$command" | LC_ALL=C awk -v cwd="$cwd" -v home="$HOME" '
@@ -513,7 +567,39 @@ if printf '%s' "$command" | grep -qE 'git[[:space:]].*(commit|\\$)'; then
       if (file && o != "/" && p ~ /\/\.?$/) o = o "/"
       return o
     }
-    function join(base, p) { p = expand(p); return norm(substr(p, 1, 1) == "/" ? p : base "/" p) }
+    # norm(base "/" p) for a folder base already in the form norm gives, or norm(p) for an absolute p: only the
+    # words of p are split, so a stored folder is copied once and never split again
+    function join(base, p,   a, n, i, r) {
+      p = expand(p)
+      if (substr(p, 1, 1) == "/") base = "/"
+      n = split(p, a, "/"); r = ""
+      for (i = 1; i <= n; i++) if (a[i] != "" && a[i] != ".") r = r "/" a[i]
+      return r == "" ? base : (base == "/" ? r : base r)
+    }
+    # where a logical cd or pushd (the default in bash and zsh) lands: join, but each `..` takes off the word
+    # before it, by name, as the shell does before it enters the folder; at `/` it does nothing, after `.` or `..`
+    # it stays
+    function cdl(base, p,   a, n, i, st, t, e, s, w, r) {
+      p = expand(p)
+      if (substr(p, 1, 1) == "/") base = "/"
+      n = split(p, a, "/"); t = 0; e = length(base)
+      for (i = 1; i <= n; i++) {
+        w = a[i]
+        if (w == "" || w == ".") continue
+        if (w != "..") { st[++t] = w; continue }
+        if (t && st[t] != "..") { t--; continue }
+        if (!t) {
+          for (s = e; s > 0 && substr(base, s, 1) != "/"; s--) ;
+          w = substr(base, s + 1, e - s)
+          if (w == "") continue
+          if (w != "." && w != "..") { e = s > 1 ? s - 1 : 1; continue }
+        }
+        st[++t] = ".."
+      }
+      base = substr(base, 1, e); r = ""
+      for (i = 1; i <= t; i++) r = r "/" st[i]
+      return r == "" ? base : (base == "/" ? r : base r)
+    }
     { text = text $0 "\n" }
     END {
       if (cwd == "") cwd = "."
@@ -521,16 +607,20 @@ if printf '%s' "$command" | grep -qE 'git[[:space:]].*(commit|\\$)'; then
       gsub(/\\\n/, "", text); gsub(/\$\{HOME\}/, "$HOME", text); gsub(/["'\''\\]/, "", text)
       gsub(/[;&|()`{}<>\n]/, " ; ", text)
       n = split(text, w, /[ \t]+/)
-      nd = 1; dirs[1] = cwd; known[cwd] = 1; cur = cwd; prev = cwd; gd_env = ""; no = 0
+      nd = 1; dirs[1] = cwd; known[cwd] = 1; cur = cwd; prev = cwd; pcur = cwd; pprev = cwd; gd_env = ""; no = 0; wk = 0
       for (i = 1; i <= n; i++) {
         t = w[i]
         if (t == ";") { gd_env = ""; continue }
         if (t == "cd" || t == "pushd" || t == "popd") {
           for (k = i + 1; k <= n && (w[k] ~ /^-[LPe@]+$/ || w[k] == "--"); k++) ;
           v = (t == "popd") ? "-" : w[k]
-          if (v == "-") { v = cur; cur = prev; prev = v; continue }
-          prev = cur; cur = (k > n || v == ";" || v == "") ? home : join(cur, v)
+          if (v == "-") { v = cur; cur = prev; prev = v; v = pcur; pcur = pprev; pprev = v; continue }
+          # cur: where the shell lands resolving `..` by name; pcur: resolving links first, `..` kept for cd -P
+          prev = cur; pprev = pcur
+          if (k > n || v == ";" || v == "") cur = pcur = home
+          else { cur = cdl(cur, v); pcur = join(pcur, v) }
           if (!(cur in known)) { known[cur] = 1; dirs[++nd] = cur }
+          if (!(pcur in known)) { known[pcur] = 1; dirs[++nd] = pcur }
           continue
         }
         if (t ~ /^GIT_DIR=/) { gd_env = substr(t, 9); continue }
@@ -547,6 +637,7 @@ if printf '%s' "$command" | grep -qE 'git[[:space:]].*(commit|\\$)'; then
         if (w[j] != "commit") continue
         if (gd != "") gd = norm(expand(gd), 1)
         for (k = 1; k <= nd; k++) {
+          if ((wk += 1 + nc) > 4096) { print "TOOMANY"; exit }
           d = dirs[k]
           for (c = 1; c <= nc; c++) if (cs[c] != "" && cs[c] != ";") d = join(d, cs[c])
           key = d "\037" gd
@@ -559,7 +650,7 @@ if printf '%s' "$command" | grep -qE 'git[[:space:]].*(commit|\\$)'; then
       for (k = 1; k <= no; k++) print out[k]
     }')
   if [ "$hr_list" = "TOOMANY" ]; then
-    block "[hand-authored-rulespec] This command names more than 64 folders to commit from (each cd/pushd target, with each git -C applied); the guard cannot check them all in time. Commit from one checkout per command."
+    block "[hand-authored-rulespec] This command names more than 64 folders to commit from (each cd/pushd target, with each git -C applied), or more than 4096 folders to examine (each folder for each git commit after it, once more for each -C); the guard cannot check them all in time. Commit from one checkout per command."
   fi
   hr_late="[hand-authored-rulespec] The guard's 15 s budget for checking staged indexes ran out before it checked every folder this command commits from; it does not let an unchecked commit through. Commit from one checkout per command, or retry when the host is less busy."
   # Each folder is keyed by its physical path (the trailing x keeps a newline that ends it) and its git dir,
