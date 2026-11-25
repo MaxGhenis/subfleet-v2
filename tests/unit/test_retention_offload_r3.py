@@ -94,6 +94,15 @@ def test_an_offloaded_archive_whose_recall_put_everything_back_is_recalled_witho
     assert _without_stub(tree_state(env.archive(name))) == before
     assert tree_state(outside) == external_before
     assert rarch.check_archive(env.root, name)["ok"]
+    # Mounted again, a later offload to that target takes the kept copy over
+    # through its ledger, and `--drop-external` then removes it (C-8.8).
+    volumes.mount(env.volume.mount)
+    assert outcomes(offload(env)) == {name: "offloaded"}
+    assert rarch.check_archive(env.root, name)["ok"]
+    report = rof.recall(env.root, name, drop_external=True)
+    assert outcomes(report) == {name: "recalled"} and report["results"][0]["external"] == "dropped", report
+    assert not outside.exists()
+    assert _without_stub(tree_state(env.archive(name))) == before
 
 
 # --- guards: an incomplete internal copy still needs the volume, and nothing internal changes first ---
