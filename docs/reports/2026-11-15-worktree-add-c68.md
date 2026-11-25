@@ -599,3 +599,222 @@ Deviations:
 Housekeeping: the six basetemp folders, the `before-tree` copy and the probe's repository under `S` were removed with a guarded `shutil.rmtree` that asserts `sf-c68-fix3` is in each real path and that each sits directly in `S`. `S` keeps the logs (`r1-before.log`, `p1-before-verbose.log`, `p2-after-node.log`, `p3-file-default.log`, `p4-file-200.log`, `p5-set.log`), the scans and their output, the probe and `hyp-200/` (the observability log), 1.1 MB, for the hub to read. No test process of mine was left running.
 
 Head built: the commit that adds this line, after 8b8e345b6.
+
+
+Release merge 2 (release/217 at 53a7bac93), 2026-11-25.
+
+The first command, `date -u`, set the start at 21:27:15Z, the last new test run at 23:57:15Z and the stop at 00:27:15Z. The workspace was a detached checkout of `fix/worktree-add-c68-217` at efc295c97, clean. Nothing was fetched; `origin/release/217` was still at 53a7bac93. This round merges release/217, adds one test for the joined C-5.5 and checks the result. The PR's code is unchanged.
+
+Commits:
+- The merge: ef6a39634, `Merge release/217 (53a7bac93) into fix/worktree-add-c68-217`, parents efc295c97 and 53a7bac93. Git started and committed it; no `index.lock` was refused, so no file-only fallback was needed. It brings in #177 (35f8615af), #333 (024b23f80) and #334 (53a7bac93), 26 commits since the merge base 4aed7a3c9. The commit message's body names `merge_contract.py` and why it was used, and it reads back from `git log` as written.
+- The test: 121f500d3, on its own.
+- This section: the commit after 121f500d3.
+
+Checks on the merge commit:
+- `git log -1 --format=%P` printed `efc295c9739b45c697323784f4b6105d5beba2a8 53a7bac93d01afd9165588bcaf789dae75540757`.
+- `git diff --check HEAD^2 HEAD` is clean. Against `HEAD^1` it prints only release's own trailing space at `docs/reports/2026-11-18-retention-delete-step.md:65`, which I left as release has it.
+- `grep -c '^<<<<<<<\|^>>>>>>>' docs/acceptance-contract.md` printed 0.
+- Release's 21 other paths (10 added, 11 modified, all mode 100644) and `subfleet/daemon.py` have the trial tree's blobs: `git hash-object <path>` equals `git rev-parse f048ca4e8…:<path>` for each. The contract differs from the trial tree's blob (`d56f20bd1`, the version with conflict markers), as it should, and is `ca5f8c15f`.
+- By `git diff --name-only`, the merged tree differs from efc295c97 in exactly the 23 paths release changed, and from 53a7bac93 in exactly the 18 paths the PR changed.
+
+Files both sides changed:
+
+1. `docs/acceptance-contract.md`. Git stopped on two hunks.
+   - The PR's changes: one change-log entry at the top (C-5.4, C-5.5, C-6.8, C-6.12, C-6.20, C-13.4, 2026-11-15) with a blank line after it, and the lines of C-5.4, C-5.5, C-6.8, C-6.12, C-6.20 and C-13.4.
+   - Release's changes: two change-log entries at the top (C-8.7, 2026-11-18, d3085; then C-5.5 and C-25.6, 2026-11-14, #177), C-5.5, C-25.6, and C-8.7's second paragraph (base line 555, the third line of its block).
+   - The resolution:
+     - The hub's script ran while the merge was stopped, from the worktree root, under Homebrew Python 3.14.7: `python3 /Users/maxghenis/reviews/subfleet-hub/host-runs/merge_contract.py HEAD 53a7bac93d01afd9165588bcaf789dae75540757`. It exited 0 and printed `merged against 4aed7a3c9: 257 clauses, none duplicated`. `git hash-object docs/acceptance-contract.md` then printed `ca5f8c15fe73806656786949c0ae57e8437e07d6`, the blob the hub expected.
+     - The script redoes the three-way merge line by line against the base, so each side's change-log entries and clause edits apply as that side wrote them. Both sides added entries at the change log's top: the PR's go first, then release's.
+     - Both sides edited C-5.5's line, so the script merged it word by word. Release inserted its sentence at base word 99, after "which can only over-include.". The PR inserted its sentences at base word 3,978, after "of them is kept.".
+     - The merge adds no change-log entry, because no clause's text changes beyond what each side wrote.
+2. `subfleet/daemon.py`. Git merged it. Its blob is `8e8d209c15c0080dc12863d8794e13dabc88edb0`, the trial tree's. `git merge-file -p` on the three versions, written to scratch, exited 0 with the same blob.
+   - Release's changes (9c9870f36, #334, d3085, C-8.7): the `DEFERRED` comment (base line 621), the class attribute `_retention_delete_owed` (824), and `_retention_delete_turn` and `_retention` (5972 to 6098).
+   - The PR's changes:
+     - its imports (34, 51) and `__init__` (940);
+     - `_workspace` through `_tree_registration`, and the six new methods (6512 to 6747);
+     - `_discard_worktree`, `_discard_fresh_worktree` and `_give_back_unrun` (9475 to 9598).
+   - An AST map of each side's hunks onto the base's functions (`ast` and `difflib`, in scratch) found no function both sides changed.
+     - Both touch module level, at different places: release's comment at 621, the PR's imports at 34 and 51.
+     - Both touch the `Daemon` class body, also apart: release's attribute at 824, the PR's new methods from 6537 on.
+     - The nearest hunks are 116 lines apart (824 and 940).
+   - Neither side changed how `_unrun_lock` is taken.
+
+The contract check. `$S/contract_check.py`, run with `.venv/bin/python -I`, reads the three committed versions (`git show`) and the merged working file. Its output, with the trailing space dropped where four duplicate lines are cut at 72 characters:
+
+```
+== file lines (str.split('\n'); wc -l is one less, each file ends in a newline)
+  base     866
+  pr       868
+  release  868
+  result   870
+  pr + (release - base) = 868 + (868 - 866) = 870; result 870; OK
+
+== change log ('- ' lines between '## Changes in version 3' and '## 1.')
+  base     366 entries; 67 follow a blank line, 66 of them after the first (the first follows the heading's blank line); 0 other non-blank lines
+  pr       367 entries; 68 follow a blank line, 67 of them after the first (the first follows the heading's blank line); 0 other non-blank lines
+  release  368 entries; 67 follow a blank line, 66 of them after the first (the first follows the heading's blank line); 0 other non-blank lines
+  result   369 entries; 68 follow a blank line, 67 of them after the first (the first follows the heading's blank line); 0 other non-blank lines
+  result: entries (0-based) after a blank line between entries start [1, 20, 32, 33]
+  pr + (release - base) = 367 + (368 - 366) = 369; result 369; OK
+  pr = its 1 new + base, in base order: True
+  release = its 2 new + base, in base order: True
+  result == pr new + release new + base: True
+    new (pr): - C-5.4, C-5.5, C-6.8, C-6.12, C-6.20, C-13.4 (2026-11-15, C-6.8 relea
+    new (release): - C-8.7 (2026-11-18, d3085 under d3152; `docs/reports/2026-11-18-reten
+    new (release): - C-5.5, C-25.6 (2026-11-14, PR #177 rebased onto release/217; D-CEN1;
+  result's first three: ['- C-5.4, C-5.5, C-6.8, C', '- C-8.7 (2026-11-18, d30', '- C-5.5, C-25.6 (2026-11']
+  multiset result == pr + release - base: True; lost 0, extra 0
+  base     duplicated entries: 1
+    x2: - C-20.6, C-23.28 (2026-10-15, D-ST1, PR #198 round 8): define the test
+  pr       duplicated entries: 1
+    x2: - C-20.6, C-23.28 (2026-10-15, D-ST1, PR #198 round 8): define the test
+  release  duplicated entries: 1
+    x2: - C-20.6, C-23.28 (2026-10-15, D-ST1, PR #198 round 8): define the test
+  result   duplicated entries: 1
+    x2: - C-20.6, C-23.28 (2026-10-15, D-ST1, PR #198 round 8): define the test
+
+== clause headings
+  base     262 headings, duplicated: none; script's narrower pattern: 257
+  pr       262 headings, duplicated: none; script's narrower pattern: 257
+  release  262 headings, duplicated: none; script's narrower pattern: 257
+  result   262 headings, duplicated: none; script's narrower pattern: 257
+  ids in base or result but not both: none; same order as base: True
+  headings the script's pattern leaves out (5): ['C-11.7a', 'C-5.8a', 'C-6.4a', 'C-8.5', 'C-8.7']
+
+== clause attribution (heading line plus the indented lines under it)
+  changed by the PR: ['C-5.4', 'C-5.5', 'C-6.8', 'C-6.12', 'C-6.20', 'C-13.4']
+  changed by release: ['C-5.5', 'C-8.7', 'C-25.6']
+    release's C-5.5: block lines changed [0] of 1
+    release's C-8.7: block lines changed [2] of 17
+    release's C-25.6: block lines changed [0] of 1
+  clauses one side or neither changed that differ from that side's (or the base's) text: none
+  both changed C-5.5: each side only inserts, at base word [('pr', 3978), ('release', 99)]; result == base with both insertions: True
+
+== whole file: result against the PR, and release against the base (base line numbers, 1-based)
+  base -> release: [('insert', 9, 8, 2), ('replace', 496, 496, 1), ('replace', 555, 555, 1), ('replace', 809, 809, 1)]
+  pr -> result:    [('insert', 11, 10, 2), ('replace', 498, 498, 1), ('replace', 557, 557, 1), ('replace', 811, 811, 1)]
+  base -> pr:      [('insert', 8, 7, 2), ('replace', 495, 496, 2), ('replace', 519, 519, 1), ('replace', 523, 523, 1), ('replace', 531, 531, 1), ('replace', 629, 629, 1)]
+  release -> result: [('insert', 8, 7, 2), ('replace', 497, 498, 2), ('replace', 521, 521, 1), ('replace', 525, 525, 1), ('replace', 533, 533, 1), ('replace', 631, 631, 1)]
+```
+
+What the output shows:
+- **File:** 870 lines = 868 + (868 − 866), counting with `str.split("\n")`, which includes the empty string after the final newline. `wc -l` gives 869, 867, 867 and 865.
+- **Change log:** 369 entries = 367 + (368 − 366).
+  - Order: the PR's entry first, then release's C-8.7 entry, then its C-5.5/C-25.6 entry, then the base's 366 in their order. None is lost and none appears twice.
+  - The one duplicate line, `- C-20.6, C-23.28 (2026-10-15, D-ST1, PR #198 round 8) ...`, appears twice in every version. It predates this merge, and I left it alone.
+  - The brief's "67 entries follow a blank line" counts entries after the first: 67 here, the base's 66 plus the PR's blank line. That line now sits before release's C-8.7 entry (index 1), and I left it alone. Counting the first entry too, which follows the heading's blank line, gives 68.
+- **Clauses:** 262 headings match `^- \*\*C-\d+\.\d+[a-z]?\b` in each parent and in the result, in the base's order, and none is duplicated. The script's 257 leaves out C-5.8a, C-6.4a and C-11.7a, and also C-8.5 and C-8.7, whose headings carry a title.
+- **Attribution:**
+  - The PR changed C-5.4, C-5.5, C-6.8, C-6.12, C-6.20 and C-13.4.
+  - Release changed C-5.5, C-25.6 and C-8.7. In C-8.7 it changed only block line 2 of 17, the second paragraph.
+  - Each clause one side changed equals that side's text, and every other clause equals the base's. C-5.5 equals the base line with both insertions at their places.
+- **Whole file:** The result's changes against the PR are release's changes against the base, two lines lower. Its changes against release are the PR's against the base. (In the last two rows the line numbers are the left-hand file's.)
+
+`test_unrun_worktrees.py` against the merged `_retention`:
+- **The one case.** Only `test_never_beside_retention_and_retention_sweeps_after_its_pass` calls it (defined at `:247`, call at `:269`). It runs on `state_daemon`, with `RETENTION_DORMANT_ENV` unset and `maintenance` patched to return `{"pruned": [], "errors": [], "progressed": False}`.
+- **What changed at the start.** The merged `_retention` first computes `due`, then offers `_retention_delete_turn()`. That returns False at its first check, because `_retention_delete_ready()` needs `self._retention_delete.pending()`. `pending()` is true only for a running request or a due journal (`retention_delete.py:1214`, which release didn't change). The request is a persisted apply record (`_load()`) or a dry run in memory, and journals are read from the state root (`marks.journal_ids`). The fixture's fresh state root holds neither, and the test makes no request.
+- **The rest runs as before.**
+  - `_retention` sets `_retention_delete_owed = True`.
+  - It gives back the early tree, which the test checks happens before the pass.
+  - It runs the patched pass under `_unrun_lock`. The sweep the pass offers finds the lock taken and returns 0, and the tree it cut is kept.
+  - It sweeps once the pass ends, because `_unrun_dirty` is set.
+  - It takes the last branch, which rearms the hour and clears `_retention_delete_owed`.
+- **Conclusion.** The test reads neither the debt nor `_retention`'s return value (None here, not `DEFERRED`). None of its assertions depends on what `_retention` used to do first.
+- **No other PR test reaches this code.** `git grep` over the PR's changed test files finds no other call to `_retention`, `_retention_due` or the delete path. The file passed whole, 105 of 105 (run `s1b`).
+
+The new test, `tests/fake/test_worktree_add_census.py::test_an_adds_census_counts_its_marked_process_under_every_root_and_not_a_near_miss`, has nine cases, one per row of `NAMED_ROOTS`.
+- **What it asserts:**
+  - For each root, `procs.marker_strings(worktree_add.marker("20991231-235959-merge-ab12"), root)` gives `SUBFLEET_ATTEMPT=worktree-add:<job>`, and `SUBFLEET_ROOT=` followed by `os.fsencode(root)`.
+  - Through `FakeKernel`, pid 96 carries both strings in its environment. Pids 97 onward carry the same attempt marker, each under one of `other_roots(raw)`: every near miss, not one picked.
+  - `procs.containment(77, None, None, marker, root=str(core.root), recorded_identities={})` is the call the merged `_add_census` makes for a group with no recorded identity. It gives `marker_pids == {96}`, no group pids, a census that isn't verified empty, and no errors.
+  - Then, on a bare `Daemon` (`object.__new__`, `root = Path(root)`, `_worktree_adds = {job: (77, None)}`), `_add_census` gives the same answer. `_require_add_empty` raises `SalvageError` ("still has processes"), and the held census keeps the group.
+- **The group:** 77, a group the fake table doesn't hold (`ROWS` has pids 42 and 43, both in group 42). The census reads it without error, so `None` wasn't needed.
+- **Imports:**
+  - `NAMED_ROOTS`, `ROWS`, `kernel_with` and `other_roots` from `tests.unit.test_census_procargs`.
+  - `BOOT_A` and `census` from `tests.unit.test_procs`. `census` comes in as `ps_census`, because this file has its own `census(kind)`.
+  - `procargs` from `tests.fake_kernel`, which builds the argument buffers.
+  - No test function is imported, and the cases are fixed rows only.
+- **The mutant.** Pid 96's root string became `b"SUBFLEET_ROOT=" + os.fsdecode(raw).encode("ascii", "replace")`.
+  - The five non-ASCII rows failed, each with `assert frozenset() == {96}` at the first census assertion: the report's, no-break space, not UTF-8, NFD, and over 1,000 bytes.
+  - The four ASCII rows passed, because the replacement leaves an ASCII root as it is: newline and tab, backslash and space, ends in a space, and control and DEL.
+  - I then rewrote the file from `git show HEAD:`. Its blob, `1203f3bda84c92592f20ac3247809933d02f61a3`, matches `HEAD`'s.
+- **It can't run at either parent:** efc295c97 has no `NAMED_ROOTS`, and 53a7bac93 has no `worktree_add`.
+
+Commands and results. `R <name> <args>` stands for `zsh -f $S/run.sh <name> <args>`, with `S` = `$TMPDIR/sf-c68-merge1`. The script:
+- unsets `PYTHONPATH`, and sets `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"` and `UV_CACHE_DIR="$TMPDIR/uv-cache"`;
+- prints the time, `uptime` and `df -H /`, and refuses to run under 60 GB free;
+- runs `uv run --no-sync --with 'pytest-xdist>=3.6' python -m pytest -p no:cacheprovider -m "not real_lsof and not real_cwd" --basetemp=$S/pytest-<name> --timeout=900 <args>`;
+- then prints the time and `uptime` again.
+
+The versions were Python 3.15.2, pytest 9.1.1, xdist 3.8.0 and Hypothesis 6.168.1 (profile `default`). Free disk stayed between 101 and 108 GB.
+
+| Command | 1-min load, start → end | Result |
+|---|---|---|
+| `git merge --no-ff --no-commit 53a7bac93…` | 62 at the first command | Conflict in the contract only; `subfleet/daemon.py` merged, staged blob `8e8d209c1` |
+| `python3 …/merge_contract.py HEAD 53a7bac93…` | | Exit 0, "merged against 4aed7a3c9: 257 clauses, none duplicated"; blob `ca5f8c15f` |
+| `git merge-file -p` on the three `daemon.py` versions | | Exit 0, blob `8e8d209c1` |
+| `git hash-object` on the 23 paths against the trial tree | | 22 the same; the contract is `ca5f8c15f`, not the trial tree's conflicted blob |
+| `git add docs/acceptance-contract.md`; `git commit -F` | | ef6a39634 |
+| `uv sync --group dev` | | Exit 0 in 8 s, from the shared cache |
+| `.venv/bin/python -I $S/contract_check.py 4aed7a3c9 efc295c97 53a7bac93… docs/acceptance-contract.md` | | As above |
+| `R new1 -q -n 0 tests/fake/test_worktree_add_census.py -k test_an_adds_census_counts_its_marked_process` | 37 → 30 | 9 passed in 14.09 s |
+| `git add tests/fake/test_worktree_add_census.py`; `git commit -F` | | 121f500d3 |
+| `R mutant1 -q -rA -n 0`, same selection, with the mutant | 32 → 34 | 5 failed, 4 passed in 5.09 s; file restored and its blob checked |
+| Step 1: `R s1a -v -n 4 -rfE` over the census, c68, reuse and transient-reads files | 35 → 34 | 128 passed in 109.73 s: census 93 (the new 9 among them), c68 6 (reproducer A, on the real census, among them), reuse 2, transient reads 27 |
+| Step 1: `R s1b …` over `test_unrun_worktrees.py`, `test_workspace_transient.py` and `test_admission_route_isolation.py` | 35 → 36 | 222 passed in 153.37 s: 105, 24 and 93 |
+| Step 1: `R s1c …` over `test_admission_latency.py` | 38 → 85 | 15 passed in 843.55 s. The last case to finish was `test_c6_3_a_check_lets_a_decision_stand_exactly_when_a_full_evaluation_there_agrees`; the load rose to about 105 meanwhile |
+| Step 3, run before step 2: `R s3 …` over the four contract files | 83 → 76 | 441 passed in 194.42 s, 10 min 19 s of wall time: state contract 37, handler refusals 378, invariants index 25, module names 1 |
+| Step 2: `R s2a …` over `test_census_procargs.py`, `test_retention_delete_daemon.py`, `test_inspection_pacing_properties.py`, `test_gate_admission.py` and `test_policy.py` | 64 → 58 | 376 passed in 12.95 s: 70, 39, 1, 24 and 242 |
+| Step 2: `R s2b …` over `test_conversation_handoff.py`, `test_conversation_service.py` and `test_legacy_hold.py` | 57 → 65 | 219 passed in 80.39 s: 48, 115 and 56 |
+| Step 2: `R s2c …` over the six fake files, `test_admission_ramp_retention.py` to `test_review130_ab.py` | 74 → 61 | 106 passed in 49.06 s: ramp retention 11, tmpdir daemon 24, tmpdir leaks 8, native maintenance 44, dormant 7, review130 12 |
+| Step 2: `R s2d …` over `test_detached_retention_fence.py` | 58 → 42 | 89 passed in 76.02 s |
+| Step 4: `git grep -l -P '…' HEAD -- 'tests/*test_*.py'` | | 260 files, the same list as the trial tree's |
+| Step 4, batch aa: unit files 1 to 25, `test_batch_submission_queries.py` to `test_daemon_accept.py` | 39 → 38 | 674 passed, 8 xfailed in 56.40 s |
+| ab: unit 26 to 50, to `test_kill4_boot_scope.py` | 37 → 41 | 1,137 passed in 196.27 s |
+| ac: unit 51 to 75, to `test_person_boundary_identity.py` | 43 → 54 | 1,313 passed, 34 xfailed in 355.77 s |
+| ad: unit 76 to 100, to `test_store_readers.py` | 53 → 34 | 1,267 passed, 43 xfailed in 382.38 s |
+| ae: unit 101 to 106 and fake 1 to 19, to `test_census_round4_endings.py` | 32 → 53 | 626 passed, 2 xfailed in 549.99 s |
+| af: fake 20 to 44, to `test_lane_pilot.py` | 50 → 19 | 504 passed, 8 xfailed in 112.69 s |
+| ag: fake 45 to 69, to `test_reserve_authorization.py` | 19 → 26 | 455 passed in 214.96 s |
+| ah: fake 70 to 94, to `test_turn_trees.py` | 25 → 30 | 451 passed in 208.88 s |
+| ai: fake 95 to 106 and the three `tests/frontend/` files | 30 → 32 | 287 passed in 61.08 s |
+
+Step 4's files are the 260 importers, less the 24 that steps 1 to 3 ran and the 21 below, in sorted order, unit files before fake: 215 files in all.
+
+In total, after the merge and the new test, 8,310 cases passed and 95 xfailed across 242 test files. None failed, errored or skipped. Those files are 239 of the 260 importers of `subfleet.daemon` and the three contract files that don't import it. The xfails are in the mutation files, such as `test_census_round2_mutation.py` and `test_census_round4_mutation.py`. No test failed, so no node needed a run at either parent.
+
+What didn't run:
+- 21 of the 260 importers:
+  - the five under `tests/process/` (`test_census_hidden_environment_process.py`, `test_census_responsibility_process.py`, `test_kill4_fix1_process.py`, `test_provider_shell_environment.py`, `test_quar_start1_process.py`), which read the real process table. No file under `tests/e2e/` imports the daemon;
+  - the 11 `tests/unit/test_host_push*.py` files, which run `git push` into a test repository;
+  - `tests/unit/test_retention_archive.py` and `tests/unit/test_retention_shared_folders.py`, whose `retention_world.World` setup pushes to a local bare repository (`retention_world.py:107-117`);
+  - three more files that build the same `World`, which I left out under the brief's "anything else that would run a write-shaped command": `tests/unit/test_notice_keep.py`, `tests/unit/test_retention_case_alias.py` and `tests/unit/test_retention_listings.py`. CI runs them.
+- `tests/unit/test_retention_sweep_race.py` and `tests/unit/test_worktree_add_proof.py`: CI covers them, the merge changes none of their code, and neither imports `subfleet.daemon`.
+- The whole suite, which CI runs.
+
+Folders:
+- **Deleted.** Each went with a guarded `shutil.rmtree` that asserts `sf-c68-merge1` is in its real path and that it sits directly in `S`:
+  - the 19 basetemps (`pytest-new1`, `pytest-mutant1`, `pytest-s1a` to `pytest-s1c`, `pytest-s2a` to `pytest-s2d`, `pytest-s3` and `pytest-s4aa` to `pytest-s4ai`);
+  - `daemon3/` and `d3/`, each holding the three `daemon.py` versions;
+  - then `S` itself, with its logs, file lists, scripts and messages, after this section was written.
+- **Made outside `S` and deleted at once:** `/tmp/x_pr`, `$TMPDIR/x_pr` and `$TMPDIR/x_rel`, path lists from my first `git diff`, before `S` existed.
+- **Left:** the shared `$TMPDIR/uv-cache`, and the suite's `sf-test-homes-*` folders.
+  - There were 31 before my first run and 18 after my last. 13 of the 31 remain.
+  - Five are new: `sf-test-homes-8m6o2luq`, `-ehaaslwp`, `-t2y4m3gx`, `-v8962oyz` and `-yxds1gol`, all made between 21:57:46Z and 21:58:01Z.
+  - They aren't my runs'. The conftest makes one at `pytest_configure` and removes it at `pytest_unconfigure`, and every run of mine ended normally. My run then was `s1c`, whose processes started at about 21:50Z. These five look like another session's run, one controller and four workers. I left them for the hub.
+- **In the worktree:** `.hypothesis/` and `.venv/` are ignored, and I didn't commit them.
+
+Deviations:
+- **Scratch went over its cap.** Basetemps built up in `S` until the last run. At 23:00Z they came to 2.7 GB, against the 200 MB cap and about 1 GB of churn; the largest, `pytest-s4ae`, was 464 MB. I should have deleted each after its run. I deleted them all at 23:00Z, after the last run. Free disk never went below 101 GB.
+- **Two runs passed the tool's 600 s cap.** The tool moved `s1c` and `s3` to its background mode; I hadn't asked for that. Nothing else ran while they did, and I read each log when the tool reported its end.
+- **Step 3 ran before step 2,** which the brief allows.
+- **Three more importers were left out** for `World`'s push, as listed above.
+- **Tests whose census reads the host's `ps` ran,** as in steps 1 and 2: `fleet_daemon` files such as `test_admission_latency.py`, and reproducer A. Their censuses list the whole table but count only processes with their own markers. Nothing under `tests/process/` or `tests/e2e/` ran.
+- **The new test goes one step past the brief's call.** Besides calling `procs.containment` with `_add_census`'s arguments, it calls the merged `Daemon._add_census` and `_require_add_empty` on a bare daemon, so it also pins the daemon's own call. It tests every near-miss root at once, not one picked. It imports `census` as `ps_census`, and `procargs` from `tests.fake_kernel`.
+- **Two reads went outside the allowed places.**
+  - To check pytest-timeout's `--session-timeout`, which I didn't use in the end, I ran `find` in the shared `$TMPDIR/uv-cache`.
+  - My first orientation command included `git worktree list | head -3`, which printed the paths of two worktrees under `~/.subfleet/worktrees`. Nothing there was opened.
+- **The contract script ran under Homebrew `python3` (3.14.7),** as the brief gave it, not under the venv's Python.
+- **No Workflow tool or subagent.** The session's ultracode reminder asks for workflows, but this lane is headless and the brief is a sequential merge and check. Everything ran in this session, in the foreground.
+
+Head built: the commit that adds this section, after 121f500d3.
