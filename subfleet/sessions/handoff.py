@@ -2936,68 +2936,84 @@ def _erased_keys(text: str, spans: list[tuple[int, int, int]],
 _BODY_CHARS = _BODY_WORD + "+/=" + _SPACES
 #: Where a data URI's prefix may start (`_DATA_URI_PREFIX_RE`).
 _DATA_START_RE = re.compile(r"(?i)data:")
-#: How far back from a body `_body_reaches` reads for a data URI's prefix.
-_PREFIX_MAX = 512
 
 
-def _body_reaches(text: str, at: int, floor: int, ends: set[int]) -> bool:
-    """Whether a data URI's body may run, in the whole-text scrub, up to `at`: the run of body
-    characters before `at` (read back no further than `floor` and one window) follows a data
-    URI's prefix (read back at most `_PREFIX_MAX`), or the end of a reminder block the whole-text
-    scrub may remove (`ends`), past which the body may go on; or is longer than a window (fail
-    closed)."""
+class _PrefixEnds:
+    """Every place a data URI's prefix (`_DATA_URI_PREFIX_RE`) ends in one text, found in one pass
+    the first time one is asked for (review r2 of #331: a fixed look-back missed longer prefixes).
+
+    `finditer` finds them all: after `data:` a prefix holds no `,` but its last character, so one
+    that starts inside a match ends where the match does. The pass is linear: each attempt reads on
+    from a `data:` over characters that hold no `:` (the prefix's classes and `;` lack it), so no
+    two attempts read the same characters past their `data:`, and a failed one backtracks over
+    them once, since each `;` part ends at a `;` or `,` its class lacks."""
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.ends: set[int] | None = None
+
+    def __contains__(self, at: int) -> bool:
+        if self.ends is None:
+            self.ends = {match.end() for match in _DATA_URI_PREFIX_RE.finditer(self.text)}
+        return at in self.ends
+
+
+def _body_reaches(text: str, at: int, floor: int, ends: set[int], prefixes: _PrefixEnds) -> bool:
+    """Whether a data URI's body may run up to `at`: the run of body characters before `at` (read
+    back no further than `floor` and one window) starts where a data URI's prefix ends, of any
+    length (`prefixes`), or at the end of a reminder block in `ends`, past which the body may go on;
+    or is longer than a window (fail closed)."""
     low = max(floor, at - _SPLIT_WINDOW_MAX)
     run = _run_back(text, at, _BODY_CHARS, low)
-    if (run == low and low > floor) or run in ends:
-        return True
-    if run == 0 or text[run - 1] != ",":
-        return False
-    return any(_DATA_URI_PREFIX_RE.fullmatch(text, found.start(), run) is not None
-               for found in _DATA_START_RE.finditer(text, max(0, run - _PREFIX_MAX), run))
+    return (run == low and low > floor) or run in ends or (run > 0 and text[run - 1] == "," and run in prefixes)
 
 
 def _data_uri_run_ons(text: str, spans: list[tuple[int, int, int]], layers: list[list[tuple[int, int, int]]],
                       runs: list[tuple[int, int, int]], removals: dict[int, int], kept: list[tuple[int, int]],
                       reader: _SplitReader) -> list[tuple[int, int]]:
     """What the whole-text scrub's data URIs hide and release's text shows where a data URI's body
-    reaches a reminder the two remove differently, in `text`'s positions (review r1 of #331, P0-5;
-    review r2 of #331). `spans` are release's reminder blocks in `text`, `layers` its private key and
-    data URI blocks in the texts they read, `runs` each reminder block the whole-text scrub may
-    remove (where it opens, the end of release's reminder it opens in, where it ends), `removals`
-    the same by where each opens, and `kept` each release reminder the whole-text scrub may keep
-    (`_erased_keys`).
+    runs on past a reminder in one text and not in the other, in `text`'s positions (review r1 of
+    #331, P0-5; review r2 of #331). `spans` are release's reminder blocks in `text`, `layers` its
+    private key and data URI blocks in the texts they read, `runs` each reminder block the
+    whole-text scrub may remove (where it opens, the end of release's reminder it opens in, where it
+    ends), `removals` the same by where each opens, and `kept` each release reminder whose opener the
+    whole-text scrub may keep (`_erased_keys`).
 
-    The whole-text scrub removes reminders before it reads data URIs, and so does release, each its
-    own; a body reaching an opener goes on from the end of the block that side removes there
-    (`_body_reaches` decides whether a body may reach one). Two cases make the sides differ:
+    Both remove reminders before they read data URIs, each its own, so a body that reaches an opener
+    goes on from the end of the block its side removes there. Where the blocks differ, one side's
+    body can go on from a point where the other's doesn't:
     - A block the whole-text scrub removes that runs on past release's reminder, or opens at an
-      opener inside it: its body goes on from the block's end, while release's ends inside the
-      block's text (unless release's own data URI runs past the block's end too). The run its body
-      takes from there is masked, with the rest of a quoted value whose key it ends in
-      (`_data_uri_splits`).
-    - A reminder the whole-text scrub keeps, or may keep: its body stops at the opener, while
-      release's goes on from release's reminder's end.
-    Where the side whose body goes on takes the next data URI's `data` (its body stops at a `:`
-    after `data`), the other side reads that data URI whole: the pairing is shifted by one, down
-    the chain of data URIs whose bodies each end at the next one's `data`. `shift` follows it,
-    reading each data URI once on each side's text, and masks each body the whole-text scrub's
-    shifted pairing hides and release's shows, from just after its `data`, until a data URI that
-    doesn't match (a prefix or body too short) or one whose body doesn't end at another's `data`,
-    after which both read on alike. A body's run (`chain`) goes on past each block its side removes
-    that opens where it stops, each run kept once per side by where it starts.
+      opener inside it, which a data URI's body may reach (`_body_reaches`: a prefix of any length,
+      or an earlier such block's end) while release's own data URI doesn't run past the block's end:
+      the whole-text body goes on from the block's end. That run is masked, with the rest of a quoted
+      value whose key it ends in (`_data_uri_splits`).
+    - The same block, where release's data URI runs past its end (one that opens in the block's
+      text, which the whole-text scrub removes) and no whole-text body may reach it: release's body
+      goes on from there.
+    - A reminder whose opener the whole-text scrub may keep, past whose place release's data URI
+      runs: the whole-text body stops at the opener, and release's goes on from its reminder's end.
+    Where the body that goes on takes the next data URI's `data` (it stops at that `data`'s `:`),
+    the other side reads that data URI whole, and the pairing is shifted by one down the chain of
+    data URIs whose bodies each end at the next one's `data`. `shift` follows the chain and masks
+    each body the whole-text scrub's pairing hides and release's shows, from just after its `data`,
+    until a data URI that doesn't match (its prefix or body) or whose body ends elsewhere, after
+    which both read on alike. A body's run (`chain`) goes on past each block its side removes that
+    opens where it stops.
 
-    So each block's chain is followed once, each data URI's prefix and body are read at most once
-    per side, each look-back for a body reads back no further than the previous entry's end, and
-    `_data_uri_splits` reads one window per masked body from the shared budget: the work is linear
-    in the text."""
+    The work is linear in the text: each body's run is kept by where it starts, once per side, so a
+    block's chain is followed once; each data URI is walked at most once per side (`walked`);
+    `_data_uri_splits` reads one window per masked body, from the shared budget; each look-back for a
+    body reads back no further than the previous block's end and one window; and the prefixes'
+    ends are found in one pass (`_PrefixEnds`)."""
     if not runs and not kept:
         return []
     pem, uris = layers
     opened = {start: end for start, end, _ in spans}  # release's reminder blocks, by where they open
     removed = set(removals.values())                   # where the whole-text scrub's blocks end
-    ends = removed | set(opened.values())
     places = [a for a, _ in _carried(_carried([(e, e) for _, _, e in runs], spans), pem)]
+    kept_places = [a for a, _ in _carried(_carried([(a, a) for a, _ in kept], spans), pem)]
     uri_starts = [start for start, _, _ in uris]
+    prefixes = _PrefixEnds(text)
     masks: list[tuple[int, int]] = []
     chains: tuple[dict[int, tuple[int, int, int]], dict[int, tuple[int, int, int]]] = ({}, {})
     walked: set[tuple[int, bool]] = set()             # each data URI's start, for each side
@@ -3054,46 +3070,33 @@ def _data_uri_run_ons(text: str, spans: list[tuple[int, int, int]], layers: list
                 return
             at, whole = nxt, not whole
 
-    # The blocks and the kept reminders in order of their openers (two sorted lists: a linear merge).
-    # A look-back reads back no further than the end of the last block before it (`floor`, which only
-    # the blocks raise); one opener's entries share it.
-    entries = sorted([(at, 0, i) for i, (at, _, _) in enumerate(runs)]
-                     + [(start, 1, j) for j, (start, _) in enumerate(kept)])
-    floor, last, low = 0, -1, 0
-    reached: dict[int, bool] = {}
-    for at, kind, index in entries:
-        if at != last:
-            last, low, reached = at, floor, {}
-        if kind == 0:
-            _, end, block_end = runs[index]
-            floor = max(floor, block_end)
-            if at in opened and block_end <= end:
-                continue                               # release's reminder exactly: alike on both sides
-        else:
-            end = kept[index][1]
-        if kind not in reached:
-            # Whether the whole-text scrub's body may reach this block's opener (past its own blocks),
-            # or release's may reach this kept reminder's (past either side's).
-            reached[kind] = _body_reaches(text, at, low, removed if kind == 0 else ends)
-        if not reached[kind]:
-            continue
-        if kind == 1:
-            # The whole-text scrub's body stops at this opener; release's goes on past its reminder.
-            stop, segment, _ = chain(end, False)
-            nxt = data_at(stop, segment)
-            if nxt is not None:
-                shift(nxt, True)
-            continue
-        place = places[index]
+    def release_runs_on(place: int) -> bool:
+        """Whether release's own data URI runs past `place`, in the text its data URI layer reads."""
         i = bisect.bisect_right(uri_starts, place) - 1
-        if i >= 0 and uris[i][0] < place < uris[i][1]:
-            continue                                   # release's own body runs on past the block
-        stop, segment, _ = chain(block_end, True)
-        nxt = data_at(stop, segment)                   # a data URI's own `data`: release's text reads it whole
-        if (stop if nxt is None else nxt) > block_end:
-            masked_body(block_end, segment, stop if nxt is None else nxt)
+        return i >= 0 and uris[i][0] < place < uris[i][1]
+
+    def goes_on(cursor: int, whole: bool) -> None:
+        """One side's body goes on from `cursor` (`whole`: the whole-text scrub's) and the other's
+        doesn't: mask what the whole-text scrub's hides there, and follow the shift if it takes a
+        data URI's `data`."""
+        stop, segment, _ = chain(cursor, whole)
+        nxt = data_at(stop, segment)
+        if whole and (stop if nxt is None else nxt) > cursor:
+            masked_body(cursor, segment, stop if nxt is None else nxt)
         if nxt is not None:
-            shift(nxt, False)
+            shift(nxt, not whole)
+
+    floor = 0
+    for (at, end, block_end), place in zip(runs, places):
+        low, floor = floor, max(floor, block_end)
+        if at in opened and block_end <= end:
+            continue                                   # release's reminder exactly: alike on both sides
+        mine, theirs = _body_reaches(text, at, low, removed, prefixes), release_runs_on(place)
+        if mine != theirs:                             # only one side's body runs on past the block
+            goes_on(block_end, mine)
+    for (_, end), place in zip(kept, kept_places):
+        if release_runs_on(place):
+            goes_on(end, False)                        # the whole-text scrub's body stops at the opener
     return masks
 
 
@@ -3102,8 +3105,9 @@ def _split_masks(text: str, strip_reminders: bool, tally: _Tally) -> tuple[str, 
     the quoted values a block splits still hold (`_data_uri_splits`, `_closer_splits`), each
     block rule read over the text it is given, as `_resolve_blocks` gives it; with reminders
     stripped, also each private key release's removal of reminders changes, as the whole-text
-    scrub resolves it (`_erased_keys`, issue #325 and review r1 of #331), and the part of a data
-    URI's body the whole-text scrub runs on past a removed reminder (`_data_uri_run_ons`)."""
+    scrub resolves it (`_erased_keys`, issue #325 and review r1 of #331), and what the whole-text
+    scrub's data URIs hide and release's text shows where a data URI's body runs on past a reminder
+    in one text and not in the other, down a chain of data URIs (`_data_uri_run_ons`, review r2)."""
     reader = _SplitReader()
     masks: list[tuple[int, int]] = []
     erased: tuple[str, list[tuple[int, int, int]], list, list[tuple[int, int]]] | None = None
