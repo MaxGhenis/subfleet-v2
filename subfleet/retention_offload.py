@@ -27,11 +27,15 @@ Offload, for one archive, under an exclusive lock (``<state>/archive/.lock.<name
    are removed; then it reads ``offloaded``;
 5. one line per archive goes to ``<state>/archive/.offload.jsonl``.
 
-Every step is safe to run again after a crash: ``copying`` keeps each owned
-external entry that matches the recorded SHA-256 and replaces only owned
-ones that do not, ``verified`` reads the external copy back again before it
-removes anything, and a half-removed internal copy continues once the
-external copy verifies again. `contents` is the one resolver that says where
+Each step is safe to run again after a crash between steps: ``copying``
+keeps each owned external entry that matches the recorded SHA-256 and
+replaces only owned ones that do not, ``verified`` reads the external copy
+back again before it removes anything, and a half-removed internal copy
+continues once the external copy verifies again. Not yet an interruption, an
+error or a kill, between an external entry's exclusive creation and its
+ledger record: that entry is left unrecorded, and every rerun refuses it as
+one this offload did not create until it is removed by hand (review r3's
+second P2, left for the hub). `contents` is the one resolver that says where
 an archive's ``files/`` and bundle are: the internal folder, or the external
 folder once removal may have begun (on the mounted volume with the recorded
 UUID; its ledger is matched by inode and birth time, not the device number a

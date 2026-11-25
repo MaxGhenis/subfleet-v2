@@ -26,7 +26,13 @@ The brief's invariants, each with what holds it:
    `test_a_crash_at_any_offload_step_then_a_rerun_ends_the_same`,
    `test_a_crash_at_any_recall_step_then_a_rerun_ends_the_same`. The steps are
    `retention_offload.HOOK`'s, `ledger-first` (inside the first ledger write)
-   among them; a crash inside a later ledger write is not one of them.
+   among them. Not covered, and not true: any interruption, an error or a
+   kill, between an external entry's exclusive creation and its ledger record
+   leaves an entry the ledger does not name, which every rerun refuses. That
+   window holds `_copy_into`'s `os.utime` (after the `O_EXCL` open, before
+   `created()`), `_copy_all`'s flush of the external folder and its opening of
+   `files/` (after `files/` is made, before `Owner.claim`), and every ledger
+   write after the first. It is review r3's second P2, left for the hub.
 6. `--dry-run` writes nothing: `test_dry_run_writes_nothing`.
 
 `OFFLOAD_PROP_EXAMPLES` raises the property example count.
