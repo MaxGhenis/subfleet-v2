@@ -19,6 +19,9 @@ from subfleet.salvage import SalvageError
 from tests.fake.test_state_contract import state_daemon  # noqa: F401
 from tests.fake.test_worktree_add_c68 import held, alive, submit, due, assert_finished, cap_from_the_filter  # noqa: F401
 from tests.fake.test_workspace_contract import repository
+from tests.fake_kernel import procargs
+from tests.unit.test_census_procargs import NAMED_ROOTS, ROWS, kernel_with, other_roots
+from tests.unit.test_procs import BOOT_A, census as ps_census
 from tests.unit.test_salvage import git
 
 
@@ -668,3 +671,51 @@ def test_a_denied_group_stop_has_a_bounded_reap_and_retains_the_child(state_daem
     child.ended = True
     daemon._require_add_empty(job)
     assert not daemon._worktree_adds and not daemon._worktree_add_children
+
+
+#: A fixed job id for the add's marker, `worktree-add:<job id>`.
+ADD_JOB = "20991231-235959-merge-ab12"
+#: The add's recorded group: no row of `ROWS` (pids 42 and 43, both in group 42) is in it,
+#: so the group source finds nothing and only the marker source can hold the job.
+ADD_GROUP = 77
+
+
+@pytest.mark.parametrize("root", NAMED_ROOTS.values(), ids=NAMED_ROOTS.keys())
+def test_an_adds_census_counts_its_marked_process_under_every_root_and_not_a_near_miss(monkeypatch, root):
+    """C-5.5 with C-6.8, after release/217 brought in #177: the marker source compares the
+    attempt id and the root as `os.fsencode` gives them, whatever the root, and a worktree
+    add uses that marker source with `SUBFLEET_ATTEMPT=worktree-add:<job id>`. So under each
+    named root (non-ASCII, ending in a space, not UTF-8, NFD, over 1,000 bytes and the rest)
+    the add's census counts the process whose environment carries the add's marker and that
+    root's bytes, as `Popen` writes them, and holds the job. A process with the same marker
+    under a near-miss root (`other_roots`: one byte longer or shorter, stripped, NFC,
+    ASCII-replaced) is another state root's, and is not counted.
+
+    The census is called as the merged `Daemon._add_census` calls it, with a recorded group
+    the fake table holds no row of; then the daemon's own census gives the same answer."""
+    core = object.__new__(Daemon)
+    core.root = Path(root)
+    assert str(core.root) == root
+    core._worktree_adds = {ADD_JOB: (ADD_GROUP, None)}
+    marker = worktree_add.marker(ADD_JOB)
+    attempt_mark, root_mark = procs.marker_strings(marker, str(core.root))
+    raw = os.fsencode(root)
+    assert attempt_mark == b"SUBFLEET_ATTEMPT=worktree-add:" + ADD_JOB.encode()
+    assert root_mark == b"SUBFLEET_ROOT=" + raw
+    processes = {96: procargs([b"git", b"worktree", b"add"],
+                              [b"PATH=/usr/bin:/bin", attempt_mark, root_mark, b"HOME=/Users/x"])}
+    near = other_roots(raw)
+    assert near
+    for pid, other in enumerate(near, start=97):
+        processes[pid] = procargs([b"git", b"worktree", b"add"], [attempt_mark, b"SUBFLEET_ROOT=" + other])
+    ps_census(monkeypatch, parents=ROWS, session=BOOT_A)
+    kernel_with(monkeypatch, processes=processes)
+    result = procs.containment(ADD_GROUP, None, None, marker, root=str(core.root), recorded_identities={})
+    assert result.marker_pids == {96}, result.errors
+    assert result.group_pids == set()
+    assert not result.verified_empty and result.errors == ()
+    daemon_census = core._add_census({"job_id": ADD_JOB})
+    assert (daemon_census.marker_pids, daemon_census.group_pids, daemon_census.errors) == ({96}, set(), ())
+    with pytest.raises(SalvageError, match="still has processes"):
+        core._require_add_empty({"job_id": ADD_JOB})
+    assert core._worktree_adds == {ADD_JOB: (ADD_GROUP, None)}       # a held census keeps the group
