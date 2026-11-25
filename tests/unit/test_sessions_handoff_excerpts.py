@@ -930,6 +930,9 @@ REVIEW_R1 = {
 #   second's `data` and the third is whole, while in release's text the second takes the third's: 98 [118],
 #   and 130,910 / 131,276 (run here). With four data URIs after the reminder, the same at 177 (run here).
 #   (With an odd number after it, the whole-text scrub shows the value too.)
+# - A data URI in a block's run-on text (which the whole-text scrub removes and release keeps) whose body
+#   runs on past the block's end in release's text, through a reminder release removes, and takes the next
+#   data URI's `data`: `Zq9x300031` at 44, and 130,888 / 131,222 (this round's fuzz, its seed 5011, cut down).
 
 _U = "data:image/png;base64," + "QUJD" * 10
 #: Data URI prefixes of 622, 513 and 16,822 characters (`;a=b` steps by 4, so 513 needs the `;ab`).
@@ -949,6 +952,8 @@ REVIEW_R2 = {
     "r2-min2-a-kept-reminder": _U + _R + 'password = "' + _C + "\n" + _U + "\nZq8x001572\n",
     "r2-famb-a-chain-of-three": _U + _R + 'passwd="' + _C + "\n" + _C + _U * 2 + "Zq8x005881",
     "r2-famb-a-chain-of-five": _U + _R + 'passwd="' + _C + "\n" + _C + _U * 4 + "Zq8x005882",
+    "r2-release-s-data-uri-in-a-run-on": (_R + 'password = "' + _C + '"\n' + _U + _R + "Q\n" + _C + _U
+                                          + "\nZq9x300031\n"),
 }
 #: Placed alone only: its prefix is longer than a window.
 _ALONE_ONLY = {"r2-prefix-over-a-window"}
