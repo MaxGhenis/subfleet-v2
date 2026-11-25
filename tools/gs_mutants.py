@@ -1,7 +1,8 @@
 """Mutants of the guard sync r2's hook edit (the two Axiom blocks and the Claude prefilter line), of its fix
-r1 (the git config pin, the batched reads and the blocks' parsing, plus review r1's M3) and of its fix r2 (each
-folder resolved before git runs, the time budget, raw staged names, --no-relative), each to be killed by a
-named test.
+r1 (the git config pin, the batched reads and the blocks' parsing, plus review r1's M3), of its fix r2 (each
+folder resolved before git runs, the time budget, raw staged names, --no-relative) and of its fix r3 (a linear
+cd parse, a cd target's `..` by name beside its physical spelling, the cap on pairs examined), each to be
+killed by a named test.
 
     python tools/gs_mutants.py --scratch <dir containing /sf->
 
@@ -38,7 +39,8 @@ FILES = [SYNC, OVERLAY, BASE]
 SELECTION = ("DriftTests or test_private_overlay_bytes or test_gs_undoing or test_merge_undoing"
              " or test_only_the_roots or (axiom_brief_regime and blocked) or (hand_authored_rulespec and blocked)"
              " or test_fix_r1 or fsmonitor or staged_file_count or later_rules or test_fix_r2 or spelled"
-             " or time_budget or not_there or too_many_places or relative_diff")
+             " or time_budget or not_there or too_many_places or relative_diff or test_fix_r3 or grandchild"
+             " or long_cd_chain or dotdot or physical_spelling or folder_and_command_pairs")
 #: The first prefilter literal's line, which the Claude hook's prefilter line (claude-blocks/prefilter.txt) heads.
 PREFILTER_HEAD = "printf '%s' \"$command\" | grep -qE 'pending_deployments|"
 #: The first literal's git term since the fix r1 (2026-11-15); before it, `git([[:space:]]+-C…)?[[:space:]]+commit`.
@@ -46,14 +48,38 @@ COMMIT_TERM = "|git[[:space:]].*(commit|\\\\$)"
 #: The fix r1's git config pin (tests/fixtures/guard/claude-blocks/git-config-pin.txt).
 PIN = "export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=false\n"
 SQUASH_HEAD = "# --- corpus-squash: signed-manifest repos merge-commit, never squash ---\n"
-#: The fix r2's text (2026-11-17) that its mutants revert, each found once in the hook.
-HAND_JOIN = 'function join(base, p) { p = expand(p); return norm(substr(p, 1, 1) == "/" ? p : base "/" p) }'
-HAND_JOIN_R1 = 'function join(base, p) { p = expand(p); return substr(p, 1, 1) == "/" ? p : base "/" p }'
+#: The join each block has had: fix r3's (2026-11-26), which splits only the new word, as its mutants 8, 13 and
+#: 15 find it; fix r2's (2026-11-17), which split the whole path again; and fix r1's, which split nothing.
+HAND_JOIN = """    function join(base, p,   a, n, i, r) {
+      p = expand(p)
+      if (substr(p, 1, 1) == "/") base = "/"
+      n = split(p, a, "/"); r = ""
+      for (i = 1; i <= n; i++) if (a[i] != "" && a[i] != ".") r = r "/" a[i]
+      return r == "" ? base : (base == "/" ? r : base r)
+    }
+"""
+HAND_JOIN_R2 = '    function join(base, p) { p = expand(p); return norm(substr(p, 1, 1) == "/" ? p : base "/" p) }\n'
+HAND_JOIN_R1 = '    function join(base, p) { p = expand(p); return substr(p, 1, 1) == "/" ? p : base "/" p }\n'
 HAND_RESOLVE = ("gdir=$(CDPATH= cd -P -- \"$hr_d\" 2>/dev/null || exit 1; { pwd -P || printf '%s\\n' \"$hr_d\"; } "
                 "2>/dev/null; echo x) || continue")
-BRIEF_JOIN = ('function join(base, p, file) { p = expand(p); return norm(substr(p, 1, 1) == "/" ? p : base "/" p, '
-              'file) }')
-BRIEF_JOIN_R1 = 'function join(base, p, file) { p = expand(p); return substr(p, 1, 1) == "/" ? p : base "/" p }'
+BRIEF_JOIN = """    function join(base, p, file,   a, n, i, r) {
+      p = expand(p)
+      if (substr(p, 1, 1) == "/") base = "/"
+      n = split(p, a, "/"); r = ""
+      for (i = 1; i <= n; i++) if (a[i] != "" && a[i] != ".") r = r "/" a[i]
+      if (r != "") base = (base == "/" ? "" : base) r
+      if (file && base != "/" && ("/" p) ~ /\\/\\.?$/) base = base "/"
+      return base
+    }
+"""
+BRIEF_JOIN_R2 = ('    function join(base, p, file) { p = expand(p); return norm(substr(p, 1, 1) == "/" ? p : base "/" p, '
+                 'file) }\n')
+BRIEF_JOIN_R1 = '    function join(base, p, file) { p = expand(p); return substr(p, 1, 1) == "/" ? p : base "/" p }\n'
+#: The fix r3's cd step (both blocks): the logical folder, and the physical spelling kept as a folder of its own.
+CD_LOGICAL = "else { cur = cdl(cur, v); pcur = join(pcur, v) }"
+CD_PHYSICAL = "          if (!(pcur in known)) { known[pcur] = 1; dirs[++nd] = pcur }\n"
+PAIR_CAPS = ('          if ((wk += 1 + nc + np) > 4096) { print "TOOMANY"; exit }\n',
+             '          if ((wk += 1 + nc) > 4096) { print "TOOMANY"; exit }\n')
 BRIEF_RESOLVE = ("pf_abs=$(CDPATH= cd -P -- \"${ab_dir:-/}\" 2>/dev/null || exit 1; { pwd -P || printf '%s\\n' "
                  "\"${ab_dir:-/}\"; } 2>/dev/null; echo x) || continue")
 BUDGET = '[ "$hr_n" -le 2 ] || [ $((SECONDS - hr_t0)) -lt 15 ] || block "$hr_late"'
@@ -68,8 +94,8 @@ MUTATIONS = {
                                       DRIFT + "test_every_pinned_block_is_in_the_overlay_byte_for_byte"),
     "2-one-byte-in-axiom-brief-regime": ("[axiom-brief-regime]'s message: `This brief` -> `this brief`",
                                          DRIFT + "test_every_pinned_block_is_in_the_overlay_byte_for_byte"),
-    "3-commit-term-out-of-the-prefilter": ("the `git([[:space:]]+-C…)?[[:space:]]+commit` term left out of the "
-                                           "first prefilter literal",
+    "3-commit-term-out-of-the-prefilter": ("the fix r1's `git[[:space:]].*(commit|\\\\$)` term (COMMIT_TERM) left "
+                                           "out of the first prefilter literal",
                                            DRIFT + "test_the_first_prefilter_literal_is_the_claude_hooks_line"),
     "4-swap-the-two-blocks": ("[hand-authored-rulespec] before [axiom-brief-regime]",
                               DRIFT + "test_the_overlay_keeps_its_nine_rule_blocks_in_order"),
@@ -100,6 +126,21 @@ MUTATIONS = {
                                    f"{SYNC}::test_one_brief_spelled_17_ways_is_read_once"),
     "14-git-runs-in-a-missing-folder": ("a folder cd -P cannot enter goes to git as written, instead of being skipped",
                                         f"{SYNC}::test_a_folder_that_is_not_there_starts_no_git_process"),
+    # the fix r3 (2026-11-26): each of its changes reverted alone
+    "15-join-splits-the-folder-again": ("both blocks' join back to the fix r2's, which splits the stored folder again "
+                                        "at every cd (the physical spelling's walk is quadratic again)",
+                                        f"{SYNC}::test_a_long_cd_chain_costs_cpu_near_linear_in_its_length"
+                                        "[hand-cd_a-4000-overlay]"),
+    "16-no-logical-dotdot": ("a cd target's `..` kept for cd -P again, in both blocks (cur = join, not cdl)",
+                             f"{SYNC}::test_a_cd_through_a_link_and_dotdot_is_judged_where_the_shell_lands"),
+    "17-no-physical-spelling": ("a cd target's physical spelling no longer a folder to check, in both blocks",
+                                f"{SYNC}::test_the_physical_spelling_of_a_cd_target_is_still_judged"),
+    "18-no-pair-cap": ("the cap on (folder, command) pairs removed from both blocks",
+                       f"{SYNC}::test_too_many_folder_and_command_pairs_are_refused"),
+    "19-dotdot-spelling-split-again": ("the physical spelling of a target holding `..` normalized by splitting the "
+                                       "whole path again (norm(pcur \"/\" v)), in both blocks",
+                                       f"{SYNC}::test_a_long_cd_chain_costs_cpu_near_linear_in_its_length"
+                                       "[hand-cd_a..-4000-overlay]"),
 }
 
 #: What the selection needs of HEAD.
@@ -167,6 +208,20 @@ def mutate(tree: Path, name: str) -> None:
         text = once(once(text, BRIEF_JOIN, BRIEF_JOIN_R1), BRIEF_RESOLVE, "pf_abs=$ab_dir$'\\n'x")
     elif name == "14-git-runs-in-a-missing-folder":
         text = once(text, HAND_RESOLVE, HAND_RESOLVE[:-len("|| continue")] + "|| gdir=$hr_d$'\\n'x")
+    elif name == "15-join-splits-the-folder-again":
+        text = once(once(text, HAND_JOIN, HAND_JOIN_R2), BRIEF_JOIN, BRIEF_JOIN_R2)
+    elif name == "16-no-logical-dotdot":
+        assert text.count(CD_LOGICAL) == 2
+        text = text.replace(CD_LOGICAL, "else { cur = join(cur, v); pcur = join(pcur, v) }")
+    elif name == "17-no-physical-spelling":
+        assert text.count(CD_PHYSICAL) == 2
+        text = text.replace(CD_PHYSICAL, "")
+    elif name == "18-no-pair-cap":
+        text = once(once(text, PAIR_CAPS[0], ""), PAIR_CAPS[1], "")
+    elif name == "19-dotdot-spelling-split-again":
+        assert text.count(CD_LOGICAL) == 2
+        text = text.replace(CD_LOGICAL, 'else { cur = cdl(cur, v); pcur = v ~ /\\.\\./ ? norm(substr(v, 1, 1) == "/" ? v '
+                                        ': pcur "/" v) : join(pcur, v) }')
     else:
         raise KeyError(name)
     path.write_text(text, encoding="utf-8")

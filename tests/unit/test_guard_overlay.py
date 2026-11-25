@@ -171,23 +171,27 @@ def test_private_overlay_bytes_remain_the_original_reviewed_pair():
     2026-11-14 (hook ed31bcac…). The guard sync fix r1 (2026-11-15) pinned
     core.fsmonitor off for the hook's git calls, batched the rulespec index
     reads and rewrote both Axiom blocks' command parsing (hook 324d2a84…),
-    and its fix r2 (2026-11-17) resolved each folder before git runs, bounded
+    its fix r2 (2026-11-17) resolved each folder before git runs, bounded
     the rulespec git work by a 15 s budget and read staged names raw (hook
-    7c96811e…); TRUST pins those bytes. That TRUST is the
+    7c96811e…), and its fix r3 (2026-11-26) made the blocks' cd parse
+    linear, read a cd target's .. by name beside its physical spelling and
+    capped the pairs they examine (hook 899b43ec…); TRUST pins those bytes.
+    That TRUST is the
     installed one of 2026-09-29 (b3193b97…, the codex-cli 0.159.0 pin; with
     hook a60d1c51… it is the rollback) with the new hook hash and eight dated provenance
     additions appended (D-LANE-SCOPE1's three sentences, r2's one, r3's one,
     r3b's one, whose mount clause r3c corrected, and the guard sync's four),
     and D-CODEX-0169 (2026-11-17) moved its codex_version to codex-cli
-    0.169.1 and appended one more sentence (TRUST d284687f… before it).
+    0.169.1 and appended one more sentence (TRUST d284687f… before it), and
+    the fix r3 appended one more (TRUST 2e16c035… before it).
     The 2026-09-05 TRUST (0b9d688e…) pins codex-cli 0.153.3 and must never be
     staged. Any other edit fails here; tests/unit/test_guard_subfleet_root.py
     rebuilds the original from this one."""
     repo = Path(__file__).resolve().parents[2]
     directory = repo / "private/guard"
     expected = {
-        "never-rules-hook.sh": "7c96811e0c0ff0a90b4d9a62fee4fc55a69c2018e2d44ef59c78915499b2b213",
-        "TRUST": "2e16c035c3d1d54b0ede029fc6a82e4a527e400c3f2cdbd9b4983daada72c76c",
+        "never-rules-hook.sh": "899b43ec41dcbdb673298e6c22d14caea88f450ff33405789d8513a013657038",
+        "TRUST": "fa0df26c35087bf9116b9c6793490d70116ec13dac9a46576bb67287da35ad85",
     }
     for name, digest in expected.items():
         assert hashlib.sha256((directory / name).read_bytes()).hexdigest() == digest

@@ -162,7 +162,7 @@ def rebuild_r12d(text: str) -> bytes:
 
 @pytest.fixture(scope="module")
 def r12d_hook(tmp_path_factory) -> Path:
-    data = rebuild_r12d(base.undo(hook_text(), base.GS4_TEXT + base.GS3_TEXT))
+    data = rebuild_r12d(base.undo(hook_text(), base.GS5_TEXT + base.GS4_TEXT + base.GS3_TEXT))
     assert hashlib.sha256(data).hexdigest() == base.GS2_HOOK_SHA256
     path = tmp_path_factory.mktemp("r12d-guard") / "never-rules-hook.sh"
     path.write_bytes(data)

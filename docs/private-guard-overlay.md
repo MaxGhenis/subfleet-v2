@@ -736,8 +736,8 @@ hook and TRUST byte for byte (`test_fix_r2_undoing_its_step_gives_the_fix_r1_pai
 
 | File | SHA-256 |
 | --- | --- |
-| `never-rules-hook.sh` | `7c96811e0c0ff0a90b4d9a62fee4fc55a69c2018e2d44ef59c78915499b2b213` |
-| `TRUST` | `2e16c035c3d1d54b0ede029fc6a82e4a527e400c3f2cdbd9b4983daada72c76c` |
+| `never-rules-hook.sh` | `899b43ec41dcbdb673298e6c22d14caea88f450ff33405789d8513a013657038` |
+| `TRUST` | `fa0df26c35087bf9116b9c6793490d70116ec13dac9a46576bb67287da35ad85` |
 
 TRUST is the installed TRUST of 2026-09-29 (`b3193b97…`), changing only `hook_sha256` and
 appending eight dated provenance additions (D-LANE-SCOPE1's three sentences, r2's one, r3's one,
