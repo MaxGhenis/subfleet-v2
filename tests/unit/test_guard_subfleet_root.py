@@ -201,6 +201,10 @@ FR1_TRUST_SHA256 = "cc26c42108f87085d516fa3e525c17a47720461631065f4886201013e217
 #: The overlay's hook after the guard sync fix r2 (2026-11-17: each folder resolved before git runs, a 15 s git
 #: budget, raw staged names); TRUST's hook_sha256.
 NEW_HOOK_SHA256 = "7c96811e0c0ff0a90b4d9a62fee4fc55a69c2018e2d44ef59c78915499b2b213"
+#: The fix r2's TRUST, before release/217's D-CODEX-0169 (2026-11-17) reached the guard sync.
+FR2_TRUST_SHA256 = "d284687f16ab6fac7fccf08f457013afff3f761d243ad97246aa8de95ba0dee6"
+#: D-CODEX-0169's sentence starts so; its two TRUST edits are that sentence and the codex_version line.
+D0169_START = " 2026-11-17, D-CODEX-0169:"
 
 FAKE_HOME = "/Users/tester"
 SCOPED_CWD = FAKE_HOME + "/work/repo"
@@ -270,6 +274,8 @@ NEW_SED = (r"sed 's/\$[{]HOME[}]/$HOME/g; s/\$[{]SUBFLEET_ROOT[}]/$SUBFLEET_ROOT
 OLD_SED = r"sed 's/\$[{]HOME[}]/$HOME/g'"
 OLD_TRUST_TEXT = [
     (NEW_HOOK_SHA256, OLD_HOOK_SHA256),
+    # D-CODEX-0169 (2026-11-17): the lane pin moved 0.159.0 -> 0.169.1 after the 2026-09-29 TRUST.
+    ('"codex_version": "codex-cli 0.169.1"', '"codex_version": "codex-cli 0.159.0"'),
 ]
 OLD_PROVENANCE_END = "Previous pin kept at TRUST.pre-0.159.0.bak."
 
@@ -1158,11 +1164,15 @@ def test_fix_r2_undoing_its_step_gives_the_fix_r1_pair():
     FR1_TRUST_SHA256, its rollback) only by its step: undoing GS4_TEXT, the two Axiom blocks back to the fix r1's
     text (claude-blocks/fix-r1/), gives the fix r1 hook byte for byte; and TRUST with that hook's hash back and the
     fix r2's provenance sentence removed gives the fix r1 TRUST byte for byte. The new blocks sit back to back before
-    corpus-squash."""
+    corpus-squash. Since release/217 (D-CODEX-0169, 2026-11-17) merged in, its two TRUST edits, its sentence and the
+    codex_version line, are undone first, which gives the fix r2's TRUST (FR2_TRUST_SHA256) byte for byte."""
     text = HOOK.read_text(encoding="utf-8")
     assert text.count(GS4_BLOCKS + "# --- corpus-squash:") == 1
     assert hashlib.sha256(undo(text, GS4_TEXT).encode("utf-8")).hexdigest() == FR1_HOOK_SHA256
     trust = TRUST.read_text(encoding="utf-8")
+    assert trust.count(D0169_START) == 1 and trust.endswith('"\n}\n')
+    trust = undo(trust, [(trust[trust.index(D0169_START):], '"\n}\n'), OLD_TRUST_TEXT[1]])
+    assert hashlib.sha256(trust.encode("utf-8")).hexdigest() == FR2_TRUST_SHA256
     assert trust.count(FR2_PROVENANCE + '"\n}\n') == 1 and trust.endswith(FR2_PROVENANCE + '"\n}\n')
     old = undo(trust, [(NEW_HOOK_SHA256, FR1_HOOK_SHA256), (FR2_PROVENANCE + '"\n}\n', '"\n}\n')])
     assert hashlib.sha256(old.encode("utf-8")).hexdigest() == FR1_TRUST_SHA256
@@ -1194,10 +1204,13 @@ def test_trust_keeps_the_installed_lane_pin():
     repository's copy at abe117e67, which still pinned codex-cli 0.153.3 while the
     installed TRUST had pinned 0.159.0 since 2026-09-29. Installed, that TRUST would
     have refused every Codex lane at preflight (VERSION). This TRUST keeps the
-    installed pin and its 0.158.0 and 0.159.0 provenance."""
+    installed pin and its 0.158.0 and 0.159.0 provenance. D-CODEX-0169 (2026-11-17)
+    then moved the pin to 0.169.1 for GPT-6.2 Sol, with its own provenance."""
     trust = json.loads(TRUST.read_text())
-    assert trust["codex_version"] == "codex-cli 0.159.0"
+    assert trust["codex_version"] == "codex-cli 0.169.1"
     assert "lane pin moved 0.158.0 -> 0.159.0" in trust["provenance"]
+    assert "lane pin moved 0.159.0 -> 0.169.1" in trust["provenance"]
+    assert "Previous pin kept at TRUST.pre-0.169.1.bak" in trust["provenance"]
 
 
 def test_trust_changed_only_the_hook_hash_and_the_appended_provenance():

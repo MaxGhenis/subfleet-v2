@@ -177,7 +177,9 @@ def test_private_overlay_bytes_remain_the_original_reviewed_pair():
     installed one of 2026-09-29 (b3193b97…, the codex-cli 0.159.0 pin; with
     hook a60d1c51… it is the rollback) with the new hook hash and eight dated provenance
     additions appended (D-LANE-SCOPE1's three sentences, r2's one, r3's one,
-    r3b's one, whose mount clause r3c corrected, and the guard sync's four).
+    r3b's one, whose mount clause r3c corrected, and the guard sync's four),
+    and D-CODEX-0169 (2026-11-17) moved its codex_version to codex-cli
+    0.169.1 and appended one more sentence (TRUST d284687f… before it).
     The 2026-09-05 TRUST (0b9d688e…) pins codex-cli 0.153.3 and must never be
     staged. Any other edit fails here; tests/unit/test_guard_subfleet_root.py
     rebuilds the original from this one."""
@@ -185,7 +187,7 @@ def test_private_overlay_bytes_remain_the_original_reviewed_pair():
     directory = repo / "private/guard"
     expected = {
         "never-rules-hook.sh": "7c96811e0c0ff0a90b4d9a62fee4fc55a69c2018e2d44ef59c78915499b2b213",
-        "TRUST": "d284687f16ab6fac7fccf08f457013afff3f761d243ad97246aa8de95ba0dee6",
+        "TRUST": "2e16c035c3d1d54b0ede029fc6a82e4a527e400c3f2cdbd9b4983daada72c76c",
     }
     for name, digest in expected.items():
         assert hashlib.sha256((directory / name).read_bytes()).hexdigest() == digest

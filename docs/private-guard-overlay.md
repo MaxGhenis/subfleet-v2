@@ -609,7 +609,9 @@ holds the hub's 17 rows, the corpus comparison, the fallback, the alarm, the dri
 `docs/reports/2026-11-05-search-rel-parser.md` has the measurements. A change to the session
 parser comes here in one reviewed step, between the heredoc's lines, with `hook_sha256` moved.
 The rollback is the previous pair: hook `e869dd4cac5402112c3a135531de861c84089290ee31779f52145474f678dfed` with TRUST
-`36267abbee6e414805defd0672138f0be9b8dd2fd8675f739c77df90332bafc0`.
+`36267abbee6e414805defd0672138f0be9b8dd2fd8675f739c77df90332bafc0`. Once D-CODEX-0169 (below) is installed,
+the previous pair becomes hook `e869dd4c…` with TRUST `0224cb3f…`. TRUST `36267abb…` pins codex-cli 0.159.0,
+so preflight refuses it beside a 0.169.1 CLI.
 
 ### The guard sync (2026-11-11) and its r2 (2026-11-14)
 
@@ -735,7 +737,7 @@ hook and TRUST byte for byte (`test_fix_r2_undoing_its_step_gives_the_fix_r1_pai
 | File | SHA-256 |
 | --- | --- |
 | `never-rules-hook.sh` | `7c96811e0c0ff0a90b4d9a62fee4fc55a69c2018e2d44ef59c78915499b2b213` |
-| `TRUST` | `d284687f16ab6fac7fccf08f457013afff3f761d243ad97246aa8de95ba0dee6` |
+| `TRUST` | `2e16c035c3d1d54b0ede029fc6a82e4a527e400c3f2cdbd9b4983daada72c76c` |
 
 TRUST is the installed TRUST of 2026-09-29 (`b3193b97…`), changing only `hook_sha256` and
 appending eight dated provenance additions (D-LANE-SCOPE1's three sentences, r2's one, r3's one,
@@ -745,7 +747,34 @@ refuses to replace a different overlay in place, so this revision is staged into
 root and swapped in; `tests/unit/test_guard_subfleet_root.py` states and checks the rule's
 invariants against the original hook, and `docs/reports/2026-10-24-guard-subfleet-root.md`
 holds the install steps, the live checks, the known limits and the rollback, which restores
-hook `a60d1c51…` with TRUST `b3193b97…`.
+hook `a60d1c51…` with TRUST `b3193b97…`. D-CODEX-0169 (below) then moved `codex_version` to
+`codex-cli 0.169.1` and appended one more dated sentence.
+
+### Codex pin 0.169.1 (D-CODEX-0169, 2026-11-17)
+
+On a ChatGPT login, codex-cli 0.159.0 answers `model_not_found` for GPT-6.2 Sol and 0.169.0 serves
+it; the hub did not try the versions between. 0.169.1, which this revision pins, also lists GPT-6.2 Sol
+in Codex's bundled model catalog. Preflight refuses any Codex whose `--version` differs
+from TRUST's `codex_version`. D-CODEX-0169 (#333, merged into release/217 at `024b23f80`) moved
+`codex_version` to `codex-cli 0.169.1` and appended one dated provenance sentence. The hook bytes,
+`hooks_trust_hash` and `override` stayed as they were. On release/217 it replaced TRUST
+`4ff9cb8603f9e84e3fe1870a07c71a7616b08384909b2bc4900035054607cf14` with #333's TRUST,
+`9fb9bcf7beecb09d79e2ce0729c807ef08577fa827121d8281a5ce14017cb7d2` (hook `af5e7239…`). The guard
+sync's fix round 3 merged release/217 and made the same two edits in the guard sync's TRUST, after its
+four sentences; the table above gives that merged TRUST, not #333's.
+
+The live guard keeps hook `e869dd4c…` until D-SEARCH-REL1's `af5e7239…` gets its own install decision,
+so the hub installs a TRUST, `0224cb3f…`, that differs from #333's TRUST in `hook_sha256` only. It
+differs from this file's TRUST in that and in lacking the guard sync's sentences. `tools/guard_pin_0169.py`
+derives it from the installed TRUST (`36267abb…`) with the same two edits. It refuses unless the result
+differs from the TRUST of the checkout it runs from only in `hook_sha256` and is the pinned `0224cb3f…`;
+its docstring says to run it from a checkout of #333's commit, whose TRUST is `9fb9bcf7…`. At this
+head the repository's TRUST also carries the guard sync's sentences, so `stage` refuses here
+(`tests/unit/test_guard_pin_0169.py` checks that refusal, and runs the kit's other checks on #333's
+TRUST rebuilt from this one). From #333's checkout it stages the result in a fresh folder, preflights
+it on every Codex lane it is given and swaps it in, keeping the previous TRUST as
+`TRUST.pre-0.169.1.bak`. Its rollback refuses once a later guard change replaces the hook or the TRUST.
+`docs/reports/2026-11-17-codex-0169-pin.md` has the evidence, the install steps and the rollback.
 
 ## Verification
 
