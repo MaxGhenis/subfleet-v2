@@ -1,6 +1,7 @@
-"""D-KILL3 / D-WALL1: one durable observation per distinct shared table."""
+"""D-KILL3 / D-WALL1: distinct tables gate the paced durable observation."""
 
 import json
+from types import SimpleNamespace
 
 from subfleet import daemon as daemon_module, procs
 from tests.unit.test_daemon_settle import daemon, attempt, ATTEMPT, STARTED  # noqa: F401
@@ -22,7 +23,9 @@ def test_repeated_snapshot_does_not_advance_liveness_or_write_after_clock_moves(
     assert evidence["last_observed_alive_at"] == now[0]
     assert "4400" in evidence["counted_identities"]
     generation = daemon.store.generation
-    now[0] = "2026-10-22T11:00:01.000Z"
+    now[0] = "2026-10-22T11:01:00.000Z"
+    monkeypatch.setattr(daemon_module, "time", SimpleNamespace(monotonic=lambda: 60.0))
+    daemon._last_observed_alive_write[ATTEMPT] = 0.0
     daemon._record_owned(attempt(daemon), first)
     assert daemon.store.generation == generation
     assert json.loads(attempt(daemon)["evidence_json"]) == evidence

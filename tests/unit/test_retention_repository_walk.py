@@ -17,6 +17,10 @@ from subfleet import retention_git as rgit
 from subfleet.launch_env import helper_policy
 from tests.unit.retention_world import Clock, World, git, snapshot, trust_temporary_directories
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
+
 
 def _old_known_repositories(jobs, root):
     """The pre-change census, kept independent of the optimized walk."""

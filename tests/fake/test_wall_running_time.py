@@ -216,27 +216,38 @@ def test_starting_clock_begins_before_guardian_receipt(wall, monkeypatch):
     assert cancel_events(service, jid) == [{'by': 'daemon', 'reason': 'max_wall_s', 'running_s': 7.0}]
 
 
-def test_finalization_time_is_not_charged_to_later_attempts(wall):
+@pytest.mark.parametrize(('rc', 'state', 'outcome_class', 'running_s', 'prior_running_s'), [
+    # A receipt without a return code settles `lost`, which counts and which a
+    # read-only job retries: it is charged to its provider exit (-2 s), not to
+    # its finalization (0 s).
+    (None, 'lost', 'unknown', 3, 2),
+    # D-WALL-RETRY1: rc 0 without completion proof is a transient attempt,
+    # which gives its provider time back altogether.
+    (0, 'failed', 'transient', 1, 0),
+])
+def test_finalization_time_is_not_charged_to_later_attempts(wall, rc, state, outcome_class,
+                                                            running_s, prior_running_s):
     service, harness = wall
     from tests.fake.test_state_contract import reserve, receipt_fixture
     jid, first, adir = reserve(service, harness)
     service.store.update_attempt(first['attempt_id'], started_at=stamp(-4))
-    receipt_fixture(service, first, adir)
-    # Missing completion proof makes this a transient attempt eligible to retry.
+    receipt_fixture(service, first, adir, rc=rc)
     (adir / 'stream.jsonl').write_text('')
     receipt = json.loads((adir / 'exit.json').read_text())
     receipt['finished_at'] = stamp(-2)
     (adir / 'exit.json').write_text(json.dumps(receipt))
     service.store.update_attempt(first['attempt_id'], finished_at=stamp(-2))
     service._finalize(service.store.get_attempt(first['attempt_id']))
-    assert service.store.get_attempt(first['attempt_id'])['finished_at'] == stamp(-2)
+    settled = service.store.get_attempt(first['attempt_id'])
+    assert (settled['finished_at'], settled['state'], settled['outcome_class']) == (
+        stamp(-2), state, outcome_class)
     assert service.store.get_job(jid)['state'] == 'waiting'
     service.store.update_job(jid, state='running')
     service.store.add_attempt(attempt_id=f'{jid}/a2', job_id=jid, seq=2, lane_id='codex-1',
                               model_requested='astra', state='running', started_at=stamp(-1))
-    assert service._running_s(jid) == 3
+    assert service._running_s(jid) == running_s
     row = next(row for row in service.store.query(LIVE_TICK) if row['attempt_id'] == f'{jid}/a2')
-    assert row['prior_running_s'] == pytest.approx(2, abs=.002)
+    assert row['prior_running_s'] == pytest.approx(prior_running_s, abs=.002)
 
 
 def test_reserved_time_and_unstarted_attempts_do_not_spend_the_wall(wall, monkeypatch):
