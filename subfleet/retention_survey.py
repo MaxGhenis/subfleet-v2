@@ -150,16 +150,18 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
     budgets = budgets or {"detached": (int(budget["jobs"]), int(budget["bytes"])),
                           "turn": (int(budget["turn_jobs"]), int(budget["turn_bytes"]))}
     turn_keep_s = float(budget["turn_keep_days"]) * 86400
+    notice_keep_s = float(budget["notice_keep_days"]) * 86400        # C-8.4, as the pass reads it
     report: dict[str, Any] = {"state_root": str(root), "read_only": True,
                               "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                               "budgets": {k: {"max_jobs": v[0], "max_bytes": v[1]} for k, v in budgets.items()},
+                              "notice_keep_days": budget["notice_keep_days"],
                               "notes": ["the conversation service's in-memory pins are not visible offline; "
                                         "turn jobs it needs would also be kept"]}
     store = Store(root / "state.sqlite3", read_only=True)
     try:
         jobs = list(reversed(store.list_jobs()))
         reasons = ret._pin_reasons(store, set(), None, pins=None, turn_keep_s=turn_keep_s,
-                                   hosted=ret.nested_hosts(jobs, root), root=root)
+                                   notice_keep_s=notice_keep_s, hosted=ret.nested_hosts(jobs, root), root=root)
         journals = rarch.journals(root)
         live_trees = [job.get("worktree") for job in jobs] + [
             j.get("worktree") for j in journals.values() if isinstance(j, dict)]
@@ -280,15 +282,19 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
         rate = _throughput([Path(r["worktree"]) for r in wt_retiring[:6]])
     reads = omittable + 2 * archived
     passes = max(1, math.ceil(len(retire) / max(1, batch)))
+    # One listing a pass (D-HOLDERS-LSOF1): each pass commits the last pass's
+    # archives and starts the next batch under one listing, so the batches take
+    # one more pass, for the last one's check 2, and one listing each.
+    listings = passes + 1
     per_job_git_s = 3.0
     report["estimate"] = {
         "hash_read_bytes_per_s": round(rate) if rate else None,
         "bytes_read": reads,
         "read_hours": round(reads / rate / 3600, 2) if rate else None,
         "passes": passes, "batch": batch,
-        "listing_seconds_per_pass": (2 * scan_s) if scan_s is not None else None,
+        "listing_seconds_per_pass": scan_s, "listings": listings,
         "git_hours_assumed": round(len(wt_retiring) * per_job_git_s / 3600, 2),
-        "total_hours": round((reads / rate if rate else 0) / 3600 + passes * 2 * (scan_s or 60) / 3600
+        "total_hours": round((reads / rate if rate else 0) / 3600 + listings * (scan_s or 60) / 3600
                              + len(wt_retiring) * per_job_git_s / 3600, 2) if rate else None,
     }
     report["candidates"] = [rows[j] for j in retire]
@@ -620,12 +626,16 @@ def sample(root: Path, n: int = 20, *, hash_budget: int = 512 << 20,
     hours on the live tree). `progress(job_report)` is called after each job."""
     root = Path(root).resolve()
     started = time.monotonic()
-    remote_less = int(_budget(root)["remote_less_history_bytes"])
+    budget = _budget(root)
+    remote_less = int(budget["remote_less_history_bytes"])
     store = Store(root / "state.sqlite3", read_only=True)
     try:
         jobs = list(reversed(store.list_jobs()))
-        reasons = ret._pin_reasons(store, set(), None, pins=None, turn_keep_s=0, hosted=ret.nested_hosts(jobs, root),
-                                   root=root)
+        # An unread notice keeps its job as the pass reads it (C-8.4); 0 here
+        # would keep every such job for ever, the rule before D-NOTICE-KEEP1.
+        reasons = ret._pin_reasons(store, set(), None, pins=None, turn_keep_s=0,
+                                   notice_keep_s=float(budget["notice_keep_days"]) * 86400,
+                                   hosted=ret.nested_hosts(jobs, root), root=root)
         salvage: dict[str, dict[str, str]] = defaultdict(dict)
         for row in store.query("SELECT r.path,r.sha256,a.job_id FROM artifacts r JOIN attempts a USING(attempt_id) "
                                "WHERE r.role='salvage' ORDER BY r.artifact_id"):

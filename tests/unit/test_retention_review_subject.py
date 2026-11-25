@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -13,6 +14,9 @@ from subfleet import protocol, review_subject
 from subfleet.store import Store
 from tests.unit.retention_world import World, snapshot, trust_temporary_directories
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
 
 FIELDS = ("caller_family", "review_subject", "review_round")
 
@@ -77,6 +81,37 @@ def test_retirement_audit_keeps_only_accepted_review_rounds(tmp_path, monkeypatc
                 assert error.value.reason == "review-round-limit"
             else:
                 assert review_subject.assign_round(tx, "review-key") == 1
+    finally:
+        world.close()
+
+
+def test_retiring_an_accepted_review_with_an_unread_notice_keeps_its_round_and_tells_the_session(
+        tmp_path, monkeypatch):
+    """Both blocks before `Retirement.commit`'s deletes run in one retirement: the
+    accepted review's subject and round (D-REVIEW-SUBJECT1), and the outcome notice
+    for the session that never read its notice (C-8.4, D-NOTICE-KEEP1). Both land
+    on the same `retention.pruned` event."""
+    subject = "https://github.com/owner/repo/pull/217"
+    trust_temporary_directories(monkeypatch)
+    world = World(tmp_path)
+    try:
+        world.job("review-unread", worktree=False)
+        attempt = world.attempt("review-unread")
+        world.store.update_job("review-unread", task="review", accepted_attempt_id=attempt,
+                               review_subject=subject, review_round=2)
+        notice = world.store.add_notice("review-unread", "review-unread: succeeded; rc=0", "session-unread")
+        written = datetime.now(UTC) - timedelta(days=30)        # past the default 7-day keep
+        world.store.update_notice(notice, created_at=written.isoformat(timespec="seconds").replace("+00:00", "Z"))
+        assert retire(world)["pruned"] == ["review-unread"]
+        event, = [json.loads(event["data_json"]) for event in world.store.list_events("review-unread")
+                  if event["kind"] == "retention.pruned" and event["data_json"] != "{}"]
+        told = world.store.query("SELECT notice_id, session_id, state FROM service_notices ORDER BY notice_id")
+        assert [(row["session_id"], row["state"]) for row in told] == [("session-unread", "pending")]
+        assert (event["review_subject"], event["review_round"]) == (subject, 2)
+        assert event["outcome_notices"] == [told[0]["notice_id"]]
+        assert world.store.query("SELECT * FROM notices WHERE job_id='review-unread'") == []
+        with world.store.transaction(None) as tx:
+            assert review_subject.assign_round(tx, subject) == 3
     finally:
         world.close()
 

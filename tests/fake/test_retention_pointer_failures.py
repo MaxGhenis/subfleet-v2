@@ -7,6 +7,12 @@ from subfleet import dependencies
 from subfleet.sessions.transcripts import TooLarge
 from tests.fake.test_retention_dependency_review_r2 import world, reader, maintain
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+# These tests expect one call to retire a job, or to reach its commit-time recheck
+# (fix round 1: CI run 42368334717 failed them at d5aa4b3ae).
+pytestmark = pytest.mark.retention_catch_up
+
 
 @pytest.mark.parametrize("defect", ["dangling", "oversized", "permission", "oserror", "value"])
 def test_unreadable_common_pointer_keeps_allocated_trees(world, monkeypatch, defect):

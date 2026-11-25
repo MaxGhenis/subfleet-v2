@@ -1,0 +1,35 @@
+bringing up nodes...
+bringing up nodes...
+
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_____________ test_successful_route_resets_prior_error_count[True] _____________
+[gw3] darwin -- Python 3.15.2 /private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpgKFMQ4/bin/python
+tests/fake/test_idle_route_deferrals.py:57: in test_successful_route_resets_prior_error_count
+    assert retry_delay(service, job) == 5
+E   AssertionError: assert 10.0 == 5
+E    +  where 10.0 = retry_delay(<subfleet.daemon.Daemon object at 0x10b8a6ba0>, '20261113-083810-terra')
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4488588192:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4488588192:daemon.py:1087 reset credits: automatic redemption off; no-reset marker absent
+------------------------------ Captured log call -------------------------------
+WARNING  subfleet.daemon.4488588192:daemon.py:9718 job 20261113-083810-terra route could not be evaluated (1 in a row, next check in 5 s): ValueError
+WARNING  subfleet.daemon.4488588192:daemon.py:9718 job 20261113-083810-terra route could not be evaluated (2 in a row, next check in 10 s): ValueError
+_____ test_intervening_success_should_not_delay_start_after_release[True] ______
+[gw2] darwin -- Python 3.15.2 /private/tmp/sf-ia-f1/test-tmp/uv-cache/builds-v0/.tmpgKFMQ4/bin/python
+tests/fake/test_idle_route_deferrals.py:72: in test_intervening_success_should_not_delay_start_after_release
+    assert [row["state"] for row in service.store.list_attempts(job)] == ["reserved"]
+E   AssertionError: assert [] == ['reserved']
+E     
+E     Right contains one more item: 'reserved'
+E     Use -v to get more diff
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4460880496:daemon.py:997 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4460880496:daemon.py:1087 reset credits: automatic redemption off; no-reset marker absent
+------------------------------ Captured log call -------------------------------
+WARNING  subfleet.daemon.4460880496:daemon.py:9718 job 20261113-083810-terra route could not be evaluated (1 in a row, next check in 5 s): ValueError
+WARNING  subfleet.daemon.4460880496:daemon.py:9718 job 20261113-083810-terra route could not be evaluated (2 in a row, next check in 10 s): ValueError
+=========================== short test summary info ============================
+FAILED tests/fake/test_idle_route_deferrals.py::test_successful_route_resets_prior_error_count[True]
+FAILED tests/fake/test_idle_route_deferrals.py::test_intervening_success_should_not_delay_start_after_release[True]
+2 failed in 43.21s

@@ -1,0 +1,55 @@
+{
+  "before": {
+    "subfleet/daemon.py": "c78dfc024c802627dfd83f0504fa872baf6d11605b4d5dbab8d2e6818faa753e",
+    "subfleet/store.py": "e329415f2fe46933923b503e9531f11e3a2c22a5444248b75ebe7cc7994b204d",
+    "subfleet/scheduler.py": "f6c9ad0cae11fd8b9d624f856b0782ddb7e155cbc4dfca1ab85ce141d1da7d54",
+    "subfleet/contracts.py": "5c780879e838ad83af097d3a8ff44a9cf1cf9dc66a8135d455c351e980688e4e"
+  },
+  "after": {
+    "subfleet/daemon.py": "be4a631195a91d1ad20835c499e7518ea0fae78b9e3be4a8a00d3b78c1caf072",
+    "subfleet/store.py": "1c05efe3da25fbfbb096662e0a7650849631286124d829caac094c09accac9c8",
+    "subfleet/scheduler.py": "e33af820f856cafcdc6d42dbe5ba7ae138c3b6ed47eaff61392f3b232f6d6fe2",
+    "subfleet/contracts.py": "8d6473f28864919bb2e8dfe39e9009df6ec14f5640f2bd98a66f407b2e318a28"
+  },
+  "post_measurement": {
+    "subfleet/daemon.py": "ddccf445232fcd85ca48782786be0d798b71a612ee33783dd306ef1223861922",
+    "subfleet/store.py": "1c05efe3da25fbfbb096662e0a7650849631286124d829caac094c09accac9c8",
+    "subfleet/scheduler.py": "e33af820f856cafcdc6d42dbe5ba7ae138c3b6ed47eaff61392f3b232f6d6fe2",
+    "subfleet/contracts.py": "8d6473f28864919bb2e8dfe39e9009df6ec14f5640f2bd98a66f407b2e318a28"
+  },
+  "note": "The final comparison uses after-frozen-100.json: a source snapshot with all final fixes whose four changed production files matched the worktree at the beginning and end of the measurement. Earlier after-100 and after-final-100 artifacts retain intermediate history and are not the final comparison.",
+  "after_final_started": {
+    "subfleet/daemon.py": "d73665da573da9e3588fc10daf568e6e1c61e8fc25759f0c488ab87cf8338337",
+    "subfleet/store.py": "1c05efe3da25fbfbb096662e0a7650849631286124d829caac094c09accac9c8",
+    "subfleet/scheduler.py": "e33af820f856cafcdc6d42dbe5ba7ae138c3b6ed47eaff61392f3b232f6d6fe2",
+    "subfleet/contracts.py": "8d6473f28864919bb2e8dfe39e9009df6ec14f5640f2bd98a66f407b2e318a28"
+  },
+  "after_final_ended": {
+    "subfleet/daemon.py": "c41debc72cab730ceb42dc059749f4a231888a4e06b74cb53289eb64f25e7196",
+    "subfleet/store.py": "1c05efe3da25fbfbb096662e0a7650849631286124d829caac094c09accac9c8",
+    "subfleet/scheduler.py": "e33af820f856cafcdc6d42dbe5ba7ae138c3b6ed47eaff61392f3b232f6d6fe2",
+    "subfleet/contracts.py": "8d6473f28864919bb2e8dfe39e9009df6ec14f5640f2bd98a66f407b2e318a28"
+  },
+  "after_final_sources_unchanged": false,
+  "after_frozen_started": {
+    "subfleet/daemon.py": "c41debc72cab730ceb42dc059749f4a231888a4e06b74cb53289eb64f25e7196",
+    "subfleet/store.py": "1c05efe3da25fbfbb096662e0a7650849631286124d829caac094c09accac9c8",
+    "subfleet/scheduler.py": "e33af820f856cafcdc6d42dbe5ba7ae138c3b6ed47eaff61392f3b232f6d6fe2",
+    "subfleet/contracts.py": "8d6473f28864919bb2e8dfe39e9009df6ec14f5640f2bd98a66f407b2e318a28"
+  },
+  "after_frozen_source": "/private/tmp/idle-admission-build/final-source",
+  "after_frozen_ended": {
+    "subfleet/daemon.py": "c41debc72cab730ceb42dc059749f4a231888a4e06b74cb53289eb64f25e7196",
+    "subfleet/store.py": "1c05efe3da25fbfbb096662e0a7650849631286124d829caac094c09accac9c8",
+    "subfleet/scheduler.py": "e33af820f856cafcdc6d42dbe5ba7ae138c3b6ed47eaff61392f3b232f6d6fe2",
+    "subfleet/contracts.py": "8d6473f28864919bb2e8dfe39e9009df6ec14f5640f2bd98a66f407b2e318a28"
+  },
+  "worktree_at_frozen_end": {
+    "subfleet/daemon.py": "c41debc72cab730ceb42dc059749f4a231888a4e06b74cb53289eb64f25e7196",
+    "subfleet/store.py": "1c05efe3da25fbfbb096662e0a7650849631286124d829caac094c09accac9c8",
+    "subfleet/scheduler.py": "e33af820f856cafcdc6d42dbe5ba7ae138c3b6ed47eaff61392f3b232f6d6fe2",
+    "subfleet/contracts.py": "8d6473f28864919bb2e8dfe39e9009df6ec14f5640f2bd98a66f407b2e318a28"
+  },
+  "after_frozen_sources_unchanged": true,
+  "after_frozen_matches_final_worktree": true
+}

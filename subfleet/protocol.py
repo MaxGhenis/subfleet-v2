@@ -44,9 +44,18 @@ JOBS_KIND_CAPABILITY = "jobs.kind.v1"
 #: the field (C-16.2) and never pushes, so a client sends it only to one that lists this.
 PUSH_CAPABILITY = "push.v1"
 
-#: C-11.10: `tasks hold` and `tasks release` honour `if_note_prefix` in their
-#: write transaction. Older daemons drop the field, so clients must discover this first.
+#: C-11.10: the original conditional encoding, kept for clients using plain
+#: `hold` and `release` with `if_note_prefix`.
 TASKS_IF_NOTE_PREFIX_CAPABILITY = "tasks.if_note_prefix.v1"
+
+#: C-11.10: `hold-if` and `release-if` require `if_note_prefix` and check it in
+#: the write transaction. Older daemons refuse these actions before any write.
+TASKS_IF_NOTE_PREFIX_V2_CAPABILITY = "tasks.if_note_prefix.v2"
+
+#: C-11.10 (D-RO-ADMIT1): `tasks` takes a `sandbox` target. An older daemon drops
+#: the field (C-16.2), sees no task and refuses "unknown task None", so a client
+#: sends a sandbox target only to a daemon that lists this.
+TASKS_SANDBOX_CAPABILITY = "tasks.sandbox.v1"
 
 #: C-6.21/22: `submit` retains caller family, review subject and review round.
 #: Older daemons ignore these fields, so callers discover support before sending them.
@@ -375,12 +384,14 @@ class LanesArgs:
 @dataclass
 class TasksArgs:
     """`tasks` (C-11.10, D-TASKHOLD1): `list` the holds in force, `hold` a task
-    until an instant with a note, or `release` it."""
+    until an instant with a note, or `release` it. `hold-if` and `release-if`
+    require a note prefix; plain actions retain the original optional field."""
     action: str = "list"
     task: str | None = None
     until: str | None = None
     note: str | None = None
     if_note_prefix: str | None = None
+    sandbox: str | None = None
 
 
 @dataclass
@@ -615,10 +626,9 @@ def refuse(req_id: str, error: BaseException, *, reason: str = "invalid-args") -
     # exception prose and every other detail remain excluded.
     from .refusals import task_hold_condition_details
     error_reason = getattr(error, "reason", None)
-    hold_details = (task_hold_condition_details(getattr(error, "details", None))
-                    if error_reason == "task-hold-condition" else None)
-    public_reason = "task-hold-condition" if hold_details is not None else None
+    condition = error_reason == "task-hold-condition"
+    hold_details = task_hold_condition_details(getattr(error, "details", None)) if condition else None
+    public_reason = "task-hold-condition" if condition else None
     if type(error_reason) is str and error_reason == "review-round-limit":
         public_reason = "review-round-limit"
-    return fail(req_id, code, message, fix,
-                reason=public_reason, details=hold_details)
+    return fail(req_id, code, message, fix, reason=public_reason, details=hold_details)
