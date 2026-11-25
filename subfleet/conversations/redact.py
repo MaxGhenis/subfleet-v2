@@ -11,13 +11,15 @@ too.
 
 from __future__ import annotations
 
+import bisect
 import hashlib
 import json
+import math
 import re
 from typing import Any
 
 from ..sessions.handoff import (
-    looks_binary, scrub_bounded, scrub_secrets, sensitive_tool_call,
+    _URL_SCHEME_RE, looks_binary, scrub_bounded, scrub_secrets, sensitive_tool_call,
 )
 
 INPUT_MAX = 500
@@ -121,19 +123,180 @@ class DeltaBuffer:
 # --- approvals (C-27.1, review IR-20) -------------------------------------------
 
 _SHELL_META = ("$(", "`", "|", ";", "&", ">", "<", "\n")
-#: A mask an earlier pass wrote in place (`[masked url-password, 1 chars]`).
-_MASK = r"\[masked [a-z-]+, \d+ chars\]"
-#: A URL's password in an approval: `handoff._URL_PASSWORD_RE`, reading a mask an earlier
-#: pass wrote as one character of the password. Release's masking ends a password at its
-#: first `@` (`https://alice:p@ss/…@host` masks `p`), and its mask holds spaces, which
-#: `\S` cannot cross; read so, the head's pass still reaches the password's last `@`
-#: (review r3 of #308, P1).
-_APPROVAL_URL_PASSWORD_RE = re.compile(
-    r"(?i)([a-z0-9+._-]+://[^\s/:]*:)"
-    r"((?:" + _MASK + r"|(?!://)\S)*(?=@))(@)")
-#: What a URL password's masking leaves in place: a mask an earlier pass wrote, and a
-#: shell metacharacter, which an approval never hides (IR-20).
-_PASSWORD_KEPT_RE = re.compile(_MASK + "|" + "|".join(re.escape(meta) for meta in _SHELL_META))
+#: A mask a pass wrote in place (`[masked url-password, 1 chars]`), with the number of
+#: characters it stands for.
+_MASK_RE = re.compile(r"\[masked [a-z-]+, (\d{1,12}) chars\]")
+#: The shell's operators: unquoted, each ends a URL's authority in an approval.
+_SHELL_OPERATORS = frozenset(";&|<>()\n")
+#: What never goes inside a mask the head writes over a password: quote marks and backslashes.
+_NEVER_MASKED = frozenset("'\"\\")
+#: Where `_quoting` stops outside quotes, and inside double quotes.
+_UNQUOTED_SPECIAL_RE = re.compile(r"['\"\\#$`<]")
+_DOUBLE_QUOTED_SPECIAL_RE = re.compile(r'["\\$`]')
+#: A parameter expansion that holds no quoting of its own (`${IFS}`).
+_PLAIN_PARAMETER_RE = re.compile(r"\$\{(?:[A-Za-z_][A-Za-z0-9_]*|[0-9]+|[#?$!@*-])\}")
+#: What a word follows: a `#` after one of these starts a comment.
+_WORD_BREAK = frozenset(" \t\n;&|()<>")
+#: `_quoting`'s kinds: unquoted, inside single quotes, inside double quotes, a quote mark that
+#: opens or closes them, a comment, and unknown (from where the scanner stops following).
+_U, _S, _D, _Q, _C, _X = b"usdqcx"
+
+
+def _quoting(text: str) -> bytes:
+    """How the shell quotes each character of `text`, one kind (`_U` to `_X`) per character
+    (C-27.1, #308 fix r4). From where this scanner can't follow the shell, every character
+    is `_X`, unknown: a quote left open, a heredoc or here-string (`<<`), a backtick, or a
+    `$(`, `$'`, `$"` or `${…}` other than a plain name (`${IFS}`), each of which can hold
+    quoting of its own. A backslash outside single quotes escapes the next character, and
+    a `#` that starts a word starts a comment, to the line's end."""
+    kinds = bytearray(b"u" * len(text))
+    at = 0
+    while (special := _UNQUOTED_SPECIAL_RE.search(text, at)) is not None:
+        i, char = special.start(), special.group()
+        if char == "'":
+            close = text.find("'", i + 1)
+            if close < 0:
+                kinds[i:] = b"x" * (len(text) - i)
+                break
+            kinds[i + 1:close] = b"s" * (close - i - 1)
+            kinds[i] = kinds[close] = _Q
+            at = close + 1
+        elif char == '"':
+            close, stop = _double_quoted_end(text, i + 1)
+            if stop > i:                               # inside the quotes up to `stop`
+                kinds[i + 1:stop] = b"d" * (stop - i - 1)
+                kinds[i] = _Q
+            if close is None:
+                kinds[stop:] = b"x" * (len(text) - stop)
+                break
+            kinds[close] = _Q
+            at = close + 1
+        elif char == "\\":
+            at = i + 2
+        elif char == "#" and (i == 0 or text[i - 1] in _WORD_BREAK):
+            stop = text.find("\n", i)
+            stop = len(text) if stop < 0 else stop
+            kinds[i:stop] = b"c" * (stop - i)
+            at = stop
+        elif char == "$" and text.startswith(("$(", "${", "$'", '$"'), i):
+            plain = _PLAIN_PARAMETER_RE.match(text, i)
+            if plain is None:
+                kinds[i:] = b"x" * (len(text) - i)
+                break
+            at = plain.end()
+        elif char == "`" or text.startswith("<<", i):
+            kinds[i:] = b"x" * (len(text) - i)
+            break
+        else:
+            at = i + 1
+    return bytes(kinds)
+
+
+def _double_quoted_end(text: str, at: int) -> tuple[int | None, int]:
+    """The closing quote of a double-quoted string whose text starts at `at`, and where the
+    string is known to end: the closing quote; or None, and where the scanner stopped
+    following it (a backtick, or a `$(` or `${…}` other than a plain name), or its opening
+    quote if it is never closed."""
+    opening = at - 1
+    while (special := _DOUBLE_QUOTED_SPECIAL_RE.search(text, at)) is not None:
+        i, char = special.start(), special.group()
+        if char == '"':
+            return i, i
+        if char == "\\":
+            at = i + 2
+        elif char == "`":
+            return None, i
+        elif text.startswith(("$(", "${"), i):
+            plain = _PLAIN_PARAMETER_RE.match(text, i)
+            if plain is None:
+                return None, i
+            at = plain.end()
+        else:
+            at = i + 1
+    return None, opening
+
+
+def _url_password(text: str, start: int, kinds: bytes) -> list[int]:
+    """The positions in `text` of the password of the URL whose authority starts at `start`
+    (just after `://`), as a client is sent it (C-27.1): the authority ends at the first `/`,
+    `?`, `#` or whitespace, an unquoted shell operator, or a `$`, backtick or backslash
+    outside single quotes, and leaves out the quote marks; where the quoting is unknown
+    (`_X`) every operator ends it and every quote mark is left out. The userinfo ends at
+    the authority's last `@`, and the password is its text after the user's first `:`;
+    with no `@` or `:` there is none."""
+    authority = []
+    for at in range(start, len(text)):
+        char, kind = text[at], kinds[at]
+        if char.isspace() or char in "/?#":
+            break
+        if kind == _Q or (kind == _X and char in "'\""):
+            continue
+        if char in "$`\\" and kind != _S:
+            break
+        if char in _SHELL_OPERATORS and kind not in (_S, _D):
+            break
+        authority.append(at)
+    ats = [k for k, at in enumerate(authority) if text[at] == "@"]
+    if not ats:
+        return []
+    userinfo = authority[:ats[-1]]
+    colon = next((k for k, at in enumerate(userinfo) if text[at] == ":"), None)
+    return [] if colon is None else userinfo[colon + 1:]
+
+
+def _password_positions(text: str) -> list[int]:
+    """The positions of every URL's password in `text` (`_url_password`), each URL tried once
+    from each run of scheme characters that `://` follows, as `handoff._linear_sub` tries
+    the head's URL rule."""
+    if "://" not in text:
+        return []
+    kinds = _quoting(text)
+    found: set[int] = set()
+    for token in _URL_SCHEME_RE.finditer(text):
+        if text.startswith("://", token.end()):
+            found.update(_url_password(text, token.end() + 3, kinds))
+    return sorted(found)
+
+
+def _aligned(source: str, shown: str) -> list[tuple[int, int, int]] | None:
+    """`shown` read as `source` with masks in place: its literal stretches, each (source
+    start, shown start, length), where a mask (`_MASK_RE`) stands for its count of
+    `source`'s characters and every other character for itself; None where `shown` is not
+    that. A mask-shaped text that `source` holds at that point is `source`'s own text: no
+    pass masks a run that starts with `[` and then reads as a mask (#308 fix r4)."""
+    stretches, i, j = [], 0, 0
+    for mask in _MASK_RE.finditer(shown):
+        start, end = mask.span()
+        at = j + start - i
+        if source.startswith(mask.group(), at):
+            continue
+        stretches.append((j, i, start - i))
+        i, j = end, at + int(mask.group(1))
+    stretches.append((j, i, len(shown) - i))
+    if j + len(shown) - i != len(source) or not all(
+            source.startswith(shown[at:at + length], origin) for origin, at, length in stretches):
+        return None
+    return [stretch for stretch in stretches if stretch[2]]
+
+
+def _through(stretches: list[tuple[int, int, int]], position: int) -> int | None:
+    """Where `position` of the source shows (`_aligned`), or None inside a mask."""
+    k = bisect.bisect_right(stretches, (position, math.inf, math.inf)) - 1
+    if k < 0:
+        return None
+    origin, at, length = stretches[k]
+    return at + position - origin if position < origin + length else None
+
+
+def _shown_at(original: str, released: str, shown: str):
+    """A function from a position of `original` to where `shown` (release's output
+    `released` after the head's token rules) shows it, or None inside a mask; None where
+    either text can't be aligned with the one before it."""
+    first, second = _aligned(original, released), _aligned(released, shown)
+    if first is None or second is None:
+        return None
+    return lambda position: (None if (middle := _through(first, position)) is None
+                             else _through(second, middle))
 
 
 def mask_approval(request: Any) -> tuple[Any, list[dict]]:
@@ -141,24 +304,35 @@ def mask_approval(request: Any) -> tuple[Any, list[dict]]:
     frozen at `2c981cba5`), on what release leaves (C-23.14, C-27.1, #239 round 8). The
     head's pass only replaces a span with its mask, so it shows nothing release masks,
     and it reads every token shape release leaves unmasked as it would without release's
-    pass; the spans are release's, then the head's."""
+    pass. It finds each URL's password on `request` itself, never on release's output,
+    whose frozen rule can mask a character that ends the authority (#308 fix r4). The
+    spans are release's, then the head's."""
     from ..sessions import scrub_release
     released, spans = scrub_release.mask_approval(request)
-    masked, more = _head_mask_approval(released)
+    masked, more = _head_mask_approval(request, released)
     return masked, spans + more
 
 
-def _head_mask_approval(request: Any) -> tuple[Any, list[dict]]:
+def _head_mask_approval(request: Any, released: Any = None) -> tuple[Any, list[dict]]:
     """Mask value-shaped secrets in an approval request, and nothing else.
 
-    A person must see what they are allowing. Only token-shaped values (PEM
-    blocks, JWTs, prefixed tokens, Bearer tokens, URL passwords) are masked,
-    never by key name, never long base64, and never a span that contains
-    command substitution, a pipe, a separator, a redirection or a newline.
-    Each masked span is reported so the app can show it and offer a reveal.
+    A person must see what they are allowing (C-27.1). Only token-shaped values (PEM
+    blocks, JWTs, prefixed tokens, Bearer tokens, URL passwords) are masked, never by key
+    name and never long base64. A PEM block, JWT, token or Bearer token that contains
+    command substitution, a pipe, a separator, a redirection or a newline is not masked.
+
+    A URL's password is the one a client is sent (`_url_password`), found on `request` as
+    submitted: shell operators inside quotes are password characters, and only the
+    password is masked, so its user, host, port, path and query, and every command and
+    operator around it, show. Where C-27.1 and secrecy conflict, C-27.1 wins (#308 fix
+    r4). `released` is release's output of `request` (`mask_approval`); with it, the head
+    masks each run of the password's characters that release's masks and its own token
+    rules leave in view, and no quote mark or backslash. Alone (`released` None) the head
+    masks `request` itself. Each masked span is reported so the app can show it and offer
+    a reveal; its length and SHA-256 describe the request's characters.
     """
     from ..sessions.handoff import (
-        _BEARER_RE, _JWT_RE, _PEM_RE, _PREFIXED_TOKEN_RE, _URL_SCHEME_RE, _bearer_refusal, _linear_sub,
+        _BEARER_RE, _JWT_RE, _PEM_RE, _PREFIXED_TOKEN_RE, _bearer_refusal, _linear_sub,
     )
     spans: list[dict] = []
 
@@ -167,40 +341,36 @@ def _head_mask_approval(request: Any) -> tuple[Any, list[dict]]:
                       "sha256": hashlib.sha256(value.encode()).hexdigest()})
         return f"[masked {rule}, {len(value)} chars]"
 
-    def _masked_password(value: str, path: str) -> str:
-        """A URL's password, to its last `@` (C-23.14): every piece between the masks an
-        earlier pass wrote and the shell metacharacters masked, those kept. So every
-        character of the password is masked but a shell metacharacter, which stays in
-        view (IR-20), and text after the password up to that `@` (a host, a path, a
-        query) is masked with it (review r3 of #308, P1)."""
-        pieces, cursor = [], 0
-        for kept in _PASSWORD_KEPT_RE.finditer(value):
-            if kept.start() > cursor:
-                pieces.append(masked(value[cursor:kept.start()], "url-password", path))
-            pieces.append(kept.group())
-            cursor = kept.end()
-        if cursor < len(value):
-            pieces.append(masked(value[cursor:], "url-password", path))
-        return "".join(pieces)
-
-    def url_passwords(text: str, path: str) -> str:
-        """`text` with each URL's password masked (`_masked_password`): tried once from the
-        start of each run of scheme characters that `://` follows, as `handoff._linear_sub`
-        tries the head's URL rule, an empty password skipped."""
+    def url_passwords(original: str, released: str, shown: str, path: str) -> str:
+        """`shown` with each run of `original`'s URL passwords that it shows masked."""
+        found = [at for at in _password_positions(original) if original[at] not in _NEVER_MASKED]
+        if not found:
+            return shown
+        where = _shown_at(original, released, shown)
+        if where is None:
+            # Never expected (`_aligned`): fail closed, the whole string masked.
+            return masked(original, "url-password", path)
+        runs: list[list[int]] = []                     # [shown start, shown end, original start]
+        for at in found:
+            to = where(at)
+            if to is None:
+                continue
+            if runs and runs[-1][1] == to and runs[-1][2] + to - runs[-1][0] == at:
+                runs[-1][1] = to + 1
+            else:
+                runs.append([to, to + 1, at])
         parts, cursor = [], 0
-        for token in _URL_SCHEME_RE.finditer(text):
-            if token.start() < cursor or not text.startswith("://", token.end()):
-                continue
-            match = _APPROVAL_URL_PASSWORD_RE.match(text, token.start())
-            if match is None or not match.group(2):
-                continue
-            parts.extend((text[cursor:match.start()],
-                          match.group(1) + _masked_password(match.group(2), path) + match.group(3)))
-            cursor = match.end()
-        parts.append(text[cursor:])
+        for start, end, origin in runs:
+            parts += [shown[cursor:start], masked(original[origin:origin + end - start], "url-password", path)]
+            cursor = end
+        parts.append(shown[cursor:])
         return "".join(parts)
 
-    def mask_text(text: str, path: str) -> str:
+    def mask_text(text: str, original: str | None, path: str) -> str:
+        if original is None:
+            # `released` isn't `request`'s shape (never expected): fail closed.
+            return masked(text, "url-password", path)
+        released_text = text
         for rule, pattern in (("pem", _PEM_RE), ("jwt", _JWT_RE), ("token", _PREFIXED_TOKEN_RE),
                               ("bearer", _BEARER_RE)):
             def repl(match):
@@ -215,15 +385,17 @@ def _head_mask_approval(request: Any) -> tuple[Any, list[dict]]:
                     return match.group(0)
                 return masked(value, rule, path) + rest
             text = _linear_sub(pattern, repl, text)
-        return url_passwords(text, path)
+        return url_passwords(original, released_text, text, path)
 
-    def walk(value: Any, path: str) -> Any:
+    def walk(value: Any, original: Any, path: str) -> Any:
         if isinstance(value, str):
-            return mask_text(value, path)
+            return mask_text(value, original if isinstance(original, str) else None, path)
         if isinstance(value, dict):
-            return {k: walk(v, f"{path}.{k}") for k, v in value.items()}
+            return {k: walk(v, original.get(k) if isinstance(original, dict) else None, f"{path}.{k}")
+                    for k, v in value.items()}
         if isinstance(value, list):
-            return [walk(v, f"{path}[{i}]") for i, v in enumerate(value)]
+            return [walk(v, original[i] if isinstance(original, list) and i < len(original) else None,
+                         f"{path}[{i}]") for i, v in enumerate(value)]
         return value
 
-    return walk(request, "$"), spans
+    return walk(request if released is None else released, request, "$"), spans

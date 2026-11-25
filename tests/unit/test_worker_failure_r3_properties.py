@@ -8,9 +8,14 @@ generated text.
   and the follower.
 - **The follower hides in any split what it hides whole** (P2). A key an invisible
   character splits, its value on the next feed, was written.
-- **An approval masks every password character** (P1). A URL password holding `@`, `/`,
-  `?`, `&` or `:` is masked whole, but for its shell metacharacters, which an approval
-  never hides (IR-20), and a URL with a password never gives no span.
+- **An approval masks exactly the password a client is sent** (P1; fix r4, after review
+  r4). Fix r3 masked to the last `@` before whitespace and kept shell metacharacters in
+  view, which hid commands and the real host. Now the password is found on the request as
+  submitted: the authority ends at the first `/`, `?`, `#`, whitespace, unquoted shell
+  operator, or `$`, backtick or backslash outside single quotes, the userinfo at its last
+  `@`, and the password is the userinfo after the user's first `:`. Inside quotes a shell
+  operator is a password character. So review r2's `https://alice:p@ss/FGHIJKLMNPQ@host.test`
+  has the password `p` and the host `ss`, and the rest is a path that shows.
 
 Every value is made up. Values are drawn from `POOL`, letters no other part of a generated
 text, a placeholder or an escape holds, each used once a text, so a character the output
@@ -21,11 +26,13 @@ from __future__ import annotations
 import copy
 import logging
 import re
+import urllib.parse
 
-from hypothesis import given, settings, strategies as st
+from hypothesis import event, given, settings, strategies as st
 
 from subfleet import daemon_log
 from subfleet.conversations import redact
+from subfleet.sessions import scrub_release
 from subfleet.sessions.handoff import REDACTED, settled_end
 
 # --- bb118f63d's terminal layer, frozen (`git show bb118f63d:subfleet/daemon_log.py`) -----
@@ -284,71 +291,111 @@ def test_r3_a_follower_fed_in_any_split_hides_what_it_hides_whole(case):
         chunks, whole, tail, split)
 
 
-# --- an approval's URL password (review r3, P1) --------------------------------------------
+# --- an approval's URL password (review r3, P1; the rule fix r4 made) -----------------------
 
 #: An approval's mask, as `_head_mask_approval` and release's masking write one.
-MASK = r"\[masked [a-z-]+, \d+ chars\]"
-#: The shell metacharacters an approval never hides (`redact._SHELL_META`, IR-20).
-META = re.compile("|".join(re.escape(meta) for meta in redact._SHELL_META))
-#: Review r2's and r3's URLs, each password's characters split at its `@` and `/`.
+MASK = r"\[masked [a-z-]+, (\d+) chars\]"
+#: Review r2's and r3's URLs: what comes before the password, the password, what follows.
+#: Review r2's authority is `alice:p@ss` (it ends at the `/`): the password is `p`, the host
+#: `ss`, and `/FGHIJKLMNPQ@host.test` is a path that shows (fix r4).
 REVIEW_URLS = {
-    "r2-at-then-slash": ("https://alice:", "p@ss/FGHIJKLMNPQ", "@host.test"),
+    "r2-at-then-slash": ("https://alice:", "p", "@ss/FGHIJKLMNPQ@host.test"),
     "r3-query-ampersand": ("redis://:", "FGHIJKLMNPQ", "@cache.test/x?x=2&owner=@me"),
 }
 
 
 def _masked_whole(command: str, prefix: str, password: str, pieces: list[str]) -> None:
-    """`command`'s approval masks every character of `password`, which follows `prefix`:
-    from the user's `:` there are only masks and shell metacharacters, then what follows
-    the password or a suffix of it (masking past the password is allowed); no piece is
-    shown; every shell metacharacter is shown, in order; and there is a span."""
+    """`command`'s approval masks exactly `password`, which follows `prefix`: the output is
+    the command with the password's characters replaced by masks (release's and the
+    head's, standing for exactly its length) and every other character as written; no
+    piece of it shows; and there is a span."""
     masked, spans = redact.mask_approval({"command": command})
     out = masked["command"]
     start = command.index(prefix + password) + len(prefix)
-    after = command[start + len(password):]
-    assert spans and out[:start] == command[:start], out
-    region = re.match(f"(?:{MASK}|{META.pattern})+", out[start:])
-    assert region is not None, out
-    rest = out[start + region.end():]
-    assert rest.startswith("@") and after.endswith(rest), out
+    end = start + len(password)
+    assert spans and out[:start] == command[:start] and out.endswith(command[end:]), out
+    region = out[start:len(out) - (len(command) - end)]
+    assert re.fullmatch(f"(?:{MASK})+", region), out
+    assert sum(int(count) for count in re.findall(MASK, region)) == len(password), out
     assert [piece for piece in pieces if piece in out] == [], out
-    assert META.findall(out) == META.findall(command), out
 
 
 def test_r3_review_urls_mask_their_whole_password():
+    """Each review URL, in `curl "…"`, `curl '…'`, `curl …` and bare, masks its password
+    and nothing else: review r2's path after the host shows (fix r4)."""
     for prefix, password, rest in REVIEW_URLS.values():
-        for wrap in ('curl "{}"', "curl {}", "{}"):
+        for wrap in ('curl "{}"', "curl '{}'", "curl {}", "{}"):
             _masked_whole(wrap.format(prefix + password + rest), prefix, password,
                           [piece for piece in re.split(r"[@/?&:]", password) if len(piece) > 2])
+            assert rest in redact.mask_approval({"command": wrap.format(prefix + password + rest)})[0]["command"]
 
 
 ALNUM = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+#: How each wrap quotes the URL it holds: "double", "single" or "none".
+WRAPS = {'curl "{}"': "double", "curl '{}'": "single", "curl {}": "none", "{}": "none",
+         "git clone {} && echo done": "none"}
+#: Commands after the host, as review r4's table has them, each with a later `@x.test`.
+TAILS = ["", ";rm${IFS}-rf${IFS}/nonexistent;@x.test", "&&{rm,-rf,nonexistent.d}&&echo@x.test",
+         "|{sh,-c,id}|echo@x.test", "$(rm${IFS}nonexistent)@x.test", "`rm${IFS}nonexistent`@x.test",
+         ">nonexistent.out;echo@x.test", "${IFS}@x.test"]
+#: What ends the authority, by how the URL is quoted: whitespace always; a `$`, a backtick
+#: or a backslash outside single quotes; a shell operator unquoted.
+ENDS_AUTHORITY = {"single": "", "double": "$`\\", "none": "$`\\;&|<>()"}
+
+
+def client_password(command: str, quoting: str) -> str | None:
+    """The oracle: the password a client is sent, computed from what the generator placed and
+    how it quoted it, never by the code under test. `urlsplit`'s password of the text after
+    `://` up to the first character that ends the authority by the shell's rules, its quote
+    characters removed (`urlsplit` ends the authority at `/`, `?` or `#`, and the userinfo
+    at its last `@`)."""
+    word = []
+    for char in command[command.index("://") + 3:]:
+        if char.isspace() or char in ENDS_AUTHORITY[quoting]:
+            break
+        word.append(char)
+    return urllib.parse.urlsplit("http://" + "".join(word).replace('"', "").replace("'", "")).password
 
 
 @st.composite
-def password_urls(draw) -> tuple[str, str, str, list[str]]:
-    """A command holding a URL whose password holds `@`, `/`, `?`, `&` and `:`, and whose
-    query or fragment may hold `@`; with the prefix to its password, the password and
-    its pieces."""
+def password_urls(draw) -> tuple[str, str, str | None, list[str]]:
+    """A command holding a URL whose password holds `@ / ? # & ; | : $`, whose user is
+    empty, plain or holds an `@`, whose query or fragment may hold `@`, with a command after
+    the host or none, in `curl "…"`, `curl '…'`, `curl …`, bare or `git clone … && echo
+    done`. Each part is review r4's P2 shape or review r3's redis URL (a double-quoted
+    password with `;`, an empty user, `?x=2&owner=@me`) or any choice, one of two branches.
+    With the prefix before the password, the expected password (`client_password`) and the
+    generated pieces it holds."""
     pieces = draw(st.lists(st.text(ALNUM, min_size=6, max_size=9), min_size=1, max_size=5, unique=True))
-    joins = draw(st.lists(st.sampled_from("@/?&:"), min_size=len(pieces) - 1, max_size=len(pieces) - 1))
-    password = pieces[0] + "".join(join + piece for join, piece in zip(joins, pieces[1:]))
-    scheme = draw(st.sampled_from(["https", "redis", "postgres", "my_db", "9p"]))
-    user = draw(st.sampled_from(["", "alice", "svc@tenant"]))
-    host = draw(st.sampled_from(["host.test", "cache.test:6379", "db.test/main"]))
-    query = draw(st.sampled_from(["", "?x=2&owner=@me", "?a=@b", "?q=1&r=2"]))
+    joins = draw(st.lists(_often(";", list("@/?#&;|:$")), min_size=len(pieces) - 1, max_size=len(pieces) - 1))
+    placed = pieces[0] + "".join(join + piece for join, piece in zip(joins, pieces[1:]))
+    scheme = draw(_often("redis", ["https", "redis", "postgres", "my_db", "9p"]))
+    user = draw(_often("", ["", "alice", "svc@tenant"]))
+    host = draw(st.sampled_from(["cache.test", "host.test", "cache.test:6379", "db.test/main"]))
+    tail = draw(st.sampled_from(TAILS))
+    query = draw(_often("?x=2&owner=@me", ["", "?x=2&owner=@me", "?a=@b", "?q=1&r=2"]))
     fragment = draw(st.sampled_from(["", "#@top", "#frag"]))
+    wrap = draw(_often('curl "{}"', list(WRAPS)))
     prefix = f"{scheme}://{user}:"
-    url = f"{prefix}{password}@{host}{query}{fragment}"
-    command = draw(st.sampled_from(['curl "{}"', "curl {}", "{}", 'git clone {} && echo done'])).format(url)
-    return command, prefix, password, pieces
+    command = wrap.format(f"{prefix}{placed}@{host}{tail}{query}{fragment}")
+    password = client_password(command, WRAPS[wrap])
+    assert password is None or placed.startswith(password) or password.startswith(placed), (command, password)
+    return command, prefix, password, [piece for piece in pieces if piece in (password or "")]
 
 
-@settings(max_examples=60, derandomize=True, database=None, deadline=None)
+@settings(max_examples=150, derandomize=True, database=None, deadline=None)
 @given(case=password_urls())
-def test_r3_an_approval_masks_every_password_character_but_shell_metacharacters(case):
-    """Invariant (review r3 of #308, P1): no piece of a URL's password is shown, its
-    masks run from the user's `:` to an `@` with only shell metacharacters between them,
-    every shell metacharacter of the command is shown in order, and a URL with a password
-    gives a span."""
-    _masked_whole(*case)
+def test_an_approval_masks_exactly_the_password_a_client_is_sent(case):
+    """Invariant (fix r4 of #308, after review r4): the display is the command with exactly
+    its URL's password replaced by masks (release's and the head's), quote characters kept
+    and every other character as written, so the real host and every command show. A
+    non-empty password gives a span and shows none of its pieces. With no password the
+    head adds no mask: the display is release's output, whose frozen rule can mask past
+    the authority (`u:aa#bb@evil.test`), which this property does not judge."""
+    command, prefix, password, pieces = case
+    if password:
+        _masked_whole(command, prefix, password, pieces)
+        return
+    released = scrub_release.mask_approval({"command": command})
+    assert redact.mask_approval({"command": command}) == released
+    event("no password" + ("; release masks past the authority" if released[0]["command"] != command else ""))

@@ -15,7 +15,8 @@ output but for the runs the head's own pipeline for that mode does not hold, so 
   folded line, `detail_line` and `suggestions.scrubbed_line` (release's line kept for the
   head's, then cut, review r9b P2-2), a suggestion's brief (`normalize`) and daemon.log's
   block form. `mask_approval` masks what release's masking leaves
-  (`redact._head_mask_approval`).
+  (`redact._head_mask_approval`), reading each URL's password on the request as submitted
+  (#308 fix r4), so it is passed the request with release's output.
 - **Bounded modes compose first, then cut** (#239 rounds 9 and 10). A cut piece holds the
   start or end of a run the head's scrub holds only whole, which the composition would hide,
   so each bounded mode keeps release's output for the head's runs before it cuts. Its cut
@@ -119,7 +120,7 @@ COMPOSED = {
     "scrubbed_line": _cut_line,
     "brief": lambda t: (lambda kept: kept if kept.strip() else "")(handoff.shown_by_both(
         suggestions._twice(R, t, suggestions._line_ends)[0], suggestions._twice(H, t, suggestions._line_ends)[0])),
-    "mask_approval": lambda t: redact._head_mask_approval(scrub_release.mask_approval({"c": t})[0])[0]["c"],
+    "mask_approval": lambda t: redact._head_mask_approval({"c": t}, scrub_release.mask_approval({"c": t})[0])[0]["c"],
 }
 
 #: Each bounded mode's limit.
