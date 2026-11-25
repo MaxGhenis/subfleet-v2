@@ -504,3 +504,287 @@ The other `test_live_store_guard*` tests still ran. Following fix round 1's audi
 10. **Network.** All my network use was read-only: `gh pr view 314 --repo MaxGhenis/subfleet-v2` for the PR body, and one `git fetch --dry-run`, which read where the remote release ref sits and updated no ref.
 
 Code and tests built: `54b2b0ae1dcf7c9360ba6155f53424c49f5e57ed` (merge 9292b0e64, then the tests commit). This section is committed on top of it; the job's final answer gives the resulting head.
+
+## Release merge 2
+
+Started at **2026-11-25 21:28:40 UTC**. The cutoff for new test runs was 23:58:40 UTC and the job deadline was 00:28:40 UTC on November 26. The checkout opened at `b84046c4b19cab317f14138ec0a979fb73a09abc` with a clean worktree. The local `origin/release/217` ref was at the requested `53a7bac93d01afd9165588bcaf789dae75540757`. The merge base was `4aed7a3c977d7813262cac21016fb65d37576ba2`. Release added 26 commits across 23 paths through #177, #333 and #334. The PR side added nine commits. I read the PR body through `gh pr view 314 --repo MaxGhenis/subfleet-v2` and used the local objects for the merge.
+
+### Merge and contract
+
+The sandbox denied `ORIG_HEAD.lock` on `git merge --no-ff --no-commit 53a7bac93d01afd9165588bcaf789dae75540757` and `index.lock` on `git add -- docs/acceptance-contract.md`. I built the fallback tree in the assigned worktree. I copied the 21 release-only paths from the release object and verified their bytes and executable modes. I merged `subfleet/daemon.py` with `git merge-file -p` over the three committed inputs. Its exit was 0. The tested tree is the merge of **`b84046c4b19cab317f14138ec0a979fb73a09abc`** and **`53a7bac93d01afd9165588bcaf789dae75540757`** for the hub to record. The actual `HEAD` is still `b84046c4b`, whose parent is `77585b5f2b09eafa6bf0a82db732ed8727da0f12`. The worktree checks `git diff --check 53a7bac93` and `git diff --check b84046c4b` both passed. The legacy-smoke logs have no changes between these two tips.
+
+I read the hub script's docstring and ran the script from the worktree root against the fallback tree. It exited 0.
+
+```text
+$ python3 /Users/maxghenis/reviews/subfleet-hub/host-runs/merge_contract.py HEAD 53a7bac93d01afd9165588bcaf789dae75540757
+merged against 4aed7a3c9: 260 clauses, none duplicated
+```
+
+The PR added C-3.8, C-6.21 and C-6.22 and edited C-6.5 and C-17.2. Release changed C-5.5 and C-25.6 in #177 and one continuation line of C-8.7 in #334. The C-8.7 continuation expands the condition after “no hourly pass is due” and keeps the existing sentence on unexpected exceptions. The change log starts with D-REVIEW-SUBJECT1, then #334's C-8.7 entry dated 2026-11-18 and #177's C-5.5/C-25.6 entry dated 2026-11-14. The older entries are byte-identical, including the duplicated C-20.6/C-23.28 (2026-10-15, D-ST1, PR #198 round 8) line that predates the merge. Each changed clause comes from its authoring side, so the merge required no new clause wording or change-log entry.
+
+The Python check of the committed inputs and fallback tree produced the following results.
+
+```text
+split lines (base/head/release/merged): 866 870 868 872
+wc -l (base/head/release/merged): 865 869 867 871
+merged bytes: 1049866; sha256: 3116a82c937b5ab2a1ff52594dfa3b72bc7c9c53335a352f944d0b2220924c51
+change-log entries (base/head/release/merged): 366 367 368 369
+change log order and preservation: PASS; pre-existing C-20.6, C-23.28 line occurs twice in all four versions
+script clause pattern (base/head/release/merged): 257 260 257 260
+including lettered (base/head/release/merged): 260 263 260 263
+including titled (base/head/release/merged): 262 265 262 265
+duplicate clause IDs: none
+PR clause blocks differing: ['C-17.2', 'C-3.8', 'C-6.21', 'C-6.22', 'C-6.5']
+PR clauses: C-17.2, C-3.8, C-6.21, C-6.22, C-6.5
+release clauses: C-25.6, C-5.5, C-8.7 (C-8.7: one continuation line)
+all merged clause blocks match the changing side or base: PASS
+contract line diffs: release→merged = base→head (5 edit groups); head→merged = base→release (4 edit groups): PASS
+daemon.py line diffs: release→merged = base→head (8 edit groups); head→merged = base→release (11 edit groups): PASS
+store schema 12; wake 11, review 12; keys 4–12; slot 11 equals PR head and both #307 tuples; events_notice_retired: PASS
+```
+
+I read the submission and retention hunks in the result. The submission region has caller-family and review validation, round assignment inside the insert transaction, refusal cleanup, inheritance on resume, and the Codex writer check. The retention region has the `DEFERRED` comment, `_retention_delete_owed` class default, the owed turn before the next due pass, and the five hourly paths that clear the flag. Both sides' complete line diffs survive.
+
+### Schema slots and semantic checks
+
+`SCHEMA_VERSION = REVIEW_SUBJECT_MIGRATION`, with `NOTICE_WAKE_MIGRATION = 11` and `REVIEW_SUBJECT_MIGRATION = 12`. An AST read compared the slot 11 tuple with #307 at `963d1afb9` and `02ae7d1ed`. The schema header says version 12 and the schema creates `events_notice_retired`. The store code, IDs and fixtures match the PR head. No slot or fixture changed in this merge.
+
+- **#334 and review retirement.** The PR tests drive `retention.maintenance` directly and keep the round 1 `retention_catch_up` marker. `World.push()` seeds disposable repositories with local fetches. No PR test creates an operator request or journal or exercises the daemon’s owed-delete scheduling. Normal retirement still stamps accepted-review history on its event, and the operator delete path preserves the job row. The release daemon module covers owed turns, `DEFERRED`, retry counts and the real `DeletePath` on temporary schema-12 stores.
+- **#177 and the protocol boundary.** `peers.judge` computes the root marker with `ps_text`, including a trailing space, and rejects unholdable roots before it asks for the process chain. The service translates this `ConversationError` to exit 7. The merge 1 capability tuple is advertised by the separate capability operation. `test_person_boundary.py` uses its own temporary service root and synthetic ancestry, independent of the unit `root` fixture that clears `CODEX_THREAD_ID`, `CODEX_SESSION_ID`, `SUBFLEET_SESSION_ID` and `SUBFLEET_CALLER_FAMILY`.
+
+The four release modules passed together on the merged tree, including `test_retention_delete_daemon.py`. The PR suite confirmed the merged capabilities and historical-store upgrades. All three I5 task cases (`None`, `review`, `research`) passed their exact submission comparison with the frozen release/217 code. The test compares replies, canonical job rows and ordered events and checks the new fields are null. The two intersections required no integration fix.
+
+### Test setup and deviations
+
+- The sandbox denied writes to the Darwin temp root and shared uv cache. I used the writable temporary directory allocated to this job as `TMPDIR`, copied the specified round 1 plugin and exclusions from their originals, and ran `uv sync --group dev` against a private copy of the 50 MiB shared cache. The new worktree `.venv` used Python 3.15.2 and pytest 9.1.1. The shared cache was left in place. The only Git fetches were the tests' local fixture operations.
+- The first launcher attempt failed on Bash's `/dev/fd` process substitution before pytest started. I changed log redirection and ran the contract batch with the same arguments. I cleared the four session variables for every batch so they could only be set by test fixtures. From `pr-submit`, I put Hypothesis storage under scratch as well.
+- Git's lock errors forced the documented file-based fallback, including the contract script invocation without a stopped Git merge. `git add -- docs/reports/2026-11-13-review-subject.md` also hit the `index.lock` denial. The requested commits require the hub's writable Git metadata.
+
+### Test runs
+
+Every pytest run verified that `subfleet.__file__` resolved to `subfleet/__init__.py` in the assigned worktree before it started. The commands below use the round 1 plugin and no pytest cache or per-test timeout override. Deselection counts come from the plugin’s JSONL files. The table includes the UTC interval, the original local-time `uptime` output at each boundary, and the `df -H /` row captured before each run.
+
+| Batch | UTC start → end | Start → end uptime | df -H / | Passed | Failed | Skipped | Deselected | Other | Basetemp |
+| --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | ---: |
+| `contract` | 21:34:42Z → 21:37:27Z | 22:34  1 user, load averages: 62.62 70.71 61.33<br>22:37  1 user, load averages: 49.01 60.12 58.53 | `/dev/disk3s1s1 3996G 14G 106G 12% 487k 1.0G 0% /` | 449 | 0 | 0 | 0 | — | 21M |
+| `release-interface` | 21:37:44Z → 21:40:04Z | 22:37  1 user, load averages: 44.29 58.52 57.98<br>22:40  1 user, load averages: 56.09 58.12 57.86 | `/dev/disk3s1s1 3996G 14G 106G 12% 487k 1.0G 0% /` | 276 | 0 | 0 | 0 | — | 54M |
+| `pr-submit` | 21:40:52Z → 21:42:21Z | 22:40  1 user, load averages: 47.03 55.27 56.82<br>22:42  1 user, load averages: 48.95 53.10 55.79 | `/dev/disk3s1s1 3996G 14G 106G 12% 487k 1.0G 0% /` | 61 | 0 | 0 | 0 | — | 30M |
+| `pr-cli-store` | 21:42:35Z → 21:43:24Z | 22:42  1 user, load averages: 47.46 52.56 55.55<br>22:43  1 user, load averages: 37.90 49.13 54.11 | `/dev/disk3s1s1 3996G 14G 106G 12% 487k 1.0G 0% /` | 380 | 0 | 0 | 0 | — | 12M |
+| `pr-prune` | 21:43:27Z → 21:44:03Z | 22:43  1 user, load averages: 36.95 48.75 53.94<br>22:44  1 user, load averages: 30.70 45.87 52.68 | `/dev/disk3s1s1 3996G 14G 107G 12% 487k 1.1G 0% /` | 47 | 0 | 0 | 0 | — | 16M |
+| `pr-archive` | 21:44:07Z → 21:47:52Z | 22:44  1 user, load averages: 33.85 46.27 52.78<br>22:47  1 user, load averages: 34.34 40.04 48.54 | `/dev/disk3s1s1 3996G 14G 108G 12% 487k 1.1G 0% /` | 108 | 0 | 0 | 1 | — | 77M |
+| `daemon-retention` | 21:48:48Z → 21:49:46Z | 22:48  1 user, load averages: 39.33 40.89 48.35<br>22:49  1 user, load averages: 35.96 39.43 47.32 | `/dev/disk3s1s1 3996G 14G 107G 12% 487k 1.0G 0% /` | 74 | 0 | 0 | 0 | — | 40M |
+| `daemon-attempt-temp` | 21:49:54Z → 21:50:34Z | 22:49  1 user, load averages: 36.47 39.42 47.22<br>22:50  1 user, load averages: 43.38 40.83 47.38 | `/dev/disk3s1s1 3996G 14G 107G 12% 487k 1.0G 0% /` | 23 | 0 | 0 | 21 | — | 11M |
+| `daemon-unrun` | 21:50:47Z → 22:03:54Z | 22:50  1 user, load averages: 43.94 41.10 47.36<br>23:03  1 user, load averages: 80.57 89.44 75.33 | `/dev/disk3s1s1 3996G 14G 107G 12% 487k 1.1G 0% /` | 98 | 0 | 0 | 0 | — | 72M |
+| `daemon-census` | 22:04:26Z → 22:06:29Z | 23:04  1 user, load averages: 83.00 89.34 75.79<br>23:06  1 user, load averages: 84.46 87.74 76.99 | `/dev/disk3s1s1 3996G 14G 105G 12% 487k 1.0G 0% /` | 32 | 0 | 0 | 0 | — | 32M |
+| `daemon-notices` | 22:15:02Z → 22:15:28Z | 23:15  1 user, load averages: 75.91 84.46 76.97<br>23:15  1 user, load averages: 63.79 80.86 75.89 | `/dev/disk3s1s1 3996G 14G 105G 12% 487k 1.0G 0% /` | 83 | 0 | 0 | 0 | — | 26M |
+| `daemon-cwd` | 22:15:29Z → 22:19:26Z | 23:15  1 user, load averages: 63.79 80.86 75.89<br>23:19  1 user, load averages: 45.00 66.72 71.19 | `/dev/disk3s1s1 3996G 14G 106G 12% 487k 1.0G 0% /` | 18 | 0 | 0 | 0 | — | 16M |
+| `daemon-detached-fence` | 22:19:31Z → 22:21:05Z | 23:19  1 user, load averages: 43.88 66.13 70.95<br>23:21  1 user, load averages: 40.07 58.73 67.57 | `/dev/disk3s1s1 3996G 14G 105G 12% 487k 1.0G 0% /` | 89 | 0 | 0 | 0 | — | 83M |
+| `daemon-writer-fence` | 22:21:14Z → 22:21:35Z | 23:21  1 user, load averages: 38.16 57.71 67.10<br>23:21  1 user, load averages: 36.50 56.10 66.31 | `/dev/disk3s1s1 3996G 14G 105G 12% 487k 1.0G 0% /` | 23 | 0 | 0 | 0 | — | 20M |
+| `daemon-case` | 22:21:37Z → 22:24:24Z | 23:21  1 user, load averages: 36.38 55.75 66.12<br>23:24  1 user, load averages: 43.99 49.87 61.76 | `/dev/disk3s1s1 3996G 14G 105G 12% 487k 1.0G 0% /` | 94 | 0 | 0 | 0 | — | 38M |
+| `daemon-shared` | 22:24:36Z → 22:37:22Z | 23:24  1 user, load averages: 40.15 48.87 61.27<br>23:37  1 user, load averages: 35.61 46.54 54.28 | `/dev/disk3s1s1 3996G 14G 105G 12% 487k 1.0G 0% /` | 62 | 0 | 0 | 0 | — | 46M |
+| `daemon-salvage` | 22:37:28Z → 22:38:49Z | 23:37  1 user, load averages: 33.57 45.74 53.91<br>23:38  1 user, load averages: 31.58 42.55 51.97 | `/dev/disk3s1s1 3996G 14G 103G 12% 487k 1.0G 0% /` | 86 | 0 | 0 | 0 | — | 14M |
+| `daemon-tick` | 22:38:54Z → 22:39:05Z | 23:38  1 user, load averages: 31.21 42.29 51.83<br>23:39  1 user, load averages: 30.14 41.71 51.51 | `/dev/disk3s1s1 3996G 14G 103G 12% 487k 1.0G 0% /` | 30 | 0 | 0 | 0 | — | 15M |
+| `daemon-busy` | 22:39:07Z → 22:39:34Z | 23:39  1 user, load averages: 30.93 41.68 51.44<br>23:39  1 user, load averages: 29.44 40.49 50.73 | `/dev/disk3s1s1 3996G 14G 103G 12% 487k 1.0G 0% /` | 115 | 0 | 0 | 0 | — | 27M |
+| `optional-rediscovery` | 22:39:48Z → 22:39:59Z | 23:39  1 user, load averages: 31.13 40.32 50.49<br>23:39  1 user, load averages: 31.45 40.08 50.28 | `/dev/disk3s1s1 3996G 14G 103G 12% 487k 1.0G 0% /` | 17 | 0 | 0 | 0 | — | 12M |
+| `optional-internals` | 22:40:03Z → 22:40:13Z | 23:40  1 user, load averages: 32.14 40.08 50.22<br>23:40  1 user, load averages: 32.80 39.96 50.06 | `/dev/disk3s1s1 3996G 14G 103G 12% 487k 1.0G 0% /` | 64 | 0 | 0 | 0 | — | 1.8M |
+| `optional-census` | 22:40:17Z → 22:40:26Z | 23:40  1 user, load averages: 32.80 39.96 50.06<br>23:40  1 user, load averages: 32.69 39.70 49.85 | `/dev/disk3s1s1 3996G 14G 103G 12% 487k 1.0G 0% /` | 17 | 0 | 0 | 0 | — | 928K |
+| `optional-adjacent` | 22:40:28Z → 22:40:44Z | 23:40  1 user, load averages: 33.04 39.65 49.78<br>23:40  1 user, load averages: 34.42 39.64 49.59 | `/dev/disk3s1s1 3996G 14G 103G 12% 487k 1.0G 0% /` | 339 | 0 | 0 | 0 | — | 928K |
+
+Total across 23 runs was **2,585 passed, 0 failed, 0 skipped and 22 deselected**.
+
+### Test selection
+
+- `pr-archive` deselected 1 by marker: real_lsof/real_cwd reads host processes.
+  - `tests/unit/test_retention_archive.py::test_real_lsof_sees_a_process_whose_cwd_is_in_the_tree`
+- `daemon-attempt-temp` deselected 21 by node: host processes: detached admission reaches an unstubbed procs.snapshot through the staged Claude registry.
+
+The 16 added attempt-TMPDIR exclusions cover the cases below. Their detached admission reaches the staged Claude registry and calls an unstubbed `procs.snapshot()` over the host process table.
+
+```text
+tests/fake/test_attempt_tmpdir_daemon.py::test_allocation_failure_ends_the_attempt_not_left_reserved
+tests/fake/test_attempt_tmpdir_daemon.py::test_allocation_failure_is_a_launch_failure_with_its_reason[EACCES]
+tests/fake/test_attempt_tmpdir_daemon.py::test_allocation_failure_is_a_launch_failure_with_its_reason[ENOSPC]
+tests/fake/test_attempt_tmpdir_daemon.py::test_cleanup_preserves_evidence_committed_during_its_census[False]
+tests/fake/test_attempt_tmpdir_daemon.py::test_cleanup_preserves_evidence_committed_during_its_census[True]
+tests/fake/test_attempt_tmpdir_daemon.py::test_daemon_start_sweeps_a_clean_terminal_leftover_once_serving
+tests/fake/test_attempt_tmpdir_daemon.py::test_daemon_sweep_waits_for_terminal_attempt_census_to_clear
+tests/fake/test_attempt_tmpdir_daemon.py::test_launch_tries_of_one_attempt_share_one_allocation
+tests/fake/test_attempt_tmpdir_daemon.py::test_quarantine_released_by_confirm_dead_then_swept
+tests/fake/test_attempt_tmpdir_daemon.py::test_salvage_skipped_jobs_both_retire_whatever_their_scratch
+tests/fake/test_attempt_tmpdir_daemon.py::test_sweep_reclaims_known_allocation_after_provider_removes_marker[False]
+tests/fake/test_attempt_tmpdir_daemon.py::test_sweep_reclaims_known_allocation_after_provider_removes_marker[True]
+tests/fake/test_attempt_tmpdir_daemon.py::test_sweeps_over_held_scratch_take_no_repeated_census_and_write_nothing
+tests/fake/test_attempt_tmpdir_daemon.py::test_tmpdir_cleanup_and_sweep_never_raise_into_their_callers
+tests/fake/test_attempt_tmpdir_daemon.py::test_unknown_folder_is_aged_by_the_store_and_a_named_one_never_is
+tests/fake/test_attempt_tmpdir_leaks_daemon.py::test_p3_1_a_tombstone_a_crash_left_is_finished_after_restart[False]
+tests/fake/test_attempt_tmpdir_leaks_daemon.py::test_p3_1_a_tombstone_a_crash_left_is_finished_after_restart[True]
+tests/fake/test_attempt_tmpdir_leaks_daemon.py::test_p3_2_an_unreadable_top_folder_is_removed_by_the_sweep[host-rename]
+tests/fake/test_attempt_tmpdir_leaks_daemon.py::test_p3_2_an_unreadable_top_folder_is_removed_by_the_sweep[macos15-rename]
+tests/fake/test_attempt_tmpdir_leaks_daemon.py::test_p3_2_retiring_a_job_whose_scratch_will_not_go_names_the_folder
+tests/fake/test_attempt_tmpdir_leaks_daemon.py::test_p3_3_a_launch_whose_marker_publish_fails_leaves_no_folder
+```
+
+I also added the three process-suite entries below. The census file calls the real containment census. Both rendering nodes call the host-wide `peers.process_chain` before slicing the results. These paths were outside the selected batches.
+
+- `tests/process/test_census_root_bytes_process.py`
+- `tests/process/test_ps_rendering.py::test_the_person_check_finds_a_root_marker_with_a_variable_after_it`
+- `tests/process/test_ps_rendering.py::test_the_person_check_finds_a_root_marker_that_ends_the_line`
+
+The optional daemon settle module stayed outside the selected batches. Its four excluded start-grace nodes (11 cases) call `ps -p 4242` through an unstubbed liveness check for a PID the tests did not start.
+
+- `tests/unit/test_daemon_settle.py::test_c4_2_start_grace_reads_the_receipts_again_after_its_census`
+- `tests/unit/test_daemon_settle.py::test_c4_2_start_grace_without_a_receipt_still_decides_from_its_census`
+- `tests/unit/test_daemon_settle.py::test_c4_2_start_grace_with_start_json_alone_is_a_running_attempt`
+- `tests/unit/test_daemon_settle.py::test_c4_2_start_grace_takes_only_a_receipt_the_tick_would_take`
+
+### Footprint and cleanup
+
+The job scratch was `/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-222751-rva2-merge-r2-a1-lgvli1rc/sf-a2-merge2`. Its remaining directories were `__pycache__/`, `hypothesis/`, `logs/`, `plugin/`, `uv-cache/`. The basetemps are listed below.
+Churn estimate using the recorded folder sizes was **751,472 KiB** (770 MB), including 684,180 KiB of basetemps, 54,568 KiB of remaining scratch, and 12,724 KiB for the ignored worktree `.venv`. The largest measured scratch footprint at a run boundary was 139,756 KiB (143 MB).
+The before/after comparison found zero new `sf-test-homes-*` folders in this job’s `TMPDIR`. Ten new paths appeared in the shared Darwin temp directory during the run. I could not attribute them to this job and left them outside the cleanup guard.
+
+- `/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-test-homes-8m6o2luq`
+- `/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-test-homes-c1cpkx4v`
+- `/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-test-homes-ehaaslwp`
+- `/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-test-homes-jnflw_yf`
+- `/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-test-homes-orcu_mnd`
+- `/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-test-homes-t2y4m3gx`
+- `/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-test-homes-v8962oyz`
+- `/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-test-homes-y8rjs1fa`
+- `/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-test-homes-yu1nyjmc`
+- `/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-test-homes-yxds1gol`
+
+Each of these basetemps was removed with guarded `shutil.rmtree`. Paths are relative to `$scratch`.
+
+```text
+pytest-contract-1795642477
+pytest-release-interface-1795642663
+pytest-pr-submit-1795642851
+pytest-pr-cli-store-1795642954
+pytest-pr-prune-1795643006
+pytest-pr-archive-1795643046
+pytest-daemon-retention-1795643327
+pytest-daemon-attempt-temp-1795643392
+pytest-daemon-unrun-1795643444
+pytest-daemon-census-1795644264
+pytest-daemon-notices-1795644889
+pytest-daemon-cwd-1795644929
+pytest-daemon-detached-fence-1795645170
+pytest-daemon-writer-fence-1795645273
+pytest-daemon-case-1795645297
+pytest-daemon-shared-1795645475
+pytest-daemon-salvage-1795646248
+pytest-daemon-tick-1795646334
+pytest-daemon-busy-1795646347
+pytest-optional-rediscovery-1795646387
+pytest-optional-internals-1795646403
+pytest-optional-census-1795646416
+pytest-optional-adjacent-1795646428
+```
+
+I removed the scratch root and its remaining children with the same guarded delete after appending this report. The worktree `.venv` stays.
+
+### Final head and test commands
+
+Final `git rev-parse HEAD` was `b84046c4b19cab317f14138ec0a979fb73a09abc`. The fallback tree and report are in the worktree for hub collection.
+
+The function below expresses the exact per-run pytest commands, with the shared prefix and environment written once. `$scratch` is the path recorded under cleanup.
+
+```bash
+pytest_run() {
+  local label="$1" workers="$2" base="$3"
+  shift 3
+  UV_CACHE_DIR="$scratch/uv-cache" PYTHONPATH="$scratch/plugin" \
+  SF_MERGE1_EXCLUDE="$scratch/exclude.tsv" SF_MERGE1_LOG="$scratch/logs/$label.deselected.jsonl" \
+  uv run --no-sync --with 'pytest-xdist>=3.6' python -m pytest -p no:cacheprovider \
+    -p sf_merge1_select -n "$workers" -q --basetemp "$scratch/$base" "$@"
+}
+
+# 449 passed, 0 failed
+pytest_run contract 4 pytest-contract-1795642477 \
+  tests/fake/test_state_contract.py tests/unit/test_test_module_names.py \
+  tests/unit/test_invariants_index.py tests/unit/test_handler_refusals.py
+# 276 passed, 0 failed
+pytest_run release-interface 4 pytest-release-interface-1795642663 \
+  tests/unit/test_retention_delete_daemon.py tests/unit/test_person_boundary.py \
+  tests/unit/test_census_procargs.py tests/unit/test_conversation_peers_attachments.py
+# 61 passed, 0 failed
+pytest_run pr-submit 4 pytest-pr-submit-1795642851 \
+  -vv tests/fake/test_review_subject_resume.py \
+  tests/fake/test_review_subject_submission.py tests/fake/test_review_subject_validation.py \
+  tests/unit/test_caller_family_ancestry.py tests/unit/test_codex_writable_fanout.py \
+  tests/unit/test_reserve_authorization_plumbing.py
+# 380 passed, 0 failed
+pytest_run pr-cli-store 4 pytest-pr-cli-store-1795642954 \
+  tests/unit/test_cli.py tests/unit/test_review_runs_columns.py \
+  tests/unit/test_review_subject_cli.py tests/unit/test_review_subject_normalization.py \
+  tests/unit/test_review_subject_resume_cli.py tests/unit/test_store_migration_2.py \
+  tests/unit/test_store_qos_migration.py tests/unit/test_store_review_subject_migration.py \
+  tests/unit/test_store_upgrade_slots.py
+# 47 passed, 0 failed
+pytest_run pr-prune 4 pytest-pr-prune-1795643006 \
+  tests/unit/test_prune_217.py tests/unit/test_retention_review_subject.py
+# 108 passed, 0 failed
+pytest_run pr-archive 3 pytest-pr-archive-1795643046 \
+  tests/unit/test_retention_archive.py
+# 74 passed, 0 failed
+pytest_run daemon-retention 4 pytest-daemon-retention-1795643327 \
+  tests/fake/test_native_maintenance_startup.py tests/fake/test_review130_ab.py \
+  tests/fake/test_retention_dormant.py tests/fake/test_admission_ramp_retention.py
+# 23 passed, 0 failed
+pytest_run daemon-attempt-temp 4 pytest-daemon-attempt-temp-1795643392 \
+  tests/fake/test_attempt_tmpdir_daemon.py tests/fake/test_attempt_tmpdir_leaks_daemon.py \
+  tests/unit/test_retention_listings.py
+# 98 passed, 0 failed
+pytest_run daemon-unrun 2 pytest-daemon-unrun-1795643444 \
+  tests/fake/test_unrun_worktrees.py
+# 32 passed, 0 failed
+pytest_run daemon-census 4 pytest-daemon-census-1795644264 \
+  tests/fake/test_census_round3_interleavings.py tests/fake/test_census_round3_leases.py \
+  tests/fake/test_resume_contract.py
+# 83 passed, 0 failed
+pytest_run daemon-notices 4 pytest-daemon-notices-1795644889 \
+  tests/fake/test_notice_keep_delivery.py tests/unit/test_notice_keep.py \
+  tests/unit/test_sandbox_hold_reapers.py
+# 18 passed, 0 failed
+pytest_run daemon-cwd 3 pytest-daemon-cwd-1795644929 \
+  tests/fake/test_detached_cwd_pins.py
+# 89 passed, 0 failed
+pytest_run daemon-detached-fence 3 pytest-daemon-detached-fence-1795645170 \
+  tests/fake/test_detached_retention_fence.py
+# 23 passed, 0 failed
+pytest_run daemon-writer-fence 3 pytest-daemon-writer-fence-1795645273 \
+  tests/fake/test_writer_retention_fence.py
+# 94 passed, 0 failed
+pytest_run daemon-case 4 pytest-daemon-case-1795645297 \
+  tests/unit/test_retention_case_alias.py tests/unit/test_retention_folded_pin.py
+# 62 passed, 0 failed
+pytest_run daemon-shared 3 pytest-daemon-shared-1795645475 \
+  tests/unit/test_retention_shared_folders.py
+# 86 passed, 0 failed
+pytest_run daemon-salvage 3 pytest-daemon-salvage-1795646248 \
+  tests/unit/test_salvage_unindexable.py
+# 30 passed, 0 failed
+pytest_run daemon-tick 4 pytest-daemon-tick-1795646334 \
+  tests/unit/test_tick_prefilter.py
+# 115 passed, 0 failed
+pytest_run daemon-busy 4 pytest-daemon-busy-1795646347 \
+  tests/unit/test_timers_busy_read.py
+# 17 passed, 0 failed
+pytest_run optional-rediscovery 4 pytest-optional-rediscovery-1795646387 \
+  tests/unit/test_retention_rediscovery.py
+# 64 passed, 0 failed
+pytest_run optional-internals 4 pytest-optional-internals-1795646403 \
+  tests/unit/test_batch_submission_queries.py tests/unit/test_fake_daemon_borrowed_methods.py \
+  tests/unit/test_store_snapshot_plans.py tests/unit/test_timers_daemon.py
+# 17 passed, 0 failed
+pytest_run optional-census 4 pytest-optional-census-1795646416 \
+  tests/unit/test_census_counted.py tests/unit/test_census_counted_expiry.py \
+  tests/unit/test_census_worktree_recheck_pacing.py
+# 339 passed, 0 failed
+pytest_run optional-adjacent 3 pytest-optional-adjacent-1795646428 \
+  tests/unit/test_host_push_sandbox_hold.py tests/unit/test_daemon_init_release.py \
+  tests/unit/test_forget_paced.py tests/unit/test_protocol_secrecy.py
+```
+
+**Left for the hub and CI.** Record the fallback tree with the two intended parents and commit this report. The required batches finished with the process-dependent cases listed above deselected. The requested `git grep` found 257 daemon importers. Steps 1–4 covered 31 of those paths, and step 5 covered 12 of the remaining 226, leaving 214 for CI. The #177 process suites and #333's `test_guard_overlay.py`, `test_guard_pin_0169.py`, `test_guard_subfleet_root.py` and `test_publish_rule_round7.py` did not run here.
