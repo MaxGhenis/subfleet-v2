@@ -1,0 +1,16 @@
+[
+  {
+    "mutant": "walk-every-event",
+    "test": "test_later_events_do_not_increase_batch_lookup_steps",
+    "returncode": 1,
+    "killed": true,
+    "summary": "2 failed, 48 deselected in 28.19s"
+  },
+  {
+    "mutant": "last-submission",
+    "test": "test_first_submission_defines_batch_even_if_a_malformed_store_repeats_it",
+    "returncode": 1,
+    "killed": true,
+    "summary": "4 failed, 46 deselected in 33.23s"
+  }
+]

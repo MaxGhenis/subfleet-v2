@@ -4,15 +4,20 @@ from __future__ import annotations
 
 import errno
 import hashlib
+import json
 import os
 import struct
 import stat
 import threading
+import unicodedata
+from pathlib import Path
 from types import SimpleNamespace
 
+import hypothesis
 import pytest
+from hypothesis import strategies as st
 
-from subfleet.conversations import attachments
+from subfleet.conversations import attachments, peers
 from subfleet.conversations.peers import AuditToken, Proc, allowed_executable_paths, executable_path, judge
 from subfleet.conversations.store import ConversationError, ConversationStore
 
@@ -86,6 +91,146 @@ def test_anything_subfleet_launched_is_refused_even_with_a_terminal(ancestor):
     act as the person, whatever its terminal."""
     v = judge(token(10), chain=chain_of(Proc(10, 9, "ttys001", "/bin/zsh"), ancestor, Proc(8, 1, "ttys001", "login")))
     assert not v.person
+
+
+def test_a_root_marker_is_found_as_ps_prints_it():
+    """C-25.6: `ps` prints the caller's environment in vis(3) notation, so
+    a state root that is not printable ASCII is looked for as it prints (`é` is
+    `M-CM-)`); matched as written, the root marker of such a root never matched."""
+    ancestor = Proc(9, 8, "ttys001", "python SUBFLEET_ROOT=/tmp/subfleet-JosM-CM-)-root")
+    v = judge(token(10), chain=chain_of(Proc(10, 9, "ttys001", "/bin/zsh"), ancestor, Proc(8, 1, "ttys001", "login")),
+              root="/tmp/subfleet-José-root", executable=lambda pid: "/bin/zsh")
+    assert not v.person and v.reason == "the caller carries Subfleet's attempt markers"
+
+
+def test_the_chain_keeps_the_space_a_root_ends_in(monkeypatch):
+    """C-25.6: only the newline is stripped from what `ps` prints, so a
+    root that ends in a space, whose variable ends the line, is still found."""
+    def ps(argv):
+        if argv[1] == "-axo":
+            return "   10     1 ttys001\n"
+        return "python SUBFLEET_ROOT=/tmp/root \n"
+    monkeypatch.setattr(peers, "_ps", ps)
+    assert peers.process_chain(10)[0].command == "python SUBFLEET_ROOT=/tmp/root "
+    v = judge(token(10), chain=peers.process_chain, root="/tmp/root ", executable=lambda pid: "/bin/zsh")
+    assert not v.person and v.reason == "the caller carries Subfleet's attempt markers"
+
+
+def faked_ps(monkeypatch, lines: dict[int, str], parents: dict[int, int]):
+    """`process_chain` reading these lines (as `ps -Ewwp <pid> -o command=` prints
+    them, newline added) instead of the host's `ps`."""
+    def ps(argv):
+        if argv[1] == "-axo":
+            return "".join(f"{pid:>5} {parents[pid]:>5} ??\n" for pid in lines)
+        return lines[int(argv[2])] + "\n"
+    monkeypatch.setattr(peers, "_ps", ps)
+
+
+def printed_line(argv: list[bytes], env: list[bytes]) -> str:
+    """A process's line as `ps -E` prints it: each string in `ps_text`'s notation, spaced."""
+    return " ".join(peers.ps_text(os.fsdecode(part)) for part in [*argv, *env])
+
+
+def test_a_root_marker_with_another_variable_after_it_is_found(monkeypatch):
+    """C-25.6 (review r2 finding 5): the root is a substring of the line, not its end,
+    so a variable after `SUBFLEET_ROOT` hides nothing (`endswith` survived round 2)."""
+    root = "/tmp/subfleet-José-root"
+    line = printed_line([b"python"], [b"SUBFLEET_ROOT=" + os.fsencode(root), b"__CF_USER_TEXT_ENCODING=0x1F5:0x0:0x0"])
+    faked_ps(monkeypatch, {10: f"{APP} HOME=/Users/m", 9: line}, {10: 9, 9: 1})
+    v = judge(token(10), chain=peers.process_chain, root=root, executable=lambda pid: APP)
+    assert not v.person and v.reason == "the caller carries Subfleet's attempt markers"
+
+
+holdable_roots = st.one_of(
+    st.binary(min_size=1, max_size=1500).map(lambda raw: raw.replace(b"\0", b"")).filter(bool),
+    st.text(st.characters(codec="utf-8", exclude_characters="\0"), min_size=1, max_size=200)
+    .map(lambda text: unicodedata.normalize("NFD", text).encode()),
+    st.tuples(st.binary(min_size=1, max_size=100).map(lambda raw: raw.replace(b"\0", b"")).filter(bool),
+              st.integers(min_value=1, max_value=3)).map(lambda pair: pair[0] + b" " * pair[1]),
+)
+
+
+@hypothesis.settings(max_examples=300, deadline=None,
+                     suppress_health_check=[hypothesis.HealthCheck.function_scoped_fixture])
+@hypothesis.given(raw=holdable_roots, position=st.sampled_from(["first", "middle", "last"]),
+                  carrier=st.sampled_from([10, 9]))
+def test_the_root_veto_holds_for_every_root_wherever_it_falls(monkeypatch, raw, position, carrier):
+    """Invariant 5: for every holdable root (any bytes but NUL, NFD text, trailing
+    spaces, up to 1,500 bytes), with `SUBFLEET_ROOT` first, in the middle or last (a
+    trailing space then ends the line) of the caller's or an ancestor's line, and no
+    other marker anywhere, `judge` refuses through `process_chain`, even when the
+    caller's image is the app's."""
+    root = os.fsdecode(raw)
+    env = [b"PATH=/usr/bin:/bin", b"HOME=/Users/m"]
+    env.insert({"first": 0, "middle": 1, "last": 2}[position], b"SUBFLEET_ROOT=" + raw)
+    lines = {10: f"{APP} HOME=/Users/m", 9: "/bin/zsh -l"}
+    lines[carrier] = printed_line([os.fsencode(lines[carrier].split(" ")[0])], env)
+    faked_ps(monkeypatch, lines, {10: 9, 9: 1})
+    chain = peers.process_chain(10)
+    assert [proc.command for proc in chain] == [lines[10], lines[9]]       # the line's end is kept
+    v = judge(token(10), chain=peers.process_chain, root=root, executable=lambda pid: APP)
+    assert not v.person and v.reason == "the caller carries Subfleet's attempt markers", (v, lines)
+
+
+def test_ps_text_prints_every_byte_as_ps_printed_it():
+    """C-25.6: `PS_BYTES` is what `ps` printed for each of the 255 bytes an environment
+    can hold, measured on macOS 26.6.2 (tests/fixtures/ps_vis_bytes.json; the process
+    test `test_ps_rendering.py` measures again wherever it runs)."""
+    fixture = Path(__file__).resolve().parents[1] / "fixtures" / "ps_vis_bytes.json"
+    measured = json.loads(fixture.read_text())["bytes"]
+    assert sorted(measured) == [f"{value:02X}" for value in range(1, 256)]
+    assert {name: peers.PS_BYTES[int(name, 16)] for name in measured} == measured
+
+
+@pytest.mark.parametrize("value,printed", [
+    ("/tmp/subfleet-José-root", "/tmp/subfleet-JosM-CM-)-root"),
+    ("a\tb\nc", "a\\011b\\012c"),
+    ("a back\\slash and a space ", "a back\\slash and a space "),
+    ("\u00a0", "M-B\\240"),
+    ("\x01\x1b\x7f", "^A^[^?"),
+    (os.fsdecode(b"\x80\x89\xa0\xde\xff"), "M^@M^I\\240M-^M^?"),
+    ("M-CM-)", "M-CM-)"),
+    (unicodedata.normalize("NFD", "José"), "JoseM-LM^A"),
+    ("/tmp/" + "é" * 200 + " ", "/tmp/" + "M-CM-)" * 200 + " "),
+])
+def test_ps_text_examples(value, printed):
+    """C-25.6: a value as `ps` prints it, byte by byte, from its `os.fsencode` bytes."""
+    assert peers.ps_text(value) == printed
+
+
+@hypothesis.settings(max_examples=300, deadline=None)
+@hypothesis.given(raw=st.binary(max_size=1500).map(lambda raw: raw.replace(b"\0", b"")))
+def test_ps_text_invariants(raw):
+    """C-25.6: for any bytes a value can hold, `ps_text` prints only printable ASCII,
+    with a space exactly where the value had one (so no other byte can end or start
+    a variable), prints printable ASCII as itself, and prints a value one byte at a
+    time."""
+    printed = peers.ps_text(os.fsdecode(raw))
+    assert all(" " <= char <= "~" for char in printed)
+    assert printed.count(" ") == raw.count(b" ")
+    assert printed == "".join(peers.PS_BYTES[byte] for byte in raw)
+    if all(0x20 <= byte <= 0x7E for byte in raw):
+        assert printed == raw.decode("ascii")
+
+
+@hypothesis.settings(max_examples=300, deadline=None)
+@hypothesis.given(text=st.text(st.characters(codec="utf-8", exclude_characters="\0"), max_size=200))
+def test_ps_text_keeps_nfc_and_nfd_as_their_own_bytes(text):
+    """Invariant 4 (review r2 finding 5): `ps_text` prints a value's own bytes and never
+    normalises it, so `José` in NFC prints as `JosM-CM-)` and in NFD as `JoseM-LM^A`,
+    and two forms that differ print differently."""
+    nfc, nfd = unicodedata.normalize("NFC", text), unicodedata.normalize("NFD", text)
+    for form in (nfc, nfd):
+        assert peers.ps_text(form) == "".join(peers.PS_BYTES[byte] for byte in form.encode())
+    assert (peers.ps_text(nfc) == peers.ps_text(nfd)) == (nfc == nfd)
+
+
+@pytest.mark.parametrize("value", ["/tmp/a\x00b", "\x00"])
+def test_ps_text_refuses_a_value_with_a_nul(value):
+    """A NUL ends an environment string, so no process carries a value that holds
+    one. `ps_text` refuses it rather than printing `^@`."""
+    with pytest.raises(ValueError):
+        peers.ps_text(value)
 
 
 def test_an_unidentified_caller_is_refused():

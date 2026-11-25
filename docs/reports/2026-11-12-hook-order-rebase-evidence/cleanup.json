@@ -1,0 +1,58 @@
+[
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-145018-hor-build-r1/sf-hor-b1-pytest-cache-files-zkht98p3",
+    "action": "fixture already removed with job guard"
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-145018-hor-build-r1/.venv",
+    "action": "moved to /private/tmp/sf-hor-b1/cleanup/0-.venv; guarded shutil.rmtree"
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-145018-hor-build-r1/.pytest_cache",
+    "action": "moved to /private/tmp/sf-hor-b1/cleanup/1-.pytest_cache; guarded shutil.rmtree"
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-145018-hor-build-r1/build",
+    "action": "moved to /private/tmp/sf-hor-b1/cleanup/2-build; guarded shutil.rmtree"
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-145018-hor-build-r1/subfleet/__pycache__",
+    "action": "moved to /private/tmp/sf-hor-b1/cleanup/3-__pycache__; guarded shutil.rmtree"
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-145018-hor-build-r1/subfleet/adapters/__pycache__",
+    "action": "moved to /private/tmp/sf-hor-b1/cleanup/4-__pycache__; guarded shutil.rmtree"
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-145018-hor-build-r1/subfleet/sessions/__pycache__",
+    "action": "moved to /private/tmp/sf-hor-b1/cleanup/5-__pycache__; guarded shutil.rmtree"
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-145018-hor-build-r1/subfleet/conversations/__pycache__",
+    "action": "moved to /private/tmp/sf-hor-b1/cleanup/6-__pycache__; guarded shutil.rmtree"
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-145018-hor-build-r1/subfleet/gate/__pycache__",
+    "action": "moved to /private/tmp/sf-hor-b1/cleanup/7-__pycache__; guarded shutil.rmtree"
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-145018-hor-build-r1/subfleet/guard/__pycache__",
+    "action": "moved to /private/tmp/sf-hor-b1/cleanup/8-__pycache__; guarded shutil.rmtree"
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-145018-hor-build-r1/tests/__pycache__",
+    "action": "moved to /private/tmp/sf-hor-b1/cleanup/9-__pycache__; guarded shutil.rmtree"
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-145018-hor-build-r1/tests/unit/__pycache__",
+    "action": "moved to /private/tmp/sf-hor-b1/cleanup/10-__pycache__; guarded shutil.rmtree"
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-145018-hor-build-r1/tests/frontend/__pycache__",
+    "action": "moved to /private/tmp/sf-hor-b1/cleanup/11-__pycache__; guarded shutil.rmtree"
+  },
+  {
+    "path": "/Users/maxghenis/.subfleet/worktrees/20261111-145018-hor-build-r1/tests/fake/__pycache__",
+    "action": "moved to /private/tmp/sf-hor-b1/cleanup/12-__pycache__; guarded shutil.rmtree"
+  }
+]

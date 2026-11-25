@@ -1,0 +1,17 @@
+Using CPython 3.12.14 interpreter at: /Users/maxghenis/.local/bin/python3.12
+Removed virtual environment at: /private/tmp/sf-sbh-c1/venv
+Creating virtual environment at: /private/tmp/sf-sbh-c1/venv
+Resolved 10 packages in 15ms
+Downloading pygments (1.2MiB)
+ Downloaded pygments
+Prepared 3 packages in 11.37s
+Installed 9 packages in 1.16s
+ + hypothesis==6.168.1
+ + iniconfig==2.3.0
+ + packaging==26.3
+ + pluggy==1.6.0
+ + pygments==2.21.0
+ + pytest==9.1.1
+ + pytest-timeout==2.4.0
+ + sortedcontainers==2.4.0
+ + subfleet==2.0.0a0 (from file:///Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1)

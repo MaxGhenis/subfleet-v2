@@ -1,0 +1,183 @@
+bringing up nodes...
+bringing up nodes...
+
+........................................................................ [  5%]
+.........x.............................................................. [ 10%]
+........................................................................ [ 16%]
+........................................................................ [ 21%]
+........................................................................ [ 27%]
+........................................................................ [ 32%]
+......................ssssss............................................ [ 38%]
+........................................................................ [ 43%]
+........................................................................ [ 49%]
+........................................................................ [ 54%]
+........................................................................ [ 60%]
+.............s.......................................................... [ 65%]
+........................................................................ [ 70%]
+........................................................................ [ 76%]
+........................................................................ [ 81%]
+........................................................................ [ 87%]
+........................................................................ [ 92%]
+........................................F............................... [ 98%]
+.......................                                                  [100%]
+=================================== FAILURES ===================================
+_____ test_restart_finds_unrecorded_completion_after_busy_ownership[False] _____
+[gw3] darwin -- Python 3.12.14 /private/tmp/sf-sbh-c1/uv-cache/builds-v0/.tmpnbNvkx/bin/python
+
+workdir = PosixPath('/private/tmp/sf-sbh-c1/pytest-selected/popen-gw3/test_restart_finds_unrecorded_0/case-luz_4_k4/work')
+branch = 'jobs/finished'
+policy = {'providers': {'codex': {'ca_bundle': '/etc/ssl/cert.pem'}}, 'tiers': ['trivial', 'easy', 'standard', 'hard'], 'chains...aiku', 'sonnet', 'opus', 'astra'], 'build': ['haiku', 'sonnet', 'opus', 'astra'], ...}, 'fallback': 'upward-only', ...}
+root = PosixPath('/private/tmp/sf-sbh-c1/pytest-selected/popen-gw3/test_restart_finds_unrecorded_0/case-luz_4_k4/state')
+in_place = False
+
+    def validate_submit(workdir: Path, branch: str, policy: dict, root: Path, *, in_place: bool = False):
+        try:
+            settings = push_settings(policy)
+            if not settings["enabled"]:
+                raise PushError("host push is disabled by policy push.enabled")
+            check_branch(branch, settings)
+            look = _MetadataLook(workdir)
+            remote, head, current, top = checkout_metadata(workdir, _look=look)
+            check_object_store(workdir, in_place=in_place, _look=look)
+            check_policy(branch, remote, policy)
+>           with quarantine(root, head) as (repo, credentials):
+                 ^^^^^^^^^^^^^^^^^^^^^^
+
+subfleet/host_push.py:614: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+subfleet/host_push.py:587: in quarantine
+    git(repo, "init", "--bare", "--template=" + str(template),
+tests/unit/test_host_push.py:128: in watch
+    return actual_git(quarantine_repo, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+repo = PosixPath('/private/tmp/sf-sbh-c1/pytest-selected/popen-gw3/test_restart_finds_unrecorded_0/case-luz_4_k4/state/push-quarantine/intake-3iuq183o/repo.git')
+credentials = (), check = True, deadline = None, consume = None, stdin = None
+args = ('init', '--bare', '--template=/private/tmp/sf-sbh-c1/pytest-selected/popen-gw3/test_restart_finds_unrecorded_0/case-luz_4_k4/state/push-quarantine/intake-3iuq183o/empty-template', '--object-format=sha1', '.')
+
+    def git(repo: Path, *args: str, credentials: tuple[str, ...] = (), check: bool = True,
+            deadline: Deadline | None = None, consume=None, stdin=None) -> bytes:
+        """One Git call with the quarantine `repo` as gitdir and cwd.
+    
+        Its process group is killed when TIMEOUT_S, or the verification's
+        `deadline`, passes first. `consume` takes stdout as it arrives and may raise
+        to stop Git; otherwise at most OUTPUT_CAP bytes are kept. stderr is never
+        read: a credential helper's can contain secrets.
+        """
+        command = [GIT, "--git-dir=" + str(repo), *SAFE_CONFIG, *credentials, *args]
+        ends = time.monotonic() + TIMEOUT_S
+        if deadline is not None and deadline.at < ends:
+            ends = deadline.at
+    
+        def expired() -> PushError:
+            if deadline is not None and time.monotonic() >= deadline.at:
+                return PushError(f"host push verification exceeded its {deadline.seconds:g} s deadline (git {args[0]})")
+            return PushError(f"host git {args[0]} failed (TimeoutExpired)")
+    
+        if time.monotonic() >= ends:
+            raise expired()
+        output = bytearray()
+        try:
+            process = subprocess.Popen(command, cwd=repo, env=_environment(),
+                                       stdin=subprocess.DEVNULL if stdin is None else stdin,
+                                       stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise PushError(f"host git {args[0]} failed ({type(exc).__name__})") from exc
+        try:
+            with selectors.DefaultSelector() as selector:
+                selector.register(process.stdout, selectors.EVENT_READ)
+                while True:
+                    left = ends - time.monotonic()
+                    if left <= 0:
+>                       raise expired()
+E                       subfleet.host_push.PushError: host git init failed (TimeoutExpired)
+
+subfleet/host_push.py:459: PushError
+
+The above exception was the direct cause of the following exception:
+
+worlds = <function worlds.<locals>.make at 0x109121b20>, cancelled = False
+
+    @pytest.mark.parametrize("cancelled", [False, True])
+    def test_restart_finds_unrecorded_completion_after_busy_ownership(worlds, cancelled):
+        from test_host_push_restart import restart
+    
+        with worlds() as world:
+            core = world.core
+>           job, _ = finished(world)
+                     ^^^^^^^^^^^^^^^
+
+tests/unit/test_host_push_store_interleavings.py:368: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_host_push_store_interleavings.py:277: in finished
+    job = submit(world)
+          ^^^^^^^^^^^^^
+tests/unit/test_host_push.py:145: in submit
+    response = world.core.dispatch("submit", asdict(args))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:114: in scoped
+    return function(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:4271: in dispatch
+    return self.submit(protocol.coerce_args(protocol.SubmitArgs, args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:3121: in submit
+    push_remote, push_head, push_default, push_current, push_top = host_push.validate_submit(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+workdir = PosixPath('/private/tmp/sf-sbh-c1/pytest-selected/popen-gw3/test_restart_finds_unrecorded_0/case-luz_4_k4/work')
+branch = 'jobs/finished'
+policy = {'providers': {'codex': {'ca_bundle': '/etc/ssl/cert.pem'}}, 'tiers': ['trivial', 'easy', 'standard', 'hard'], 'chains...aiku', 'sonnet', 'opus', 'astra'], 'build': ['haiku', 'sonnet', 'opus', 'astra'], ...}, 'fallback': 'upward-only', ...}
+root = PosixPath('/private/tmp/sf-sbh-c1/pytest-selected/popen-gw3/test_restart_finds_unrecorded_0/case-luz_4_k4/state')
+in_place = False
+
+    def validate_submit(workdir: Path, branch: str, policy: dict, root: Path, *, in_place: bool = False):
+        try:
+            settings = push_settings(policy)
+            if not settings["enabled"]:
+                raise PushError("host push is disabled by policy push.enabled")
+            check_branch(branch, settings)
+            look = _MetadataLook(workdir)
+            remote, head, current, top = checkout_metadata(workdir, _look=look)
+            check_object_store(workdir, in_place=in_place, _look=look)
+            check_policy(branch, remote, policy)
+            with quarantine(root, head) as (repo, credentials):
+                default, refs = remote_refs(repo, remote, credentials)
+            if default is None:
+                raise PushError("remote default branch cannot be verified")
+            check_branch(branch, settings, default)
+            check_case_twins(branch, refs)
+            return remote, head, default, current, top
+        except (ValueError, OSError, configparser.Error) as exc:
+>           raise AdapterError(f"host push refused: {exc}", code=7,
+                               fix="omit --push-branch, or choose an unprotected branch in an allowed origin after the hub enables push policy",
+                               reason="push-refused") from exc
+E           subfleet.adapters.base.AdapterError: host push refused: host git init failed (TimeoutExpired)
+
+subfleet/host_push.py:622: AdapterError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4458530672:daemon.py:995 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4458530672:daemon.py:1083 reset credits: automatic redemption off; no-reset marker absent
+============================= slowest 15 durations =============================
+994.54s call     tests/fake/test_detached_cwd_pins.py::test_any_detached_cwd_lifetime_interleaving_preserves_the_reservation
+656.88s call     tests/unit/test_retention_folded_pin.py::test_dependency_hold_names_every_place_the_canonical_caseless_query_blocks
+391.05s call     tests/fake/test_unadmittable_pin_admission.py::test_c6_9_c11_8_in_the_daemon_no_job_waits_behind_a_job_no_lane_can_admit
+383.90s call     tests/fake/test_probe_turn.py::test_no_sequence_of_probe_outcomes_lets_a_later_job_take_a_waiters_probe
+323.68s call     tests/unit/test_retention_folded_pin.py::test_the_pin_keeps_a_tree_exactly_when_the_folded_fence_holds_the_job
+176.46s call     tests/fake/test_unrun_worktrees.py::test_property_a_tree_is_given_back_exactly_when_nothing_keeps_it
+156.28s call     tests/fake/test_probe_cancel.py::TestProbeCancelMachine::runTest
+137.97s call     tests/unit/test_unadmittable_pin.py::test_c11_8_a_pin_not_called_unadmittable_is_placed_on_its_lane_in_the_best_capacity
+137.79s call     tests/unit/test_unadmittable_pin.py::test_c6_9_c11_8_no_job_waits_behind_a_job_no_lane_can_admit
+125.04s call     tests/unit/test_host_push_restart.py::test_pushes_queue_on_the_push_thread_and_never_hold_a_pool_worker
+116.80s call     tests/unit/test_unadmittable_pin.py::test_c11_8_refused_for_good_agrees_with_the_oracle_for_every_job
+112.38s call     tests/fake/test_task_hold_properties.py::test_t7_the_reset_timer_spends_nothing_for_a_held_job
+105.75s call     tests/unit/test_host_push_admission.py::test_no_push_job_workspace_failure_ever_raises_out_of_an_admission_pass
+95.00s call     tests/fake/test_task_hold_properties.py::test_t1_t3_t4_t6_over_random_schedules
+94.32s call     tests/unit/test_host_push_build.py::test_preparing_job_queues_one_build_across_admission_looks
+=========================== short test summary info ============================
+FAILED tests/unit/test_host_push_store_interleavings.py::test_restart_finds_unrecorded_completion_after_busy_ownership[False]
+1 failed, 1310 passed, 7 skipped, 1 xfailed in 3119.97s (0:51:59)
