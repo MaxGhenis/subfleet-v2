@@ -1369,7 +1369,10 @@ empty repository; the normal archive retains its existing verification path.
 apply and answers `status` and `stop`. The retention worker steps it: one job
 a step, after any journal a restart left, under `_unrun_lock`, and only in a
 turn no hourly pass claims, so a step never overlaps a pass or the
-unused-tree sweep and never moves the pass's clock. A dormant daemon
+unused-tree sweep and never moves the pass's clock. A pass that left
+retention due (a catch-up, a holder-scan failure with a job waiting for its
+check 2, a deadline after progress, a raise) owes the path one step, taken in
+the turn before the next pass (d3085). A dormant daemon
 (`SUBFLEET_RETENTION_DORMANT=1`) starts nothing.
 
 **The gates.** Twelve gates, in order, each read just before the job's turn:
