@@ -28,7 +28,7 @@ import logging
 import re
 import urllib.parse
 
-from hypothesis import event, given, settings, strategies as st
+from hypothesis import event, example, given, settings, strategies as st
 
 from subfleet import daemon_log
 from subfleet.conversations import redact
@@ -362,15 +362,16 @@ def password_urls(draw) -> tuple[str, str, str | None, list[str]]:
     """A command holding a URL whose password holds `@ / ? # & ; | : $`, whose user is
     empty, plain or holds an `@`, whose query or fragment may hold `@`, with a command after
     the host or none, in `curl "…"`, `curl '…'`, `curl …`, bare or `git clone … && echo
-    done`. Each part is review r4's P2 shape or review r3's redis URL (a double-quoted
-    password with `;`, an empty user, `?x=2&owner=@me`) or any choice, one of two branches.
+    done`. Each part but the user (review r3's empty one, or review r4's plain one) is
+    review r4's P2 shape or review r3's redis URL (a double-quoted password with `;`,
+    `?x=2&owner=@me`) or any choice, one of two branches.
     With the prefix before the password, the expected password (`client_password`) and the
     generated pieces it holds."""
     pieces = draw(st.lists(st.text(ALNUM, min_size=6, max_size=9), min_size=1, max_size=5, unique=True))
     joins = draw(st.lists(_often(";", list("@/?#&;|:$")), min_size=len(pieces) - 1, max_size=len(pieces) - 1))
     placed = pieces[0] + "".join(join + piece for join, piece in zip(joins, pieces[1:]))
     scheme = draw(_often("redis", ["https", "redis", "postgres", "my_db", "9p"]))
-    user = draw(_often("", ["", "alice", "svc@tenant"]))
+    user = draw(st.sampled_from(["", "alice", "svc@tenant"]))
     host = draw(st.sampled_from(["cache.test", "host.test", "cache.test:6379", "db.test/main"]))
     tail = draw(st.sampled_from(TAILS))
     query = draw(_often("?x=2&owner=@me", ["", "?x=2&owner=@me", "?a=@b", "?q=1&r=2"]))
@@ -383,8 +384,23 @@ def password_urls(draw) -> tuple[str, str, str | None, list[str]]:
     return command, prefix, password, [piece for piece in pieces if piece in (password or "")]
 
 
+def _example(command: str, quoting: str) -> tuple[str, str, str | None, list[str]]:
+    """A case as `password_urls` draws one, for `command`, whose URL `quoting` quotes."""
+    return command, command[:command.index(":", command.index("://") + 3) + 1], client_password(command, quoting), []
+
+
+#: Release's frozen rule crosses `#`, `?` and `$` to the first `@`, past where the authority
+#: ends; with no password, the display is release's output and the head adds nothing.
+RELEASE_PAST_THE_AUTHORITY = [("curl https://alice:AAAAAA#BBBBBB@host.test@x.test", "none"),
+                              ('curl "https://alice:AAAAAA$BBBBBB@host.test"', "double"),
+                              ("curl 'https://alice:AAAAAA?BBBBBB@cc@host.test/x'", "single")]
+
+
 @settings(max_examples=150, derandomize=True, database=None, deadline=None)
 @given(case=password_urls())
+@example(case=_example(*RELEASE_PAST_THE_AUTHORITY[0]))
+@example(case=_example(*RELEASE_PAST_THE_AUTHORITY[1]))
+@example(case=_example(*RELEASE_PAST_THE_AUTHORITY[2]))
 def test_an_approval_masks_exactly_the_password_a_client_is_sent(case):
     """Invariant (fix r4 of #308, after review r4): the display is the command with exactly
     its URL's password replaced by masks (release's and the head's), quote characters kept
