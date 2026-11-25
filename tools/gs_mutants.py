@@ -40,7 +40,7 @@ SELECTION = ("DriftTests or test_private_overlay_bytes or test_gs_undoing or tes
              " or test_only_the_roots or (axiom_brief_regime and blocked) or (hand_authored_rulespec and blocked)"
              " or test_fix_r1 or fsmonitor or staged_file_count or later_rules or test_fix_r2 or spelled"
              " or time_budget or not_there or too_many_places or relative_diff or test_fix_r3 or grandchild"
-             " or long_cd_chain or dotdot or physical_spelling or folder_and_command_pairs")
+             " or long_cd_chain or link_and_dotdot or physical_spelling or folder_and_command_pairs")
 #: The first prefilter literal's line, which the Claude hook's prefilter line (claude-blocks/prefilter.txt) heads.
 PREFILTER_HEAD = "printf '%s' \"$command\" | grep -qE 'pending_deployments|"
 #: The first literal's git term since the fix r1 (2026-11-15); before it, `git([[:space:]]+-C…)?[[:space:]]+commit`.
