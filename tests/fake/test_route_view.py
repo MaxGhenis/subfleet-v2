@@ -114,8 +114,10 @@ def full_ledger_rows(service):
 @given(store=stores(), job=candidates, fleet=st.integers(min_value=1, max_value=6),
        per_parent=st.one_of(st.none(), st.integers(min_value=1, max_value=3)),
        turns=st.one_of(st.none(), st.integers(min_value=1, max_value=4)),
-       turn_slots=st.one_of(st.none(), st.integers(min_value=1, max_value=2)))
-def test_a_route_reads_less_and_decides_the_same(store_daemon, store, job, fleet, per_parent, turns, turn_slots):
+       turn_slots=st.one_of(st.none(), st.integers(min_value=1, max_value=2)),
+       lane_order=st.sampled_from(("reset", "fill")))
+def test_a_route_reads_less_and_decides_the_same(store_daemon, store, job, fleet, per_parent, turns, turn_slots,
+                                                lane_order):
     """C-6.4, C-11, C-26.9: the route view's decision equals the full view's, for
     every store and job, detached or a turn."""
     service = store_daemon
@@ -126,7 +128,8 @@ def test_a_route_reads_less_and_decides_the_same(store_daemon, store, job, fleet
         caps["max_active_attempts_per_parent"] = per_parent
     else:
         caps.pop("max_active_attempts_per_parent", None)
-    policy = {**service.policy, "caps": caps}
+    policy = {**service.policy, "caps": caps,
+              "admission": {**service.policy["admission"], "lane_order": {"claude": lane_order}}}
     if turns is not None or turn_slots is not None:
         policy["conversations"] = {**(policy.get("conversations") or {}),
                                    **({"max_active_turns": turns} if turns is not None else {}),
@@ -158,13 +161,16 @@ def test_a_route_reads_less_and_decides_the_same(store_daemon, store, job, fleet
 
 @settings(max_examples=80, deadline=None, suppress_health_check=FIXTURE_HEALTH)
 @given(store=stores(), existing=st.integers(min_value=0, max_value=11),
-       per_parent=st.one_of(st.none(), st.integers(min_value=1, max_value=3)))
-def test_the_reservation_recheck_reads_the_same_from_the_route_rows(store_daemon, store, existing, per_parent):
+       per_parent=st.one_of(st.none(), st.integers(min_value=1, max_value=3)),
+       lane_order=st.sampled_from(("reset", "fill")))
+def test_the_reservation_recheck_reads_the_same_from_the_route_rows(store_daemon, store, existing, per_parent,
+                                                                   lane_order):
     """C-6.3 with C-11.2 (port review of a4b10b83): the reserving transaction's recheck
     (`_route_rows`, `_route_stands`) takes its known jobs from the rows `_pick` read.
     From the route rows it finds the same jobs, reading the rest by id, and reaches
     the same answer as from every row."""
     service = store_daemon
+    service.policy["admission"]["lane_order"] = {"claude": lane_order}
     jobs, attempts = store
     lay(service, jobs, attempts)
     index = existing % len(jobs)
@@ -230,6 +236,7 @@ def test_pick_reads_the_route_rows_and_status_live_rows(store_daemon, monkeypatc
     `run --dry-run` call) reads the route rows; `daemon.status` carries only live
     jobs and attempts, without evidence."""
     service = store_daemon
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     lay(service, [(None, "succeeded", "dispatch"), (0, "running", "dispatch")],
         [(0, "codex-1", "succeeded", 9000), (1, "codex-1", "running", 9000)])
     seen = []

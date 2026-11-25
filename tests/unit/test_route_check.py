@@ -34,7 +34,7 @@ SETTINGS = settings(max_examples=1500, deadline=None, derandomize=True,
 @st.composite
 def cases(draw):
     store = draw(stores())
-    return draw(policies()), store, draw(route_jobs(store))
+    return draw(policies(vary_lane_order=True)), store, draw(route_jobs(store))
 
 
 # --- still_stands is exactly the full evaluation's answer ---------------------------------------
@@ -358,11 +358,12 @@ def test_c6_3_readings_ageing_out_on_another_providers_lanes_are_never_looked_at
     passed, but no Claude lane is one the decision looks at: nothing is judged again and
     the decision stands. The check used to refuse it (`old`), every try, for as long as
     the Claude lanes' readings kept being refreshed."""
+    policy["admission"]["lane_order"] = {"claude": "fill", "codex": "reset"}
     store = fleet(lanes=[*[dict(row) for row in LANES], *[dict(row) for row in CLAUDE]])
     store["readings"] += [reading(row["lane_id"], .3, 10 + n, observed=NOW - timedelta(seconds=118))
                           for n, row in enumerate(CLAUDE)]
     view = view_of(store, NOW)
-    assert capacity.decision_horizon(view, reading_ttl_s=120) < NOW + timedelta(seconds=5)
+    assert capacity.decision_horizon(view, reading_ttl_s=120, policy=policy) < NOW + timedelta(seconds=5)
     assert stands(policy, store, store, seconds=5) == (None, "codex-1")
     assert judged_again(policy, store, store, seconds=5) == (None, 0)
 

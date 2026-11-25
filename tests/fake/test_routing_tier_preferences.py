@@ -33,6 +33,7 @@ def preference_policy(service):
 def test_admission_why_and_status_use_same_tier_fallback(routing_state, tier, first, expected, identity):
     service, harness = routing_state
     preference_policy(service)
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     for lane_id in ("claude-1", "codex-1"):
         service.store.add_reading(Reading(lane_id, "account", "seven_day", .2, after(86400),
                                          ReadingLabel.PROVIDER, "fixture", utcnow()))
@@ -59,6 +60,7 @@ def test_admission_why_and_status_use_same_tier_fallback(routing_state, tier, fi
 def test_pins_and_probe_reach_use_first_preferred_provider(routing_state):
     service, harness = routing_state
     preference_policy(service)
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     task_id = service.dispatch("submit", harness.submit_args(pinned_model=None, pinned_lane="claude-1",
                                                               task="review", tier="easy"))["job_id"]
     task = service.store.get_job(task_id)
@@ -75,6 +77,7 @@ def test_admission_probe_uses_same_tier_fallback_model(routing_state, monkeypatc
     """A closed Codex preference sends the hard review's probe to Opus."""
     service, harness = routing_state
     preference_policy(service)
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     service.store.add_closure(Closure("codex-1", service.policy["models"]["sol61"]["id"], after(3600),
                                      ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED, "fixture"))
     probed = []

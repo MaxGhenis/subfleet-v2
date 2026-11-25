@@ -17,9 +17,9 @@ from subfleet.ramp import PlacementRamp
 def test_shipped_policy_preserves_raw_hash_and_disabled_ramp_defaults():
     # A daemon without policy.json copies these bytes, whose hash enters every
     # admission decision even when the ramp is absent or disabled (C-6.18 R6).
-    # D-FILL1 adds lane_order and expiring_s to the shipped bytes; loading
+    # D-FILL1 Default fix r2 ships reset for both providers; loading
     # ramp defaults still changes no bytes.
-    before = "d63ea22bfd4e769121bef774f95260b1ea7ab3bb6c9b53f85cdd619e1e7d3911"
+    before = "b362dc60a0c27ba6c45d0a2201cbf52e80c4ab5dadeeb915c59837eee4826e29"
     assert "ramp" not in json.loads(DEFAULT_POLICY_PATH.read_bytes())["admission"]
     assert policy_hash(DEFAULT_POLICY_PATH) == before
     loaded = load_policy(DEFAULT_POLICY_PATH)

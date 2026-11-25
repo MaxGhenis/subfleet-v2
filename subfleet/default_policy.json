@@ -181,7 +181,7 @@
   "admission": {
     "lane_spread": 2,
     "lane_order": {
-      "claude": "fill",
+      "claude": "reset",
       "codex": "reset"
     },
     "expiring_s": 21600,

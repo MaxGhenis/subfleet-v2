@@ -123,11 +123,12 @@ def test_reset_decisions_equal_frozen_release217(provider, model, data):
 
 
 @pytest.mark.parametrize("configuration", ["shipped", "omitted"])
+@pytest.mark.parametrize("provider,model", PROVIDERS)
 @LAWS
 @given(st.data())
-def test_default_codex_decisions_equal_frozen_release217(configuration, data):
-    """Invariant 2: shipped and omitted policy settings both leave Codex at reset."""
-    case = data.draw(admission_fleets("codex"))
+def test_default_decisions_equal_frozen_release217(provider, model, configuration, data):
+    """Invariant 2: shipped and omitted policy settings both leave each provider at reset."""
+    case = data.draw(admission_fleets(provider))
     if configuration == "shipped":
         case[0]["admission"]["lane_order"] = load_policy(DEFAULT_POLICY_PATH)["admission"]["lane_order"]
     else:

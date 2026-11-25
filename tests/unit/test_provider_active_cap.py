@@ -68,9 +68,9 @@ def test_missing_cap_preserves_bytes_and_hash(tmp_path, section):
     assert loaded["_policy_hash"] == hashlib.sha256(raw).hexdigest()
     if section is None:
         assert not provider_caps_on(loaded)
-        # D-FILL1 adds lane_order and expiring_s to the shipped policy bytes;
+        # D-FILL1 Default fix r2 ships reset for both providers;
         # loading an absent provider cap still preserves those bytes exactly.
-        assert hashlib.sha256(raw).hexdigest() == "d63ea22bfd4e769121bef774f95260b1ea7ab3bb6c9b53f85cdd619e1e7d3911"
+        assert hashlib.sha256(raw).hexdigest() == "b362dc60a0c27ba6c45d0a2201cbf52e80c4ab5dadeeb915c59837eee4826e29"
 
 
 @pytest.mark.parametrize("providers,on", [

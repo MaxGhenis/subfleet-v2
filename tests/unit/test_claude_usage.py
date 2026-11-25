@@ -211,5 +211,7 @@ def test_c11_7_complete_shared_only_snapshot_releases_removed_reserved_window():
         lane(), {'CLAUDE_CODE_OAUTH_TOKEN': 'secret-token'})
     assert result.status == 'ok'
     snapshot = build_view([lane()], [earlier, *result.readings], now=NOW)
-    decision = evaluate(load_policy(DEFAULT_POLICY_PATH), snapshot, {'pinned_model': 'opus'})
+    policy = load_policy(DEFAULT_POLICY_PATH)
+    policy["admission"]["lane_order"] = {"claude": "fill", "codex": "reset"}
+    decision = evaluate(policy, snapshot, {'pinned_model': 'opus'})
     assert decision.chosen_lane == lane().lane_id

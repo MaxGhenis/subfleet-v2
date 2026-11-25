@@ -197,6 +197,7 @@ def test_exact_model_keeps_unrelated_closure_out_but_unknown_model_is_conservati
 
 def test_claude_email_exact_model_reserve_and_exclusion(policy):
     """C-11.7: no operator reserve authorization is inherited by a picker."""
+    policy["admission"]["lane_order"] = {"claude": "fill", "codex": "reset"}
     data = view([lane("claude-1")], [reading("claude-1")])
     assert picker.rank(policy, data, family="claude", model="fable")["best"] == "claude-1@example.org"
     assert picker.rank(policy, data, family="claude", model="opus")["best"] is None
@@ -207,6 +208,7 @@ def test_claude_email_exact_model_reserve_and_exclusion(policy):
 
 def test_reserve_slack_requiring_probe_is_not_a_raw_pick(policy):
     """C-11.4: scoped closure evidence may require supervised admission."""
+    policy["admission"]["lane_order"] = {"claude": "fill", "codex": "reset"}
     data = view([lane("claude-1")], [reading("claude-1")], closures=[{
         "lane_id": "claude-1", "scope": policy["models"]["fable"]["id"],
         "reason": "provider-limit", "clock_source": "reported", "until_at": LATER,
@@ -218,6 +220,7 @@ def test_reserve_slack_requiring_probe_is_not_a_raw_pick(policy):
 
 def test_matched_stream_windows_can_measure_real_opus_reserve_slack(policy):
     """C-11.7: same-event shared/Fable measurements need no unknown-quota waiver."""
+    policy["admission"]["lane_order"] = {"claude": "fill", "codex": "reset"}
     data = view([lane("claude-1")], [
         reading("claude-1", .2, source="rate_limit_event", attempt_id="old/a1"),
         reading("claude-1", .95, source="rate_limit_event", attempt_id="old/a1",
@@ -239,6 +242,7 @@ def test_aliases_and_duplicate_accounts(policy):
 
 def test_case_insensitive_claude_email_aliases_are_ambiguous(policy):
     """C-1.4: the email-only shell contract cannot distinguish case aliases."""
+    policy["admission"]["lane_order"] = {"claude": "fill", "codex": "reset"}
     data = view([lane("claude-1", label="Person@example.org"),
                  lane("claude-2", label="person@EXAMPLE.org")],
                 [reading("claude-1"), reading("claude-2")])

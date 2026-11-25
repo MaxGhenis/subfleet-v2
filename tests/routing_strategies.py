@@ -162,7 +162,7 @@ def route_jobs(draw, store: dict) -> dict:
 
 
 @st.composite
-def policies(draw) -> dict:
+def policies(draw, *, vary_lane_order: bool = False) -> dict:
     policy = copy.deepcopy(BASE_POLICY)
     if draw(st.booleans()):
         policy["reserve"] = {**policy.get("reserve", {}), "models": []}
@@ -173,6 +173,10 @@ def policies(draw) -> dict:
                           max_active_attempts_per_parent=draw(st.sampled_from([None, None, 1, 2, 9])))
     # C-11.3: the load band's width; null is no bands.
     policy.setdefault("admission", {})["lane_spread"] = draw(st.sampled_from([None, 1, 2, 2, 3]))
+    if vary_lane_order:
+        policy["admission"]["lane_order"] = {
+            "claude": draw(st.sampled_from(("reset", "fill"))), "codex": "reset",
+        }
     # C-26.9: null (the default) is no cap; a whole number caps turns.
     policy.setdefault("conversations", {}).update(max_active_turns=draw(st.sampled_from([None, 1, 3])),
                                                   turn_slots_per_lane=draw(st.sampled_from([None, 1, 2])))

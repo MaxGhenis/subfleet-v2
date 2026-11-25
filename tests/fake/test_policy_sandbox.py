@@ -462,6 +462,7 @@ def test_a_launch_starts_codex_at_the_top_and_claude_in_the_callers_place(state_
     monkeypatch.setattr(subprocess, "Popen", popen)
     model = "astra"
     if provider == "claude":
+        daemon.policy["admission"]["lane_order"] = {"claude": "fill"}
         lane = daemon.store.get_lane("codex-1")
         daemon.store.put_lane(replace(lane, lane_id="claude-1", provider="claude", account_key="claude:fixture",
                                       credential=Credential("claude", lane.credential.ref, "home")))

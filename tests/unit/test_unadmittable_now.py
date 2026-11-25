@@ -50,7 +50,7 @@ def test_c6_20_refused_now_is_exactly_the_oracle_and_the_memo_changes_nothing(da
     """Differential: `unadmittable(far_s=0)` names a refusal exactly when no lane would take
     the job now in the best capacity; a memo shared with the default horizon's answers
     changes neither."""
-    policy, store = data.draw(policies()), data.draw(pin_stores())
+    policy, store = data.draw(policies(vary_lane_order=True)), data.draw(pin_stores())
     view = view_of(store, NOW)
     memo: dict = {}
     for job in [data.draw(route_jobs(store)) for _ in range(data.draw(st.integers(1, 4)))]:
@@ -70,7 +70,7 @@ def test_c6_20_refused_now_is_exactly_the_oracle_and_the_memo_changes_nothing(da
 @given(st.data())
 def test_c6_20_a_job_refused_for_good_is_refused_now(data):
     """Monotone in the horizon: what keeps every lane from a job for days keeps it now."""
-    policy, store = data.draw(policies()), data.draw(pin_stores())
+    policy, store = data.draw(policies(vary_lane_order=True)), data.draw(pin_stores())
     view = view_of(store, NOW)
     job = data.draw(route_jobs(store))
     for_good = scheduler.unadmittable(policy, view, job)
@@ -82,7 +82,7 @@ def test_c6_20_a_job_refused_for_good_is_refused_now(data):
 @given(st.data())
 def test_c6_20_a_job_refused_now_is_placed_nowhere_now(data):
     """Sound against the real evaluation: a job refused now gets no lane in the view itself."""
-    policy, store = data.draw(policies()), data.draw(pin_stores())
+    policy, store = data.draw(policies(vary_lane_order=True)), data.draw(pin_stores())
     view = view_of(store, NOW)
     job = data.draw(route_jobs(store))
     assume(scheduler.unadmittable(policy, view, job, far_s=0) is not None)

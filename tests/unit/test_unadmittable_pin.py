@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import copy
 from datetime import timedelta
+from functools import partial
 
 from hypothesis import HealthCheck, assume, event, given, settings, strategies as st
 
@@ -137,7 +138,7 @@ def admissible(policy: dict, store: dict, job: dict) -> bool | None:
 @SETTINGS
 @given(st.data())
 def test_c11_8_a_pin_called_unadmittable_is_placed_nowhere_even_in_the_best_capacity(data):
-    policy, store = data.draw(policies()), data.draw(pin_stores())
+    policy, store = data.draw(policies(vary_lane_order=True)), data.draw(pin_stores())
     job = data.draw(pinned_jobs(store))
     stuck = scheduler.pin_unadmittable(policy, view_of(store, NOW), job)
     assume(stuck is not None)
@@ -153,7 +154,7 @@ def test_c11_8_a_pin_called_unadmittable_is_placed_nowhere_even_in_the_best_capa
 @SETTINGS
 @given(st.data())
 def test_c11_8_a_pin_not_called_unadmittable_is_placed_on_its_lane_in_the_best_capacity(data):
-    policy, store = data.draw(policies()), data.draw(pin_stores())
+    policy, store = data.draw(policies(vary_lane_order=True)), data.draw(pin_stores())
     job = data.draw(pinned_jobs(store))
     view = view_of(store, NOW)
     try:
@@ -171,7 +172,7 @@ def test_c11_8_a_pin_not_called_unadmittable_is_placed_on_its_lane_in_the_best_c
 def test_c11_8_refused_for_good_agrees_with_the_oracle_for_every_job(data):
     """3. For pinned and unpinned jobs alike: a decision with no lane is refused for
     good exactly when no lane would take the job in the best capacity."""
-    policy, store = data.draw(policies()), data.draw(pin_stores())
+    policy, store = data.draw(policies(vary_lane_order=True)), data.draw(pin_stores())
     job = data.draw(route_jobs(store))
     try:
         decision = scheduler.evaluate(policy, view_of(store, NOW), job)
@@ -188,7 +189,7 @@ def test_c11_8_unadmittable_is_exactly_the_oracle_for_every_job_and_the_memo_cha
     """What admission asks of a job on its clock, pinned or not, is exactly "no lane
     would take it in the best capacity"; and one pass's memo, shared by a queue of
     jobs, answers each as a fresh look would."""
-    policy, store = data.draw(policies()), data.draw(pin_stores())
+    policy, store = data.draw(policies(vary_lane_order=True)), data.draw(pin_stores())
     view = view_of(store, NOW)
     queue = [data.draw(route_jobs(store)) for _ in range(data.draw(st.integers(1, 4)))]
     memo: dict = {}
@@ -210,7 +211,7 @@ def test_c11_8_unadmittable_is_exactly_the_oracle_for_every_job_and_the_memo_cha
 def queues(draw):
     """A pass: a policy with some count cap (C-6.9 holds back only then), a store, and a
     queue of jobs, many of them lane-pinned, some to lanes no one can use."""
-    policy = draw(policies())
+    policy = draw(policies(vary_lane_order=True))
     policy["caps"]["max_active_attempts"] = draw(st.sampled_from([1, 2, 3, 6]))
     store = draw(pin_stores())
     count = draw(st.integers(2, 8))
@@ -292,6 +293,8 @@ def test_c11_8_a_shorter_horizon_never_frees_a_pin_a_longer_one_holds(data, one,
     job = data.draw(pinned_jobs(store))
     view = view_of(store, NOW)
     policy = copy.deepcopy(BASE_POLICY)
+    order = data.draw(st.sampled_from(("reset", "fill")), label="Claude lane order")
+    policy["admission"]["lane_order"] = {"claude": order, "codex": "reset"}
     policy["admission"]["pin_hold_far_s"] = longer
     held_long = scheduler.pin_unadmittable(policy, view, job)
     policy["admission"]["pin_hold_far_s"] = shorter
@@ -335,27 +338,34 @@ def reasons(view: dict, job: dict | None = None, policy: dict = BASE_POLICY) -> 
     return None if found is None else found["reasons"]
 
 
+def fill_policy() -> dict:
+    policy = copy.deepcopy(BASE_POLICY)
+    policy["admission"]["lane_order"] = {"claude": "fill", "codex": "reset"}
+    return policy
+
+
 def test_c11_8_each_standing_refusal_is_named():
-    assert reasons(one_lane(lane_row("claude-9", desktop=1))) == ["desktop"]
-    assert reasons(one_lane(lane_row("claude-9", enabled=0))) == ["disabled"]
-    assert reasons(one_lane(lane_row("claude-9", owner="v1"))) == ["owner-v1"]
-    assert reasons(one_lane(lane_row("claude-9", identity_status="mismatch"))) == ["identity-mismatch"]
+    reason_for = partial(reasons, policy=fill_policy())
+    assert reason_for(one_lane(lane_row("claude-9", desktop=1))) == ["desktop"]
+    assert reason_for(one_lane(lane_row("claude-9", enabled=0))) == ["disabled"]
+    assert reason_for(one_lane(lane_row("claude-9", owner="v1"))) == ["owner-v1"]
+    assert reason_for(one_lane(lane_row("claude-9", identity_status="mismatch"))) == ["identity-mismatch"]
     for status in ("revoked", "auth-revoked", "no-auth"):
-        assert reasons(one_lane(lane_row("claude-9", probe_status=status), latched=True)) == ["credential-latched"]
-    assert reasons(one_lane(lane_row("claude-9", revoked_epoch=3), latched=True)) == ["credential-latched"]
+        assert reason_for(one_lane(lane_row("claude-9", probe_status=status), latched=True)) == ["credential-latched"]
+    assert reason_for(one_lane(lane_row("claude-9", revoked_epoch=3), latched=True)) == ["credential-latched"]
     # On a Codex lane, once the epoch's one heal has run and left it expired, only a new
     # login ends it; a Claude lane's heal is retried, so the same mark there is not standing.
     codex_job = pinned("codex-1", task=None, tier=None, pinned_model="astra")
-    assert reasons(one_lane(lane_row("codex-1", probe_status="expired-token", heal_spent=True), latched=True),
+    assert reason_for(one_lane(lane_row("codex-1", probe_status="expired-token", heal_spent=True), latched=True),
                    codex_job) == ["credential-latched"]
-    assert reasons(one_lane(lane_row("claude-9", probe_status="expired-token", heal_spent=True),
+    assert reason_for(one_lane(lane_row("claude-9", probe_status="expired-token", heal_spent=True),
                             latched=True)) is None
-    assert reasons(one_lane(lane_row("claude-9")), pinned(exclusions=("claude-9",))) == ["excluded"]
-    assert reasons(one_lane(lane_row("claude-9")), pinned("claude-99")) == ["unknown"]
+    assert reason_for(one_lane(lane_row("claude-9")), pinned(exclusions=("claude-9",))) == ["excluded"]
+    assert reason_for(one_lane(lane_row("claude-9")), pinned("claude-99")) == ["unknown"]
     held = closure(10 ** 9)
-    assert reasons(one_lane(lane_row("claude-9"), closures=[held])) == [f"closed:account:{held['until_at']}"]
+    assert reason_for(one_lane(lane_row("claude-9"), closures=[held])) == [f"closed:account:{held['until_at']}"]
     turn = pinned(kind="turn", task=None, tier=None, pinned_model="opus")
-    assert reasons(one_lane(lane_row("claude-9", credential_kind="home")), turn) == ["config-dir"]
+    assert reason_for(one_lane(lane_row("claude-9", credential_kind="home")), turn) == ["config-dir"]
 
 
 def test_c11_8_what_a_wait_ends_is_not_standing():
@@ -380,7 +390,7 @@ def test_c11_8_a_pin_a_reenrolment_moved_follows_it():
     new = lane_row("claude-12", credential_ref=old["credential_ref"])
     view = view_of({"lanes": [old, new], "readings": [], "closures": [], "jobs": [], "attempts": [],
                     "unavailable": {}, "overridden": set(), "desktop_in_use": True}, NOW)
-    assert scheduler.pin_unadmittable(BASE_POLICY, view, pinned()) is None
+    assert scheduler.pin_unadmittable(fill_policy(), view, pinned()) is None
 
 
 def test_c11_8_a_route_that_cannot_be_evaluated_is_c6_12s_not_this():
@@ -397,8 +407,9 @@ def test_c11_8_a_route_that_cannot_be_evaluated_is_c6_12s_not_this():
 
 def test_c11_8_the_notice_and_the_failure_say_what_and_what_to_do():
     from subfleet import render
+    policy = fill_policy()
     held = closure(10 ** 9)
-    stuck = scheduler.pin_unadmittable(BASE_POLICY, one_lane(lane_row("claude-9", desktop=1), closures=[held]),
+    stuck = scheduler.pin_unadmittable(policy, one_lane(lane_row("claude-9", desktop=1), closures=[held]),
                                        pinned())
     notice = render.pin_notice("job-1", stuck, "2026-09-30T12:30:00Z")
     assert notice.startswith("job-1: waiting; its pinned lane claude-9 can never admit it: ")
@@ -412,7 +423,7 @@ def test_c11_8_the_notice_and_the_failure_say_what_and_what_to_do():
     assert "resubmit it unpinned" in failure
     # C-9.6: a hold and a limit keep separate rows; a shared end names each kind separately.
     limit = {**closure(10 ** 9, reason="provider-limit"), "closure_id": 2}
-    both = scheduler.pin_unadmittable(BASE_POLICY, one_lane(lane_row("claude-9"), closures=[held, limit]), pinned())
+    both = scheduler.pin_unadmittable(policy, one_lane(lane_row("claude-9"), closures=[held, limit]), pinned())
     assert both["reasons"] == [f"closed:account:{held['until_at']}"] * 2
     assert [row["reason"] for row in both["closures"]] == ["operator-hold", "provider-limit"]
     assert render.pin_refusals(both) == (

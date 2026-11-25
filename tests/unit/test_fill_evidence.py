@@ -27,6 +27,7 @@ def stamp(seconds=0):
 
 def policy():
     rules = load_policy(DEFAULT_POLICY_PATH)
+    rules["admission"]["lane_order"] = {"claude": "fill", "codex": "reset"}
     rules["reserve"]["models"] = []
     rules["headroom_floor"] = 0
     return rules
@@ -105,7 +106,7 @@ def test_bounded_store_candidates_match_all_raw_provider_history(specs):
             put(store, [reading(used, observed, reset, label, scope=scope)
                         for used, observed, reset, label, scope in specs])
             all_rows, candidates = store.list_readings(), store.fill_reading_candidates(now=CLOCK)
-            admission = admission_settings(policy())
+            admission = admission_settings({})
             assert scheduler.fill_ranking_usage(candidates, now=CLOCK, admission=admission) == \
                 scheduler.fill_ranking_usage(all_rows, now=CLOCK, admission=admission)
 
@@ -119,8 +120,8 @@ def test_store_fill_candidates_keep_noncanonical_times_and_all_future_rows(tmp_p
         assert len(candidates) == 4              # old canonical .1 cannot bind again
         assert {row["utilization"] for row in candidates} == {.5, .8, .2, .3}
         for later in (CLOCK, CLOCK + timedelta(seconds=10), CLOCK + timedelta(seconds=20)):
-            assert scheduler.fill_ranking_usage(candidates, now=later, admission=admission_settings(policy())) == \
-                scheduler.fill_ranking_usage(store.list_readings(), now=later, admission=admission_settings(policy()))
+            assert scheduler.fill_ranking_usage(candidates, now=later, admission=admission_settings({})) == \
+                scheduler.fill_ranking_usage(store.list_readings(), now=later, admission=admission_settings({}))
 
 
 #: How a reading's `observed_at` is spelled: what `utc_now` writes, and the
@@ -175,7 +176,7 @@ def test_fill_rows_chosen_from_the_store_query_match_those_from_every_reading(sp
             chosen = capacity.fill_candidates(query, now=now)
             assert chosen == capacity.fill_candidates(every, now=now)
             assert chosen == [dict(row) for row in query]
-            admission = admission_settings(policy())
+            admission = admission_settings({})
             for identity in ("claude-1", "claude-2"):
                 mine = [row for row in chosen if row["lane_id"] == identity]
                 theirs = [row for row in every if row["lane_id"] == identity]
@@ -192,7 +193,7 @@ def test_a_view_from_every_reading_keeps_the_rows_a_later_clock_reads(tmp_path):
         view = capacity.build_view(store.lane_rows(), store.list_readings(), now=CLOCK)
         assert sorted(row["utilization"] for row in view["fill_readings"]) == [.2, .3, .5]
         assert view["fill_readings"] == capacity.from_store(store, now=CLOCK)["fill_readings"]
-        admission = admission_settings(policy())
+        admission = admission_settings({})
         used = [scheduler.fill_ranking_usage(view["fill_readings"], now=CLOCK + timedelta(seconds=later),
                                              admission=admission)["fill_weekly_used"] for later in (0, 10, 20)]
         assert used == [.5, .2, .3]
@@ -235,12 +236,12 @@ def test_auxiliary_provider_window_restored_when_reset_override_ends(tmp_path):
 
 def test_lane_order_defaults_do_not_share_mutable_maps(tmp_path):
     first = admission_settings({})
-    first["lane_order"]["claude"] = "reset"
-    assert admission_settings({})["lane_order"]["claude"] == "fill"
+    first["lane_order"]["claude"] = "fill"
+    assert admission_settings({})["lane_order"]["claude"] == "reset"
     data = copy.deepcopy(load_policy(DEFAULT_POLICY_PATH))
     data.pop("admission")
     path = tmp_path / "policy.json"
     path.write_text(json.dumps(data), encoding="utf-8")
     loaded = load_policy(path)
-    loaded["admission"]["lane_order"]["claude"] = "reset"
-    assert admission_settings({})["lane_order"]["claude"] == "fill"
+    loaded["admission"]["lane_order"]["claude"] = "fill"
+    assert admission_settings({})["lane_order"]["claude"] == "reset"

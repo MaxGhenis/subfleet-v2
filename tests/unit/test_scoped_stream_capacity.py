@@ -15,6 +15,13 @@ from tests.conftest import exit_info, make_launch, profile_opener
 from tests.unit.test_scheduler import NOW, TOMORROW, closure, job, lane, reading, view
 
 
+def fill_policy():
+    """Exercise scoped reserve and probe laws with fill explicitly selected."""
+    policy = load_policy(DEFAULT_POLICY_PATH)
+    policy["admission"]["lane_order"] = {"claude": "fill", "codex": "reset"}
+    return policy
+
+
 def stream(status="allowed", window="seven_day_overage_included"):
     # Shape of the real Fable refusal: shared weekly 55%, Fable weekly 100%.
     return json.dumps({"type": "rate_limit_event", "rate_limit_info": {
@@ -51,7 +58,7 @@ def test_same_stream_measures_spare_opus_without_spending_fable(tmp_path):
     assert [(r["scope"], r["window"], r["utilization"]) for r in rows] == [
         ("account", "five_hour", 0), ("account", "seven_day", .55),
         (SCOPED_MODEL_IDS["fable"], "seven_day", 1.0)]
-    policy = load_policy(DEFAULT_POLICY_PATH)
+    policy = fill_policy()
     state = view([lane()], rows)
     opus = evaluate(policy, state, job(pinned_model="opus"))
     assert opus.chosen_lane == "claude-1"
@@ -68,7 +75,7 @@ def test_incomplete_or_unrelated_stream_windows_do_not_release_reserve(differenc
         rows.append(reading("claude-1", 1, scope=SCOPED_MODEL_IDS["fable"], source="rate_limit_event",
                             attempt_id="two" if difference == "attempt" else "one",
                             observed_at="2026-09-05T10:32:59Z" if difference == "time" else NOW))
-    result = evaluate(load_policy(DEFAULT_POLICY_PATH), view([lane()], rows), job(pinned_model="opus"))
+    result = evaluate(fill_policy(), view([lane()], rows), job(pinned_model="opus"))
     assert result.chosen_lane is None
     assert "reserve:fable:unmeasured" in result.evaluations[0]["rejected"][0]["reasons"]
 
@@ -76,7 +83,7 @@ def test_incomplete_or_unrelated_stream_windows_do_not_release_reserve(differenc
 def test_reported_fable_exhaustion_requires_opus_probe_even_for_read_only():
     state = view([lane()], closures=[closure("claude-1", SCOPED_MODEL_IDS["fable"])])
     spec = job(pinned_model="opus")
-    result = evaluate(load_policy(DEFAULT_POLICY_PATH), state, spec)
+    result = evaluate(fill_policy(), state, spec)
     assert result.chosen_lane == "claude-1"
     assert probe_required(result, spec)
     reserve = result.evaluations[0]["candidate_details"]["claude-1"]["reserve"]
@@ -87,14 +94,14 @@ def test_reported_fable_exhaustion_requires_opus_probe_even_for_read_only():
                                     {"until_at": NOW}, {"released_at": NOW}])
 def test_guessed_operator_expired_or_released_closures_do_not_release_reserve(change):
     state = view([lane()], closures=[closure("claude-1", SCOPED_MODEL_IDS["fable"], **change)])
-    result = evaluate(load_policy(DEFAULT_POLICY_PATH), state, job(pinned_model="opus"))
+    result = evaluate(fill_policy(), state, job(pinned_model="opus"))
     assert result.chosen_lane is None
 
 
 def test_shared_exhaustion_still_blocks_opus_with_fable_closed():
     state = view([lane()], [reading("claude-1", 1)],
                  [closure("claude-1", SCOPED_MODEL_IDS["fable"])])
-    result = evaluate(load_policy(DEFAULT_POLICY_PATH), state, job(pinned_model="opus"))
+    result = evaluate(fill_policy(), state, job(pinned_model="opus"))
     assert result.chosen_lane is None
     assert "below-floor" in result.evaluations[0]["rejected"][0]["reasons"]
 

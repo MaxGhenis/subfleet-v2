@@ -23,18 +23,24 @@ MUTANTS = {
     "ttl-only": ("subfleet/scheduler.py", 'or not math.isfinite(used) or _time(row["observed_at"]) > now',
         'or not math.isfinite(used) or _time(row["observed_at"]) > now\n'
         '                or (now - _time(row["observed_at"])).total_seconds() > 120',
-        "test_fill_keeps_old_open_provider_reading_and_ignores_expired_one"),
+        "test_fill_keeps_old_open_provider_reading_and_ignores_expired_one[121]"),
     "expired-counts": ("subfleet/scheduler.py", 'if row.get("resets_at") and _time(row["resets_at"]) > now]',
-        'if row.get("resets_at")]', "test_fill_keeps_old_open_provider_reading_and_ignores_expired_one"),
+        'if row.get("resets_at")]', "test_fill_keeps_old_open_provider_reading_and_ignores_expired_one[121]"),
     "expiring-dropped": ("subfleet/scheduler.py",
         'not detail["fill_expiring"], _time(detail["fill_weekly_reset"]) if detail["fill_expiring"] else "",',
         'False, "",', "test_fill_expiring_precedes_nonexpiring_and_earlier_expiring_reset_wins"),
     "desktop-dropped": ("subfleet/scheduler.py", 'prefix = (bool(detail.get("desktop")),)',
         'prefix = (False if lane_order(setup["policy"], provider) == "fill" else bool(detail.get("desktop")),)',
-        "test_fill_desktop_last_and_turn_affinity_leads_its_class"),
-    "default-codex-fill": ("subfleet/policy.py", '"lane_order": {"claude": "fill", "codex": "reset"}',
-        '"lane_order": {"claude": "fill", "codex": "fill"}',
-        "test_default_codex_decisions_equal_frozen_release217"),
+        "test_fill_desktop_last_and_turn_affinity_leads_its_class[claude-opus]"),
+    "default-codex-fill": ("subfleet/policy.py", '"lane_order": {"claude": "reset", "codex": "reset"}',
+        '"lane_order": {"claude": "reset", "codex": "fill"}',
+        "test_default_decisions_equal_frozen_release217[codex-astra-omitted]"),
+    "default-claude-fill": ("subfleet/policy.py", '"lane_order": {"claude": "reset", "codex": "reset"}',
+        '"lane_order": {"claude": "fill", "codex": "reset"}',
+        "test_default_decisions_equal_frozen_release217[claude-opus-omitted]"),
+    "shipped-default-claude-fill": ("subfleet/default_policy.json", '"lane_order": {\n      "claude": "reset",',
+        '"lane_order": {\n      "claude": "fill",',
+        "test_default_decisions_equal_frozen_release217[claude-opus-shipped]"),
 }
 
 
@@ -60,7 +66,10 @@ def main() -> int:
             if source.count(before) != 1:
                 raise ValueError(f"Mutant no longer applies exactly once: {name}")
             changed = source.replace(before, after)
-            compile(changed, str(target), "exec")
+            if target.suffix == ".json":
+                json.loads(changed)
+            else:
+                compile(changed, str(target), "exec")
             try:
                 target.write_text(changed)
                 command = [sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider",

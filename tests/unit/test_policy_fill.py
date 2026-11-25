@@ -19,11 +19,11 @@ def loaded(tmp_path, admission):
     return load_policy(path)
 
 
-def test_fill_defaults_apply_to_bundled_loaded_and_raw_policy(tmp_path):
+def test_reset_defaults_apply_to_bundled_loaded_and_raw_policy(tmp_path):
     for rules in ({}, load_policy(DEFAULT_POLICY_PATH), loaded(tmp_path, {})):
-        assert admission_settings(rules)["lane_order"] == {"claude": "fill", "codex": "reset"}
+        assert admission_settings(rules)["lane_order"] == {"claude": "reset", "codex": "reset"}
         assert admission_settings(rules)["expiring_s"] == 21600
-        assert lane_order(rules, "claude") == "fill"
+        assert lane_order(rules, "claude") == "reset"
         assert lane_order(rules, "codex") == "reset"
         assert lane_spread(rules, "claude") == lane_spread(rules, "codex") == 2
 

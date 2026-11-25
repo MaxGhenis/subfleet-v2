@@ -292,7 +292,7 @@ RAMP_DEFAULTS: dict[str, Any] = {
 }
 ADMISSION_DEFAULTS: dict[str, Any] = {
     "lane_spread": 2,
-    "lane_order": {"claude": "fill", "codex": "reset"},
+    "lane_order": {"claude": "reset", "codex": "reset"},
     "expiring_s": 21600,
     "weekly_reserve": 0.02,
     "five_hour_reserve": 0.10,

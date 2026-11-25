@@ -63,6 +63,7 @@ def assert_unleased(service, job):
 @pytest.mark.parametrize("cap", [1, 2, 3])
 def test_n_plus_one_jobs_hold_and_resume_in_fifo(fleet, cap):
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     service.policy["providers"]["codex"]["max_active_attempts"] = cap
     jobs = [submit(service, harness, pinned_lane=f"codex-{n % 3 + 1}",
                    pinned_model="astra" if n % 2 == 0 else "terra") for n in range(cap + 2)]
@@ -93,6 +94,7 @@ def test_n_plus_one_jobs_hold_and_resume_in_fifo(fleet, cap):
 @pytest.mark.parametrize("state", ["reserved", "starting", "running", "finalizing"])
 def test_turns_count_and_are_held_by_detached_attempts(fleet, first_kind, state):
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     service.policy["providers"]["codex"]["max_active_attempts"] = 1
     first = submit_turn(service, harness, 1) if first_kind == "turn" else submit(service, harness)
     service._admit()
@@ -113,6 +115,7 @@ def test_turns_count_and_are_held_by_detached_attempts(fleet, first_kind, state)
 
 def test_turn_priority_when_a_provider_slot_frees(fleet):
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     service.policy["providers"]["codex"]["max_active_attempts"] = 1
     active = submit(service, harness)
     service._admit()
@@ -129,6 +132,7 @@ def test_turn_priority_when_a_provider_slot_frees(fleet):
 @pytest.mark.parametrize("fills", [True, False])
 def test_other_pool_changes_after_evaluation_are_seen_in_transaction(fleet, monkeypatch, early_kind, fills):
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     service.policy["providers"]["codex"]["max_active_attempts"] = 1
     if not fills:
         active = submit(service, harness, pinned_lane="codex-2")
@@ -167,6 +171,7 @@ def test_other_pool_changes_after_evaluation_are_seen_in_transaction(fleet, monk
 
 def test_probe_reservations_do_not_consume_provider_slots(fleet):
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     service.policy["providers"]["codex"]["max_active_attempts"] = 1
     # Timer probe reservations are independent leases and remain admissible at
     # the provider cap. Their lane fence still applies as before.
@@ -188,6 +193,7 @@ def test_probe_reservations_do_not_consume_provider_slots(fleet):
 
 def test_claude_only_cap_is_symmetric(fleet):
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     service.policy["providers"] = {"claude": {"max_active_attempts": 1}}
     jobs = [submit(service, harness, pinned_model="opus") for _ in range(2)]
     codex = [submit(service, harness) for _ in range(3)]
@@ -250,6 +256,8 @@ def test_same_provider_fifo_crosses_models_and_lanes_while_count_is_below_cap(fl
 @pytest.mark.parametrize("claude_open", [True, False])
 def test_mixed_provider_chain_keeps_fifo_only_on_the_provider_it_uses(fleet, claude_open):
     service, harness = fleet
+    if not claude_open:
+        service.policy["admission"]["lane_order"] = {"claude": "fill"}
     service.store.add_closure(Closure("codex-1", "account", after(3600),
                                       ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED, "fixture"))
     if not claude_open:
@@ -281,6 +289,7 @@ ACTIONS = st.lists(st.tuples(st.sampled_from(["codex", "turn", "claude", "comple
 def test_quarantine_retains_provider_slot_until_contained_or_released(
         fleet, monkeypatch, survivor, force, first_pool, waiting_pool):
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     # Keep the wait's clock ahead even on a slow host: only freed capacity can
     # bring its next look forward, rather than the one-second recheck expiring.
     now = utcnow()
@@ -333,6 +342,7 @@ def test_quarantine_retains_provider_slot_until_contained_or_released(
 def test_verified_empty_quarantine_census_wakes_provider_waiter(fleet, monkeypatch, pool, survivor):
     """C-6.4a: recorded containment frees the count even before state resolution."""
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     now = utcnow()
     monkeypatch.setattr("subfleet.daemon.utcnow", lambda: now)
     service.policy["providers"]["codex"]["max_active_attempts"] = 1
@@ -359,6 +369,7 @@ def test_verified_empty_quarantine_census_wakes_provider_waiter(fleet, monkeypat
 @pytest.mark.parametrize("releases", [False, True])
 def test_quarantine_census_change_is_revalidated_before_reservation(fleet, monkeypatch, pool, releases):
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     service.policy["providers"]["codex"]["max_active_attempts"] = 1
     first = submit(service, harness)
     service._admit()
@@ -397,6 +408,7 @@ def test_quarantine_census_change_is_revalidated_before_reservation(fleet, monke
                                       ("max_active_attempts_per_parent", 1)])
 def test_existing_caps_preserve_fifo_for_the_selected_provider(fleet, key, value):
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     service.policy["caps"][key] = value
     service.store.add_closure(Closure("codex-1", "account", after(3600),
                                       ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED, "fixture"))
@@ -412,13 +424,14 @@ def test_existing_caps_preserve_fifo_for_the_selected_provider(fleet, key, value
           suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.too_slow])
 @given(lane_cap=st.booleans(), pool_cap=st.booleans(), parent_cap=st.booleans(),
        related=st.booleans(), selected=st.sampled_from(["codex", "claude"]),
-       waiter_count=st.integers(1, 3))
+       waiter_count=st.integers(1, 3), lane_order=st.sampled_from(("reset", "fill")))
 def test_mixed_chains_wait_only_for_selected_provider_with_existing_caps(
-        tmp_path, lane_cap, pool_cap, parent_cap, related, selected, waiter_count):
+        tmp_path, lane_cap, pool_cap, parent_cap, related, selected, waiter_count, lane_order):
     """Provider FIFO cannot add an older peer from a provider routing did not select."""
     with tempfile.TemporaryDirectory(dir=tmp_path) as directory:
         with fleet_daemon(Path(directory) / "state") as (service, harness, patch):
             prepare(service, patch, 2)
+            service.policy["admission"]["lane_order"] = {"claude": lane_order}
             service.policy["providers"]["claude"] = {"max_active_attempts": 2}
             if lane_cap:
                 service.policy["caps"]["max_in_flight_per_lane"] = 2
@@ -449,11 +462,12 @@ def test_mixed_chains_wait_only_for_selected_provider_with_existing_caps(
 
 @settings(max_examples=50, deadline=None, derandomize=True,
           suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.too_slow])
-@given(cap=st.integers(1, 4), actions=ACTIONS)
-def test_random_arrivals_and_completions_never_overbook_at_reservation(tmp_path, cap, actions):
+@given(cap=st.integers(1, 4), actions=ACTIONS, lane_order=st.sampled_from(("reset", "fill")))
+def test_random_arrivals_and_completions_never_overbook_at_reservation(tmp_path, cap, actions, lane_order):
     with tempfile.TemporaryDirectory(dir=tmp_path) as directory:
         with fleet_daemon(Path(directory) / "state") as (service, harness, patch):
             prepare(service, patch, cap)
+            service.policy["admission"]["lane_order"] = {"claude": lane_order}
             reserved = []
             def boundary(name, job, attempt):
                 if name == "reserved":
