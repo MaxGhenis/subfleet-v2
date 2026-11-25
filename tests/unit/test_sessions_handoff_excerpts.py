@@ -913,6 +913,93 @@ REVIEW_R1 = {
 }
 
 
+# --- Review r2 of #331: data URI run-ons past reminders --------------------------------------------
+#
+# Each row hid its value in the whole-text scrub and a within-line one, and showed it on 4890f0d60 with
+# reminders stripped (output offsets alone, limits None and 2,048; review r2's figures for a4aded885 and
+# 289f15a5c in brackets):
+# - long prefix: a data URI prefix of 622 characters, past `_body_reaches`' 512-character look-back, before
+#   DU-before's reminder: `Zq9x300002` at 46 [46], and 130,364 / 131,761 at the two edges (limit None).
+#   The 513-character prefix (the first length the look-back missed) and one longer than a window
+#   (16,822) show it too; the inner-opener row reaches an opener inside a reminder whose opener a value
+#   holds (`Zq9x300079` at 22).
+# - min2: a data URI just before a reminder the whole-text scrub keeps (a value holds its closer and none
+#   follows); release's removal of it lets the body take the next data URI's `data`, so the next one's body
+#   shows: `Zq8x001572` at 33 [80], and 130,919 / 131,144.
+# - famB: the shift by one data URI goes on down a chain: the whole-text scrub's first body takes the
+#   second's `data` and the third is whole, while in release's text the second takes the third's: 98 [118],
+#   and 130,910 / 131,276 (run here). With four data URIs after the reminder, the same at 177 (run here).
+#   (With an odd number after it, the whole-text scrub shows the value too.)
+
+_U = "data:image/png;base64," + "QUJD" * 10
+#: Data URI prefixes of 622, 513 and 16,822 characters (`;a=b` steps by 4, so 513 needs the `;ab`).
+_LONG_PREFIX = "data:image/png" + ";a=b" * 150 + ";base64,"
+_PREFIX_513 = "data:image/png" + ";a=b" * 122 + ";ab" + ";base64,"
+_PREFIX_OVER_A_WINDOW = "data:image/png" + ";a=b" * 4200 + ";base64,"
+
+REVIEW_R2 = {
+    "r2-long-prefix": (_LONG_PREFIX + "QUJD" * 10 + _R + 'password = "' + _C + '"\nZq9x300001\n' + _C
+                       + "\nZq9x300002\n-"),
+    "r2-prefix-of-513": (_PREFIX_513 + "QUJD" * 10 + _R + 'password = "' + _C + '"\nZq9x300011\n' + _C
+                         + "\nZq9x300012\n-"),
+    "r2-prefix-over-a-window": (_PREFIX_OVER_A_WINDOW + "QUJD" * 10 + _R + 'password = "' + _C
+                                + '"\nZq9x300021\n' + _C + "\nZq9x300022\n-"),
+    "r2-long-prefix-inner-opener": ('password = "' + _R + '"\n' + _LONG_PREFIX + "QUJD" * 10 + _R + "\nx\n" + _C
+                                    + "\nZq9x300079\n-"),
+    "r2-min2-a-kept-reminder": _U + _R + 'password = "' + _C + "\n" + _U + "\nZq8x001572\n",
+    "r2-famb-a-chain-of-three": _U + _R + 'passwd="' + _C + "\n" + _C + _U * 2 + "Zq8x005881",
+    "r2-famb-a-chain-of-five": _U + _R + 'passwd="' + _C + "\n" + _C + _U * 4 + "Zq8x005882",
+}
+#: Placed alone only: its prefix is longer than a window.
+_ALONE_ONLY = {"r2-prefix-over-a-window"}
+
+
+@pytest.mark.parametrize("name,place", [(name, place) for name in sorted(REVIEW_R2)
+                                        for place in ("alone", "head-edge", "tail-first-line")
+                                        if place == "alone" or name not in _ALONE_ONLY])
+def test_every_data_uri_run_on_past_a_reminder_keeps_only_what_the_whole_scrub_keeps(name, place):
+    """C-23.14, C-25.5 (review r2 of #331, the three data URI P0s): with reminders stripped the
+    whole-text scrub and a within-line one hide the row's value, and so does every excerpt mode, at
+    every limit, alone, at the head excerpt's edge and on the tail's first line."""
+    prefixes = (_LONG_PREFIX, _PREFIX_513, _PREFIX_OVER_A_WINDOW)
+    assert [len(p) for p in prefixes[:2]] == [622, 513] and len(prefixes[2]) > handoff._SPLIT_WINDOW_MAX
+    assert all(handoff._DATA_URI_PREFIX_RE.fullmatch(p) for p in prefixes)
+    text = erased_text(REVIEW_R2[name], place)
+    assert (len(text) <= BUDGET) == (place == "alone")
+    value = re.findall(r"Zq\d+x\d+", REVIEW_R2[name])[-1]
+    assert value not in handoff.scrub_secrets(text, strip_reminders=True, whole=True)[0]
+    assert value not in within_line_scrub(text, True)
+    assert_keeps_only_what_the_whole_scrub_keeps(text)
+
+
+def test_the_data_uri_step_s_body_matches_are_linear_in_the_blocks():
+    """Review r2 of #331, P1 (invariant 4): the data URI step's body matches (`_DATA_BODY_RE.match`)
+    grow linearly with the blocks. On review r2's shape, k reminders each running on past release's
+    and chained by a body character, 4890f0d60 followed every later block's chain again from each
+    block: k(k+1)/2 matches. A chain of k data URIs after one such reminder is walked once."""
+    counted = []
+    body = handoff._DATA_BODY_RE
+
+    class Counted:
+        def match(self, *args):
+            counted.append(1)
+            return body.match(*args)
+
+        def __getattr__(self, name):
+            return getattr(body, name)
+
+    shapes = {
+        "chained-blocks": lambda k: _U + (_R + 'token="' + _C + '"\n' + _C + "Q\n") * k,
+        "a-chain-of-data-uris": lambda k: _U + _R + 'passwd="' + _C + "\n" + _C + _U * k + "Zq8x005883",
+    }
+    for name, build in shapes.items():
+        for k in (250, 1_000):
+            counted.clear()
+            with mock.patch.object(handoff, "_DATA_BODY_RE", Counted()):
+                handoff._split_masks(build(k), True, handoff._Tally())
+            assert len(counted) <= 4 * k + 16, (name, k, len(counted))
+
+
 @pytest.mark.parametrize("place", ["alone", "head-edge", "tail-first-line"])
 @pytest.mark.parametrize("name", sorted(REVIEW_R1))
 def test_every_reminder_outcome_the_step_reads_keeps_only_what_the_whole_scrub_keeps(name, place):
@@ -965,26 +1052,30 @@ def test_the_reminder_walk_s_outcome_says_where_it_rests_on_a_closer_held_unread
 
 
 def test_the_erased_key_walk_reads_each_closer_once():
-    """Review r1 of #331, P1-1: on the quadratic shape (`SCALED_GROWTH_SHAPES`), the walk's searches
-    for a private key closer read the text past the reminder once, whatever the number of keys:
-    289f15a5c's read 1.25 M characters at 100 keys and 80.0 M at 800."""
+    """Review r1 of #331, P1-1: on the quadratic shape (`SCALED_GROWTH_SHAPES`), the searches for a
+    private key closer read the text past the reminder once, whatever the number of keys: 289f15a5c's
+    read 1.25 M characters at 100 keys and 80.0 M at 800. Every `_PEM_END_RE` search `_split_masks`
+    makes is counted, through `_Ahead` or made directly (review r2 of #331, P2: mutant p1-1b's direct
+    searches passed a count of `_Ahead`'s alone)."""
     reads = []
+    closer = handoff._PEM_END_RE
 
-    class Counted(handoff._Ahead):
-        def __call__(self, at):
-            cached = 0 <= self.at <= at and (self.match is None or at <= self.match.start())
-            match = super().__call__(at)
-            if not cached and self.pattern is handoff._PEM_END_RE:
-                reads.append((match.end() if match is not None else len(self.text)) - at)
+    class Counted:
+        def search(self, text, pos=0, endpos=sys.maxsize):
+            match = closer.search(text, pos, endpos)
+            reads.append((match.end() if match is not None else min(len(text), endpos)) - pos)
             return match
+
+        def __getattr__(self, name):
+            return getattr(closer, name)
 
     for m in (100, 800):
         text = ('password = "' + _R + '"\n' + _R + "\n" + (_BEGIN + "\nZq9x5\n" + _END + "\n") * m + _C
                 + "\n" + "-----END PUBLIC KEY-----\n" * (5 * m))
         reads.clear()
-        with mock.patch.object(handoff, "_Ahead", Counted):
+        with mock.patch.object(handoff, "_PEM_END_RE", Counted()):
             handoff._split_masks(text, True, handoff._Tally())
-        assert sum(reads) <= 2 * len(text), (m, sum(reads))
+        assert reads and sum(reads) <= 2 * len(text), (m, sum(reads))
 
 
 @hypothesis.settings(max_examples=300, deadline=None, derandomize=True, database=None)
@@ -998,14 +1089,16 @@ def test_drawn_reminder_outcomes_keep_only_what_the_whole_scrub_keeps(parts):
     assert_keeps_only_what_the_whole_scrub_keeps(text, within=True)
 
 
-@pytest.mark.parametrize("name", sorted(ERASED) + sorted(CASCADES) + sorted(SPLITS) + sorted(REVIEW_R1))
+@pytest.mark.parametrize("name", sorted(ERASED) + sorted(CASCADES) + sorted(SPLITS) + sorted(REVIEW_R1)
+                         + sorted(REVIEW_R2))
 def test_the_erased_key_step_only_adds_masks(name, monkeypatch):
     """Issue #325 (invariant 3, superset): `_split_masks` with the step resolves the same text and
     masks every character it masks without the step (`_erased_keys` and `_data_uri_run_ons` adding
     nothing), which is a4aded885's code path but for review r1 of #331's P0-3 (a value masked to its
     line's end holds the closer that ends it, so more blocks run on): the step reads its windows
     last, out of what the other layers left of the read budget."""
-    text = ERASED.get(name) or SPLITS.get(name) or REVIEW_R1.get(name) or cascade_text(name, "short")
+    text = (ERASED.get(name) or SPLITS.get(name) or REVIEW_R1.get(name) or REVIEW_R2.get(name)
+            or cascade_text(name, "short"))
     for strip in (False, True):
         resolved, masks = handoff._split_masks(text, strip, handoff._Tally())
         with monkeypatch.context() as patched:
