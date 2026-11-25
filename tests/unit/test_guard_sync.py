@@ -96,6 +96,8 @@ import io
 import json
 import os
 import re
+import resource
+import signal
 import subprocess
 import unittest
 from pathlib import Path
@@ -977,6 +979,215 @@ def test_a_relative_diff_config_hides_no_staged_file(tmp_path):
     for command in (f"cd {fix.rulespec}/il && git commit -m x", f"git -C {fix.rulespec}/il/statutes commit -m x"):
         reason = fix.same("hand-authored-rulespec", command, fix.plain)
         assert reason.startswith(HAND_PREFIX + f"{SECTION}.yaml. "), (command, reason)
+
+
+# ---------------------------------------------------------------- fix r3: the parse's cost, logical `..`, the cap
+
+#: The hook's timeout (60 s, which allows); a timed run past it is killed with its process group and fails.
+HOOK_TIMEOUT_S = 60
+
+
+def timed(argv: list[str], stdin: str, env: dict, cwd: Path) -> tuple[float, str | None]:
+    """(CPU seconds of ``argv`` and of every descendant it waited for, its stdout, or None after the timeout).
+    ``RUSAGE_CHILDREN`` deltas around the run read the CPU (test_the_cpu_measure_counts_a_grandchilds_cpu checks
+    that a `$(…)` subshell's awk shows there). The run gets its own session, so on a timeout its whole process
+    group, subshells and awk included, is killed and reaped: a plain kill of the hook's bash left review r3's awk
+    running with ppid 1."""
+    before = resource.getrusage(resource.RUSAGE_CHILDREN)
+    proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                            env=env, cwd=cwd, start_new_session=True)
+    try:
+        out, err = proc.communicate(stdin, timeout=HOOK_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        proc.communicate()
+        out = None
+    after = resource.getrusage(resource.RUSAGE_CHILDREN)
+    if out is not None:
+        assert proc.returncode == 0, err
+    return after.ru_utime - before.ru_utime + after.ru_stime - before.ru_stime, out
+
+
+def timed_overlay(fix: AxiomFixture, command: str, cwd: Path, hook: Path = HOOK) -> tuple[float, str | None]:
+    """``AxiomFixture.overlay``, timed: (CPU seconds, the reason, empty when allowed, or None after the timeout)."""
+    (fix.root / "fs").mkdir(exist_ok=True)
+    env = {"PATH": fix.env["PATH"], "HOME": str(fix.home), "CODEX_GUARD_LOG": os.devnull,
+           "CODEX_GUARD_TEST_FSROOT": str(fix.root / "fs")}
+    cpu, out = timed(["/bin/bash", str(hook)], payload(command, cwd), env, fix.root)
+    if not out:
+        return cpu, out
+    decision = json.loads(out)["hookSpecificOutput"]
+    assert decision["permissionDecision"] == "deny"
+    return cpu, decision["permissionDecisionReason"]
+
+
+def timed_claude(fix: AxiomFixture, block: str, command: str, cwd: Path) -> tuple[float, str | None]:
+    """``AxiomFixture.claude`` for the block text ``block``, timed: (CPU seconds, the reason or None)."""
+    script = fix.root / f"harness-timed-{hashlib.sha256(block.encode()).hexdigest()[:12]}.sh"
+    if not script.exists():
+        script.write_text(payload_harness() + block + "exit 0\n", encoding="utf-8")
+    return timed(["/bin/bash", str(script)], payload(command, cwd), {"PATH": fix.env["PATH"], "HOME": str(fix.home)},
+                 fix.root)
+
+
+def test_the_cpu_measure_counts_a_grandchilds_cpu(tmp_path):
+    """The CPU bounds below read RUSAGE_CHILDREN, which counts a descendant's CPU only once its parent has waited
+    for it. A busy awk loop run inside `$(…)` by bash, as the blocks run their awk, shows its CPU there."""
+    loop = "BEGIN { for (i = 0; i < 3000000; i++) s += i; print s }"
+    env = {"PATH": "/usr/bin:/bin"}
+    direct, out = timed(["/usr/bin/awk", loop], "", env, tmp_path)
+    nested, wrapped = timed(["/bin/bash", "-c", f"x=$(/usr/bin/awk '{loop}'); printf '%s\\n' \"$x\""], "", env,
+                            tmp_path)
+    assert out == wrapped and direct > 0.05, (direct, out, wrapped)
+    assert nested >= 0.7 * direct, (direct, nested)
+
+
+#: Review r3's P1. Fix r2's `join` split and rebuilt the whole path at every `cd`, so a relative `cd` chain cost the
+#: square of its length (13 s of CPU at 4,000 `cd a; ` on the overlay, against fix r1's 0.24 s). Each row is
+#: ``count`` copies of ``word`` and then that block's tail: the hand block's runs on `git commit`, the brief block's
+#: only on `subfleet run` (review r3's brief case). `cd a/..` is this round's logical and physical `..` path.
+CHAIN_ROWS = [("hand", "cd a; ", 4000), ("hand", "cd a; ", 8000), ("hand", "cd a/..; ", 4000),
+              ("brief", "cd a; ", 4000), ("brief", "cd a; ", 8000), ("brief", "cd a/..; ", 4000)]
+CHAIN_TAIL = {"hand": "git commit -m x; git stash",
+              "brief": "subfleet run -C /nowhere/TheAxiomFoundation -p b.md; git stash"}
+CHAIN_RULE = {"hand": "hand-authored-rulespec", "brief": "axiom-brief-regime"}
+#: The CPU bound (s) per (block, word, count, side): 10 times fix r1's CPU on that row and side, measured once
+#: (fix r1's overlay hook 324d2a84… and its blocks in claude-blocks/fix-r1/; the measurements are in the report's
+#: fix round 3 section), and never under 1 s, since 10 times a few hundredths of a second is CPU jitter under -n 4.
+#: Fix r1 took, overlay / Claude block: hand 0.116 / 0.074 s (4,000), 0.308 / 0.258 s (8,000) and 0.201 / 0.169 s
+#: (4,000 `cd a/..`); brief 0.122 / 0.075, 0.300 / 0.267 and 0.207 / 0.161 s; at a load of about 11.
+CHAIN_CPU_BOUND = {
+    ("hand", "cd a; ", 4000, "overlay"): 1.16, ("hand", "cd a; ", 4000, "claude"): 1.0,
+    ("hand", "cd a; ", 8000, "overlay"): 3.08, ("hand", "cd a; ", 8000, "claude"): 2.58,
+    ("hand", "cd a/..; ", 4000, "overlay"): 2.01, ("hand", "cd a/..; ", 4000, "claude"): 1.69,
+    ("brief", "cd a; ", 4000, "overlay"): 1.22, ("brief", "cd a; ", 4000, "claude"): 1.0,
+    ("brief", "cd a; ", 8000, "overlay"): 3.0, ("brief", "cd a; ", 8000, "claude"): 2.67,
+    ("brief", "cd a/..; ", 4000, "overlay"): 2.07, ("brief", "cd a/..; ", 4000, "claude"): 1.61,
+}
+
+
+@needs_jq
+@pytest.mark.parametrize("side", ["overlay", "claude"])
+@pytest.mark.parametrize("block,word,count", CHAIN_ROWS,
+                         ids=[f"{b}-{w.strip(' ;').replace(' ', '_').replace('/', '')}-{n}" for b, w, n in CHAIN_ROWS])
+def test_a_long_cd_chain_costs_cpu_near_linear_in_its_length(block, word, count, side, tmp_path):
+    """Fix r3 (review r3's P1): every stored folder is kept normalized as the words are read, so a `cd` normalizes
+    only its own words and appends them to a folder already in that form; nothing re-splits a stored folder. The
+    hook's CPU (its children's included) stays within CHAIN_CPU_BOUND on each row, on the overlay and on the
+    Claude block alone; the payload cwd is a checkout with a second worktree. Both sides refuse every row with
+    the block's own refusal (the overlay must deny each row, and the Claude block gives the overlay block's
+    reason). A run past the 60 s hook timeout is killed with its process group and fails."""
+    fix = AxiomFixture(tmp_path)
+    fix.git(fix.plain, "worktree", "add", "-q", "-b", "wt", str(fix.home / "plain-wt"))
+    command = word * count + CHAIN_TAIL[block]
+    if side == "overlay":
+        cpu, reason = timed_overlay(fix, command, fix.plain)
+    else:
+        cpu, reason = timed_claude(fix, (BLOCKS / f"{CHAIN_RULE[block]}.sh").read_text(encoding="utf-8"), command,
+                                   fix.plain)
+    bound = CHAIN_CPU_BOUND[block, word, count, side]
+    assert reason is not None, f"killed at the {HOOK_TIMEOUT_S} s timeout after {cpu:.2f} s of CPU (bound {bound} s)"
+    assert cpu <= bound, f"{cpu:.2f} s of CPU, over the {bound} s bound"
+    assert reason.startswith(HAND_TOOMANY if block == "hand" else BRIEF_TOOMANY), reason[:300]
+
+
+def link_fixture(fix: AxiomFixture) -> tuple[Path, Path]:
+    """Review r3's P2 setup, under the fixture's home: ``a/`` (the payload cwd), ``x/y``, the link ``a/link`` ->
+    ``x/y``, and two rulespec checkouts, ``a/rs`` and ``x/rs2``, each staging a rule file with no manifest; also
+    ``a/briefs/no-regime.md``, with no ``x/briefs``. Returns (a, x)."""
+    a, x = fix.home / "lnk" / "a", fix.home / "lnk" / "x"
+    (x / "y").mkdir(parents=True)
+    a.mkdir()
+    (a / "link").symlink_to(x / "y")
+    for repo in (a / "rs", x / "rs2"):
+        repo.mkdir()
+        fix.git(repo, "init", "-q", "-b", "main")
+        fix.git(repo, "commit", "-q", "--allow-empty", "-m", "init")
+        fix.git(repo, "remote", "add", "origin", ORIGIN)
+        fix.stage(repo, {f"{SECTION}.yaml": YAML})
+    (a / "briefs").mkdir()
+    (a / "briefs" / "no-regime.md").write_text("Encode rulespec-il modules from the corpus.\n", encoding="utf-8")
+    return a, x
+
+
+def lands(shell: str, script: str, cwd: Path) -> str:
+    """Where ``shell`` (no rc files) ends up after ``script``, which runs only cd, set -P and pwd."""
+    out = subprocess.run([shell, "-f", "-c", script] if shell.endswith("zsh") else [shell, "--norc", "-c", script],
+                         capture_output=True, text=True, timeout=30, cwd=cwd, env={"PATH": "/usr/bin:/bin"})
+    assert out.returncode == 0, out.stderr
+    return out.stdout.strip()
+
+
+#: Review r3's P2: from a/, `cd link/../rs` lands in a/rs under bash and zsh, which resolve `..` logically by default.
+LINK_LOGICAL = ["cd link/../rs && git commit -m x", "pushd link/../rs; git commit -m x",
+                "cd link/.. && cd ./rs/ && git commit -m x"]
+#: The same target resolved physically (cd -P, bash's set -P, zsh's CHASE_LINKS or CHASE_DOTS, git -C) is x/rs2:
+#: each was denied before fix r3, and must stay denied.
+LINK_PHYSICAL = ["cd -P link/../rs2 && git commit -m x", "set -P; cd link/../rs2 && git commit -m x",
+                 "setopt CHASE_LINKS; cd link/../rs2 && git commit -m x",
+                 "setopt CHASE_DOTS; cd link/../rs2 && git commit -m x", "git -C link/../rs2 commit -m x"]
+
+
+@needs_jq
+def test_a_cd_through_a_link_and_dotdot_is_judged_where_the_shell_lands(tmp_path):
+    """Fix r3 (review r3's P2): the blocks resolved a `cd` target physically (`cd -P`), but bash and zsh resolve it
+    logically by default, so from a/, with a/link -> x/y, `cd link/../rs` lands in a/rs while the block checked x/rs,
+    which is not there, and allowed. Each block now takes a `cd` or `pushd` target's `..` off textually, as a
+    logical cd does, before `cd -P`: both sides deny, for the hand block and for the brief block (a/briefs has the
+    brief; x/briefs does not exist)."""
+    fix = AxiomFixture(tmp_path)
+    a, _x = link_fixture(fix)
+    for shell in ("/bin/bash", "/bin/zsh"):
+        if Path(shell).exists():
+            assert lands(shell, "cd link/../rs && pwd", a) == os.path.realpath(a / "rs"), shell
+    for command in LINK_LOGICAL:
+        reason = fix.same("hand-authored-rulespec", command, a)
+        assert reason.startswith(HAND_PREFIX + f"{SECTION}.yaml. "), (command, reason)
+    reason = fix.same("axiom-brief-regime", "cd link/../briefs && subfleet run -C ~/TheAxiomFoundation -p no-regime.md",
+                      a)
+    assert reason.startswith(BRIEF_REASON), reason
+
+
+@needs_jq
+def test_the_physical_spelling_of_a_cd_target_is_still_judged(tmp_path):
+    """Fix r3 keeps each `cd` target's physical spelling beside the logical one (both count toward the 64), so a shell
+    that resolves links first (cd -P, bash's set -P, zsh's CHASE_LINKS or CHASE_DOTS, none of which the blocks
+    parse) is still judged where it lands, x/rs2, and git -C keeps `..` as written, as git resolves it. Each row was
+    denied before the fix and is denied after it, on both sides; the control `cd rs` is denied too."""
+    fix = AxiomFixture(tmp_path)
+    a, x = link_fixture(fix)
+    for script in ("cd -P link/../rs2 && pwd", "set -P; cd link/../rs2 && pwd"):
+        assert lands("/bin/bash", script, a) == os.path.realpath(x / "rs2"), script
+    if Path("/bin/zsh").exists():
+        assert lands("/bin/zsh", "cd -P link/../rs2 && pwd", a) == os.path.realpath(x / "rs2")
+    for command in LINK_PHYSICAL + ["cd rs && git commit -m x"]:
+        reason = fix.same("hand-authored-rulespec", command, a)
+        assert reason.startswith(HAND_PREFIX + f"{SECTION}.yaml. "), (command, reason)
+
+
+@needs_jq
+def test_too_many_folder_and_command_pairs_are_refused(tmp_path):
+    """Fix r3: every `git … commit` (`subfleet run`) is judged from every folder met before it, so N `cd` then N
+    commits that each name one absolute -C cost N² path joins while giving one key, which the 64-path refusal never
+    counts (2,000 of each passed the 8,000-row bound; see the report). Each block counts every (folder, command) pair
+    it examines, once more for each -C (and -p) word applied to it, and refuses past 4,096, the 64-folder bound
+    squared; it never allows past it. 64 folders (the payload cwd and 63 `cd`) × 32 commits × (1 + one -C) is 4,096,
+    allowed; one more `cd` is refused, on both sides, and likewise for 16 runs × (1 + one -C + two -p)."""
+    fix = AxiomFixture(tmp_path)
+
+    def hops(n: int) -> str:
+        return "; ".join(f"cd d{i}" for i in range(n))
+    commits = "; ".join("git -C /nowhere/x commit -m x" for _ in range(32))
+    assert fix.same("hand-authored-rulespec", f"{hops(63)}; {commits}", fix.plain) == ""
+    reason = fix.same("hand-authored-rulespec", f"{hops(64)}; {commits}", fix.plain)
+    assert reason.startswith(HAND_TOOMANY), reason
+    runs = "; ".join("subfleet run -C /nowhere/TheAxiomFoundation -p /nowhere/b.md -p /nowhere/c.md" for _ in range(16))
+    assert fix.same("axiom-brief-regime", f"{hops(63)}; {runs}", fix.plain) == ""
+    reason = fix.same("axiom-brief-regime", f"{hops(64)}; {runs}", fix.plain)
+    assert reason.startswith(BRIEF_TOOMANY), reason
 
 
 CORPUS_ORIGIN = "https://github.com/TheAxiomFoundation/axiom-corpus.git"
