@@ -1,0 +1,1115 @@
+{
+  "started_utc": "2026-11-15T19:16:44Z",
+  "deadline_utc": "2026-11-15T22:16:44Z",
+  "starting_head": "d1f6ed52334c1a77ec23f0c6545e7893c1a41bb2",
+  "python": "Homebrew framework CPython 3.14.7",
+  "test_prefix": "uv run --no-sync --with 'pytest-xdist>=3.6' python /private/tmp/sf-mr-fix1/run_pytest.py",
+  "scratch": "/private/tmp/sf-mr-fix1",
+  "cache_scratch": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100033-mr-fix-r1-a1-s6ygat5w/sf-mr-fix1",
+  "importers": [
+    "tests/fake/test_interactive_steer.py",
+    "tests/fake/test_review_r223_wall_probes.py",
+    "tests/fake/test_state_contract.py",
+    "tests/fake/test_suggestions_fake.py",
+    "tests/fake/test_wall_running_time.py",
+    "tests/frontend/daemon_harness.py",
+    "tests/process/test_ps_rendering.py",
+    "tests/unit/test_conversation_peers_attachments.py",
+    "tests/unit/test_conversation_service.py",
+    "tests/unit/test_conversation_steer_service.py",
+    "tests/unit/test_live_store_guard_state_root.py",
+    "tests/unit/test_person_boundary.py",
+    "tests/unit/test_person_boundary_identity.py",
+    "tests/unit/test_review_r223_conv_probes.py",
+    "tests/unit/test_suggestion_properties.py",
+    "tests/unit/test_suggestion_secret_properties.py",
+    "tests/unit/test_suggestions.py",
+    "tests/unit/test_suggestions_r1b_adversarial.py"
+  ],
+  "runs": [
+    {
+      "label": "changed-person",
+      "args": [
+        "-q",
+        "-n",
+        "4",
+        "tests/unit/test_person_boundary.py",
+        "--basetemp=/private/tmp/sf-mr-fix1/pytest-changed-person",
+        "-p",
+        "no:cacheprovider",
+        "--timeout=120",
+        "--timeout-method=thread",
+        "--junitxml=/private/tmp/sf-mr-fix1/changed-person.xml"
+      ],
+      "exit": 1,
+      "seconds": 629.3484311103821,
+      "counts": {
+        "tests": 105,
+        "failures": 0,
+        "errors": 2,
+        "skipped": 0
+      },
+      "by_module": {
+        "tests.unit.test_person_boundary": {
+          "passed": 103,
+          "error": 2
+        }
+      },
+      "nonpassing": [
+        {
+          "module": "tests.unit.test_person_boundary",
+          "test": "test_property_a_caller_is_a_person_only_if_it_is_the_app_and_nothing_above_it_is_subfleets",
+          "result": "error"
+        },
+        {
+          "module": "tests.unit.test_person_boundary",
+          "test": "test_property_terminals_never_change_the_verdict",
+          "result": "error"
+        }
+      ]
+    },
+    {
+      "label": "changed-person-retry",
+      "args": [
+        "-q",
+        "-n",
+        "4",
+        "tests/unit/test_person_boundary.py",
+        "-k",
+        "test_property_a_caller_is_a_person_only_if_it_is_the_app_and_nothing_above_it_is_subfleets or test_property_terminals_never_change_the_verdict",
+        "--basetemp=/private/tmp/sf-mr-fix1/pytest-changed-person-retry",
+        "-p",
+        "no:cacheprovider",
+        "-p",
+        "sf_mr_isolation",
+        "--timeout=600",
+        "--timeout-method=thread",
+        "--junitxml=/private/tmp/sf-mr-fix1/changed-person-retry.xml"
+      ],
+      "exit": 0,
+      "seconds": 228.64158391952515,
+      "counts": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "by_module": {
+        "tests.unit.test_person_boundary": {
+          "passed": 2
+        }
+      },
+      "nonpassing": []
+    },
+    {
+      "label": "changed-ps-rendering",
+      "args": [
+        "tests/process/test_ps_rendering.py",
+        "--basetemp=/private/tmp/sf-mr-fix1/pytest-changed-ps-rendering",
+        "-p",
+        "no:cacheprovider",
+        "--timeout=120",
+        "--timeout-method=thread",
+        "--junitxml=/private/tmp/sf-mr-fix1/changed-ps-rendering.xml"
+      ],
+      "exit": 0,
+      "seconds": 39.165075063705444,
+      "counts": {
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 4
+      },
+      "by_module": {
+        "tests.process.test_ps_rendering": {
+          "passed": 1,
+          "skipped": 4
+        }
+      },
+      "nonpassing": [
+        {
+          "module": "tests.process.test_ps_rendering",
+          "test": "test_ps_prints_every_byte_as_ps_text_says",
+          "result": "skipped"
+        },
+        {
+          "module": "tests.process.test_ps_rendering",
+          "test": "test_ps_prints_any_environment_as_ps_text_says",
+          "result": "skipped"
+        },
+        {
+          "module": "tests.process.test_ps_rendering",
+          "test": "test_the_person_check_finds_a_root_marker_with_a_variable_after_it",
+          "result": "skipped"
+        },
+        {
+          "module": "tests.process.test_ps_rendering",
+          "test": "test_the_person_check_finds_a_root_marker_that_ends_the_line",
+          "result": "skipped"
+        }
+      ]
+    },
+    {
+      "label": "fail-before-child",
+      "args": [
+        "-q",
+        "tests/process/test_ps_rendering.py::test_child_keeps_the_given_environment",
+        "tests/process/test_ps_rendering.py::test_the_person_check_finds_a_root_marker_that_ends_the_line",
+        "--basetemp=/private/tmp/sf-mr-fix1/pytest-fail-before-child",
+        "-p",
+        "no:cacheprovider",
+        "--timeout=120",
+        "--timeout-method=thread",
+        "--junitxml=/private/tmp/sf-mr-fix1/fail-before-child.xml"
+      ],
+      "exit": 1,
+      "seconds": 158.0336787700653,
+      "counts": {
+        "tests": 2,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 1
+      },
+      "by_module": {
+        "tests.process.test_ps_rendering": {
+          "failure": 1,
+          "skipped": 1
+        }
+      },
+      "nonpassing": [
+        {
+          "module": "tests.process.test_ps_rendering",
+          "test": "test_child_keeps_the_given_environment",
+          "result": "failure"
+        },
+        {
+          "module": "tests.process.test_ps_rendering",
+          "test": "test_the_person_check_finds_a_root_marker_that_ends_the_line",
+          "result": "skipped"
+        }
+      ]
+    },
+    {
+      "label": "fail-before-child-native",
+      "args": [
+        "tests/process/test_ps_rendering.py::test_child_keeps_the_given_environment_last",
+        "--basetemp=/private/tmp/sf-mr-fix1/pytest-fail-before-child-native",
+        "-p",
+        "no:cacheprovider",
+        "--timeout=120",
+        "--timeout-method=thread",
+        "--junitxml=/private/tmp/sf-mr-fix1/fail-before-child-native.xml"
+      ],
+      "exit": 1,
+      "seconds": 32.855305194854736,
+      "counts": {
+        "tests": 1,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0
+      },
+      "by_module": {
+        "tests.process.test_ps_rendering": {
+          "failure": 1
+        }
+      },
+      "nonpassing": [
+        {
+          "module": "tests.process.test_ps_rendering",
+          "test": "test_child_keeps_the_given_environment_last",
+          "result": "failure"
+        }
+      ]
+    },
+    {
+      "label": "fail-before",
+      "args": [
+        "-q",
+        "tests/unit/test_person_boundary.py",
+        "-k",
+        "unholdable_root",
+        "tests/process/test_ps_rendering.py::test_child_keeps_the_given_environment",
+        "tests/process/test_ps_rendering.py::test_the_person_check_finds_a_root_marker_that_ends_the_line",
+        "--basetemp=/private/tmp/sf-mr-fix1/pytest-fail-before",
+        "-p",
+        "no:cacheprovider",
+        "--timeout=120",
+        "--timeout-method=thread",
+        "--junitxml=/private/tmp/sf-mr-fix1/fail-before.xml"
+      ],
+      "exit": 1,
+      "seconds": 303.88623690605164,
+      "counts": {
+        "tests": 4,
+        "failures": 4,
+        "errors": 0,
+        "skipped": 0
+      },
+      "by_module": {
+        "tests.unit.test_person_boundary": {
+          "failure": 4
+        }
+      },
+      "nonpassing": [
+        {
+          "module": "tests.unit.test_person_boundary",
+          "test": "test_an_unholdable_root_is_refused_before_ps_can_time_out[a NUL]",
+          "result": "failure"
+        },
+        {
+          "module": "tests.unit.test_person_boundary",
+          "test": "test_an_unholdable_root_is_refused_before_ps_can_time_out[a lone surrogate]",
+          "result": "failure"
+        },
+        {
+          "module": "tests.unit.test_person_boundary",
+          "test": "test_an_unholdable_root_answers_exit_7_even_when_ps_would_time_out[a NUL]",
+          "result": "failure"
+        },
+        {
+          "module": "tests.unit.test_person_boundary",
+          "test": "test_an_unholdable_root_answers_exit_7_even_when_ps_would_time_out[a lone surrogate]",
+          "result": "failure"
+        }
+      ]
+    },
+    {
+      "label": "importers-collection",
+      "args": [
+        "--collect-only",
+        "-q",
+        "tests/fake/test_interactive_steer.py",
+        "tests/fake/test_review_r223_wall_probes.py",
+        "tests/fake/test_state_contract.py",
+        "tests/fake/test_suggestions_fake.py",
+        "tests/fake/test_wall_running_time.py",
+        "tests/unit/test_conversation_peers_attachments.py",
+        "tests/unit/test_conversation_service.py",
+        "tests/unit/test_conversation_steer_service.py",
+        "tests/unit/test_live_store_guard_state_root.py",
+        "tests/unit/test_person_boundary_identity.py",
+        "tests/unit/test_review_r223_conv_probes.py",
+        "tests/unit/test_suggestion_properties.py",
+        "tests/unit/test_suggestion_secret_properties.py",
+        "tests/unit/test_suggestions.py",
+        "tests/unit/test_suggestions_r1b_adversarial.py",
+        "--basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100033-mr-fix-r1-a1-s6ygat5w/sf-mr-fix1/pytest-importers-collection",
+        "-p",
+        "no:cacheprovider",
+        "-p",
+        "sf_mr_isolation",
+        "--timeout=600",
+        "--timeout-method=thread",
+        "--junitxml=/private/tmp/sf-mr-fix1/importers-collection.xml"
+      ],
+      "exit": 0,
+      "seconds": 138.09333610534668,
+      "counts": {
+        "tests": 0,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "by_module": {},
+      "nonpassing": []
+    },
+    {
+      "label": "importers",
+      "args": [
+        "-q",
+        "-n",
+        "4",
+        "tests/unit/test_suggestion_properties.py",
+        "tests/unit/test_suggestion_secret_properties.py",
+        "tests/fake/test_interactive_steer.py",
+        "tests/fake/test_review_r223_wall_probes.py",
+        "tests/fake/test_state_contract.py",
+        "tests/fake/test_suggestions_fake.py",
+        "tests/fake/test_wall_running_time.py",
+        "tests/unit/test_conversation_peers_attachments.py",
+        "tests/unit/test_conversation_service.py",
+        "tests/unit/test_conversation_steer_service.py",
+        "tests/unit/test_live_store_guard_state_root.py",
+        "tests/unit/test_person_boundary_identity.py",
+        "tests/unit/test_review_r223_conv_probes.py",
+        "tests/unit/test_suggestions.py",
+        "tests/unit/test_suggestions_r1b_adversarial.py",
+        "--basetemp=/private/tmp/sf-mr-fix1/pytest-importers",
+        "-p",
+        "no:cacheprovider",
+        "-p",
+        "sf_mr_isolation",
+        "--timeout=600",
+        "--timeout-method=thread",
+        "--junitxml=/private/tmp/sf-mr-fix1/importers.xml"
+      ],
+      "exit": 130,
+      "seconds": 3059.29,
+      "interrupted": true,
+      "metadata_recovered_from": "JUnit and log; second SIGINT interrupted pytest traceback formatting before command metadata was written",
+      "counts": {
+        "tests": 464,
+        "failures": 3,
+        "errors": 12,
+        "skipped": 0
+      },
+      "by_module": {
+        "tests.unit.test_suggestion_properties.TestSuggestionMachine": {
+          "error": 1
+        },
+        "tests.fake.test_wall_running_time": {
+          "passed": 35
+        },
+        "tests.fake.test_review_r223_wall_probes": {
+          "passed": 22,
+          "error": 1
+        },
+        "tests.fake.test_state_contract": {
+          "passed": 37
+        },
+        "tests.fake.test_suggestions_fake": {
+          "passed": 1
+        },
+        "tests.unit.test_conversation_peers_attachments": {
+          "passed": 62
+        },
+        "tests.unit.test_conversation_service": {
+          "passed": 112,
+          "failure": 3
+        },
+        "tests.unit.test_live_store_guard_state_root": {
+          "passed": 22
+        },
+        "tests.unit.test_conversation_steer_service": {
+          "passed": 45
+        },
+        "tests.unit.test_person_boundary_identity": {
+          "passed": 16,
+          "error": 9
+        },
+        "tests.unit.test_review_r223_conv_probes": {
+          "passed": 17
+        },
+        "tests.unit.test_suggestions": {
+          "passed": 30
+        },
+        "tests.unit.test_suggestions_r1b_adversarial": {
+          "passed": 30
+        },
+        "tests.unit.test_suggestion_secret_properties": {
+          "passed": 5,
+          "error": 1
+        },
+        "tests.fake.test_interactive_steer": {
+          "passed": 15
+        },
+        "": {
+          "passed": 1
+        }
+      },
+      "nonpassing": [
+        {
+          "module": "tests.unit.test_suggestion_properties.TestSuggestionMachine",
+          "test": "runTest",
+          "result": "error"
+        },
+        {
+          "module": "tests.fake.test_review_r223_wall_probes",
+          "test": "test_probe_sql_prior_sum_is_never_below_the_exact_sum",
+          "result": "error"
+        },
+        {
+          "module": "tests.unit.test_conversation_service",
+          "test": "test_an_op_handed_a_fifo_answers_at_once_and_close_returns[conversation.history]",
+          "result": "failure"
+        },
+        {
+          "module": "tests.unit.test_conversation_service",
+          "test": "test_an_op_handed_a_fifo_answers_at_once_and_close_returns[conversation.handoff]",
+          "result": "failure"
+        },
+        {
+          "module": "tests.unit.test_conversation_service",
+          "test": "test_an_op_handed_a_fifo_answers_at_once_and_close_returns[conversation.open]",
+          "result": "failure"
+        },
+        {
+          "module": "tests.unit.test_person_boundary_identity",
+          "test": "test_the_native_app_is_accepted_directly_and_through_a_symlink[direct]",
+          "result": "error"
+        },
+        {
+          "module": "tests.unit.test_person_boundary_identity",
+          "test": "test_the_native_app_is_accepted_directly_and_through_a_symlink[symlink]",
+          "result": "error"
+        },
+        {
+          "module": "tests.unit.test_person_boundary_identity",
+          "test": "test_a_client_that_execs_into_the_app_after_connecting_is_refused",
+          "result": "error"
+        },
+        {
+          "module": "tests.unit.test_person_boundary_identity",
+          "test": "test_a_token_change_between_accept_and_request_is_refused",
+          "result": "error"
+        },
+        {
+          "module": "tests.unit.test_person_boundary_identity",
+          "test": "test_exec_before_the_first_token_read_is_accepted_documented_limitation",
+          "result": "error"
+        },
+        {
+          "module": "tests.unit.test_person_boundary_identity",
+          "test": "test_a_client_whose_process_is_gone_is_refused",
+          "result": "error"
+        },
+        {
+          "module": "tests.unit.test_person_boundary_identity",
+          "test": "test_a_reused_pid_version_is_refused_even_if_the_current_image_is_the_app",
+          "result": "error"
+        },
+        {
+          "module": "tests.unit.test_person_boundary_identity",
+          "test": "test_swapping_a_path_to_a_symlink_after_lookup_cannot_change_the_verdict",
+          "result": "error"
+        },
+        {
+          "module": "tests.unit.test_person_boundary_identity",
+          "test": "test_an_update_that_moves_the_running_bundle_requires_an_app_restart",
+          "result": "error"
+        },
+        {
+          "module": "tests.unit.test_suggestion_secret_properties",
+          "test": "test_c25_5_what_a_failing_checkout_hook_says_never_reaches_a_suggestion_field_or_event",
+          "result": "error"
+        }
+      ]
+    },
+    {
+      "label": "importers-retry",
+      "args": [
+        "-q",
+        "-n",
+        "2",
+        "--dist=loadscope",
+        "tests/fake/test_review_r223_wall_probes.py::test_probe_sql_prior_sum_is_never_below_the_exact_sum",
+        "tests/unit/test_conversation_service.py::test_an_op_handed_a_fifo_answers_at_once_and_close_returns[conversation.history]",
+        "tests/unit/test_conversation_service.py::test_an_op_handed_a_fifo_answers_at_once_and_close_returns[conversation.handoff]",
+        "tests/unit/test_conversation_service.py::test_an_op_handed_a_fifo_answers_at_once_and_close_returns[conversation.open]",
+        "tests/unit/test_person_boundary_identity.py::test_the_native_app_is_accepted_directly_and_through_a_symlink[direct]",
+        "tests/unit/test_person_boundary_identity.py::test_the_native_app_is_accepted_directly_and_through_a_symlink[symlink]",
+        "tests/unit/test_person_boundary_identity.py::test_a_client_that_execs_into_the_app_after_connecting_is_refused",
+        "tests/unit/test_person_boundary_identity.py::test_a_token_change_between_accept_and_request_is_refused",
+        "tests/unit/test_person_boundary_identity.py::test_exec_before_the_first_token_read_is_accepted_documented_limitation",
+        "tests/unit/test_person_boundary_identity.py::test_a_client_whose_process_is_gone_is_refused",
+        "tests/unit/test_person_boundary_identity.py::test_a_reused_pid_version_is_refused_even_if_the_current_image_is_the_app",
+        "tests/unit/test_person_boundary_identity.py::test_swapping_a_path_to_a_symlink_after_lookup_cannot_change_the_verdict",
+        "tests/unit/test_person_boundary_identity.py::test_an_update_that_moves_the_running_bundle_requires_an_app_restart",
+        "tests/unit/test_suggestion_properties.py::TestSuggestionMachine::runTest",
+        "tests/unit/test_suggestion_secret_properties.py::test_c25_5_what_a_failing_checkout_hook_says_never_reaches_a_suggestion_field_or_event",
+        "tests/unit/test_suggestion_secret_properties.py::test_c25_5_any_start_failure_is_scrubbed_wherever_it_happens",
+        "--basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100033-mr-fix-r1-a1-s6ygat5w/sf-mr-fix1/pytest-importers-retry",
+        "-p",
+        "no:cacheprovider",
+        "-p",
+        "sf_mr_isolation",
+        "--timeout=1800",
+        "--timeout-method=thread",
+        "--junitxml=/private/tmp/sf-mr-fix1/importers-retry.xml"
+      ],
+      "exit": 2,
+      "seconds": 2268.3904020786285,
+      "counts": {
+        "tests": 15,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "by_module": {
+        "tests.unit.test_conversation_service": {
+          "passed": 3
+        },
+        "tests.unit.test_person_boundary_identity": {
+          "passed": 9
+        },
+        "tests.fake.test_review_r223_wall_probes": {
+          "passed": 1
+        },
+        "tests.unit.test_suggestion_secret_properties": {
+          "passed": 2
+        },
+        "": {
+          "passed": 1
+        }
+      },
+      "nonpassing": []
+    },
+    {
+      "label": "mandatory",
+      "args": [
+        "-q",
+        "-n",
+        "4",
+        "tests/fake/test_state_contract.py",
+        "tests/unit/test_test_module_names.py",
+        "tests/unit/test_invariants_index.py",
+        "tests/unit/test_handler_refusals.py",
+        "--basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100033-mr-fix-r1-a1-s6ygat5w/sf-mr-fix1/pytest-mandatory",
+        "-p",
+        "no:cacheprovider",
+        "-p",
+        "sf_mr_isolation",
+        "--timeout=600",
+        "--timeout-method=thread",
+        "--junitxml=/private/tmp/sf-mr-fix1/mandatory.xml"
+      ],
+      "exit": 0,
+      "seconds": 334.02801513671875,
+      "counts": {
+        "tests": 435,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "by_module": {
+        "tests.unit.test_handler_refusals": {
+          "passed": 372
+        },
+        "tests.unit.test_invariants_index": {
+          "passed": 25
+        },
+        "tests.fake.test_state_contract": {
+          "passed": 37
+        },
+        "tests.unit.test_test_module_names": {
+          "passed": 1
+        }
+      },
+      "nonpassing": []
+    }
+  ],
+  "outside_temporary_directories": {
+    "changed-person-outside.json": [],
+    "changed-person-retry-outside-63946.json": [],
+    "changed-person-retry-outside-67957.json": [],
+    "changed-person-retry-outside-68814.json": [],
+    "changed-person-retry-outside-68871.json": [],
+    "changed-person-retry-outside-69162.json": [],
+    "changed-person-retry-outside.json": [],
+    "changed-ps-rendering-outside.json": [],
+    "fail-before-child-native-outside.json": [],
+    "fail-before-child-outside.json": [],
+    "fail-before-outside.json": [],
+    "importers-collection-outside-82204.json": [],
+    "importers-collection-outside.json": [],
+    "importers-outside-12964.json": [],
+    "importers-outside-33539.json": [],
+    "importers-outside-77412.json": [],
+    "importers-outside-89516.json": [
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-l3oz3sy4",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-pla2g0mq",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-n5q_4kqx",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-br7iqqsn",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-2diqmxj0",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-6d4afe8j",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-mq4q_r2h",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-9yn9vspd",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-kf9qek22",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-1ggpft35",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-6x7c6tah",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-6xu9uqhb",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-4y38twu5",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-5n1ic6eb",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-eyasvz69",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-k3ye2rgk",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-h7wsb4q9",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-u4o8eoa3",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-jkzejqcx",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-63wo_8s0",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-we73dkaq",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-j1h7nd86",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-_o49vmtl",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-8o4hcc_g",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-j9cq8vke",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-w67sfwu0",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-jkv4qj3g",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-e4ia801e",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-t7ndwjl3",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-9eps2t2w",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-garx_uxd",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-fo34j8ox",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-j7857a5a",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-ceggtsy1",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-f7cmsfy6",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-jlmd3htn",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-j1mafvu5",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-10ylw_ml",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-2rtq3rh7",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-926qpez3",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-breqqz8x",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-1j4xh082",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-gwyjiqsh",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-_prled9z",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-rp3q5q2z",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-3qqf5p0j",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-l_15s3jw",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-9g042hzw",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-0cxyrhvf",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-xm3q7t13",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-pf5mgxxh",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-e9s2qoi7",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-8dspcbm7",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-xe7wf7jx",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-9yoy39vy",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-ei548f8x",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-yqmddwkl",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-gtu9jmfn",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-t0dyz9uc",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-xmqod51y"
+    ],
+    "importers-outside-92462.json": [],
+    "importers-outside.json": [],
+    "importers-retry-outside-11165.json": [],
+    "importers-retry-outside-12036.json": [],
+    "importers-retry-outside-7662.json": [],
+    "importers-retry-outside.json": [],
+    "mandatory-outside-61253.json": [],
+    "mandatory-outside-66164.json": [],
+    "mandatory-outside-66378.json": [],
+    "mandatory-outside-66876.json": [],
+    "mandatory-outside-67362.json": [],
+    "mandatory-outside.json": []
+  },
+  "scripts": {
+    "run_pytest.py": "import json\nimport os\nfrom pathlib import Path\nimport shutil\nimport signal\nimport sys\nimport tempfile\nimport time\n\nscratch = Path('/private/tmp/sf-mr-fix1')\ntemp_root = Path('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100033-mr-fix-r1-a1-s6ygat5w/sf-mr-fix1')\nworkspace = Path.cwd()\nsys.path.insert(0, str(Path.cwd()))\nsys.dont_write_bytecode = True\nos.environ['TMPDIR'] = str(temp_root)\ntempfile.tempdir = str(temp_root)\nos.environ['HYPOTHESIS_STORAGE_DIRECTORY'] = str(scratch / ('hypothesis-' + sys.argv[1]))\nos.environ['SF_MR_RUN'] = sys.argv[1]\nos.environ['PYTHONPATH'] = str(scratch) + os.pathsep + str(Path.cwd())\noriginal_mkdtemp = tempfile.mkdtemp\noutside = []\n\ndef mkdtemp(suffix=None, prefix=None, dir=None):\n    if dir is not None and Path(dir) == workspace:\n        dir = str(temp_root)\n    if dir is not None and Path(dir) in (Path('/tmp'), Path('/private/tmp')):\n        dir = str(scratch)\n    if dir is not None and not any(Path(dir).is_relative_to(root) for root in (scratch, temp_root)):\n        prefix = 'sf-mr-fix1-' + (prefix or '')\n    result = original_mkdtemp(suffix=suffix, prefix=prefix, dir=dir)\n    if not any(Path(result).is_relative_to(root) for root in (scratch, temp_root)):\n        outside.append(result)\n    return result\n\ntempfile.mkdtemp = mkdtemp\nimport pytest\nfrom tests import failed_keep\nfailed_keep.ROOT = scratch / 'kept'\nlabel = sys.argv[1]\nargs = [*sys.argv[2:], '--basetemp=' + str(temp_root / ('pytest-' + label)),\n        '-p', 'no:cacheprovider', '-p', 'sf_mr_isolation',\n        '--timeout=' + ('1800' if label == 'importers-retry' else '600'), '--timeout-method=thread',\n        '--junitxml=' + str(scratch / (label + '.xml'))]\nstart = time.time()\ndef budget_expired(signum, frame):\n    raise KeyboardInterrupt('importer test budget expired before the job deadline')\n\nif label == 'importers':\n    signal.signal(signal.SIGALRM, budget_expired)\n    signal.alarm(4800)\nelif label == 'importers-retry':\n    signal.signal(signal.SIGALRM, budget_expired)\n    signal.alarm(2400)\ntry:\n    try:\n        result = pytest.main(args)\n    except KeyboardInterrupt:\n        result = 2\nfinally:\n    (scratch / (label + '-outside.json')).write_text(json.dumps(outside, indent=2))\n    for path in outside:\n        assert 'sf-mr-fix1' in path\n        if Path(path).exists():\n            shutil.rmtree(path)\nrecord = {'label': label, 'args': args, 'exit': int(result), 'seconds': time.time() - start}\n(scratch / (label + '-command.json')).write_text(json.dumps(record, indent=2))\nraise SystemExit(result)\n",
+    "sf_mr_isolation.py": "\"\"\"Job-local temp isolation, loaded in the controller and each xdist worker.\"\"\"\nimport json\nimport os\nfrom pathlib import Path\nimport shutil\nimport tempfile\n\nSCRATCH = Path('/private/tmp/sf-mr-fix1')\nTEMP_ROOT = Path('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100033-mr-fix-r1-a1-s6ygat5w/sf-mr-fix1')\nWORKSPACE = Path.cwd()\ntempfile.tempdir = str(TEMP_ROOT)\noriginal_mkdtemp = tempfile.mkdtemp\noutside = []\n\ndef mkdtemp(suffix=None, prefix=None, dir=None):\n    if dir is not None and Path(dir) == WORKSPACE:\n        dir = str(TEMP_ROOT)\n    if dir is not None and Path(dir) in (Path('/tmp'), Path('/private/tmp')):\n        dir = str(SCRATCH)\n    if dir is not None and not any(Path(dir).is_relative_to(root) for root in (SCRATCH, TEMP_ROOT)):\n        prefix = 'sf-mr-fix1-' + (prefix or '')\n    path = original_mkdtemp(suffix=suffix, prefix=prefix, dir=dir)\n    if not any(Path(path).is_relative_to(root) for root in (SCRATCH, TEMP_ROOT)):\n        outside.append(path)\n    return path\n\ntempfile.mkdtemp = mkdtemp\nfrom tests import failed_keep\nfailed_keep.ROOT = SCRATCH / 'kept'\n\ndef pytest_unconfigure(config):\n    label = os.environ.get('SF_MR_RUN', 'unknown')\n    (SCRATCH / f'{label}-outside-{os.getpid()}.json').write_text(json.dumps(outside, indent=2))\n    for path in outside:\n        assert 'sf-mr-fix1' in path\n        if Path(path).exists():\n            shutil.rmtree(path)\n",
+    "run_following.py": "import json\nimport os\nfrom pathlib import Path\nimport subprocess\nimport sys\nimport time\n\nscratch = Path('/private/tmp/sf-mr-fix1')\nwhile not (scratch / 'changed-person-retry-command.json').exists():\n    time.sleep(2)\nfiles = [p for p in (scratch / 'importers.txt').read_text().splitlines()\n         if Path(p).name.startswith('test_') and p not in (\n             'tests/unit/test_person_boundary.py', 'tests/process/test_ps_rendering.py')]\nfiles.sort(key=lambda p: ('suggestion_properties' not in p and 'suggestion_secret_properties' not in p, p))\ncmd = ['uv', 'run', '--no-sync', '--with', 'pytest-xdist>=3.6', 'python',\n       str(scratch / 'run_pytest.py'), 'importers', '-q', '-n', '4', *files]\nprint('Starting importer suite:', len(files), 'additional files', flush=True)\nwith (scratch / 'importers.log').open('w') as output:\n    result = subprocess.run(cmd, stdout=output, stderr=subprocess.STDOUT)\nprint('Importer exit:', result.returncode, flush=True)\n",
+    "run_mandatory.py": "from pathlib import Path\nimport subprocess\nimport time\n\nscratch = Path('/private/tmp/sf-mr-fix1')\nwhile not (scratch / 'importers-retry-command.json').exists():\n    time.sleep(2)\nfiles = ['tests/fake/test_state_contract.py', 'tests/unit/test_test_module_names.py',\n         'tests/unit/test_invariants_index.py', 'tests/unit/test_handler_refusals.py']\ncmd = ['uv', 'run', '--no-sync', '--with', 'pytest-xdist>=3.6', 'python',\n       str(scratch / 'run_pytest.py'), 'mandatory', '-q', '-n', '4', *files]\nprint('Starting mandatory final files', flush=True)\nwith (scratch / 'mandatory.log').open('w') as output:\n    result = subprocess.run(cmd, stdout=output, stderr=subprocess.STDOUT)\nprint('Mandatory exit:', result.returncode, flush=True)\n",
+    "retry_then_mandatory.py": "from pathlib import Path\nimport json\nimport subprocess\nimport time\nimport xml.etree.ElementTree as ET\n\nscratch = Path('/private/tmp/sf-mr-fix1')\nwhile not all((scratch / name).exists() for name in ('importers-command.json', 'importers-collection-command.json')):\n    time.sleep(2)\nfiles = [p for p in (scratch / 'importers.txt').read_text().splitlines() if Path(p).name.startswith('test_')]\nnodes = []\nunmapped = []\ncompleted = set()\nfor case in ET.parse(scratch / 'importers.xml').getroot().iter('testcase'):\n    failed = case.find('failure') is not None or case.find('error') is not None\n    classname = case.get('classname', '')\n    name = case.get('name', '')\n    if not classname and not name:\n        continue  # the interrupted controller's global report, not a test node\n    for path in files:\n        module = path[:-3].replace('/', '.')\n        if classname == module or classname.startswith(module + '.'):\n            classes = classname[len(module):].strip('.').replace('.', '::')\n            node = path + '::' + (classes + '::' if classes else '') + name\n            if failed:\n                nodes.append(node)\n            else:\n                completed.add(node)\n            break\n    else:\n        unmapped.append([classname, name])\nassert not unmapped, unmapped\nnodes = list(dict.fromkeys(nodes))\nall_nodes = [line.strip() for line in (scratch / 'importers-collection.log').read_text().splitlines()\n             if line.startswith('tests/') and '::' in line]\nassert all_nodes, 'collection must list test nodes before resuming'\nnodes = [node for node in all_nodes if node not in completed]\n(scratch / 'collection-count.json').write_text(json.dumps({'collected': len(all_nodes), 'completed_before_retry': len(completed), 'resumed': len(nodes)}))\n(scratch / 'retry-nodes.json').write_text(json.dumps(nodes, indent=2))\nprefix = ['uv', 'run', '--no-sync', '--with', 'pytest-xdist>=3.6', 'python', str(scratch / 'run_pytest.py')]\nif nodes:\n    print('Retrying affected cases with Darwin temp:', len(nodes), flush=True)\n    with (scratch / 'importers-retry.log').open('w') as output:\n        result = subprocess.run([*prefix, 'importers-retry', '-q', '-n', '2', '--dist=loadscope', *nodes], stdout=output, stderr=subprocess.STDOUT)\n    print('Importer retry exit:', result.returncode, flush=True)\nprint('Starting mandatory files', flush=True)\nfiles = ['tests/fake/test_state_contract.py', 'tests/unit/test_test_module_names.py',\n         'tests/unit/test_invariants_index.py', 'tests/unit/test_handler_refusals.py']\nwith (scratch / 'mandatory.log').open('w') as output:\n    result = subprocess.run([*prefix, 'mandatory', '-q', '-n', '4', *files], stdout=output, stderr=subprocess.STDOUT)\nprint('Mandatory exit:', result.returncode, flush=True)\n",
+    "cleanup_workspace.py": "import json\nfrom pathlib import Path\nimport shutil\n\nscratch = Path('/private/tmp/sf-mr-fix1')\nworkspace = Path.cwd()\nassert (scratch / 'mandatory-command.json').exists(), 'tests must finish before cleanup'\nrecord = {'outside_directories': [], 'renames': [], 'guarded_removals': []}\nevidence = workspace / 'docs/reports/2026-11-13-marker-non-ascii-root-217-fix-r1-data.json'\n\ndef record_before_removal():\n    (scratch / 'cleanup.json').write_text(json.dumps(record, indent=2) + '\\n')\n    data = json.loads(evidence.read_text())\n    data['cleanup'] = record\n    evidence.write_text(json.dumps(data, indent=2) + '\\n')\n\noutside = set()\nfor file in scratch.glob('*outside*.json'):\n    outside.update(json.loads(file.read_text()))\noutside.update(str(p) for p in workspace.glob('sf-mr-fix1-*') if p.is_dir())\nfor name in sorted(outside):\n    path = Path(name)\n    assert 'sf-mr-fix1' in str(path)\n    record['outside_directories'].append(str(path))\n    record_before_removal()\n    if path.is_symlink():\n        path.unlink()\n    else:\n        shutil.rmtree(path, ignore_errors=True)\n    record['guarded_removals'].append(str(path))\n\ndef renamed_removal(path, target):\n    assert path.is_relative_to(workspace) and target.is_relative_to(workspace)\n    assert not path.is_symlink() and not target.exists()\n    record['outside_directories'].append(str(path))\n    record['renames'].append({'from': str(path), 'to': str(target)})\n    record_before_removal()\n    path.rename(target)\n    assert 'sf-mr-fix1' in str(target)\n    shutil.rmtree(target)\n    record['guarded_removals'].append(str(target))\n\nvenv = workspace / '.venv'\nif venv.exists():\n    renamed_removal(venv, workspace / 'sf-mr-fix1-venv')\nfor path in sorted(workspace.rglob('__pycache__'), key=lambda p: len(p.parts), reverse=True):\n    renamed_removal(path, path.with_name('sf-mr-fix1-__pycache__'))\nrecord['scratch_roots_pending_final_removal'] = [str(scratch),\n    '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100033-mr-fix-r1-a1-s6ygat5w/sf-mr-fix1']\n(scratch / 'cleanup.json').write_text(json.dumps(record, indent=2) + '\\n')\nprint('Recorded and removed outside directories:', len(record['outside_directories']))\n",
+    "finalize_report.py": "from datetime import datetime, timezone\nimport json\nfrom pathlib import Path\nimport xml.etree.ElementTree as ET\n\nscratch = Path('/private/tmp/sf-mr-fix1')\nreport = Path('docs/reports/2026-11-13-marker-non-ascii-root-217.md')\nevidence = Path('docs/reports/2026-11-13-marker-non-ascii-root-217-fix-r1-data.json')\ndata = json.loads(evidence.read_text())\nruns = {r['label']: r for r in data['runs']}\norder = [\n    ('fail-before', 'New timeout cases before reorder'),\n    ('fail-before-child', 'Discarded post-start environment comparison'),\n    ('fail-before-child-native', 'Native-buffer case before helper fix'),\n    ('changed-person', 'Changed person-boundary file, first run'),\n    ('changed-person-retry', 'Two existing person-boundary properties, retry'),\n    ('changed-ps-rendering', 'Changed process file, framework Python'),\n    ('importers', 'Other 15 importer files, first run'),\n    ('importers-collection', 'Collection-only accounting for importer cases'),\n    ('importers-retry', 'Failed or unfinished importer cases, retry'),\n    ('mandatory', 'Four mandatory files, in the requested order'),\n]\nrows = ['| Command label / scope | Result |', '|---|---|']\nfor label, description in order:\n    r = runs.get(label)\n    if r is None:\n        outcome = 'Not completed before the job deadline'\n    elif label == 'importers':\n        outcome = '449 passed; 3 worker losses, 3 child timeouts, 9 compiler setup errors; 1 case not reported; interrupted (exit 130)'\n    elif label == 'importers-collection':\n        outcome = '465 collected, 0 executed; exit 0'\n    elif label == 'importers-retry' and r['exit'] in (2, 130):\n        modules = [counts for module, counts in r.get('by_module', {}).items() if module]\n        passed = sum(counts.get('passed', 0) for counts in modules)\n        failed = sum(counts.get('failure', 0) for counts in modules)\n        errors = sum(counts.get('error', 0) for counts in modules)\n        outcome = f'{passed} passed'\n        if failed: outcome += f', {failed} failed'\n        if errors: outcome += f', {errors} test errors'\n        outcome += f\"; interrupted to reserve mandatory-check/cleanup time; exit {r['exit']}\"\n    else:\n        c = r.get('counts', {})\n        passed = c.get('tests', 0) - c.get('failures', 0) - c.get('errors', 0) - c.get('skipped', 0)\n        parts = [f'{passed} passed'] if passed else []\n        for key, word in [('failures', 'failed'), ('errors', 'errors'), ('skipped', 'skipped')]:\n            if c.get(key):\n                parts.append(f\"{c[key]} {word}\")\n        outcome = ', '.join(parts) + f\"; exit {r['exit']}\"\n    rows.append(f'| `{label}` \u2014 {description} | {outcome} |')\n\nmandatory = runs.get('mandatory', {}).get('by_module', {})\nif mandatory:\n    rows.append('')\n    rows.append('The mandatory command\\'s file counts: ' + '; '.join(\n        f\"`{module.rsplit('.', 1)[-1]}.py`: \" + ', '.join(f'{count} {kind}' for kind, count in counts.items())\n        for module, counts in mandatory.items()) + '.')\n\nremaining = []\ncollection = [line.strip() for line in (scratch / 'importers-collection.log').read_text().splitlines()\n              if line.startswith('tests/') and '::' in line]\ncompleted = set()\nfiles = [p for p in data['importers'] if Path(p).name.startswith('test_')]\nfor label in ('importers', 'importers-retry'):\n    path = scratch / (label + '.xml')\n    if not path.exists():\n        continue\n    for case in ET.parse(path).getroot().iter('testcase'):\n        if case.find('failure') is not None or case.find('error') is not None:\n            continue\n        classname, name = case.get('classname', ''), case.get('name', '')\n        for file in files:\n            module = file[:-3].replace('/', '.')\n            if classname == module or classname.startswith(module + '.'):\n                classes = classname[len(module):].strip('.').replace('.', '::')\n                completed.add(file + '::' + (classes + '::' if classes else '') + name)\n                break\nremaining = [node for node in collection if node not in completed]\ndata['importer_cases_not_verified_passing'] = remaining\ndata['collection'] = json.loads((scratch / 'collection-count.json').read_text())\n\ntext = report.read_text()\ntext = text.replace('<!-- FIX1_TEST_ROWS -->', '\\n'.join(rows))\ntext = text.replace('Parallel batches used `-n 4`.',\n    'Parallel batches used `-n 4`; the importer retry used `-n 2 --dist=loadscope` to share module fixtures.')\ntext = text.replace('subsequent runs used 600 seconds.',\n    'subsequent runs used 600 seconds, with 1,800 seconds per test and a 40-minute batch budget for the importer retry. Test example/step settings were unchanged.')\ncleanup = data.get('cleanup', {})\ncount = len(cleanup.get('outside_directories', []))\nending = [\n    '**Setup, cleanup and deviations.** The sandbox required two task scratch roots: `/private/tmp/sf-mr-fix1` for short socket paths/logs, and `/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100033-mr-fix-r1-a1-s6ygat5w/sf-mr-fix1` for the dependency cache and final pytest basetemps. Initial short basetemps were replaced by Darwin-temp basetemps; checkout fallback workdirs were redirected there too. The observed first importer errors were compiler/child timeouts; the cause of each worker loss was not proven.',\n    'The first xdist person run installed temporary isolation only in its controller. Its workers used the repository\\'s default `/tmp/sf-failed` startup/pruning hook; those effects were not audited, so that initial run was not fully confined to job scratch. Its existing native-app test also created one `/tmp/sf-pb1-*` directory which the fixture removed; its exact generated name was not recorded. Later workers loaded the job isolation plugin before pytest hooks. Queued waiters were interrupted before executing tests while the pipeline was corrected. The first importer batch was interrupted, and a second SIGINT interrupted pytest traceback formatting; its command metadata was recovered from JUnit/log. A collection-only run identified every failed or unfinished case for retry.',\n    f'The command data lists every recorded outside directory and guarded removal ({count} directories/trees), including the newly installed worktree `.venv` and generated bytecode caches. Paths without the job marker were renamed to contain `sf-mr-fix1` before guarded `shutil.rmtree`; task scratch roots were also removed with that assertion. The pre-existing, denied Darwin uv cache was left untouched. No process listing was used for cleanup; child helpers kill and wait for their own children.',\n    '**Not run / remaining verification.** The whole suite was not run, as requested. Four real-`ps` cases skipped because this sandbox denies process inspection; unrestricted CI and round 2 must execute them. No remote PR write or push was performed.',\n]\nif remaining:\n    ending.append(f'{len(remaining)} importer cases are not verified passing before the deadline; exact node IDs are in the command data: ' + ', '.join(f'`{node}`' for node in remaining) + '.')\nelse:\n    ending.append('All 465 collected importer cases passed across the first run and retry.')\nending.append('<!-- FIX1_FINISHED -->')\ntext = text.replace('<!-- FIX1_CLEANUP_AND_LIMITS -->', '\\n\\n'.join(ending))\nassert '<!-- FIX1_TEST_ROWS -->' not in text and '<!-- FIX1_CLEANUP_AND_LIMITS -->' not in text\nreport.write_text(text)\nevidence.write_text(json.dumps(data, indent=2) + '\\n')\n",
+    "finish_cleanup.py": "from datetime import datetime, timezone\nimport json\nfrom pathlib import Path\nimport shutil\n\nreport = Path('docs/reports/2026-11-13-marker-non-ascii-root-217.md')\nevidence = Path('docs/reports/2026-11-13-marker-non-ascii-root-217-fix-r1-data.json')\ndata = json.loads(evidence.read_text())\nroots = [Path('/private/tmp/sf-mr-fix1'),\n    Path('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100033-mr-fix-r1-a1-s6ygat5w/sf-mr-fix1')]\nfor path in roots:\n    assert 'sf-mr-fix1' in str(path) and path.name == 'sf-mr-fix1'\n    assert not path.is_symlink()\n    shutil.rmtree(path)\ndata['cleanup'].pop('scratch_roots_pending_final_removal', None)\ndata['cleanup']['scratch_roots_removed'] = [str(path) for path in roots]\nnow = datetime.now(timezone.utc)\ndata['ended_utc'] = now.strftime('%Y-%m-%dT%H:%M:%SZ')\nelapsed = int((now - datetime(2026, 11, 15, 19, 16, 44, tzinfo=timezone.utc)).total_seconds())\ndata['elapsed_seconds'] = elapsed\ndata['within_three_hours'] = elapsed < 10800\nevidence.write_text(json.dumps(data, indent=2) + '\\n')\ntext = report.read_text().replace('<!-- FIX1_FINISHED -->',\n    f\"Finished **{data['ended_utc']}** ({elapsed // 60} minutes after start), before the three-hour deadline.\")\nassert '<!-- FIX1_' not in text\nreport.write_text(text)\nprint('Guardedly removed both scratch roots; report and evidence finalized.')\n",
+    "build_evidence.py": "import json\nfrom pathlib import Path\nimport xml.etree.ElementTree as ET\n\nscratch = Path('/private/tmp/sf-mr-fix1')\ndestination = Path('docs/reports/2026-11-13-marker-non-ascii-root-217-fix-r1-data.json')\nruns = []\nfor file in sorted(scratch.glob('*-command.json')):\n    record = json.loads(file.read_text())\n    xml = scratch / (record['label'] + '.xml')\n    if xml.exists():\n        suites = ET.parse(xml).getroot().findall('testsuite')\n        record['counts'] = {key: sum(int(s.get(key, '0')) for s in suites)\n                            for key in ('tests', 'failures', 'errors', 'skipped')}\n        by_file = {}\n        details = []\n        for case in ET.parse(xml).getroot().iter('testcase'):\n            kind = next((k for k in ('failure', 'error', 'skipped') if case.find(k) is not None), 'passed')\n            name = case.get('classname', '')\n            counts = by_file.setdefault(name, {})\n            counts[kind] = counts.get(kind, 0) + 1\n            if kind != 'passed':\n                details.append({'module': name, 'test': case.get('name'), 'result': kind})\n        record['by_module'] = by_file\n        record['nonpassing'] = details\n    runs.append(record)\noutside = {}\nfor file in sorted(scratch.glob('*outside*.json')):\n    outside[file.name] = json.loads(file.read_text())\ndata = {\n    'started_utc': '2026-11-15T19:16:44Z',\n    'deadline_utc': '2026-11-15T22:16:44Z',\n    'starting_head': 'd1f6ed52334c1a77ec23f0c6545e7893c1a41bb2',\n    'python': 'Homebrew framework CPython 3.14.7',\n    'test_prefix': \"uv run --no-sync --with 'pytest-xdist>=3.6' python /private/tmp/sf-mr-fix1/run_pytest.py\",\n    'scratch': str(scratch),\n    'cache_scratch': '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100033-mr-fix-r1-a1-s6ygat5w/sf-mr-fix1',\n    'importers': (scratch / 'importers.txt').read_text().splitlines(),\n    'runs': runs,\n    'outside_temporary_directories': outside,\n    'scripts': {name: (scratch / name).read_text() for name in\n                ('run_pytest.py', 'sf_mr_isolation.py', 'run_following.py', 'run_mandatory.py',\n                 'retry_then_mandatory.py', 'cleanup_workspace.py', 'finalize_report.py',\n                 'finish_cleanup.py', 'build_evidence.py')},\n    'read_only_checks': {\n        'release217_peers_unholdable_roots': {'cases': 3, 'allowed': 3, 'reason': 'the Subfleet app'},\n        'release217_trailing_space': {'root_last': 'allowed app', 'root_middle': 'refused attempt markers'},\n        'fixture_bytes_unchanged': 255,\n        'independent_diff_review': 'no blocking issues',\n        'forbidden_command_scan': 'no execution-shaped matches in the selected files',\n    },\n    'commit_attempts': [\n        {'step': 1, 'subject': 'docs: correct marker check history and notation ownership', 'exit': 128},\n        {'step': 2, 'subject': 'fix: refuse unholdable roots before process inspection', 'exit': 128},\n        {'step': 3, 'subject': 'test: keep trailing-space roots last under framework Python', 'exit': 128},\n    ],\n    'commit_error': 'index.lock: Operation not permitted',\n}\nif (scratch / 'cleanup.json').exists():\n    data['cleanup'] = json.loads((scratch / 'cleanup.json').read_text())\nif destination.exists():\n    previous = json.loads(destination.read_text())\n    for key in ('operations', 'deviations', 'ended_utc'):\n        if key in previous:\n            data[key] = previous[key]\ndestination.write_text(json.dumps(data, indent=2) + '\\n')\nfor run in runs:\n    print(run['label'], run.get('counts'), 'exit', run['exit'])\n"
+  },
+  "read_only_checks": {
+    "release217_peers_unholdable_roots": {
+      "cases": 3,
+      "allowed": 3,
+      "reason": "the Subfleet app"
+    },
+    "release217_trailing_space": {
+      "root_last": "allowed app",
+      "root_middle": "refused attempt markers"
+    },
+    "fixture_bytes_unchanged": 255,
+    "independent_diff_review": "no blocking issues",
+    "forbidden_command_scan": "no execution-shaped matches in the selected files"
+  },
+  "commit_attempts": [
+    {
+      "step": 1,
+      "subject": "docs: correct marker check history and notation ownership",
+      "exit": 128
+    },
+    {
+      "step": 2,
+      "subject": "fix: refuse unholdable roots before process inspection",
+      "exit": 128
+    },
+    {
+      "step": 3,
+      "subject": "test: keep trailing-space roots last under framework Python",
+      "exit": 128
+    },
+    {
+      "step": 4,
+      "subject": "docs: record marker root fix round 1 validation",
+      "exit": 128
+    }
+  ],
+  "commit_error": "index.lock: Operation not permitted",
+  "cleanup": {
+    "outside_directories": [
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-0cxyrhvf",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-10ylw_ml",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-1ggpft35",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-1j4xh082",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-2diqmxj0",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-2rtq3rh7",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-3qqf5p0j",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-4y38twu5",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-5n1ic6eb",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-63wo_8s0",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-6d4afe8j",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-6x7c6tah",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-6xu9uqhb",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-8dspcbm7",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-8o4hcc_g",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-926qpez3",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-9eps2t2w",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-9g042hzw",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-9yn9vspd",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-9yoy39vy",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-_o49vmtl",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-_prled9z",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-br7iqqsn",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-breqqz8x",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-ceggtsy1",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-e4ia801e",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-e9s2qoi7",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-ei548f8x",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-eyasvz69",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-f7cmsfy6",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-fo34j8ox",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-garx_uxd",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-gtu9jmfn",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-gwyjiqsh",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-h7wsb4q9",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-j1h7nd86",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-j1mafvu5",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-j7857a5a",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-j9cq8vke",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-jkv4qj3g",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-jkzejqcx",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-jlmd3htn",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-k3ye2rgk",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-kf9qek22",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-l3oz3sy4",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-l_15s3jw",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-mq4q_r2h",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-n5q_4kqx",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-pf5mgxxh",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-pla2g0mq",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-rp3q5q2z",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-t0dyz9uc",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-t7ndwjl3",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-u4o8eoa3",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-w67sfwu0",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-we73dkaq",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-xe7wf7jx",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-xm3q7t13",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-xmqod51y",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-yqmddwkl",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/.venv",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/__pycache__",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/frontend/__pycache__",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/fake/__pycache__",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/e2e/__pycache__",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/subfleet/adapters/__pycache__",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/subfleet/sessions/__pycache__",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/subfleet/conversations/__pycache__",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/subfleet/gate/__pycache__",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/subfleet/guard/__pycache__",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/subfleet/__pycache__",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/__pycache__"
+    ],
+    "renames": [
+      {
+        "from": "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/.venv",
+        "to": "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/sf-mr-fix1-venv"
+      },
+      {
+        "from": "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/__pycache__",
+        "to": "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-__pycache__"
+      },
+      {
+        "from": "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/frontend/__pycache__",
+        "to": "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/frontend/sf-mr-fix1-__pycache__"
+      },
+      {
+        "from": "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/fake/__pycache__",
+        "to": "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/fake/sf-mr-fix1-__pycache__"
+      },
+      {
+        "from": "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/e2e/__pycache__",
+        "to": "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/e2e/sf-mr-fix1-__pycache__"
+      },
+      {
+        "from": "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/subfleet/adapters/__pycache__",
+        "to": "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/subfleet/adapters/sf-mr-fix1-__pycache__"
+      },
+      {
+        "from": "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/subfleet/sessions/__pycache__",
+        "to": "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/subfleet/sessions/sf-mr-fix1-__pycache__"
+      },
+      {
+        "from": "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/subfleet/conversations/__pycache__",
+        "to": "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/subfleet/conversations/sf-mr-fix1-__pycache__"
+      },
+      {
+        "from": "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/subfleet/gate/__pycache__",
+        "to": "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/subfleet/gate/sf-mr-fix1-__pycache__"
+      },
+      {
+        "from": "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/subfleet/guard/__pycache__",
+        "to": "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/subfleet/guard/sf-mr-fix1-__pycache__"
+      },
+      {
+        "from": "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/subfleet/__pycache__",
+        "to": "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/subfleet/sf-mr-fix1-__pycache__"
+      },
+      {
+        "from": "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/__pycache__",
+        "to": "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/sf-mr-fix1-__pycache__"
+      }
+    ],
+    "guarded_removals": [
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-0cxyrhvf",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-10ylw_ml",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-1ggpft35",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-1j4xh082",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-2diqmxj0",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-2rtq3rh7",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-3qqf5p0j",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-4y38twu5",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-5n1ic6eb",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-63wo_8s0",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-6d4afe8j",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-6x7c6tah",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-6xu9uqhb",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-8dspcbm7",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-8o4hcc_g",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-926qpez3",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-9eps2t2w",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-9g042hzw",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-9yn9vspd",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-9yoy39vy",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-_o49vmtl",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-_prled9z",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-br7iqqsn",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-breqqz8x",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-ceggtsy1",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-e4ia801e",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-e9s2qoi7",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-ei548f8x",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-eyasvz69",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-f7cmsfy6",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-fo34j8ox",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-garx_uxd",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-gtu9jmfn",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-gwyjiqsh",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-h7wsb4q9",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-j1h7nd86",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-j1mafvu5",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-j7857a5a",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-j9cq8vke",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-jkv4qj3g",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-jkzejqcx",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-jlmd3htn",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-k3ye2rgk",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-kf9qek22",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-l3oz3sy4",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-l_15s3jw",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-mq4q_r2h",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-n5q_4kqx",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-pf5mgxxh",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-pla2g0mq",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-rp3q5q2z",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-t0dyz9uc",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-t7ndwjl3",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-u4o8eoa3",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-w67sfwu0",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-we73dkaq",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-xe7wf7jx",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-xm3q7t13",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-xmqod51y",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-readmits-yqmddwkl",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/sf-mr-fix1-venv",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/unit/sf-mr-fix1-__pycache__",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/frontend/sf-mr-fix1-__pycache__",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/fake/sf-mr-fix1-__pycache__",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/e2e/sf-mr-fix1-__pycache__",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/subfleet/adapters/sf-mr-fix1-__pycache__",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/subfleet/sessions/sf-mr-fix1-__pycache__",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/subfleet/conversations/sf-mr-fix1-__pycache__",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/subfleet/gate/sf-mr-fix1-__pycache__",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/subfleet/guard/sf-mr-fix1-__pycache__",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/subfleet/sf-mr-fix1-__pycache__",
+      "/Users/maxghenis/.subfleet/worktrees/20261115-100033-mr-fix-r1/tests/sf-mr-fix1-__pycache__"
+    ],
+    "scratch_roots_removed": [
+      "/private/tmp/sf-mr-fix1",
+      "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100033-mr-fix-r1-a1-s6ygat5w/sf-mr-fix1"
+    ]
+  },
+  "operations": [
+    {
+      "command": "date -u; cat <provided review-r1.md>; cat docs/reports/2026-11-13-marker-non-ascii-root-217.md; gh pr view 177 --repo MaxGhenis/subfleet-v2",
+      "result": "exit 0; start 2026-11-15T19:16:44Z; all three requested inputs read before edits"
+    },
+    {
+      "command": "pwd; git status --short --branch; rg --files -g AGENTS.md; find . -name AGENTS.md -print",
+      "result": "exit 0; assigned detached worktree; initially clean; no AGENTS.md found"
+    },
+    {
+      "command": "rg/sed/cat of pyproject.toml, peers.py, service.py, test_person_boundary.py, test_ps_rendering.py, protocol.py, test_conversation_service.py, conftest files, failed_keep.py, home_paths.py, fixture, contract and decision record",
+      "result": "exit 0; focused source and test-harness inspection"
+    },
+    {
+      "command": "TMPDIR=$(getconf DARWIN_USER_TEMP_DIR); UV_CACHE_DIR=$TMPDIR/uv-cache; mkdir -p $TMPDIR/sf-mr-fix1; uv sync --group dev",
+      "result": "exit 2; scratch mkdir and pre-existing cache write denied by sandbox; cache existed before job"
+    },
+    {
+      "command": "TMPDIR=<job-writable-temp>/sf-mr-fix1 UV_CACHE_DIR=$TMPDIR/uv-cache uv sync --group dev --python /opt/homebrew/bin/python3.14",
+      "result": "exit 0; CPython 3.14.7 framework; 10 packages resolved, 9 installed; new worktree .venv"
+    },
+    {
+      "command": "mkdir -p /private/tmp/sf-mr-fix1; .venv/bin/python -c <version/framework check>",
+      "result": "exit 0; shorter scratch for macOS socket limit; 3.14.7 and framework=True"
+    },
+    {
+      "command": "git grep -l -E '(import.*peers|peers.*import)' -- tests",
+      "result": "exit 0; 17 test files plus non-test tests/frontend/daemon_harness.py; exact list stored in importers"
+    },
+    {
+      "command": "inline Python: git show c8b61c95f:subfleet/conversations/peers.py; exec synthetic module; call judge with 3 unholdable roots and 2 trailing-space positions",
+      "result": "exit 0; 3/3 app verdicts allowed; root last allowed; root middle refused attempt markers"
+    },
+    {
+      "command": "inline Python: compare HEAD and worktree tests/fixtures/ps_vis_bytes.json bytes dictionaries",
+      "result": "exit 0; all 255 entries unchanged"
+    },
+    {
+      "command": "inline Python: scan selected importer test files and test_handler_refusals.py for execution-shaped forbidden commands",
+      "result": "exit 0; no matches"
+    },
+    {
+      "command": "git diff --check (after each coherent change and at final inspection)",
+      "result": "exit 0 on every invocation"
+    },
+    {
+      "command": "git status --short; git log -1 --oneline; git rev-parse HEAD; git diff --stat/--numstat; focused git diff; progress cat/tail/ls on job scratch only",
+      "result": "read-only progress checks; HEAD unchanged; premature reads of missing progress JSON/log/probe names were harmless and returned missing-file errors"
+    },
+    {
+      "command": "inline /opt/homebrew/bin/python3.14 probes for dyld binary and own synthetic children (5 probes and one initial output-not-recovered attempt)",
+      "result": "ps denied; dyld runtime differs from launcher; post-start os.environ comparator discarded; native initial environment root terminator false via launcher and true via runtime; no files created; each child killed/waited"
+    },
+    {
+      "command": "uv run --no-sync --with 'pytest-xdist>=3.6' python run_pytest.py importers-collection --collect-only -q <15 importer files>",
+      "result": "exit 0; 465 tests collected, none executed; exact args in run records"
+    },
+    {
+      "command": "run_mandatory.py and early retry_then_mandatory.py waiters; Ctrl-C before tests",
+      "result": "exit 130; no tests executed"
+    },
+    {
+      "command": "initial retry_then_mandatory.py parsing interrupted JUnit",
+      "result": "exit 1; blank controller-level JUnit error was unmapped; parser fixed to skip that non-test entry before any retry ran"
+    },
+    {
+      "command": "git diff --check -- <eight named files>; git diff --quiet c8b61c95f -- subfleet/procs.py",
+      "result": "exit 0; whitespace clean and census module unchanged"
+    },
+    {
+      "argv": [
+        "git",
+        "diff",
+        "--check",
+        "--",
+        "subfleet/conversations/peers.py",
+        "tests/unit/test_person_boundary.py",
+        "tests/process/test_ps_rendering.py",
+        "tests/fixtures/ps_vis_bytes.json",
+        "docs/acceptance-contract.md",
+        "docs/decisions/2026-09-27-marker-non-ascii-root.md",
+        "docs/reports/2026-11-13-marker-non-ascii-root-217.md",
+        "docs/reports/2026-11-13-marker-non-ascii-root-217-fix-r1-data.json"
+      ],
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "git",
+        "status",
+        "--short",
+        "--untracked-files=all"
+      ],
+      "exit": 0,
+      "stdout": "M docs/acceptance-contract.md\n M docs/decisions/2026-09-27-marker-non-ascii-root.md\n M docs/reports/2026-11-13-marker-non-ascii-root-217.md\n M subfleet/conversations/peers.py\n M tests/fixtures/ps_vis_bytes.json\n M tests/process/test_ps_rendering.py\n M tests/unit/test_person_boundary.py\n?? docs/reports/2026-11-13-marker-non-ascii-root-217-fix-r1-data.json",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "git",
+        "add",
+        "subfleet/conversations/peers.py",
+        "tests/unit/test_person_boundary.py",
+        "tests/process/test_ps_rendering.py",
+        "tests/fixtures/ps_vis_bytes.json",
+        "docs/acceptance-contract.md",
+        "docs/decisions/2026-09-27-marker-non-ascii-root.md",
+        "docs/reports/2026-11-13-marker-non-ascii-root-217.md",
+        "docs/reports/2026-11-13-marker-non-ascii-root-217-fix-r1-data.json"
+      ],
+      "exit": 128,
+      "stdout": "",
+      "stderr": "fatal: Unable to create '/Users/maxghenis/subfleet-v2/.git/worktrees/20261115-100033-mr-fix-r1/index.lock': Operation not permitted"
+    },
+    {
+      "argv": [
+        "git",
+        "commit",
+        "-m",
+        "docs: record marker root fix round 1 validation"
+      ],
+      "exit": 128,
+      "stdout": "",
+      "stderr": "fatal: Unable to create '/Users/maxghenis/subfleet-v2/.git/worktrees/20261115-100033-mr-fix-r1/index.lock': Operation not permitted"
+    },
+    {
+      "argv": [
+        "git",
+        "rev-parse",
+        "HEAD"
+      ],
+      "exit": 0,
+      "stdout": "d1f6ed52334c1a77ec23f0c6545e7893c1a41bb2",
+      "stderr": ""
+    },
+    {
+      "command": "cleanup_workspace.py; build_evidence.py; finalize_report.py; finish_cleanup.py",
+      "result": "exit 0; 72 outside directory/tree paths recorded before guarded removal; new .venv, generated bytecode, both task scratch roots removed; final report generated"
+    },
+    {
+      "command": "compile(tests/process/test_ps_rendering.py) after comment-only clarification",
+      "result": "exit 0; clarified apple[] versus contiguous-run/suffix assertions; no behavior changed"
+    },
+    {
+      "command": "git grep imports of the two changed test modules",
+      "result": "no importing test files found"
+    },
+    {
+      "command": "initial buffered dyld/ps synthetic-child probe",
+      "result": "output/session result not recovered; repeated probe returned ps PermissionError; no probe files created"
+    },
+    {
+      "command": "final report/evidence read and assertions; report grammar/order polish",
+      "result": "exit 0; all markers resolved, four denied commit attempts recorded, 72 outside paths and two scratch removals recorded, exactly one importer case remains unverified"
+    }
+  ],
+  "deviations": [
+    "The required Darwin temp root and pre-existing uv cache were not writable; job-writable Darwin scratch and a separate short socket/log scratch were used.",
+    "An initial short pytest basetemp was replaced by job-writable Darwin basetemps; checkout fallback workdirs are redirected there too. The observed importer errors were compiler/child timeouts; worker-loss causes were not proven.",
+    "The initial xdist person run installed temporary isolation only in the controller. Its existing native-app test created one /tmp/sf-pb1-* directory which its fixture removed; the exact generated name was not recorded. Later workers loaded the job plugin.",
+    "The importer controller was interrupted after 449 passes. A second SIGINT interrupted pytest traceback formatting, so its command metadata was recovered from JUnit/log; collection identified every remaining node for retry.",
+    "Queued waiters were interrupted before executing tests when pipeline ordering changed.",
+    "The remote PR body remains read-only; the report draft was corrected for the hub.",
+    "All commit attempts were denied by index.lock permissions.",
+    "The first xdist person run used the repository default /tmp/sf-failed startup/pruning hook in workers because isolation was controller-only; effects were not audited. Later worker bootstrap patches that ROOT before startup hooks."
+  ],
+  "importer_cases_not_verified_passing": [
+    "tests/unit/test_suggestion_properties.py::TestSuggestionMachine::runTest"
+  ],
+  "collection": {
+    "collected": 465,
+    "completed_before_retry": 449,
+    "resumed": 16
+  },
+  "ended_utc": "2026-11-15T22:11:07Z",
+  "elapsed_seconds": 10463,
+  "within_three_hours": true,
+  "built_head": "d1f6ed52334c1a77ec23f0c6545e7893c1a41bb2"
+}
