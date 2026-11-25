@@ -1,0 +1,76 @@
+=== dev1 start 03:14:24 22:14  up 14:42, 1 user, load averages: 182.64 174.46 163.98
+cmd: pytest tests/unit/test_lane_startup_glob.py tests/unit/test_lane_startup.py -q -x -n 4 -p no:cacheprovider --basetemp=$TMPDIR/sf-lsb/pytest-dev1
+=== dev1 end 03:15:17 rc=2 22:15  up 14:43, 1 user, load averages: 193.97 178.36 166.00
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!!!!!!!!!! xdist.dsession.Interrupted: stopping after 1 failures !!!!!!!!!!!!!
+1 failed, 344 passed in 47.25s
+=== dev2 start 03:15:31 22:15  up 14:43, 1 user, load averages: 185.87 177.31 165.83
+cmd: pytest tests/unit/test_lane_startup_glob.py tests/unit/test_lane_startup.py -q -n 4 -p no:cacheprovider --basetemp=$TMPDIR/sf-lsb/pytest-dev2
+=== dev2 end 03:15:54 rc=0 22:15  up 14:43, 1 user, load averages: 186.11 178.09 166.45
+........................................................................ [ 82%]
+............................................................             [100%]
+348 passed in 21.06s
+=== dev3-unit start 03:16:44 22:16  up 14:44, 1 user, load averages: 174.92 176.33 166.46
+cmd: pytest tests/unit/test_attempt_tmpdir_sandboxes.py tests/unit/test_claude_adapter.py tests/unit/test_claude_conversation_mcp_scope.py tests/unit/test_claude_mcp_launch.py tests/unit/test_claude_v1_parity.py tests/unit/test_codex_adapter.py tests/unit/test_codex_ca_bundle_provider.py tests/unit/test_codex_turn_completed.py tests/unit/test_gate_admission.py tests/unit/test_lane_settings.py tests/unit/test_lane_settings_review_r1.py tests/unit/test_lane_startup.py tests/unit/test_launch_env_allowlist.py tests/unit/test_launch_env_vendor_shell.py tests/unit/test_publish_rule_round7.py tests/unit/test_review_publish_env_round8.py tests/unit/test_review_publish_guard.py tests/unit/test_ultracode_effort.py tests/unit/test_lane_startup_glob.py -q -n 4 -p no:cacheprovider --basetemp=$TMPDIR/sf-lsb/pytest-dev3-unit
+=== dev3-unit end 03:20:47 rc=1 22:20  up 14:48, 1 user, load averages: 186.45 177.53 169.13
+FAILED tests/unit/test_review_publish_guard.py::test_claude_publish_hook_rides_only_writable_review_launches[workspace-write-review-True]
+FAILED tests/unit/test_review_publish_guard.py::test_claude_publish_hook_rides_only_writable_review_launches[workspace-write-build-False]
+104 failed, 2130 passed, 3 xfailed, 4 warnings in 238.32s (0:03:58)
+=== dev4-unit start 03:23:19 22:23  up 14:51, 1 user, load averages: 172.39 176.52 170.25
+cmd: pytest tests/unit/test_attempt_tmpdir_sandboxes.py tests/unit/test_claude_adapter.py tests/unit/test_claude_conversation_mcp_scope.py tests/unit/test_claude_mcp_launch.py tests/unit/test_codex_adapter.py tests/unit/test_codex_ca_bundle_provider.py tests/unit/test_codex_turn_completed.py tests/unit/test_gate_admission.py tests/unit/test_lane_settings.py tests/unit/test_lane_settings_review_r1.py tests/unit/test_lane_startup.py tests/unit/test_launch_env_allowlist.py tests/unit/test_launch_env_vendor_shell.py tests/unit/test_publish_rule_round7.py tests/unit/test_review_publish_env_round8.py tests/unit/test_review_publish_guard.py tests/unit/test_ultracode_effort.py tests/unit/test_lane_startup_glob.py -q -n 4 -p no:cacheprovider -rs --basetemp=$TMPDIR/sf-lsb/pytest-dev4-unit
+=== dev4-unit end 03:29:07 rc=0 22:29  up 14:56, 1 user, load averages: 185.89 183.09 175.64
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+2228 passed, 3 xfailed, 4 warnings in 342.15s (0:05:42)
+=== dev5-other start 03:29:18 22:29  up 14:57, 1 user, load averages: 184.65 182.93 175.67
+cmd: pytest tests/e2e/test_review_publish_e2e.py tests/fake/test_codex_turn_completed_fake.py tests/fake/test_daemon_launch.py tests/fake/test_detached_cwd_pins.py tests/fake/test_fake_provider.py tests/fake/test_finalization_replay.py tests/fake/test_frozen_stream_nonregular.py tests/fake/test_gate_end_to_end.py tests/fake/test_launch_env_daemon.py tests/fake/test_launch_env_helper_scope.py tests/fake/test_mcp_job_contract.py tests/fake/test_probe_recovery.py tests/fake/test_resume_contract.py tests/fake/test_review_launch_permissions.py tests/fake/test_sessions_end_to_end.py tests/process/test_claude_isolation.py tests/process/test_codex_isolation.py tests/process/test_provider_shell_environment.py -q -n 4 -p no:cacheprovider -rs --basetemp=$TMPDIR/sf-lsb/pytest-dev5-other
+=== dev5-other end 03:35:58 rc=0 22:35  up 15:03, 1 user, load averages: 189.34 188.19 180.55
+........................................................................ [ 92%]
+......................................                                   [100%]
+542 passed in 398.13s (0:06:38)
+=== mutants batch1 start 03:38:10 22:38  up 15:06, 1 user, load averages: 192.96 188.49 181.71
+=== mutants batch1 end 03:41:21 22:41  up 15:09, 1 user, load averages: 192.17 189.56 183.46
+=== mutants batch2 start 03:41:29 22:41  up 15:09, 1 user, load averages: 189.12 188.97 183.29
+=== mutants batch2 end 03:46:24 22:46  up 15:14, 1 user, load averages: 179.81 185.71 183.60
+=== mutants batch3 start 03:46:33 22:46  up 15:14, 1 user, load averages: 182.40 186.05 183.75
+=== mutants batch3 end 03:49:03 22:49  up 15:16, 1 user, load averages: 151.91 175.12 179.86
+=== size start 03:49:29 22:49  up 15:17, 1 user, load averages: 131.51 168.48 177.33
+cmd: pytest tests/unit/test_lane_startup.py -k payload_size -q -s -p no:cacheprovider -p no:xdist --basetemp=$TMPDIR/sf-lsb/pytest-size
+=== size end 03:49:32 rc=0 22:49  up 15:17, 1 user, load averages: 129.07 167.36 176.88
+lane-startup payload: workdir 21 deep (real path 21), 129 patterns, 16695 bytes
+.
+2 passed, 274 deselected in 1.07s
+=== run1-unit start 03:52:44 22:52  up 15:20, 1 user, load averages: 137.78 149.76 167.15
+cmd: pytest tests/unit/test_attempt_tmpdir_sandboxes.py tests/unit/test_claude_adapter.py tests/unit/test_claude_conversation_mcp_scope.py tests/unit/test_claude_mcp_launch.py tests/unit/test_codex_adapter.py tests/unit/test_codex_ca_bundle_provider.py tests/unit/test_codex_turn_completed.py tests/unit/test_gate_admission.py tests/unit/test_lane_settings.py tests/unit/test_lane_settings_review_r1.py tests/unit/test_lane_startup.py tests/unit/test_launch_env_allowlist.py tests/unit/test_launch_env_vendor_shell.py tests/unit/test_publish_rule_round7.py tests/unit/test_review_publish_env_round8.py tests/unit/test_review_publish_guard.py tests/unit/test_ultracode_effort.py tests/unit/test_lane_startup_glob.py -q -n 4 -p no:cacheprovider -rs --basetemp=$TMPDIR/sf-lsb/pytest-run1-unit
+=== run1-unit end 03:55:18 rc=0 22:55  up 15:23, 1 user, load averages: 148.57 150.66 164.69
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+2228 passed, 3 xfailed, 4 warnings in 149.73s (0:02:29)
+=== run1-other start 03:55:25 22:55  up 15:23, 1 user, load averages: 148.28 150.57 164.57
+cmd: pytest tests/e2e/test_review_publish_e2e.py tests/fake/test_codex_turn_completed_fake.py tests/fake/test_daemon_launch.py tests/fake/test_detached_cwd_pins.py tests/fake/test_fake_provider.py tests/fake/test_finalization_replay.py tests/fake/test_frozen_stream_nonregular.py tests/fake/test_gate_end_to_end.py tests/fake/test_launch_env_daemon.py tests/fake/test_launch_env_helper_scope.py tests/fake/test_mcp_job_contract.py tests/fake/test_probe_recovery.py tests/fake/test_resume_contract.py tests/fake/test_review_launch_permissions.py tests/fake/test_sessions_end_to_end.py tests/process/test_claude_isolation.py tests/process/test_codex_isolation.py tests/process/test_provider_shell_environment.py -q -n 4 -p no:cacheprovider -rs --basetemp=$TMPDIR/sf-lsb/pytest-run1-other
+=== run1-other end 03:59:22 rc=0 22:59  up 15:27, 1 user, load averages: 153.53 155.11 163.42
+........................................................................ [ 92%]
+......................................                                   [100%]
+542 passed in 235.41s (0:03:55)
+=== run2 start 03:59:29 22:59  up 15:27, 1 user, load averages: 149.89 154.32 163.09
+cmd: pytest tests/fake/test_state_contract.py tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py tests/unit/test_handler_refusals.py -q -n 4 -p no:cacheprovider -rs --basetemp=$TMPDIR/sf-lsb/pytest-run2
+=== run2 end 04:01:36 rc=0 23:01  up 15:29, 1 user, load averages: 107.92 135.24 154.15
+........................................................................ [ 99%]
+...                                                                      [100%]
+435 passed in 119.51s (0:01:59)
+=== run3-records start 04:04:31 23:04  up 15:32, 1 user, load averages: 149.73 135.02 149.93
+cmd: pytest tests/e2e/test_conversations.py tests/fake/test_policy_sandbox.py tests/fake/test_workspace_transient.py tests/unit/test_claude_cards.py tests/unit/test_claude_turn.py tests/unit/test_codex_ca_bundle.py tests/unit/test_conversation_reconcile.py tests/unit/test_daemon_settle.py tests/unit/test_kill4_properties.py tests/unit/test_lane_answers.py tests/unit/test_launch_env_policy.py tests/unit/test_launch_env_round2.py tests/unit/test_launch_env_round3.py tests/unit/test_review_pr127_service.py tests/unit/test_review_r2_repro.py tests/unit/test_soak_tools.py tests/unit/test_turn_replay.py -q -n 4 -p no:cacheprovider -rs --basetemp=$TMPDIR/sf-lsb/pytest-run3-records
+=== run3a start 04:21:55 23:21  up 15:49, 1 user, load averages: 88.26 127.95 140.03
+cmd: pytest tests/unit/test_claude_turn.py tests/unit/test_launch_env_round2.py tests/unit/test_launch_env_round3.py tests/unit/test_launch_env_policy.py tests/unit/test_review_pr127_service.py tests/unit/test_review_r2_repro.py tests/unit/test_claude_cards.py tests/unit/test_codex_ca_bundle.py tests/unit/test_lane_answers.py tests/unit/test_turn_replay.py tests/unit/test_conversation_reconcile.py -q -n 4 -p no:cacheprovider -rfEs --tb=line --basetemp=$TMPDIR/sf-lsb/pytest-run3a
+=== run3-conversations start 05:02:22  0:02  up 16:30, 1 user, load averages: 273.70 226.55 184.95
+cmd: pytest tests/e2e/test_conversations.py -q -n 4 -p no:cacheprovider -rfEs --tb=line --basetemp=$TMPDIR/sf-lsb/pytest-run3-conversations
+=== run3-conversations end 05:15:33 rc=1  0:15  up 16:43, 1 user, load averages: 122.90 127.60 147.00
+SKIPPED [9] tests/e2e/test_conversations.py:74: person-only requests cannot come from inside a Subfleet turn or job; run this test outside Subfleet (CI runs it)
+SKIPPED [4] tests/e2e/test_conversations.py:94: inside a Subfleet turn or job the markers refuse first; run this test outside Subfleet
+6 failed, 15 passed, 13 skipped, 11 errors in 622.02s (0:10:22)
+=== run3-serial start 05:16:12  0:16  up 16:44, 1 user, load averages: 117.66 125.55 145.35
+cmd: pytest tests/e2e/test_conversations.py::test_a_job_a_turn_dispatched_reaches_the_next_turn_and_a_ping_does_not tests/e2e/test_conversations.py::test_a_claude_turn_on_the_wrong_model_fails_model_mismatch tests/e2e/test_conversations.py::test_a_codex_conversation_is_read_only_until_the_guard_is_proven_live -q -p no:xdist -p no:cacheprovider -rfEs --tb=line --basetemp=$TMPDIR/sf-lsb/pytest-run3-serial
+=== run3-serial end 05:19:18 rc=1  0:19  up 16:47, 1 user, load averages: 114.00 120.01 139.29
+=========================== short test summary info ============================
+ERROR tests/e2e/test_conversations.py::test_a_codex_conversation_is_read_only_until_the_guard_is_proven_live
+2 passed, 1 error in 164.29s (0:02:44)

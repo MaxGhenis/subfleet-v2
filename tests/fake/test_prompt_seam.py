@@ -75,7 +75,11 @@ def test_c6_7_original_digest_and_actual_adapter_prompt(launch_state, monkeypatc
     else:
         assert sent == prepared
     assert original_path.read_bytes() == original
-    command, = [argv for argv, _ in calls]
+    # The fake Popen also records a writable Claude launch's own git calls
+    # (`job_startup_settings`, C-12.9); the guardian is the one `-m subfleet.guardian`.
+    guardian = [argv for argv, _ in calls if argv[1:3] == ["-m", "subfleet.guardian"]]
+    assert all(argv[0] == "git" for argv, _ in calls if argv not in guardian), calls
+    command, = guardian
     assert command[command.index("--stdin-path") + 1] == str(sent_path)
     again = daemon.dispatch("submit", args)
     assert again["job_id"] == job_id and again["created"] is False

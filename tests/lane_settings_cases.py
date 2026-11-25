@@ -355,6 +355,29 @@ def without_override(argv) -> list[str]:
     return argv[:index + 1] + [json.dumps(settings, separators=(",", ":"))] + argv[index + 2:]
 
 
+#: D-LANE-STARTUP1: the keys `job_startup_settings` adds to a writable job's settings,
+#: and its `env` variable.
+JOB_STARTUP_KEYS = ("autoMemoryEnabled", "disableAllHooks", "claudeMdExcludes")
+JOB_STARTUP_VARIABLE = "CLAUDE_CODE_DISABLE_AUTO_MEMORY"
+
+
+def without_job_startup(argv) -> list[str]:
+    """`argv` with `job_startup_settings`'s keys taken back out of its one `--settings`,
+    where the launch is a writable job's (`--dangerously-skip-permissions` without
+    `--input-format`, which marks a conversation turn), which must carry all of them:
+    the view of a writable launch before D-LANE-STARTUP1, whose own tests
+    (`tests/unit/test_lane_startup.py`) say what the keys hold."""
+    argv = list(argv)
+    if "--dangerously-skip-permissions" not in argv or "--input-format" in argv:
+        return argv
+    index = argv.index("--settings")
+    settings = json.loads(argv[index + 1])
+    assert set(JOB_STARTUP_KEYS) <= set(settings) and settings["env"].pop(JOB_STARTUP_VARIABLE) == "1", settings
+    for key in JOB_STARTUP_KEYS:
+        settings.pop(key)
+    return argv[:index + 1] + [json.dumps(settings, separators=(",", ":"))] + argv[index + 2:]
+
+
 def main(argv: list[str]) -> int:
     checkout, scratch = Path(argv[0]).resolve(), Path(argv[1])
     sys.path.insert(0, str(checkout))

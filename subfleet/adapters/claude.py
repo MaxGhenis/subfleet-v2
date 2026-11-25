@@ -38,10 +38,11 @@ import os
 import re
 import subprocess
 import tempfile
+import unicodedata
 import urllib.error
 import urllib.request
 import uuid
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -138,6 +139,33 @@ ENV_REMOVE: tuple[str, ...] = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
 #: home of its own, so the user's `settings.json` `env` reaches every launch that loads
 #: user settings; this sets the variable back on all of them (C-12.4, C-26.11).
 LANE_SETTINGS_ENV: Mapping[str, str] = MappingProxyType({"CLAUDE_CODE_RETRY_WATCHDOG": "0"})
+
+#: D-LANE-STARTUP1: the `env` a writable job launch's settings add, with
+#: `autoMemoryEnabled: false`, so the lane loads no auto-memory (Claude Code 2.1.318's
+#: `Lh()` reads the variable, `hI()` the setting; setting sources gate neither).
+JOB_STARTUP_ENV: Mapping[str, str] = MappingProxyType({"CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"})
+#: The instruction files Claude Code 2.1.318 reads in each folder of its startup walk
+#: (`CLAUDE.md`, `.claude/CLAUDE.md`, `.claude/rules/`, `CLAUDE.local.md`) and through
+#: the built-in `cc-plugin-agents-md` fallback (`AGENTS.md`, `.claude/AGENTS.md`).
+STARTUP_FILE_NAMES = ("CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md", "AGENTS.md",
+                      ".claude/AGENTS.md", ".claude/rules/**")
+#: The cap on the one `git rev-parse --show-toplevel` a writable job launch runs.
+JOB_STARTUP_GIT_TIMEOUT_S = 10.0
+#: The config that call pins over the checkout's own (review r1 of #326): `rev-parse`
+#: runs no fsmonitor hook today, and a checkout's `core.fsmonitor` names a program.
+JOB_STARTUP_GIT_CONFIG: tuple[tuple[str, str], ...] = (("core.fsmonitor", "false"),)
+#: `glob_literal`'s escapes: picomatch reads each as the one character.
+_GLOB_ESCAPES = MappingProxyType({**{char: f"[{char}]" for char in "*?[]{}()|+."},
+                                   **{char: f"[{char}-{char}]" for char in ',"'}})
+#: The most a writable launch's `--settings` payload may hold, in bytes (review r2 of
+#: #326, P1 1). macOS's `ARG_MAX` is 1,048,576 bytes for argv and environment
+#: together; the patterns grow linearly with `R`'s length, and at `PATH_MAX` (1,024
+#: bytes) they stay far below this. A launch that would pass it is refused.
+JOB_STARTUP_SETTINGS_MAX_BYTES = 256 * 1024
+#: The instruction files of a folder that are single files (`STARTUP_FILE_NAMES` but
+#: `.claude/rules/**`), and the rules folder.
+_STARTUP_FILES = tuple(name for name in STARTUP_FILE_NAMES if not name.endswith("/**"))
+_STARTUP_RULES = ".claude/rules"
 
 HEADLESS_BLOCK = f"""{HEADLESS_MARKER}
 ## HEADLESS EXECUTION (binding — read before anything else)
@@ -441,6 +469,268 @@ def lane_settings(settings: Mapping[str, Any] | None = None) -> dict[str, Any]:
 def lane_settings_args(settings: Mapping[str, Any] | None = None) -> list[str]:
     """`--settings` with `lane_settings(settings)`, as compact JSON."""
     return ["--settings", json.dumps(lane_settings(settings), separators=(",", ":"))]
+
+
+def glob_literal(path: str) -> str:
+    """`path` as a `claudeMdExcludes` pattern that matches only itself (D-LANE-STARTUP1).
+
+    Claude Code 2.1.318's matcher (`v8t`, through `FWo`) turns every backslash in a
+    pattern into `/` before picomatch reads it, so a backslash cannot escape. A
+    one-character bracket can, where the character is a regex metacharacter:
+    picomatch compiles `[*]` to the class `[*]`. For any other character it also
+    matches the bracket's own text (`[!]` compiles to `(?:\\[!\\]|[!])`), so `!`, `@`
+    and the rest stay as they are; with `(` bracketed they start no extglob. Two
+    characters need escaping without being regex metacharacters, so they become a
+    one-character range, which holds one (`-`): a comma, which would split the
+    negation's alternatives (`[,-,]`), and a double quote, which picomatch drops
+    while quoting what follows (`["-"]`). Inside braces two dots would make a
+    range (`{a..b}`), so every dot is bracketed too.
+    """
+    return "".join(_GLOB_ESCAPES.get(char, char) for char in path)
+
+
+def pin_git_config(env: Mapping[str, str], pairs: Iterable[tuple[str, str]]) -> dict[str, str]:
+    """`env` with `pairs` added to the config git reads from its environment
+    (`GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>`, `GIT_CONFIG_VALUE_<n>`), after the
+    entries a count already there names, which are kept. Git reads that config
+    after the repository's, so each pair outranks a checkout's own value. A count
+    git would refuse as bogus (anything but digits after blanks and a `+`) is
+    replaced by the pairs' own: git would have refused the call.
+    """
+    pinned, pairs = dict(env), list(pairs)
+    given = re.fullmatch(r"[ \t\n\v\f\r]*\+?([0-9]+)", pinned.get("GIT_CONFIG_COUNT", ""))
+    start = int(given[1]) if given else 0
+    for offset, (key, value) in enumerate(pairs):
+        pinned[f"GIT_CONFIG_KEY_{start + offset}"] = key
+        pinned[f"GIT_CONFIG_VALUE_{start + offset}"] = value
+    pinned["GIT_CONFIG_COUNT"] = str(start + len(pairs))
+    return pinned
+
+
+def _job_git(workdir: str | Path, *args: str) -> bytes | None:
+    """One git call for `job_startup_settings`, with `JOB_STARTUP_GIT_CONFIG` pinned
+    (`pin_git_config`) and capped at `JOB_STARTUP_GIT_TIMEOUT_S`."""
+    from ..salvage import _git_bytes, _git_env
+    return _git_bytes(workdir, *args, timeout_s=JOB_STARTUP_GIT_TIMEOUT_S,
+                      env=pin_git_config(_git_env(None), JOB_STARTUP_GIT_CONFIG))
+
+
+def _job_root(workdir: str | Path) -> tuple[str, bool]:
+    """`R` for `job_startup_settings`, and whether git named it: git's top-level
+    folder for `workdir`, as git spells it, when that folder is not `/` and is the
+    workdir's real folder or holds it; otherwise `abspath(workdir)`.
+
+    A checkout's own config can move git's answer anywhere (`core.worktree`, or a
+    `.git` file whose `gitdir:` names another repository's), and `R = /` made the
+    negation `!/**`, which spared every path (review r1 of #326, P2 1). Folders are
+    compared, not spellings (`samestat`): `realpath` keeps the case and Unicode
+    form it is given, while git spells a folder as it is stored. The one `git
+    rev-parse` is `_job_git`; any failure gives the workdir. A workdir whose real
+    folder is `/` is refused by `job_startup_settings`, whichever way R is chosen.
+    """
+    fallback = os.path.abspath(workdir)
+    try:
+        raw = _job_git(workdir, "rev-parse", "--show-toplevel")
+        top = os.fsdecode(raw[:-1] if raw and raw.endswith(b"\n") else raw or b"")
+        if not os.path.isabs(top):
+            return fallback, False
+        held = os.stat(os.path.realpath(top))
+        if os.path.samestat(held, os.stat("/")):
+            return fallback, False
+        here = os.path.realpath(workdir)
+        if any(os.path.samestat(os.stat(folder), held) for folder in (here, *map(str, Path(here).parents))):
+            return top, True
+    except Exception:       # any failure: R is the workdir (fewer files kept, none added)
+        pass
+    return fallback, False
+
+
+def _is_root(path: str) -> bool:
+    """Whether `path`'s real folder is `/` (by folder identity when both exist)."""
+    real = os.path.realpath(path)
+    try:
+        return real == "/" or os.path.samestat(os.stat(real), os.stat("/"))
+    except OSError:
+        return False
+
+
+def _ancestor_glob(spelling: str) -> str | None:
+    """One pattern naming every ancestor of `spelling` but its root, as nested
+    alternatives: `/a/b/c/R` gives `/a{,/b{,/c}}` (review r2 of #326, P1 1).
+
+    Listing each ancestor in full made the patterns grow with the square of `R`'s
+    depth: 400 one-character folders gave a 1,096,385-byte `--settings`, past
+    macOS's `ARG_MAX`. This writes each folder name once. picomatch compiles
+    `{,x}` to `(|x)` and nests braces, so the pattern matches exactly the
+    ancestors; `glob_literal` brackets every brace and comma inside a name.
+    """
+    path = Path(spelling)
+    names = path.parts[1:-1]        # the folders between the root and `spelling`
+    if not names:
+        return None
+    nested = ""
+    for name in reversed(names[1:]):
+        nested = "{,/" + glob_literal(name) + nested + "}"
+    return glob_literal(path.anchor) + glob_literal(names[0]) + nested
+
+
+def _below(path: str, folder: os.stat_result) -> list[str] | None:
+    """The names leading from `folder` down to `path` (`[]` for the folder itself),
+    compared as folders; None when `path` is not under it."""
+    names: list[str] = []
+    while True:
+        try:
+            if os.path.samestat(os.stat(path), folder):
+                return names
+        except OSError:
+            pass
+        parent = os.path.dirname(path)
+        if parent == path:
+            return None
+        names.insert(0, os.path.basename(path))
+        path = parent
+
+
+def _inside(path: str, folder: os.stat_result) -> bool:
+    """Whether `path` is `folder` or lies under it, compared as folders."""
+    return _below(path, folder) is not None
+
+
+def _linked_startup_files(root: str, from_git: bool, workdir: str | Path, home: str,
+                          configs: list[str]) -> list[tuple[str, bool]]:
+    """The instruction files inside `R` whose real file is personal (review r2 of
+    #326, P1 2): `(path relative to R, folder)` pairs.
+
+    Claude Code matches a file by the path it built, so `R/CLAUDE.md ->
+    ~/.claude/CLAUDE.md` was spared by the negation and loaded the personal text.
+    A file is personal when its real path lies under a config home `C`, is one of
+    `C/CLAUDE.md` or `$HOME`'s single-file names (by identity, so a hard link
+    counts), or lies outside `R`: the excludes would refuse it by that spelling.
+    Looked at: the instruction files of every folder from `R` to the workdir, in
+    its logical and real spellings, with everything under their `.claude/rules`
+    (the files Claude Code reads at start), and, when git named `R`, every
+    symbolic link git tracks (`git ls-files -s`; a link to a folder counts whole),
+    for the files it reads when a session touches a subfolder. So a file of `R`
+    that lies under `C` itself, or is a personal file, is excluded too: `R` may
+    be, or be reached through, the personal folder.
+    """
+    try:
+        held = os.stat(os.path.realpath(root))
+    except OSError:
+        return []
+    real_root = os.path.realpath(root)
+    homes = [os.stat(os.path.realpath(config)) for config in configs if os.path.isdir(config)]
+    files = []
+    for path in [os.path.join(config, "CLAUDE.md") for config in configs] + \
+            [os.path.join(home, name) for name in _STARTUP_FILES if "/" not in name]:
+        try:
+            files.append(os.stat(path))
+        except OSError:
+            continue
+
+    def personal(rel: str) -> bool:
+        spelled = os.path.join(real_root, rel)
+        try:
+            stat = os.stat(spelled)
+        except OSError:
+            return False                # nothing there to load
+        real = os.path.realpath(spelled)
+        return (any(os.path.samestat(stat, item) for item in files) or any(_inside(real, item) for item in homes)
+                or not _inside(real, held))
+
+    found: dict[str, bool] = {}
+    chain = {""}
+    for here in (os.path.realpath(workdir), os.path.abspath(workdir)):
+        parts = _below(here, held) or []    # the folders from R down to the workdir, in this spelling
+        chain.update("/".join(parts[:index]) for index in range(1, len(parts) + 1))
+    for folder in sorted(chain):
+        for name in _STARTUP_FILES:
+            rel = os.path.join(folder, name) if folder else name
+            if personal(rel):
+                found.setdefault(rel, False)
+        rules = os.path.join(folder, _STARTUP_RULES) if folder else _STARTUP_RULES
+        if personal(rules):
+            found.setdefault(rules, True)
+            continue
+        for at, folders, names in os.walk(os.path.join(real_root, rules)):
+            for name in (*folders, *names):
+                rel = os.path.relpath(os.path.join(at, name), real_root)
+                if personal(rel):
+                    found.setdefault(rel, os.path.isdir(os.path.join(real_root, rel)))
+    if from_git:
+        try:
+            listing = _job_git(root, "ls-files", "-s", "-z") or b""
+        except Exception:       # the files read at start are covered above
+            listing = b""
+        for entry in listing.split(b"\0"):
+            head, _, name = entry.partition(b"\t")
+            if head.startswith(b"120000 ") and name:
+                rel = os.fsdecode(name)
+                if personal(rel):
+                    found.setdefault(rel, os.path.isdir(os.path.join(real_root, rel)))
+    return list(found.items())
+
+
+def job_startup_settings(workdir: str | Path, env: Mapping[str, str]) -> dict[str, Any]:
+    """The keys a writable job launch adds to its one `--settings` (D-LANE-STARTUP1).
+
+    A writable lane keeps the user setting source, so the never-rules guard loads
+    as before, and `disableAllHooks: false` outranks a checkout's own `true`. Its
+    `claudeMdExcludes` keep every instruction file outside the job's repository
+    root `R` from loading: `<C>/CLAUDE.md` and `<C>/rules/**`, the six
+    `STARTUP_FILE_NAMES` under every ancestor `A` of each spelling of `R` but `/`,
+    and under `$HOME`, then one negation sparing `R` in every spelling (two
+    negations would together match every path). `R` is `git rev-parse
+    --show-toplevel` in `workdir`, as git spells it, when that folder is not `/`
+    and holds the workdir (`_job_root`); outside a checkout, when git fails or
+    passes `JOB_STARTUP_GIT_TIMEOUT_S`, or when its answer is refused, it is
+    `workdir` itself, and a subfolder job then also excludes its repository's
+    top-level files. The spellings are `R`, `R_real = realpath(R)` and the NFC
+    form of each: Claude Code 2.1.318 normalizes its cwd to NFC and builds every
+    path of its startup walk from it, while git and `realpath` give a name as it
+    is stored, which may be NFD (review r1 of #326, P2 2). `$HOME` is the
+    launch's (`_launch_home`), and `C` its config home: `$HOME/.claude`, and also
+    `CLAUDE_CONFIG_DIR` when `env` sets one. Auto-memory is off
+    (`JOB_STARTUP_ENV`, `autoMemoryEnabled`).
+
+    Review r2 of #326: each spelling's ancestors are one nested pattern
+    (`_ancestor_glob`), so the payload grows linearly with `R`'s length, and a
+    payload past `JOB_STARTUP_SETTINGS_MAX_BYTES` is refused; an instruction file
+    inside `R` that reaches a personal file through a link is excluded in every
+    spelling of `R` (`_linked_startup_files`); and an `R` whose real folder is `/`
+    is refused (`AdapterError`, reason `claude-startup-root`), since its negation
+    would spare every path.
+    """
+    root, from_git = _job_root(workdir)
+    if _is_root(root):
+        raise AdapterError("a writable Claude launch keeps personal startup files out only below /, and this "
+                           "job's repository root is / (C-12.9)", code=7,
+                           fix="run the job in a folder below /", reason="claude-startup-root")
+    real = os.path.realpath(root)
+    spellings = list(dict.fromkeys((root, real, unicodedata.normalize("NFC", root),
+                                    unicodedata.normalize("NFC", real))))
+    home = str(_launch_home(dict(env)))
+    configs = [str(Path(env["CLAUDE_CONFIG_DIR"]).expanduser())] if env.get("CLAUDE_CONFIG_DIR") else []
+    configs.append(str(Path(home) / ".claude"))
+    configs = [config for config in configs if os.path.isabs(config)]
+    excludes = [f"{glob_literal(config)}/{name}" for config in configs for name in ("CLAUDE.md", "rules/**")]
+    chains = [chain for chain in map(_ancestor_glob, spellings) if chain is not None]
+    for folder in dict.fromkeys([*chains, *([glob_literal(home)] if os.path.isabs(home) else [])]):
+        excludes += [f"{folder}/{name}" for name in STARTUP_FILE_NAMES]
+    for rel, folder in _linked_startup_files(root, from_git, workdir, home, configs):
+        excludes += [f"{glob_literal(spelling.rstrip('/') + '/' + form)}{'/**' if folder else ''}"
+                     for spelling in spellings for form in dict.fromkeys((rel, unicodedata.normalize("NFC", rel)))]
+    spared = [glob_literal(spelling.rstrip("/")) for spelling in spellings]
+    excludes.append("!" + (spared[0] if len(spared) == 1 else "{" + ",".join(spared) + "}") + "/**")
+    settings = {"env": dict(JOB_STARTUP_ENV), "autoMemoryEnabled": False, "disableAllHooks": False,
+                "claudeMdExcludes": list(dict.fromkeys(excludes))}
+    size = len(json.dumps(lane_settings(settings), separators=(",", ":")).encode())
+    if size > JOB_STARTUP_SETTINGS_MAX_BYTES:
+        raise AdapterError(f"a writable Claude launch's startup settings would hold {size} bytes, past "
+                           f"{JOB_STARTUP_SETTINGS_MAX_BYTES} (C-12.9)", code=7,
+                           fix="run the job from a shorter path, or with fewer instruction files linked "
+                               "outside it", reason="claude-startup-size")
+    return settings
 
 
 def apply_headless_block(prompt: str) -> str:
@@ -1502,7 +1792,9 @@ class ClaudeAdapter(Adapter):
         never-rules hook in `~/.claude/settings.json`, and `doctor` reports when that
         hook is missing (C-14.3). The one per-launch hook is a writable review's
         publish rule, merged into the launch's one `--settings` with
-        `LANE_SETTINGS_ENV` (C-12.4, `claude_settings_args`, D-WATCHDOG1).
+        `LANE_SETTINGS_ENV` (C-12.4, `claude_settings_args`, D-WATCHDOG1). A
+        writable launch's settings, here and on resume, also carry
+        `job_startup_settings` (C-12.9, D-LANE-STARTUP1).
         """
         attempt_dir = Path(attempt_dir)
         attempt_dir.mkdir(parents=True, exist_ok=True)
@@ -1525,9 +1817,11 @@ class ClaudeAdapter(Adapter):
                                          review_root=job.review_root,
                                          mcp_config=self.mcp_config_arg(job, sandbox, attempt_dir),
                                          tmpdir=credential_env.get("TMPDIR")))
-        argv += claude_settings_args(job, sandbox, attempt_dir, settings=lane_settings())  # C-12.4, D-WATCHDOG1
+        startup = (job_startup_settings(job.workdir, self.provider_environment.assemble(credential_env))
+                   if sandbox == Sandbox.WORKSPACE_WRITE.value else None)  # D-LANE-STARTUP1
+        argv += claude_settings_args(job, sandbox, attempt_dir, settings=lane_settings(startup))  # C-12.4, D-WATCHDOG1
         from .isolation import claude_env_remove
-        env_remove = (*ENV_REMOVE, *claude_env_remove(os.environ.keys() | credential_env.keys())) if sandbox == "read-only" else ENV_REMOVE
+        env_remove = (*ENV_REMOVE, *claude_env_remove(os.environ.keys() | credential_env.keys()))  # C-23.2, D-LANE-STARTUP1
 
         stdin_path = self._write_prompt_sent(attempt_dir, Path(prompt_path))
         transcript = self.expected_transcript_path(job.workdir, session_id, credential_env)
@@ -1575,9 +1869,11 @@ class ClaudeAdapter(Adapter):
         argv += list(self.permission_args(
             sandbox, mcp_config=self.mcp_config_arg(job, sandbox, attempt_dir),
             tmpdir=credential_env.get("TMPDIR")))
-        argv += claude_settings_args(job, sandbox, attempt_dir, settings=lane_settings())  # C-12.4, D-WATCHDOG1
+        startup = (job_startup_settings(job.workdir, self.provider_environment.assemble(credential_env))
+                   if sandbox == Sandbox.WORKSPACE_WRITE.value else None)  # D-LANE-STARTUP1
+        argv += claude_settings_args(job, sandbox, attempt_dir, settings=lane_settings(startup))  # C-12.4, D-WATCHDOG1
         from .isolation import claude_env_remove
-        env_remove = (*ENV_REMOVE, *claude_env_remove(os.environ.keys() | credential_env.keys())) if sandbox == "read-only" else ENV_REMOVE
+        env_remove = (*ENV_REMOVE, *claude_env_remove(os.environ.keys() | credential_env.keys()))  # C-23.2, D-LANE-STARTUP1
 
         stdin_path = self._write_prompt_sent(attempt_dir, Path(prompt_path))
         transcript = self.expected_transcript_path(
@@ -2400,10 +2696,13 @@ __all__ = [
     "encode_project_dir",
     "iso_from_epoch",
     "iso_utc",
+    "glob_literal",
+    "job_startup_settings",
     "lane_settings",
     "lane_settings_args",
     "link_raw_stream",
     "model_matches_requested",
     "parse_reset_clock",
+    "pin_git_config",
     "reconstruct_v1_argv",
 ]

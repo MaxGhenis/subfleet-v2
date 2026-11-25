@@ -1,0 +1,38 @@
+E   AssertionError: condition timed out after 10s
+E   AssertionError: condition timed out after 10s
+E   AssertionError: condition timed out after 10s
+E   AssertionError: condition timed out after 10s
+E   AssertionError: condition timed out after 10s
+E   AssertionError: condition timed out after 10s
+E   AssertionError: condition timed out after 10s
+E   AssertionError: condition timed out after 10s
+E   AssertionError: condition timed out after 10s
+E   AssertionError: condition timed out after 10s
+E   sqlite3.OperationalError: no such table: notices
+[e2e harness] kept state root at /tmp/sf-failed/86302/test_the_daemon_keeps_the_catalog_and_the_list_reports_it
+E   AssertionError: condition timed out after 10s
+E   AssertionError: condition timed out after 10s
+E   AssertionError: condition timed out after 30s
+E   AssertionError: condition timed out after 10s
+E   AssertionError: condition timed out after 30s
+E   AssertionError: condition timed out after 60s
+FAILED tests/e2e/test_conversations.py::test_an_approval_is_listed_as_soon_as_its_event_is_read[[fake:approval]-tool]
+FAILED tests/e2e/test_conversations.py::test_an_approval_is_listed_as_soon_as_its_event_is_read[[fake:question]-question]
+FAILED tests/e2e/test_conversations.py::test_a_usage_limit_fails_over_with_a_labelled_continuation_never_a_resend
+FAILED tests/e2e/test_conversations.py::test_a_turn_that_ignores_every_stop_is_contained_on_the_policy_clock
+FAILED tests/e2e/test_conversations.py::test_a_claude_turn_on_the_wrong_model_fails_model_mismatch
+FAILED tests/e2e/test_conversations.py::test_fast_unavailable_is_readmitted_at_most_max_readmits_times_then_fails
+ERROR tests/e2e/test_conversations.py::test_a_turns_session_hooks_see_the_daemons_markers_and_surface_no_ping
+ERROR tests/e2e/test_conversations.py::test_a_denied_question_and_an_answered_question
+ERROR tests/e2e/test_conversations.py::test_a_conversations_session_is_refused_by_resume_revive_and_the_sessions_kit
+ERROR tests/e2e/test_conversations.py::test_a_claude_conversation_streams_completes_and_continues_in_the_same_session
+ERROR tests/e2e/test_conversations.py::test_a_tool_approval_is_a_persons_decision_and_reaches_the_provider_once
+ERROR tests/e2e/test_conversations.py::test_a_job_a_turn_dispatched_reaches_the_next_turn_and_a_ping_does_not
+ERROR tests/e2e/test_conversations.py::test_interrupt_ends_a_running_turn_with_the_providers_own_stop
+ERROR tests/e2e/test_conversations.py::test_a_codex_conversation_is_read_only_until_the_guard_is_proven_live
+ERROR tests/e2e/test_conversations.py::test_a_provider_that_exits_with_an_approval_pending_withdraws_it_in_the_log[claude]
+ERROR tests/e2e/test_conversations.py::test_the_daemon_keeps_the_catalog_and_the_list_reports_it
+ERROR tests/e2e/test_conversations.py::test_the_daemon_keeps_the_catalog_and_the_list_reports_it
+SKIPPED [9] tests/e2e/test_conversations.py:74: person-only requests cannot come from inside a Subfleet turn or job; run this test outside Subfleet (CI runs it)
+SKIPPED [4] tests/e2e/test_conversations.py:94: inside a Subfleet turn or job the markers refuse first; run this test outside Subfleet
+6 failed, 15 passed, 13 skipped, 11 errors in 622.02s (0:10:22)
