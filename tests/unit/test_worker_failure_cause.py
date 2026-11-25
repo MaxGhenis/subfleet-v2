@@ -73,6 +73,15 @@ def core():
     service.marks = []
     service.timers = SimpleNamespace(mark=lambda *args, **kwargs: service.marks.append((args, kwargs)))
     service._end_stream = lambda *args: None
+    # Release's admission pacing (D-ADMIT-IDLE1, #301), as `Daemon.__init__` sets it:
+    # `_schedule("admission", ...)` reads it first and an admission failure wakes it.
+    service._admission_pace_lock = threading.Lock()
+    service._admission_wake_seq = 0
+    service._admission_capacity_revision = 0
+    service._admission_rest_until = 0.0
+    service._admission_closure_due = float("inf")
+    service._admission_policy_seen = None
+    service._admission_thread = threading.local()
     return service
 
 
