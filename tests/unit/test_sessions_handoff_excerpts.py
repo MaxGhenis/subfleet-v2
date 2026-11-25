@@ -1102,7 +1102,7 @@ def test_the_erased_key_step_only_adds_masks(name, monkeypatch):
     for strip in (False, True):
         resolved, masks = handoff._split_masks(text, strip, handoff._Tally())
         with monkeypatch.context() as patched:
-            patched.setattr(handoff, "_erased_keys", lambda *_args: ([], [], {}))
+            patched.setattr(handoff, "_erased_keys", lambda *_args: ([], [], {}, []))
             patched.setattr(handoff, "_data_uri_run_ons", lambda *_args: [])
             before, base = handoff._split_masks(text, strip, handoff._Tally())
         covered = {i for a, b in masks for i in range(a, b)}
