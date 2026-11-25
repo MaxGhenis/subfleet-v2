@@ -445,7 +445,9 @@ Started **2026-11-25 22:28:22 UTC** (`date -u` in the first command); deadline *
 - **`$TMPDIR/sf-ao-fix3`** (`/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ao-fix3`) held `bt/` (13 basetemps), `logs/`, `plugin/`, `run/` (the harness's folder log), my saved copy of the fix, the `sf-test-homes` lists and this section's draft.
   - The harness logged 597 temporary folders, none outside it. `$S/run` held no `sf-test-homes-*`.
   - The basetemps were removed with the guarded removal described above.
-  - The logs and the harness copy were copied here before the whole folder was removed.
-- **`$TMPDIR/sf-test-homes-*`:** 23 before my first run and 18 after my last, by name, none new. The five that went (`ain2e84o`, `d6u5gc5n`, `i1xmez9p`, `td3vc1jo`, `vzww1j_p`) were not mine; I left the rest.
+  - The logs and the harness copy were copied here. Then the whole folder was removed with `rm_guarded.py` from this data folder, exit 0, and nothing named `sf-ao-fix3*` is left in `$TMPDIR`.
+- **`$TMPDIR/sf-test-homes-*`:** 23 before my first run and 18 right after my last (23:05 UTC), by name, none new. The five that went (`ain2e84o`, `d6u5gc5n`, `i1xmez9p`, `td3vc1jo`, `vzww1j_p`) were not mine.
+  - At the final check (23:10 UTC) there were 23 again. Five new ones (`5gkae3ns`, `as67d75m`, `cmgbmkp2`, `euslwl48`, `mn2s8sdj`) were all born at 23:10:23 UTC, after my last test run ended at 23:04:50 and while I ran none.
+  - They are not mine, and I left them and the rest.
 - **`$TMPDIR/uv-cache`:** the shared cache, which already existed. Kept.
 - **Inside the worktree:** `.venv/` (10 MB, from `uv sync`) and pytest's `.hypothesis/`, both ignored, are left for the job's cleanup. Neither is committed.
