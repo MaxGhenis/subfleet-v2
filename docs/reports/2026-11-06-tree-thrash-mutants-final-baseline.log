@@ -1,0 +1,1033 @@
+F
+=================================== FAILURES ===================================
+_________ test_a_fresh_waiter_runs_no_git_and_writes_no_tree[no-slot] __________
+
+workdir = '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-mutant-tests/tree-thrash-mutant-j1zw27xw/pytest/test_a_fresh_waiter_runs_no_gi0/repo'
+env = None, stdin = None, timeout_s = 60
+args = ('rev-parse', '--git-common-dir')
+
+    def _git_bytes(workdir: str | Path, *args: str, env: dict[str, str] | None = None,
+                   stdin: bytes | None = None, timeout_s: float | None = None) -> bytes | None:
+        """``_git`` for byte streams (paths need not be UTF-8); None on a non-zero
+        exit. Transient git failures, timeouts and OS errors raise as in ``_git``."""
+        cap = git_timeout_s(timeout_s)
+        try:
+>           result = subprocess.run(["git", "-C", str(workdir), *args], env=_git_env(env), input=stdin,
+                                    capture_output=True, timeout=cap)
+
+subfleet/salvage.py:239: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/Users/maxghenis/.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/subprocess.py:557: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/maxghenis/.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/subprocess.py:1221: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/maxghenis/.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/subprocess.py:2154: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <Popen: returncode: -9 args: ['git', '-C', '/private/var/folders/9l/_wztzgbx...>
+endtime = 46568.713160375, orig_timeout = 60, stdout_seq = [], stderr_seq = []
+skip_check_and_raise = False
+
+    def _check_timeout(self, endtime, orig_timeout, stdout_seq, stderr_seq,
+                       skip_check_and_raise=False):
+        """Convenience for checking if a timeout has expired."""
+        if endtime is None:
+            return
+        if skip_check_and_raise or _time() > endtime:
+>           raise TimeoutExpired(
+                    self.args, orig_timeout,
+                    output=b''.join(stdout_seq) if stdout_seq else None,
+                    stderr=b''.join(stderr_seq) if stderr_seq else None)
+E           subprocess.TimeoutExpired: Command '['git', '-C', '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-mutant-tests/tree-thrash-mutant-j1zw27xw/pytest/test_a_fresh_waiter_runs_no_gi0/repo', 'rev-parse', '--git-common-dir']' timed out after 60 seconds
+
+/Users/maxghenis/.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/subprocess.py:1268: TimeoutExpired
+
+The above exception was the direct cause of the following exception:
+
+self = <subfleet.daemon.Daemon object at 0x10c9b5400>
+args = SubmitArgs(request_id='69cec43c-bd75-4176-b4d3-b5c3d2d46476', kind='dispatch', workdir='/private/var/folders/9l/_wztzg...e_reason=None, mcp_servers=[], pinned_provider=None, batch=None, push_branch=None, needs_shell=None, provider_qos=None)
+turn = None
+
+    def submit(self, args: protocol.SubmitArgs, *, turn: dict | None = None) -> dict:
+        # Called on a filesystem worker, never on the socket reader pool.
+        # `turn` is the dispatcher's own block (C-26.1); nothing else passes it.
+        if (args.kind == "turn") != (turn is not None):
+            raise AdapterError("a turn job needs its conversation's turn block", code=7, reason="turn-block")
+        if args.push_branch is not None and (args.task == "review" or args.kind == "gate-review"):
+            raise AdapterError("reviews cannot publish", code=7, fix="omit --push-branch", reason="review-publish")
+        if args.push_branch is not None and args.kind != "dispatch":
+            raise AdapterError("host push is supported for dispatch jobs", code=7,
+                               fix="submit a dispatch with --push-branch", reason="push-dispatch-only")
+        with self._submit_lock:
+            reason = args.unmeasured_reserve_reason
+            if reason is not None:
+                if not isinstance(reason, str) or not reason.strip() or len(reason) > 2000:
+                    raise protocol.ProtocolError("unmeasured_reserve_reason must contain 1 to 2000 characters of reason/evidence", reason="reserve-reason")
+                if args.kind != "dispatch" or not args.pinned_lane or not args.pinned_model:
+                    raise protocol.ProtocolError("unmeasured reserve authorization requires a fresh dispatch with explicit pinned_lane and pinned_model", reason="reserve-dispatch")
+            batch = self._batch_label(args.batch)
+            resume = None
+            # C-26.13: a resume or revive continues a native session, and a
+            # conversation's session is continued only by its conversation, so
+            # the twin the `native:` lease would merely serialize is refused
+            # here. A resume's session is its source attempt's; a revive's is
+            # `caller_session`.
+            fence: tuple[str | None, str] | None = None
+            resume_workspace = None
+            retire_fence = None
+            if args.kind == "resume":
+                # d635: while the resume reads its source's job directory, and
+                # until its own row pins the source (C-8.4 `parent`), retention
+                # may not start retiring the source (review Astra 9). Not
+                # `fence`, which is C-26.13's session fence just above.
+                retire_fence = self._fence_resume(args)
+                args, resume = self._resume_submission(args)
+                # Where the resume starts is the source's, not the request's: it
+                # stays out of the digest, so a resume retried across an upgrade
+                # that began recording it is still the same request (C-6.2).
+                resume_workspace = resume.pop("workspace", None)
+                fence = (resume["native_session_id"], "resume")
+            elif args.kind == "revive":
+                fence = (args.caller_session, "revive")
+            # C-6.2 before C-26.13: a session can become a conversation's after
+            # its resume or revive was accepted (`conversation.open` with
+            # `native` binds it at once), so a retry of that request is
+            # answered from its job below, as C-6.2 answers every retry, and
+            # admission fails the job if it has not launched. Only a request
+            # the daemon has not accepted is refused here, before the rest of
+            # validation, so the refusal is what a new request hears.
+            accepted = bool(fence) and self._accepted_request(args.request_id)
+            if fence and not accepted:
+                self._refuse_conversation_session(*fence)
+            # An empty task or tier is none: `evaluate` would reject '' on every
+            # pass of a job submit had accepted (C-6.12).
+            args = dataclasses.replace(args, task=args.task or None, tier=args.tier or None)
+            from_policy = args.sandbox == protocol.POLICY_SANDBOX
+            try:
+                ids.request_id(args.request_id)
+                if not isinstance(args.exclusions, list) or any(not isinstance(name, str) for name in args.exclusions):
+                    # C-6.12: admission merges these with lane ids, so each must be a name.
+                    raise ValueError("exclusions must be a list of lane names")
+                workdir = Path(args.workdir).expanduser().resolve(strict=True)
+                if not workdir.is_dir():
+                    raise ValueError("workdir must be a directory")
+                if from_policy:
+                    args = dataclasses.replace(args, sandbox=self._policy_sandbox(args))
+                sandbox = Sandbox(args.sandbox)
+                review_root = None
+                if args.isolated_review:
+                    from .adapters.isolation import validate_isolated_review
+                    validate_isolated_review(sandbox, args.review_root)
+                    review_root = str(Path(args.review_root).expanduser().resolve(strict=True))
+                    if not Path(review_root).is_dir():
+                        raise ValueError("review_root must be a directory")
+                elif args.review_root:
+                    raise ValueError("review_root requires isolated_review (-I)")
+                if args.kind == "gate-review":
+                    import re
+                    if not args.pinned_model or not args.isolated_review:
+                        raise ValueError("gate-review requires a pinned model and isolated_review")
+                    if not isinstance(args.round_lease, str) or not re.fullmatch(
+                            r"gate:[A-Za-z0-9][A-Za-z0-9._-]{0,127}:round:[1-9][0-9]*", args.round_lease):
+                        raise ValueError("gate-review requires gate:<gate id>:round:<n> round_lease")
+                    if self.root not in workdir.parents or git_head(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) is not None:
+                        raise AdapterError("gate review cwd must be a neutral directory under the state root",
+                                           fix="allocate the peer cwd under SUBFLEET_HOME outside any repository", reason="gate-review-cwd")
+                elif args.round_lease:
+                    raise ValueError("round_lease is reserved for gate-review jobs")
+                if any(workdir == p or p in workdir.parents for p in (Path("/tmp"), Path("/private/tmp"))) and not args.allow_tmp:
+                    raise AdapterError("workdir is under /tmp", fix="pass --allow-tmp or use a durable workdir", reason="workdir-tmp")
+                # Only a regular file, never waiting in open(): a FIFO (or a device, which
+                # never ends) named here held this submit, `_submit_lock` and every submit after.
+                prompt = read_regular(Path(args.prompt_path).expanduser())
+                try:
+                    out = None
+                    if args.out_path:
+                        out = str(_resolve_output_path(Path(args.out_path).expanduser()))
+                except (RuntimeError, OSError) as exc:
+                    if isinstance(exc, OSError) and exc.errno != errno.ELOOP:
+                        raise
+                    raise AdapterError(f"cannot resolve output path: {exc}", code=7,
+                                       fix="remove the symlink loop or choose a different -o path", reason="output-path") from exc
+                if out and not Path(out).parent.is_dir():
+                    raise ValueError("output directory must exist")
+                push_remote = push_default = push_head = push_current = push_top = None
+                if args.push_branch is not None and sandbox != Sandbox.WORKSPACE_WRITE:
+                    # C-8.5: the job writes its bundle in its own workspace.
+                    raise AdapterError("host push needs a writable job: it writes its bundle in its workspace",
+                                       code=7, fix="pass -s workspace-write, or omit --push-branch", reason="push-read-only")
+                if args.push_branch is not None:
+                    push_remote, push_head, push_default, push_current, push_top = host_push.validate_submit(
+                        workdir, args.push_branch, self.policy, self.root,
+                        in_place=bool(args.in_place))
+                if sandbox == Sandbox.WORKSPACE_WRITE and args.in_place and args.push_branch is not None:
+                    if push_current in ("main", "master"):
+                        raise AdapterError("writable in-place jobs require a feature branch", code=7,
+                                           fix="choose a feature branch or omit --in-place", reason="push-in-place-main")
+                elif sandbox == Sandbox.WORKSPACE_WRITE and args.in_place and not (turn and turn.get("allow_main")):
+                    # C-13.2: the refusal is about where the job writes. A job that
+                    # is not in place writes in a detached worktree the daemon cuts
+                    # for it (C-6.6), wherever its caller happens to stand. A
+                    # conversation a person allowed on main is exempt (C-26.10).
+                    validate_writable_workdir(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
+                head = push_head if args.push_branch is not None else git_head(
+                    workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
+                if sandbox == Sandbox.WORKSPACE_WRITE and head is None and turn is None:
+                    # C-26.10: an attended conversation may work outside git.
+                    if from_policy:
+                        # d261: never downgraded silently; the caller chooses.
+                        where = ("this repository has no commit yet"
+                                 if git_toplevel(str(workdir), timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
+                                 else "this directory is not a git repository")
+                        raise AdapterError(f"{args.task or 'these'} jobs write by policy, and {where}",
+                                           fix="commit a baseline or run it from a repository, or pass -s read-only "
+                                               "to run it here without writing", reason="policy-workdir",
+                                           details={"repository": where, "task": args.task})
+                    raise AdapterError("writable jobs require a committed git repository", fix="initialize a feature branch and commit a baseline, or pass -s read-only", reason="writable-repository")
+                copy_plan = copy_fallback = None
+                if (from_policy and sandbox == Sandbox.WORKSPACE_WRITE and not args.in_place and turn is None
+                        and head is not None and args.push_branch is None
+                        and self._policy_entry(args) == "worktree-write"):
+                    # D-SH1 round 6 (#221 review r1b, P2): a review in its own worktree
+                    # sees what its caller sees, or reads the checkout in place. Decided
+                    # here, before the job exists, so no sandbox is lowered after submit.
+                    cap = self.policy["caps"]["workspace_git_timeout_s"]
+                    try:
+                        copy_plan = uncommitted.plan(git_toplevel(str(workdir), timeout_s=cap) or str(workdir),
+                                                     head, scratch_root=self.root / "tmp", timeout_s=cap)
+                    except uncommitted.CopyRefused as exc:
+                        copy_fallback = str(exc)
+                        args = dataclasses.replace(args, sandbox=Sandbox.READ_ONLY.value)
+                        sandbox = Sandbox.READ_ONLY
+                # C-6.5: an in-place job's hold is its checkout, not the directory
+                # named by -C, so `/repo` and `/repo/sub` are one place to write. It is
+                # spelled one way (`folders.canonical`, as a conversation's workspace
+                # is): a folder outside git kept the case it was typed in, so
+                # `~/Scratch` and `~/scratch` were two keys for one folder.
+                # C-8.4, C-13.4: a read-only turn's folder is the same place a writable one's
+                # target is, so retention can tell it is in use (`folders.READER`). Both are
+                # spelled in one look (`_row_folder`), which also says whether admission must
+                # find the folder again (`unspelled`), and admission spells it again before it
+                # takes a row (`folders.present`). C-8.5: a push job's checkout top comes from
+                # `host_push.validate_submit`, which read it without asking git, so it is
+                # spelled as given and git is not run in that checkout here either; nor at
+                # admission, since such a folder is never `unspelled`.
+                named, unspelled = (self._row_folder(workdir, push_top)
+                                    if (sandbox == Sandbox.WORKSPACE_WRITE and args.in_place) or turn is not None
+                                    else (None, False))
+                write_target = named if sandbox == Sandbox.WORKSPACE_WRITE and args.in_place else None
+                read_folder = named if turn is not None and write_target is None else None
+                # C-8.4: the folder any other detached job works in, spelled the same way:
+                # where a read-only job runs, or the repository a worktree is cut from for a
+                # writer that is not in place (`git worktree add` registers it there). Such
+                # a job takes no lease on it, so admission reads retention's fence on it, and
+                # on every folder above it, by string operations alone (`folders.retiring`).
+                folder = read_folder or (folders.canonical(workdir) if turn is None and write_target is None else None)
+                # C-8.4: what else the job needs while it has not ended, spelled the
+                # same way: its review root, its `-o` path, and the git storage its
+                # checkout uses (a linked checkout outside a tree can keep its
+                # repository inside one). Admission reads retention's fence on each,
+                # and retention keeps a tree any of them is in (`dependencies`).
+                depends = dependencies.record(str(workdir), review_root=review_root, out_path=out)
+                model = args.pinned_model
+                if model is not None:
+                    try:
+                        model = resolve_model(self.policy, model)
+                    except PolicyError as exc:
+                        raise AdapterError(f"unknown pinned model {model!r}; policy models: "
+                                           + ", ".join(self.policy["models"]), code=7,
+                                           fix="pin a model from the live policy",
+                                           reason="unknown-pinned-model", details={"model": model}) from exc
+                if args.needs_shell is not None and type(args.needs_shell) is not bool:
+                    raise ValueError("needs_shell must be true or false")
+                if args.provider_qos is not None and (type(args.provider_qos) is not str
+                                                      or args.provider_qos not in protocol.PROVIDER_QOS_REQUESTS):
+                    raise ValueError("provider_qos must be " + " or ".join(protocol.PROVIDER_QOS_REQUESTS))
+                needs_shell = job_needs_shell(self.policy, dataclasses.asdict(args))
+                if args.task and args.task not in self.policy["chains"]:
+                    raise ValueError(f"unknown task {args.task}")
+                if args.tier and args.tier not in self.policy["tiers"]:
+                    raise ValueError(f"unknown tier {args.tier}")
+                if not model and not args.task and not args.pinned_lane:
+                    raise ValueError("submit requires pinned_model, pinned_lane or task")
+                # C-12.9: the MCP servers first, so the pin and the chain below see
+                # a job that runs only where a launch starts them, on Claude.
+                mcp_servers = claude_mcp.validate_names(args.mcp_servers or ())
+                # C-11.2: resolved as admission resolves it (same lanes, and the
+                # job's provider narrows a name two providers share), then kept as
+                # the lane id, so no later roster change can make it ambiguous.
+                lane = self._resolve_pin(args, model, reason) if args.pinned_lane else None
+                pinned_lane = lane.lane_id if lane else None
+                # The request digest keeps the pin as the caller wrote it, so a
+                # retry is compared with what it asked for, also across a roster
+                # change or this upgrade. Operator authorization was always bound
+                # to the enrolled lane's immutable id, and its digest still is.
+                digest_pin = pinned_lane if reason is not None else args.pinned_lane
+                if model:
+                    task_model = model
+                elif args.task:
+                    chain = scheduler.mcp_chain(self.policy, flatten_chain(self.policy["chains"][args.task],
+                        self.policy["tiers"].index(args.tier or "standard")), {"mcp_servers": mcp_servers})
+                    task_model = chain[0] if chain else None
+                else:
+                    task_model = next((k for k, v in self.policy["models"].items() if v["provider"] == lane.provider), None)
+                if mcp_servers:
+                    self._refuse_mcp(mcp_servers, sandbox, task_model, lane, turn)
+                if task_model is None:
+                    raise ValueError(f"pinned_lane: policy has no model for provider {lane.provider}")
+                provider = self.policy["models"][task_model]["provider"]
+                if lane and lane.provider != provider:
+                    raise ValueError("pinned lane and model providers disagree")
+                if needs_shell and (model or lane) and not launch_has_shell(provider, sandbox):
+                    raise AdapterError(f"needs a shell: {task_model} runs {sandbox.value} jobs without one",
+                                       code=7, fix="pass -s workspace-write, or pin a Codex model",
+                                       reason="needs-shell", details={"model": task_model, "sandbox": sandbox.value})
+                if lane:
+                    self._validate_home(lane)
+                mcp_found = self._mcp_entries(args, mcp_servers, workdir, resume) if mcp_servers else None
+                caps = self.policy["caps"]
+                max_attempts = args.max_attempts if args.max_attempts is not None else caps["max_attempts"]
+                max_wall_s = args.max_wall_s if args.max_wall_s is not None else caps["max_wall_s"]
+                if not isinstance(max_attempts, int) or not 1 <= max_attempts <= caps["max_attempts"]:
+                    raise ValueError("max_attempts must be positive and within policy caps")
+                if not isinstance(max_wall_s, (int, float)) or not 0 < max_wall_s <= caps["max_wall_s"]:
+                    raise ValueError("max_wall_s must be positive and within policy caps")
+                digest = ids.payload_digest(prompt, workdir=str(workdir), workdir_head=head,
+                    task=args.task, tier=args.tier, pinned_model=model, pinned_lane=digest_pin,
+                    sandbox=sandbox.value, exclusions=args.exclusions, out_path=out,
+                    allow_desktop=args.allow_desktop, policy_hash=self.policy_digest,
+                    isolated_review=args.isolated_review, review_root=review_root,
+                    round_lease=args.round_lease, resume=resume,
+                    unmeasured_reserve_reason=reason, mcp_servers=mcp_servers,
+                    push_branch=args.push_branch, push_remote=push_remote, needs_shell=needs_shell,
+                    provider_qos=args.provider_qos)
+                if turn is not None:
+                    # C-6.2 for turns: the message digest, not HEAD or the policy
+                    # hash, so a restart can always re-bind the job (review IR-1).
+                    digest = turn["digest"]
+                # C-8.4, C-6.5: the workdir is recorded in its one spelling, as far as each
+                # name in it can be looked up now (a name that cannot stays as typed). Retention's
+                # `worktree-in-use` pin compares recorded strings in SQL, so a queued job
+                # whose workdir was typed in another case or Unicode form than its volume
+                # stores (`stäte` in NFD under a tree spelled NFC) kept no tree: a writer or
+                # turn waiting on retention's fence above it saw the tree deleted (review of
+                # 5253faa2, P2). The digest keeps the path as resolved, so a request
+                # submitted again is the same payload whichever build accepted it first.
+                recorded_workdir = folders.canonical(workdir)
+            except SalvageError as exc:
+                # C-6.8: nothing was submitted, so the caller retries; a timed-out
+                # `rev-parse` must not read as "not a repository" or "not on main".
+                self.log.warning("submit could not inspect %s: %s", args.workdir, refusals.scrubbed_words(exc))
+                raise AdapterError(f"could not inspect the workdir: {exc}", code=int(Exit.OPERATIONAL),
+                                   fix="submit again; raise caps.workspace_git_timeout_s if this repository is slow", reason="inspect-workdir") from exc
+            except (OSError, ValueError, TypeError, RuntimeError) as exc:
+                # An argument refusal: the wire reads its template (C-25.7); the
+                # words stay with the exception for its direct callers.
+                raise protocol.ProtocolError(str(exc), reason="invalid-args") from exc
+            existing = self.store.one("SELECT * FROM jobs WHERE request_id=?", (args.request_id,))
+            if existing:
+                if existing["payload_digest"] != digest:
+                    # Named, so a caller settling a lost answer (C-16.3) learns
+                    # which job holds the id without another round trip.
+                    raise protocol.ProtocolError("request id already used with a different "
+                                                 f"payload by job {existing['job_id']}", reason="different-payload",
+                                                 details={"job_id": existing['job_id']})
+                return {"job_id": existing["job_id"], "request_id": args.request_id, "created": False,
+                        **self._where_it_writes(existing["job_id"], existing["sandbox"])}
+            if fence and accepted:
+                # The accepted job is gone (retention pruned it since the check
+                # above), so this request makes a new job after all.
+                self._refuse_conversation_session(*fence)
+            job_id = ids.job_id(args.name or args.task or model,
+                                existing=[r["job_id"] for r in self.store.query("SELECT job_id FROM jobs")])
+            jobdir = self.root / "jobs" / job_id
+            values = dataclasses.asdict(args)
+            for k in ("allow_tmp", "no_preamble", "dry_run", "batch", "pinned_provider"):
+                values.pop(k)
+            values.update(job_id=job_id, state="queued", payload_digest=digest, needs_shell=needs_shell,
+                          workdir=recorded_workdir, workdir_head=head, out_path=out,
+                          push_remote=push_remote, push_default_branch=push_default,
+                          pinned_model=model, pinned_lane=pinned_lane, prompt_path=str(jobdir / "prompt.md"),
+                          exclusions=json.dumps(sorted(args.exclusions)), policy_hash=self.policy_digest,
+                          max_attempts=max_attempts, max_wall_s=max_wall_s, created_at=utcnow(),
+                          mcp_servers=json.dumps(list(mcp_servers)))
+            values["review_root"] = review_root
+            if args.dry_run:
+                return {"dry_run": True, "decision": decision_rows(       # C-9.6 (review r2 of #263, P3-2)
+                    dataclasses.asdict(self._pick(values, desktop=self._desktop_identity())))}
+            # C-3.3: the instance and worktree questions need `ps` and `git`, so
+            # they are answered here, under the submit lock and outside the
+            # transaction; the transaction below re-checks with SQL alone.
+            output_claim = (resource_leases.OutputClaim.prepare(self.store.query, out, census=True) if out else None)
+            instance = (self._caller_instance(args.caller_pid)
+                        if sandbox == Sandbox.WORKSPACE_WRITE and args.caller_session else None)
+            if turn is None:
+                by_policy = from_policy and sandbox == Sandbox.WORKSPACE_WRITE
+                try:
+                    cleared = self._writable_precheck(values, instance, write_target)
+                except AdapterError as exc:
+                    if not by_policy:
+                        raise
+                    raise _written_by_policy(exc, args.task) from exc
+                try:
+                    self._validate_conflicts(values, cleared, write_target, output_claim)
+                except AdapterError as exc:
+                    # Only the writers' refusals: a read-only job would meet the
+                    # others (a cancelled parent, a held output path) all the same.
+                    if not by_policy or not self._read_only_clears(values, write_target, output_claim):
+                        raise
+                    raise _written_by_policy(exc, args.task) from exc
+            else:
+                # C-26.1, IR-12: a turn waits for its workspace at admission (a
+                # detached writer's `worktree:` lease, C-24.5), it is never refused here.
+                cleared = None
+            if mcp_servers and mcp_found is None:
+                # Only a retry of an accepted request gets here without entries
+                # (`_mcp_entries`), and only when its job was pruned meanwhile.
+                raise AdapterError(f"--mcp {', '.join(mcp_servers)}: the workdir no longer offers them",
+                                   code=int(Exit.INVALID_INPUT), fix="submit with a new request id", reason="mcp-workdir-changed")
+            jobdir.mkdir(mode=0o700)
+            self._publish("prompt", jobdir / "prompt.md", prompt)
+            if mcp_servers:
+                # C-12.9: the entries every attempt and resume of this job starts.
+                self._publish("mcp-config", jobdir / claude_mcp.JOB_CONFIG_NAME,
+                              json_bytes(mcp_found["document"]))
+            manifest = {"job": values}
+            if mcp_servers:
+                manifest["mcp"] = mcp_found["sources"]
+            if batch:
+                manifest["batch"] = batch
+            if resume:
+                manifest["resume"] = resume
+            if turn is not None:
+                manifest["turn"] = turn
+            note = b""
+            copied = None
+            if copy_plan is not None:
+                try:
+                    copied = uncommitted.keep(copy_plan, jobdir)
+                except uncommitted.CopyRefused as exc:
+                    shutil.rmtree(jobdir, ignore_errors=True)
+                    raise AdapterError(f"the caller's uncommitted files changed while they were copied: {exc}",
+                                       code=int(Exit.OPERATIONAL), fix="submit again",
+                                       reason="uncommitted-copy") from None
+                manifest["uncommitted"] = copied
+            elif copy_fallback is not None:
+                manifest["uncommitted"] = {"fallback": copy_fallback}
+            if resume_workspace:
+                # Review B-2: a resume starts where its source started (`_launch_dir`).
+                manifest["workspace"] = resume_workspace
+            if sandbox == Sandbox.WORKSPACE_WRITE and not args.in_place and turn is None and head is not None:
+                # C-6.6: the worktree is cut at admission; where it will be and where
+                # in it the job starts (the caller's place in the repository) are
+                # known now.
+                cap = self.policy["caps"]["workspace_git_timeout_s"]
+                try:
+                    top = str(push_top) if push_top else git_toplevel(str(workdir), timeout_s=cap) or str(workdir)
+                    # C-6.20: the job can wait with no tree while this checkout goes (`_tree_git`).
+>                   common = None if args.push_branch is not None else git_common_dir(str(workdir), timeout_s=cap)
+                                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+subfleet/daemon.py:3337: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/salvage.py:281: in git_common_dir
+    raw = _git_bytes(workdir, "rev-parse", "--git-common-dir", timeout_s=timeout_s)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+workdir = '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-mutant-tests/tree-thrash-mutant-j1zw27xw/pytest/test_a_fresh_waiter_runs_no_gi0/repo'
+env = None, stdin = None, timeout_s = 60
+args = ('rev-parse', '--git-common-dir')
+
+    def _git_bytes(workdir: str | Path, *args: str, env: dict[str, str] | None = None,
+                   stdin: bytes | None = None, timeout_s: float | None = None) -> bytes | None:
+        """``_git`` for byte streams (paths need not be UTF-8); None on a non-zero
+        exit. Transient git failures, timeouts and OS errors raise as in ``_git``."""
+        cap = git_timeout_s(timeout_s)
+        try:
+            result = subprocess.run(["git", "-C", str(workdir), *args], env=_git_env(env), input=stdin,
+                                    capture_output=True, timeout=cap)
+        except subprocess.TimeoutExpired as exc:
+>           raise SalvageError(f"git {args[0]} timed out after {cap:g} s", timed_out=True) from exc
+E           subfleet.salvage.SalvageError: git rev-parse timed out after 60 s
+
+subfleet/salvage.py:242: SalvageError
+
+The above exception was the direct cause of the following exception:
+
+fleet_factory = <function fleet_factory.<locals>.make at 0x10c9e61f0>
+repo = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-mutant-tests/tree-thrash-mutant-j1zw27xw/pytest/test_a_fresh_waiter_runs_no_gi0/repo')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c66c510>
+reason = 'no-slot'
+
+    @pytest.mark.parametrize("reason", ["no-slot", "lease", "disk", "retention"])
+    def test_a_fresh_waiter_runs_no_git_and_writes_no_tree(fleet_factory, repo, monkeypatch, reason):  # noqa: F811
+        """I4/I5: capacity, a path lease, the door, and retention precede tree work."""
+        service, harness, cuts = fleet_factory(slots=1)
+        extra = {}
+        if reason == "no-slot":
+>           running = submit(service, harness, repo)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/fake/test_admission_tree_thrash.py:343: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/fake/test_admission_tree_thrash.py:32: in submit
+    return submit_writer(service, harness, repository, caller_session=None, **changes)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/fake/test_unrun_worktrees.py:67: in submit
+    return daemon.dispatch("submit", args)["job_id"]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:114: in scoped
+    return function(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:4219: in dispatch
+    return self.submit(protocol.coerce_args(protocol.SubmitArgs, args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <subfleet.daemon.Daemon object at 0x10c9b5400>
+args = SubmitArgs(request_id='69cec43c-bd75-4176-b4d3-b5c3d2d46476', kind='dispatch', workdir='/private/var/folders/9l/_wztzg...e_reason=None, mcp_servers=[], pinned_provider=None, batch=None, push_branch=None, needs_shell=None, provider_qos=None)
+turn = None
+
+    def submit(self, args: protocol.SubmitArgs, *, turn: dict | None = None) -> dict:
+        # Called on a filesystem worker, never on the socket reader pool.
+        # `turn` is the dispatcher's own block (C-26.1); nothing else passes it.
+        if (args.kind == "turn") != (turn is not None):
+            raise AdapterError("a turn job needs its conversation's turn block", code=7, reason="turn-block")
+        if args.push_branch is not None and (args.task == "review" or args.kind == "gate-review"):
+            raise AdapterError("reviews cannot publish", code=7, fix="omit --push-branch", reason="review-publish")
+        if args.push_branch is not None and args.kind != "dispatch":
+            raise AdapterError("host push is supported for dispatch jobs", code=7,
+                               fix="submit a dispatch with --push-branch", reason="push-dispatch-only")
+        with self._submit_lock:
+            reason = args.unmeasured_reserve_reason
+            if reason is not None:
+                if not isinstance(reason, str) or not reason.strip() or len(reason) > 2000:
+                    raise protocol.ProtocolError("unmeasured_reserve_reason must contain 1 to 2000 characters of reason/evidence", reason="reserve-reason")
+                if args.kind != "dispatch" or not args.pinned_lane or not args.pinned_model:
+                    raise protocol.ProtocolError("unmeasured reserve authorization requires a fresh dispatch with explicit pinned_lane and pinned_model", reason="reserve-dispatch")
+            batch = self._batch_label(args.batch)
+            resume = None
+            # C-26.13: a resume or revive continues a native session, and a
+            # conversation's session is continued only by its conversation, so
+            # the twin the `native:` lease would merely serialize is refused
+            # here. A resume's session is its source attempt's; a revive's is
+            # `caller_session`.
+            fence: tuple[str | None, str] | None = None
+            resume_workspace = None
+            retire_fence = None
+            if args.kind == "resume":
+                # d635: while the resume reads its source's job directory, and
+                # until its own row pins the source (C-8.4 `parent`), retention
+                # may not start retiring the source (review Astra 9). Not
+                # `fence`, which is C-26.13's session fence just above.
+                retire_fence = self._fence_resume(args)
+                args, resume = self._resume_submission(args)
+                # Where the resume starts is the source's, not the request's: it
+                # stays out of the digest, so a resume retried across an upgrade
+                # that began recording it is still the same request (C-6.2).
+                resume_workspace = resume.pop("workspace", None)
+                fence = (resume["native_session_id"], "resume")
+            elif args.kind == "revive":
+                fence = (args.caller_session, "revive")
+            # C-6.2 before C-26.13: a session can become a conversation's after
+            # its resume or revive was accepted (`conversation.open` with
+            # `native` binds it at once), so a retry of that request is
+            # answered from its job below, as C-6.2 answers every retry, and
+            # admission fails the job if it has not launched. Only a request
+            # the daemon has not accepted is refused here, before the rest of
+            # validation, so the refusal is what a new request hears.
+            accepted = bool(fence) and self._accepted_request(args.request_id)
+            if fence and not accepted:
+                self._refuse_conversation_session(*fence)
+            # An empty task or tier is none: `evaluate` would reject '' on every
+            # pass of a job submit had accepted (C-6.12).
+            args = dataclasses.replace(args, task=args.task or None, tier=args.tier or None)
+            from_policy = args.sandbox == protocol.POLICY_SANDBOX
+            try:
+                ids.request_id(args.request_id)
+                if not isinstance(args.exclusions, list) or any(not isinstance(name, str) for name in args.exclusions):
+                    # C-6.12: admission merges these with lane ids, so each must be a name.
+                    raise ValueError("exclusions must be a list of lane names")
+                workdir = Path(args.workdir).expanduser().resolve(strict=True)
+                if not workdir.is_dir():
+                    raise ValueError("workdir must be a directory")
+                if from_policy:
+                    args = dataclasses.replace(args, sandbox=self._policy_sandbox(args))
+                sandbox = Sandbox(args.sandbox)
+                review_root = None
+                if args.isolated_review:
+                    from .adapters.isolation import validate_isolated_review
+                    validate_isolated_review(sandbox, args.review_root)
+                    review_root = str(Path(args.review_root).expanduser().resolve(strict=True))
+                    if not Path(review_root).is_dir():
+                        raise ValueError("review_root must be a directory")
+                elif args.review_root:
+                    raise ValueError("review_root requires isolated_review (-I)")
+                if args.kind == "gate-review":
+                    import re
+                    if not args.pinned_model or not args.isolated_review:
+                        raise ValueError("gate-review requires a pinned model and isolated_review")
+                    if not isinstance(args.round_lease, str) or not re.fullmatch(
+                            r"gate:[A-Za-z0-9][A-Za-z0-9._-]{0,127}:round:[1-9][0-9]*", args.round_lease):
+                        raise ValueError("gate-review requires gate:<gate id>:round:<n> round_lease")
+                    if self.root not in workdir.parents or git_head(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) is not None:
+                        raise AdapterError("gate review cwd must be a neutral directory under the state root",
+                                           fix="allocate the peer cwd under SUBFLEET_HOME outside any repository", reason="gate-review-cwd")
+                elif args.round_lease:
+                    raise ValueError("round_lease is reserved for gate-review jobs")
+                if any(workdir == p or p in workdir.parents for p in (Path("/tmp"), Path("/private/tmp"))) and not args.allow_tmp:
+                    raise AdapterError("workdir is under /tmp", fix="pass --allow-tmp or use a durable workdir", reason="workdir-tmp")
+                # Only a regular file, never waiting in open(): a FIFO (or a device, which
+                # never ends) named here held this submit, `_submit_lock` and every submit after.
+                prompt = read_regular(Path(args.prompt_path).expanduser())
+                try:
+                    out = None
+                    if args.out_path:
+                        out = str(_resolve_output_path(Path(args.out_path).expanduser()))
+                except (RuntimeError, OSError) as exc:
+                    if isinstance(exc, OSError) and exc.errno != errno.ELOOP:
+                        raise
+                    raise AdapterError(f"cannot resolve output path: {exc}", code=7,
+                                       fix="remove the symlink loop or choose a different -o path", reason="output-path") from exc
+                if out and not Path(out).parent.is_dir():
+                    raise ValueError("output directory must exist")
+                push_remote = push_default = push_head = push_current = push_top = None
+                if args.push_branch is not None and sandbox != Sandbox.WORKSPACE_WRITE:
+                    # C-8.5: the job writes its bundle in its own workspace.
+                    raise AdapterError("host push needs a writable job: it writes its bundle in its workspace",
+                                       code=7, fix="pass -s workspace-write, or omit --push-branch", reason="push-read-only")
+                if args.push_branch is not None:
+                    push_remote, push_head, push_default, push_current, push_top = host_push.validate_submit(
+                        workdir, args.push_branch, self.policy, self.root,
+                        in_place=bool(args.in_place))
+                if sandbox == Sandbox.WORKSPACE_WRITE and args.in_place and args.push_branch is not None:
+                    if push_current in ("main", "master"):
+                        raise AdapterError("writable in-place jobs require a feature branch", code=7,
+                                           fix="choose a feature branch or omit --in-place", reason="push-in-place-main")
+                elif sandbox == Sandbox.WORKSPACE_WRITE and args.in_place and not (turn and turn.get("allow_main")):
+                    # C-13.2: the refusal is about where the job writes. A job that
+                    # is not in place writes in a detached worktree the daemon cuts
+                    # for it (C-6.6), wherever its caller happens to stand. A
+                    # conversation a person allowed on main is exempt (C-26.10).
+                    validate_writable_workdir(workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
+                head = push_head if args.push_branch is not None else git_head(
+                    workdir, timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
+                if sandbox == Sandbox.WORKSPACE_WRITE and head is None and turn is None:
+                    # C-26.10: an attended conversation may work outside git.
+                    if from_policy:
+                        # d261: never downgraded silently; the caller chooses.
+                        where = ("this repository has no commit yet"
+                                 if git_toplevel(str(workdir), timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
+                                 else "this directory is not a git repository")
+                        raise AdapterError(f"{args.task or 'these'} jobs write by policy, and {where}",
+                                           fix="commit a baseline or run it from a repository, or pass -s read-only "
+                                               "to run it here without writing", reason="policy-workdir",
+                                           details={"repository": where, "task": args.task})
+                    raise AdapterError("writable jobs require a committed git repository", fix="initialize a feature branch and commit a baseline, or pass -s read-only", reason="writable-repository")
+                copy_plan = copy_fallback = None
+                if (from_policy and sandbox == Sandbox.WORKSPACE_WRITE and not args.in_place and turn is None
+                        and head is not None and args.push_branch is None
+                        and self._policy_entry(args) == "worktree-write"):
+                    # D-SH1 round 6 (#221 review r1b, P2): a review in its own worktree
+                    # sees what its caller sees, or reads the checkout in place. Decided
+                    # here, before the job exists, so no sandbox is lowered after submit.
+                    cap = self.policy["caps"]["workspace_git_timeout_s"]
+                    try:
+                        copy_plan = uncommitted.plan(git_toplevel(str(workdir), timeout_s=cap) or str(workdir),
+                                                     head, scratch_root=self.root / "tmp", timeout_s=cap)
+                    except uncommitted.CopyRefused as exc:
+                        copy_fallback = str(exc)
+                        args = dataclasses.replace(args, sandbox=Sandbox.READ_ONLY.value)
+                        sandbox = Sandbox.READ_ONLY
+                # C-6.5: an in-place job's hold is its checkout, not the directory
+                # named by -C, so `/repo` and `/repo/sub` are one place to write. It is
+                # spelled one way (`folders.canonical`, as a conversation's workspace
+                # is): a folder outside git kept the case it was typed in, so
+                # `~/Scratch` and `~/scratch` were two keys for one folder.
+                # C-8.4, C-13.4: a read-only turn's folder is the same place a writable one's
+                # target is, so retention can tell it is in use (`folders.READER`). Both are
+                # spelled in one look (`_row_folder`), which also says whether admission must
+                # find the folder again (`unspelled`), and admission spells it again before it
+                # takes a row (`folders.present`). C-8.5: a push job's checkout top comes from
+                # `host_push.validate_submit`, which read it without asking git, so it is
+                # spelled as given and git is not run in that checkout here either; nor at
+                # admission, since such a folder is never `unspelled`.
+                named, unspelled = (self._row_folder(workdir, push_top)
+                                    if (sandbox == Sandbox.WORKSPACE_WRITE and args.in_place) or turn is not None
+                                    else (None, False))
+                write_target = named if sandbox == Sandbox.WORKSPACE_WRITE and args.in_place else None
+                read_folder = named if turn is not None and write_target is None else None
+                # C-8.4: the folder any other detached job works in, spelled the same way:
+                # where a read-only job runs, or the repository a worktree is cut from for a
+                # writer that is not in place (`git worktree add` registers it there). Such
+                # a job takes no lease on it, so admission reads retention's fence on it, and
+                # on every folder above it, by string operations alone (`folders.retiring`).
+                folder = read_folder or (folders.canonical(workdir) if turn is None and write_target is None else None)
+                # C-8.4: what else the job needs while it has not ended, spelled the
+                # same way: its review root, its `-o` path, and the git storage its
+                # checkout uses (a linked checkout outside a tree can keep its
+                # repository inside one). Admission reads retention's fence on each,
+                # and retention keeps a tree any of them is in (`dependencies`).
+                depends = dependencies.record(str(workdir), review_root=review_root, out_path=out)
+                model = args.pinned_model
+                if model is not None:
+                    try:
+                        model = resolve_model(self.policy, model)
+                    except PolicyError as exc:
+                        raise AdapterError(f"unknown pinned model {model!r}; policy models: "
+                                           + ", ".join(self.policy["models"]), code=7,
+                                           fix="pin a model from the live policy",
+                                           reason="unknown-pinned-model", details={"model": model}) from exc
+                if args.needs_shell is not None and type(args.needs_shell) is not bool:
+                    raise ValueError("needs_shell must be true or false")
+                if args.provider_qos is not None and (type(args.provider_qos) is not str
+                                                      or args.provider_qos not in protocol.PROVIDER_QOS_REQUESTS):
+                    raise ValueError("provider_qos must be " + " or ".join(protocol.PROVIDER_QOS_REQUESTS))
+                needs_shell = job_needs_shell(self.policy, dataclasses.asdict(args))
+                if args.task and args.task not in self.policy["chains"]:
+                    raise ValueError(f"unknown task {args.task}")
+                if args.tier and args.tier not in self.policy["tiers"]:
+                    raise ValueError(f"unknown tier {args.tier}")
+                if not model and not args.task and not args.pinned_lane:
+                    raise ValueError("submit requires pinned_model, pinned_lane or task")
+                # C-12.9: the MCP servers first, so the pin and the chain below see
+                # a job that runs only where a launch starts them, on Claude.
+                mcp_servers = claude_mcp.validate_names(args.mcp_servers or ())
+                # C-11.2: resolved as admission resolves it (same lanes, and the
+                # job's provider narrows a name two providers share), then kept as
+                # the lane id, so no later roster change can make it ambiguous.
+                lane = self._resolve_pin(args, model, reason) if args.pinned_lane else None
+                pinned_lane = lane.lane_id if lane else None
+                # The request digest keeps the pin as the caller wrote it, so a
+                # retry is compared with what it asked for, also across a roster
+                # change or this upgrade. Operator authorization was always bound
+                # to the enrolled lane's immutable id, and its digest still is.
+                digest_pin = pinned_lane if reason is not None else args.pinned_lane
+                if model:
+                    task_model = model
+                elif args.task:
+                    chain = scheduler.mcp_chain(self.policy, flatten_chain(self.policy["chains"][args.task],
+                        self.policy["tiers"].index(args.tier or "standard")), {"mcp_servers": mcp_servers})
+                    task_model = chain[0] if chain else None
+                else:
+                    task_model = next((k for k, v in self.policy["models"].items() if v["provider"] == lane.provider), None)
+                if mcp_servers:
+                    self._refuse_mcp(mcp_servers, sandbox, task_model, lane, turn)
+                if task_model is None:
+                    raise ValueError(f"pinned_lane: policy has no model for provider {lane.provider}")
+                provider = self.policy["models"][task_model]["provider"]
+                if lane and lane.provider != provider:
+                    raise ValueError("pinned lane and model providers disagree")
+                if needs_shell and (model or lane) and not launch_has_shell(provider, sandbox):
+                    raise AdapterError(f"needs a shell: {task_model} runs {sandbox.value} jobs without one",
+                                       code=7, fix="pass -s workspace-write, or pin a Codex model",
+                                       reason="needs-shell", details={"model": task_model, "sandbox": sandbox.value})
+                if lane:
+                    self._validate_home(lane)
+                mcp_found = self._mcp_entries(args, mcp_servers, workdir, resume) if mcp_servers else None
+                caps = self.policy["caps"]
+                max_attempts = args.max_attempts if args.max_attempts is not None else caps["max_attempts"]
+                max_wall_s = args.max_wall_s if args.max_wall_s is not None else caps["max_wall_s"]
+                if not isinstance(max_attempts, int) or not 1 <= max_attempts <= caps["max_attempts"]:
+                    raise ValueError("max_attempts must be positive and within policy caps")
+                if not isinstance(max_wall_s, (int, float)) or not 0 < max_wall_s <= caps["max_wall_s"]:
+                    raise ValueError("max_wall_s must be positive and within policy caps")
+                digest = ids.payload_digest(prompt, workdir=str(workdir), workdir_head=head,
+                    task=args.task, tier=args.tier, pinned_model=model, pinned_lane=digest_pin,
+                    sandbox=sandbox.value, exclusions=args.exclusions, out_path=out,
+                    allow_desktop=args.allow_desktop, policy_hash=self.policy_digest,
+                    isolated_review=args.isolated_review, review_root=review_root,
+                    round_lease=args.round_lease, resume=resume,
+                    unmeasured_reserve_reason=reason, mcp_servers=mcp_servers,
+                    push_branch=args.push_branch, push_remote=push_remote, needs_shell=needs_shell,
+                    provider_qos=args.provider_qos)
+                if turn is not None:
+                    # C-6.2 for turns: the message digest, not HEAD or the policy
+                    # hash, so a restart can always re-bind the job (review IR-1).
+                    digest = turn["digest"]
+                # C-8.4, C-6.5: the workdir is recorded in its one spelling, as far as each
+                # name in it can be looked up now (a name that cannot stays as typed). Retention's
+                # `worktree-in-use` pin compares recorded strings in SQL, so a queued job
+                # whose workdir was typed in another case or Unicode form than its volume
+                # stores (`stäte` in NFD under a tree spelled NFC) kept no tree: a writer or
+                # turn waiting on retention's fence above it saw the tree deleted (review of
+                # 5253faa2, P2). The digest keeps the path as resolved, so a request
+                # submitted again is the same payload whichever build accepted it first.
+                recorded_workdir = folders.canonical(workdir)
+            except SalvageError as exc:
+                # C-6.8: nothing was submitted, so the caller retries; a timed-out
+                # `rev-parse` must not read as "not a repository" or "not on main".
+                self.log.warning("submit could not inspect %s: %s", args.workdir, refusals.scrubbed_words(exc))
+                raise AdapterError(f"could not inspect the workdir: {exc}", code=int(Exit.OPERATIONAL),
+                                   fix="submit again; raise caps.workspace_git_timeout_s if this repository is slow", reason="inspect-workdir") from exc
+            except (OSError, ValueError, TypeError, RuntimeError) as exc:
+                # An argument refusal: the wire reads its template (C-25.7); the
+                # words stay with the exception for its direct callers.
+                raise protocol.ProtocolError(str(exc), reason="invalid-args") from exc
+            existing = self.store.one("SELECT * FROM jobs WHERE request_id=?", (args.request_id,))
+            if existing:
+                if existing["payload_digest"] != digest:
+                    # Named, so a caller settling a lost answer (C-16.3) learns
+                    # which job holds the id without another round trip.
+                    raise protocol.ProtocolError("request id already used with a different "
+                                                 f"payload by job {existing['job_id']}", reason="different-payload",
+                                                 details={"job_id": existing['job_id']})
+                return {"job_id": existing["job_id"], "request_id": args.request_id, "created": False,
+                        **self._where_it_writes(existing["job_id"], existing["sandbox"])}
+            if fence and accepted:
+                # The accepted job is gone (retention pruned it since the check
+                # above), so this request makes a new job after all.
+                self._refuse_conversation_session(*fence)
+            job_id = ids.job_id(args.name or args.task or model,
+                                existing=[r["job_id"] for r in self.store.query("SELECT job_id FROM jobs")])
+            jobdir = self.root / "jobs" / job_id
+            values = dataclasses.asdict(args)
+            for k in ("allow_tmp", "no_preamble", "dry_run", "batch", "pinned_provider"):
+                values.pop(k)
+            values.update(job_id=job_id, state="queued", payload_digest=digest, needs_shell=needs_shell,
+                          workdir=recorded_workdir, workdir_head=head, out_path=out,
+                          push_remote=push_remote, push_default_branch=push_default,
+                          pinned_model=model, pinned_lane=pinned_lane, prompt_path=str(jobdir / "prompt.md"),
+                          exclusions=json.dumps(sorted(args.exclusions)), policy_hash=self.policy_digest,
+                          max_attempts=max_attempts, max_wall_s=max_wall_s, created_at=utcnow(),
+                          mcp_servers=json.dumps(list(mcp_servers)))
+            values["review_root"] = review_root
+            if args.dry_run:
+                return {"dry_run": True, "decision": decision_rows(       # C-9.6 (review r2 of #263, P3-2)
+                    dataclasses.asdict(self._pick(values, desktop=self._desktop_identity())))}
+            # C-3.3: the instance and worktree questions need `ps` and `git`, so
+            # they are answered here, under the submit lock and outside the
+            # transaction; the transaction below re-checks with SQL alone.
+            output_claim = (resource_leases.OutputClaim.prepare(self.store.query, out, census=True) if out else None)
+            instance = (self._caller_instance(args.caller_pid)
+                        if sandbox == Sandbox.WORKSPACE_WRITE and args.caller_session else None)
+            if turn is None:
+                by_policy = from_policy and sandbox == Sandbox.WORKSPACE_WRITE
+                try:
+                    cleared = self._writable_precheck(values, instance, write_target)
+                except AdapterError as exc:
+                    if not by_policy:
+                        raise
+                    raise _written_by_policy(exc, args.task) from exc
+                try:
+                    self._validate_conflicts(values, cleared, write_target, output_claim)
+                except AdapterError as exc:
+                    # Only the writers' refusals: a read-only job would meet the
+                    # others (a cancelled parent, a held output path) all the same.
+                    if not by_policy or not self._read_only_clears(values, write_target, output_claim):
+                        raise
+                    raise _written_by_policy(exc, args.task) from exc
+            else:
+                # C-26.1, IR-12: a turn waits for its workspace at admission (a
+                # detached writer's `worktree:` lease, C-24.5), it is never refused here.
+                cleared = None
+            if mcp_servers and mcp_found is None:
+                # Only a retry of an accepted request gets here without entries
+                # (`_mcp_entries`), and only when its job was pruned meanwhile.
+                raise AdapterError(f"--mcp {', '.join(mcp_servers)}: the workdir no longer offers them",
+                                   code=int(Exit.INVALID_INPUT), fix="submit with a new request id", reason="mcp-workdir-changed")
+            jobdir.mkdir(mode=0o700)
+            self._publish("prompt", jobdir / "prompt.md", prompt)
+            if mcp_servers:
+                # C-12.9: the entries every attempt and resume of this job starts.
+                self._publish("mcp-config", jobdir / claude_mcp.JOB_CONFIG_NAME,
+                              json_bytes(mcp_found["document"]))
+            manifest = {"job": values}
+            if mcp_servers:
+                manifest["mcp"] = mcp_found["sources"]
+            if batch:
+                manifest["batch"] = batch
+            if resume:
+                manifest["resume"] = resume
+            if turn is not None:
+                manifest["turn"] = turn
+            note = b""
+            copied = None
+            if copy_plan is not None:
+                try:
+                    copied = uncommitted.keep(copy_plan, jobdir)
+                except uncommitted.CopyRefused as exc:
+                    shutil.rmtree(jobdir, ignore_errors=True)
+                    raise AdapterError(f"the caller's uncommitted files changed while they were copied: {exc}",
+                                       code=int(Exit.OPERATIONAL), fix="submit again",
+                                       reason="uncommitted-copy") from None
+                manifest["uncommitted"] = copied
+            elif copy_fallback is not None:
+                manifest["uncommitted"] = {"fallback": copy_fallback}
+            if resume_workspace:
+                # Review B-2: a resume starts where its source started (`_launch_dir`).
+                manifest["workspace"] = resume_workspace
+            if sandbox == Sandbox.WORKSPACE_WRITE and not args.in_place and turn is None and head is not None:
+                # C-6.6: the worktree is cut at admission; where it will be and where
+                # in it the job starts (the caller's place in the repository) are
+                # known now.
+                cap = self.policy["caps"]["workspace_git_timeout_s"]
+                try:
+                    top = str(push_top) if push_top else git_toplevel(str(workdir), timeout_s=cap) or str(workdir)
+                    # C-6.20: the job can wait with no tree while this checkout goes (`_tree_git`).
+                    common = None if args.push_branch is not None else git_common_dir(str(workdir), timeout_s=cap)
+                except SalvageError as exc:
+                    # C-6.8: exit 1 with nothing stored, as the checks above; only
+                    # the prompt has been written, under a job id nobody was given.
+                    shutil.rmtree(jobdir, ignore_errors=True)
+                    self.log.warning("submit could not inspect %s: %s", args.workdir, refusals.scrubbed_words(exc))
+>                   raise AdapterError(f"could not inspect the workdir: {exc}", code=int(Exit.OPERATIONAL),
+                                       fix="submit again; raise caps.workspace_git_timeout_s if this repository is slow", reason="inspect-workdir") from exc
+E                   subfleet.adapters.base.AdapterError: could not inspect the workdir: git rev-parse timed out after 60 s
+
+subfleet/daemon.py:3343: AdapterError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4500232848:daemon.py:998 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4500232848:daemon.py:1086 reset credits: automatic redemption off; no-reset marker absent
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4506473472:daemon.py:998 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4506473472:daemon.py:1086 reset credits: automatic redemption off; no-reset marker absent
+WARNING  subfleet.daemon.4506473472:daemon.py:3342 submit could not inspect /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-mutant-tests/tree-thrash-mutant-j1zw27xw/pytest/test_a_fresh_waiter_runs_no_gi0/repo: SalvageError: git rev-parse timed out after 60 s
+---------------------------- Captured log teardown -----------------------------
+WARNING  subfleet.daemon.4506473472:daemon.py:1071 conversations lock released after 2.8 s by MainThread (8272273792). Where it was held:
+  File "<frozen runpy>", line 203, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pytest/__main__.py", line 9, in <module>
+    raise SystemExit(_console_main())
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/config/__init__.py", line 253, in _console_main
+    code = _main(prog=_get_prog_name(sys.argv))
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/config/__init__.py", line 229, in _main
+    ret: ExitCode | int = config.hook.pytest_cmdline_main(config=config)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/main.py", line 377, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/main.py", line 330, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/main.py", line 384, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/main.py", line 408, in pytest_runtestloop
+    item.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/runner.py", line 118, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/runner.py", line 144, in runtestprotocol
+    reports.append(call_and_report(item, "teardown", log, nextitem=nextitem))
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/runner.py", line 249, in call_and_report
+    call = CallInfo.from_call(
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/runner.py", line 361, in from_call
+    result: TResult | None = func()
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/runner.py", line 250, in <lambda>
+    lambda: runtest_hook(item=item, **kwds),
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/runner.py", line 199, in pytest_runtest_teardown
+    item.session._setupstate.teardown_exact(nextitem)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/runner.py", line 568, in teardown_exact
+    fin()
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/fixtures.py", line 1156, in finish
+    fin()
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/fixtures.py", line 1014, in _teardown_yield_fixture
+    next(it)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-mutants-limited-3hpw3sru/tests/fake/test_admission_tree_thrash.py", line 109, in fleet_factory
+    service.close()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-mutants-limited-3hpw3sru/subfleet/daemon.py", line 12905, in close
+    self.conversations.close()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-mutants-limited-3hpw3sru/subfleet/conversations/service.py", line 262, in close
+    self.store.close()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-mutants-limited-3hpw3sru/subfleet/conversations/store.py", line 447, in close
+    with self._writes, self._lock:
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-mutants-limited-3hpw3sru/subfleet/lockwatch.py", line 139, in __exit__
+    self.release()
+
+WARNING  subfleet.daemon.4506473472:daemon.py:1071 conversation-files lock released after 5.9 s by MainThread (8272273792). Where it was held:
+  File "<frozen runpy>", line 203, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pytest/__main__.py", line 9, in <module>
+    raise SystemExit(_console_main())
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/config/__init__.py", line 253, in _console_main
+    code = _main(prog=_get_prog_name(sys.argv))
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/config/__init__.py", line 229, in _main
+    ret: ExitCode | int = config.hook.pytest_cmdline_main(config=config)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/main.py", line 377, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/main.py", line 330, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/main.py", line 384, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/main.py", line 408, in pytest_runtestloop
+    item.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/runner.py", line 118, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/runner.py", line 144, in runtestprotocol
+    reports.append(call_and_report(item, "teardown", log, nextitem=nextitem))
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/runner.py", line 249, in call_and_report
+    call = CallInfo.from_call(
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/runner.py", line 361, in from_call
+    result: TResult | None = func()
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/runner.py", line 250, in <lambda>
+    lambda: runtest_hook(item=item, **kwds),
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/runner.py", line 199, in pytest_runtest_teardown
+    item.session._setupstate.teardown_exact(nextitem)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/runner.py", line 568, in teardown_exact
+    fin()
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/fixtures.py", line 1156, in finish
+    fin()
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/fixtures.py", line 1014, in _teardown_yield_fixture
+    next(it)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-mutants-limited-3hpw3sru/tests/fake/test_admission_tree_thrash.py", line 109, in fleet_factory
+    service.close()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-mutants-limited-3hpw3sru/subfleet/daemon.py", line 12905, in close
+    self.conversations.close()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-mutants-limited-3hpw3sru/subfleet/conversations/service.py", line 262, in close
+    self.store.close()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-mutants-limited-3hpw3sru/subfleet/conversations/store.py", line 447, in close
+    with self._writes, self._lock:
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-mutants-limited-3hpw3sru/subfleet/lockwatch.py", line 139, in __exit__
+    self.release()
+=========================== short test summary info ============================
+FAILED tests/fake/test_admission_tree_thrash.py::test_a_fresh_waiter_runs_no_git_and_writes_no_tree[no-slot]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 629.92s (0:10:29)

@@ -1,0 +1,19 @@
+{
+  "outside_scratch": [
+    "/Users/maxghenis/.subfleet/worktrees/20261115-100031-eff-fix-r2/subfleet/__pycache__",
+    "/Users/maxghenis/.subfleet/worktrees/20261115-100031-eff-fix-r2/subfleet/adapters/__pycache__",
+    "/Users/maxghenis/.subfleet/worktrees/20261115-100031-eff-fix-r2/subfleet/sessions/__pycache__",
+    "/Users/maxghenis/.subfleet/worktrees/20261115-100031-eff-fix-r2/subfleet/conversations/__pycache__",
+    "/private/tmp/sf-eff-fix2-201115200058"
+  ],
+  "scratch": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2",
+  "removed": [
+    "/Users/maxghenis/.subfleet/worktrees/20261115-100031-eff-fix-r2/subfleet/__pycache__",
+    "/Users/maxghenis/.subfleet/worktrees/20261115-100031-eff-fix-r2/subfleet/adapters/__pycache__",
+    "/Users/maxghenis/.subfleet/worktrees/20261115-100031-eff-fix-r2/subfleet/sessions/__pycache__",
+    "/Users/maxghenis/.subfleet/worktrees/20261115-100031-eff-fix-r2/subfleet/conversations/__pycache__",
+    "/private/tmp/sf-eff-fix2-201115200058"
+  ],
+  "scratch_removed": true,
+  "finished": "2026-11-15T22:19:05.167891+00:00"
+}

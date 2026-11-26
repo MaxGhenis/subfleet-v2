@@ -627,9 +627,10 @@ class CodexAdapter(Adapter):
     def resume_launch(self, job: JobSpec, attempt_id: str, attempt_dir: Path, lane: Lane,
                       credential_env: dict[str, str], native_session_id: str,
                       prompt_path: Path, guard_override: str | None,
-                      model_id: str | None = None) -> Launch | None:
-        # `model_id` is accepted for the base signature and ignored: a Codex
-        # thread already holds its resolved model (see below).
+                      model_id: str | None = None, effort: str | None = None) -> Launch | None:
+        # `model_id` and `effort` are accepted for the base signature and ignored:
+        # a Codex thread already holds its resolved model (see below), and a Codex
+        # resume launch is unchanged by D-EFFORT-ENV1.
         if job.isolated_review:
             raise AdapterError("isolated review cannot resume a contextual Codex thread",
                                fix="submit a fresh isolated review job", reason="isolation-resume-codex")

@@ -1,0 +1,431 @@
+{
+  "commits": {
+    "base": "a8624a4899a2ce40c849cc5c6f7d74a7010f11b5",
+    "head": "a22ac891703147078f62329dfbd06da69650bb8b"
+  },
+  "head_overlay_sha256": {
+    "subfleet/daemon.py": "7e36c69d8431af1d56bcee8db9f2382c0b6835d82750bb35e88ae7ee07cd9e72"
+  },
+  "samples": [
+    {
+      "label": "base",
+      "sample": 0,
+      "scenario": "closed",
+      "jobs": 300,
+      "workspace": "synthetic",
+      "wall_s": 36.80142162501579,
+      "thread_cpu_s": 0.22006066700000004,
+      "instructions": 927913886,
+      "cuts": 0,
+      "workspace_calls": 0,
+      "evaluations": 0,
+      "store_read_calls": 607,
+      "store_rows": 303,
+      "reservations": 0
+    },
+    {
+      "label": "head",
+      "sample": 0,
+      "scenario": "closed",
+      "jobs": 300,
+      "workspace": "synthetic",
+      "wall_s": 54.704116332984995,
+      "thread_cpu_s": 0.2339474589999999,
+      "instructions": 1073641565,
+      "cuts": 0,
+      "workspace_calls": 0,
+      "evaluations": 0,
+      "store_read_calls": 607,
+      "store_rows": 303,
+      "reservations": 0
+    },
+    {
+      "label": "base",
+      "sample": 0,
+      "scenario": "controller",
+      "jobs": 300,
+      "workspace": "synthetic",
+      "wall_s": 145.4428248339682,
+      "thread_cpu_s": 1.561347333,
+      "instructions": 8881967315,
+      "cuts": 300,
+      "workspace_calls": 300,
+      "evaluations": 300,
+      "store_read_calls": 8710,
+      "store_rows": 7187,
+      "reservations": 2
+    },
+    {
+      "label": "head",
+      "sample": 0,
+      "scenario": "controller",
+      "jobs": 300,
+      "workspace": "synthetic",
+      "wall_s": 331.91345720895333,
+      "thread_cpu_s": 1.787615708,
+      "instructions": 9070657161,
+      "cuts": 2,
+      "workspace_calls": 2,
+      "evaluations": 300,
+      "store_read_calls": 8732,
+      "store_rows": 7198,
+      "reservations": 2
+    },
+    {
+      "label": "base",
+      "sample": 0,
+      "scenario": "open",
+      "jobs": 300,
+      "workspace": "synthetic",
+      "wall_s": 292.511738332978,
+      "thread_cpu_s": 2.4964749999999998,
+      "instructions": 16383291429,
+      "cuts": 300,
+      "workspace_calls": 300,
+      "evaluations": 300,
+      "store_read_calls": 9007,
+      "store_rows": 228154,
+      "reservations": 300
+    },
+    {
+      "label": "head",
+      "sample": 0,
+      "scenario": "open",
+      "jobs": 300,
+      "workspace": "synthetic",
+      "wall_s": 152.5176137080416,
+      "thread_cpu_s": 3.226433709,
+      "instructions": 20109744579,
+      "cuts": 300,
+      "workspace_calls": 300,
+      "evaluations": 300,
+      "store_read_calls": 12307,
+      "store_rows": 274504,
+      "reservations": 300
+    }
+  ],
+  "summary": [
+    {
+      "label": "base",
+      "scenario": "closed",
+      "wall_s": {
+        "min": 36.80142162501579,
+        "median": 36.80142162501579,
+        "max": 36.80142162501579
+      },
+      "thread_cpu_s": {
+        "min": 0.22006066700000004,
+        "median": 0.22006066700000004,
+        "max": 0.22006066700000004
+      },
+      "instructions": {
+        "min": 927913886,
+        "median": 927913886,
+        "max": 927913886
+      },
+      "cuts": {
+        "min": 0,
+        "median": 0,
+        "max": 0
+      },
+      "workspace_calls": {
+        "min": 0,
+        "median": 0,
+        "max": 0
+      },
+      "evaluations": {
+        "min": 0,
+        "median": 0,
+        "max": 0
+      },
+      "store_read_calls": {
+        "min": 607,
+        "median": 607,
+        "max": 607
+      },
+      "store_rows": {
+        "min": 303,
+        "median": 303,
+        "max": 303
+      },
+      "reservations": {
+        "min": 0,
+        "median": 0,
+        "max": 0
+      }
+    },
+    {
+      "label": "head",
+      "scenario": "closed",
+      "wall_s": {
+        "min": 54.704116332984995,
+        "median": 54.704116332984995,
+        "max": 54.704116332984995
+      },
+      "thread_cpu_s": {
+        "min": 0.2339474589999999,
+        "median": 0.2339474589999999,
+        "max": 0.2339474589999999
+      },
+      "instructions": {
+        "min": 1073641565,
+        "median": 1073641565,
+        "max": 1073641565
+      },
+      "cuts": {
+        "min": 0,
+        "median": 0,
+        "max": 0
+      },
+      "workspace_calls": {
+        "min": 0,
+        "median": 0,
+        "max": 0
+      },
+      "evaluations": {
+        "min": 0,
+        "median": 0,
+        "max": 0
+      },
+      "store_read_calls": {
+        "min": 607,
+        "median": 607,
+        "max": 607
+      },
+      "store_rows": {
+        "min": 303,
+        "median": 303,
+        "max": 303
+      },
+      "reservations": {
+        "min": 0,
+        "median": 0,
+        "max": 0
+      }
+    },
+    {
+      "label": "base",
+      "scenario": "controller",
+      "wall_s": {
+        "min": 145.4428248339682,
+        "median": 145.4428248339682,
+        "max": 145.4428248339682
+      },
+      "thread_cpu_s": {
+        "min": 1.561347333,
+        "median": 1.561347333,
+        "max": 1.561347333
+      },
+      "instructions": {
+        "min": 8881967315,
+        "median": 8881967315,
+        "max": 8881967315
+      },
+      "cuts": {
+        "min": 300,
+        "median": 300,
+        "max": 300
+      },
+      "workspace_calls": {
+        "min": 300,
+        "median": 300,
+        "max": 300
+      },
+      "evaluations": {
+        "min": 300,
+        "median": 300,
+        "max": 300
+      },
+      "store_read_calls": {
+        "min": 8710,
+        "median": 8710,
+        "max": 8710
+      },
+      "store_rows": {
+        "min": 7187,
+        "median": 7187,
+        "max": 7187
+      },
+      "reservations": {
+        "min": 2,
+        "median": 2,
+        "max": 2
+      }
+    },
+    {
+      "label": "head",
+      "scenario": "controller",
+      "wall_s": {
+        "min": 331.91345720895333,
+        "median": 331.91345720895333,
+        "max": 331.91345720895333
+      },
+      "thread_cpu_s": {
+        "min": 1.787615708,
+        "median": 1.787615708,
+        "max": 1.787615708
+      },
+      "instructions": {
+        "min": 9070657161,
+        "median": 9070657161,
+        "max": 9070657161
+      },
+      "cuts": {
+        "min": 2,
+        "median": 2,
+        "max": 2
+      },
+      "workspace_calls": {
+        "min": 2,
+        "median": 2,
+        "max": 2
+      },
+      "evaluations": {
+        "min": 300,
+        "median": 300,
+        "max": 300
+      },
+      "store_read_calls": {
+        "min": 8732,
+        "median": 8732,
+        "max": 8732
+      },
+      "store_rows": {
+        "min": 7198,
+        "median": 7198,
+        "max": 7198
+      },
+      "reservations": {
+        "min": 2,
+        "median": 2,
+        "max": 2
+      }
+    },
+    {
+      "label": "base",
+      "scenario": "open",
+      "wall_s": {
+        "min": 292.511738332978,
+        "median": 292.511738332978,
+        "max": 292.511738332978
+      },
+      "thread_cpu_s": {
+        "min": 2.4964749999999998,
+        "median": 2.4964749999999998,
+        "max": 2.4964749999999998
+      },
+      "instructions": {
+        "min": 16383291429,
+        "median": 16383291429,
+        "max": 16383291429
+      },
+      "cuts": {
+        "min": 300,
+        "median": 300,
+        "max": 300
+      },
+      "workspace_calls": {
+        "min": 300,
+        "median": 300,
+        "max": 300
+      },
+      "evaluations": {
+        "min": 300,
+        "median": 300,
+        "max": 300
+      },
+      "store_read_calls": {
+        "min": 9007,
+        "median": 9007,
+        "max": 9007
+      },
+      "store_rows": {
+        "min": 228154,
+        "median": 228154,
+        "max": 228154
+      },
+      "reservations": {
+        "min": 300,
+        "median": 300,
+        "max": 300
+      }
+    },
+    {
+      "label": "head",
+      "scenario": "open",
+      "wall_s": {
+        "min": 152.5176137080416,
+        "median": 152.5176137080416,
+        "max": 152.5176137080416
+      },
+      "thread_cpu_s": {
+        "min": 3.226433709,
+        "median": 3.226433709,
+        "max": 3.226433709
+      },
+      "instructions": {
+        "min": 20109744579,
+        "median": 20109744579,
+        "max": 20109744579
+      },
+      "cuts": {
+        "min": 300,
+        "median": 300,
+        "max": 300
+      },
+      "workspace_calls": {
+        "min": 300,
+        "median": 300,
+        "max": 300
+      },
+      "evaluations": {
+        "min": 300,
+        "median": 300,
+        "max": 300
+      },
+      "store_read_calls": {
+        "min": 12307,
+        "median": 12307,
+        "max": 12307
+      },
+      "store_rows": {
+        "min": 274504,
+        "median": 274504,
+        "max": 274504
+      },
+      "reservations": {
+        "min": 300,
+        "median": 300,
+        "max": 300
+      }
+    }
+  ],
+  "complete": true,
+  "runner_sha256": "e87dfe9d767014e4091b84f72fdc10e104c8f657b53882564ccb443bf103187d",
+  "python": "3.15.2 (main, Oct 26 2026, 13:59:33) [Clang 23.1.3 ]",
+  "benchmark_source_proof": "2026-11-06-tree-thrash-fix-r1-benchmark-source.json",
+  "measurement_note": "One matched base/head pair per scenario. A later sweep-only revision leaves the measured _admit_pass byte-exact. Wall time is host-load sensitive; old costs used Python3.14.7, current3.15.2.",
+  "cost_change_percent": {
+    "closed": {
+      "instructions": 15.704871022913004,
+      "wall_s": 48.6467476457481,
+      "thread_cpu_s": 6.310438021166176,
+      "store_read_calls": 0.0,
+      "store_rows": 0.0
+    },
+    "controller": {
+      "instructions": 2.124415000732305,
+      "wall_s": 128.20889073617258,
+      "thread_cpu_s": 14.49186674980536,
+      "store_read_calls": 0.2525832376578663,
+      "store_rows": 0.15305412550439268
+    },
+    "open": {
+      "instructions": 22.745448716146388,
+      "wall_s": -47.85931854316745,
+      "thread_cpu_s": 29.239576162388992,
+      "store_read_calls": 36.63817031197958,
+      "store_rows": 20.31522568089974
+    }
+  }
+}
