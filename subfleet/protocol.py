@@ -43,6 +43,8 @@ JOBS_KIND_CAPABILITY = "jobs.kind.v1"
 #: C-8.5 (review P3-10): `submit` honours `push_branch`. A daemon without it drops
 #: the field (C-16.2) and never pushes, so a client sends it only to one that lists this.
 PUSH_CAPABILITY = "push.v1"
+#: C-18.6: read-only stored and artifact-backed per-attempt token reports.
+USAGE_CAPABILITY = "usage.v1"
 
 #: C-11.10: the original conditional encoding, kept for clients using plain
 #: `hold` and `release` with `if_note_prefix`.
@@ -58,7 +60,7 @@ TASKS_IF_NOTE_PREFIX_V2_CAPABILITY = "tasks.if_note_prefix.v2"
 TASKS_SANDBOX_CAPABILITY = "tasks.sandbox.v1"
 
 OPS = (
-    "submit", "list", "show", "wait", "kill", "lanes", "readings", "why",
+    "submit", "list", "show", "wait", "kill", "lanes", "readings", "why", "usage",
     "notice.pending", "notice.ack", "notice.mark", "notice.list", "notice.withdraw", "ping", "daemon.status",
     "gate.start", "gate.poll", "gate.continue",
     "sessions", "pick", "operations", "tasks", "retention.delete",
@@ -271,6 +273,14 @@ class ListArgs:
 @dataclass
 class ShowArgs:
     job_id: str
+
+
+@dataclass
+class UsageArgs:
+    """C-18.6: a read-only usage window, grouping and optional artifact read."""
+    since: str = "24h"
+    by: str = "lane"
+    backfill: bool = False
 
 
 @dataclass

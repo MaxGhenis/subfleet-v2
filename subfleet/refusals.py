@@ -345,6 +345,11 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     "transfer-relocate": ("lanes transfer: could not relocate the lane home; the daemon log names both paths",
                           "move it by hand and run this again; the re-run sees the home already in place "
                           "and finishes the record and the flip"),
+    # The usage report (C-18.6).
+    "usage-since": ("usage: since must be a duration such as 24h or 7d, or an ISO timestamp", None),
+    "usage-since-positive": ("usage: since must be a positive duration such as 24h or 7d, or an ISO timestamp", None),
+    "usage-by": ("usage: by must be lane, conversation or session", None),
+    "usage-backfill": ("usage: backfill must be true or false", None),
     # Operator commands (C-19).
     "errors-hours": ("errors: --hours must be a finite positive number", None),
     "errors-hours-range": ("errors: --hours is outside the supported date range", None),

@@ -21,6 +21,7 @@ from ..launch_env import build_environment, codex_shell_args, foreign_credential
 from .base import Adapter, AdapterError, open_stream, stream_path
 from ..guardian import atomic_publish
 from ..sessions.transcripts import NotRegularFile, open_regular, read_regular
+from ..usage import parse_usage
 from ..contracts import (
     Attestation, AttestationResult, ClockSource, Closure, ClosureReason, Credential,
     ExitInfo, GUESSED_CLOSURE_S, JobSpec, Lane, LaneInfo, Launch, Outcome,
@@ -659,6 +660,7 @@ class CodexAdapter(Adapter):
         failures = []
         answered, read = False, 0
         turn_completed, last_event_type = False, None
+        usage_rows = []
         for event in _events(_stream_path(attempt_dir, launch), frozen=True):
             read += 1
             last_event_type = event.get("type")
@@ -668,6 +670,9 @@ class CodexAdapter(Adapter):
             if event.get("type") in ("turn.failed", "error"):
                 failures.append(event)
             answered = answered or model_answered(event)
+            if event.get("type") == "turn.completed":
+                usage_rows.append(json.dumps(event))
+        usage = parse_usage(usage_rows, "codex", resumed="resume" in launch.argv)
         stderr = self.read_text(Path(launch.stderr_path))
         signals = [(event, json.dumps(event, ensure_ascii=False)) for event in failures]
         signals.extend(({}, line) for line in stderr.splitlines() if line.strip())
@@ -681,7 +686,7 @@ class CodexAdapter(Adapter):
         if exit_info.spawn_error:
             evidence["spawn_error"] = exit_info.spawn_error
         def result(cls: OutcomeClass, detail: str, closure: Closure | None = None) -> Outcome:
-            return Outcome(cls, detail, evidence=dict(evidence), closure=closure, native_session_id=session_id)
+            return Outcome(cls, detail, evidence=dict(evidence), closure=closure, native_session_id=session_id, usage=usage)
         # A completed admission can recover a nonterminal stream error. A terminal
         # turn.failed always wins over a leftover last.md or earlier assistant text.
         terminal = any(event.get("type") == "turn.failed" for event in failures)

@@ -4461,6 +4461,12 @@ class Daemon:
             view = closure_rows(self._capacity_view(self._desktop_identity()))
             view["task_holds"] = task_holds.listing(self._task_holds_now())        # C-11.10
             return {"readings": view["readings"], "closures": view["closures"], "status": render.status(view)}
+        if op == "usage":
+            # C-18.6: historical measurements, optionally read from retained
+            # artifacts, never a store write or a provider request.
+            from .usage_report import build_report
+            a = protocol.coerce_args(protocol.UsageArgs, args)
+            return build_report(self.store, self.root, **dataclasses.asdict(a))
         if op == "why":
             a = protocol.coerce_args(protocol.WhyArgs, args)
             if a.job_id:
@@ -12283,6 +12289,27 @@ class Daemon:
             outcome = self._restore_outcome(result["outcome"])
             attest_status = Attestation(result["attestation"]["status"]).value
             served_model = result["attestation"]["served_model"]
+        if outcome.usage is None and not stream_failure:
+            # C-18.5: a lost guardian or an older finalization receipt can
+            # still leave measured usage. Read after containment, outside SQL;
+            # use the same parser as classification and read-only backfill.
+            # A failed capture reads no live candidate again (stream_failure,
+            # above), so neither does this.
+            from .usage import parse_usage
+            turn = self._read_json(adir / "turn.json") if job["kind"] == "turn" else None
+            for path in dict.fromkeys((launch.raw_stream_path, launch.stdout_path)):
+                if not path:
+                    continue
+                try:
+                    with open_regular(path, "r", encoding="utf-8", errors="replace") as stream:
+                        usage = parse_usage(stream, lane.provider,
+                                            resumed="resume" in launch.argv or "--resume" in launch.argv,
+                                            turn_id=(turn or {}).get("turn_id"))
+                except (OSError, NotRegularFile):
+                    continue
+                if usage is not None:
+                    outcome = dataclasses.replace(outcome, usage=usage)
+                    break
 
         def artifact(path: Path, role: str) -> dict | None:
             try:
@@ -12430,6 +12457,11 @@ class Daemon:
             evidence.update(classification=outcome.evidence, checkpoint=checkpoint, **salvage_evidence)
             if census.cwd_pids:
                 evidence['cwd_holders'] = census.to_dict()['cwd_holders']
+            # C-18.5: keep provider measurements beside classification. An
+            # unreported measurement has no key, so older attempts and streams
+            # with no usage cannot be mistaken for zero-token attempts.
+            if outcome.usage is not None:
+                evidence["usage"] = outcome.usage
             if trees is not None:
                 evidence["turn_trees"] = {k: trees.get(k) for k in ("head_before", "head_after", "start_tree",
                                                                      "end_tree", "skipped", "error")}

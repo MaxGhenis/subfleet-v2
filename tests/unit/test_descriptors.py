@@ -235,6 +235,8 @@ def test_c16_7_an_oversized_request_is_reported_once_and_the_next_one_still_pars
 def test_c16_7_only_reads_are_dropped_for_a_departed_client():
     for op in ("list", "show", "wait", "readings", "why", "pick", "daemon.status", "notice.pending"):
         assert descriptors.read_only(op, {}), op
+    # C-18.6: the usage report only reads, a backfill included; a departed caller's is not run.
+    assert descriptors.read_only("usage", {}) and descriptors.read_only("usage", {"backfill": True})
     assert descriptors.read_only("ping", {}) and not descriptors.read_only("ping", {"text": "hello"})
     assert descriptors.read_only("lanes", {}) and descriptors.read_only("lanes", {"action": "list"})
     for action in ("transfer", "enroll", "hold", "release"):
