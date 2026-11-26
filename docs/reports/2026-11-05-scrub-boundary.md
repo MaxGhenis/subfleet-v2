@@ -1075,6 +1075,20 @@ head's text: this round added `kept` to that `return`, so 4890f0d60's text no lo
 `within_line_scrub` both hide a value that `scrub_bounded` shows (reminders stripped, limits None and
 2,048). `fuzz2.py` weights reminders and data URI pieces more.
 
+To regenerate a seed (the scripts went with the scratch folder): with `R`, `C` and `U` as in
+`REVIEW_R2`, `B` and `E` a private key's opener and closer, and
+`LP = "data:image/png" + ";a=b" * 130 + ";base64," + "QUJD" * 10`, `fuzz.py`'s parts, in order, are
+`[U, U, U, R, C, R, C, 'password = "', 'passwd="', 'token="', '"', "\n", "\n", "x = 1\n", "-", "Q\n", LP,
+'password = "' + C + '"\n', 'password = "' + R + '"\n', 'password = "' + C + "\n", "QUJD" * 3, "data",
+"apikey=", B + "\n", E + "\n", "ZVAL\n"]`. `fuzz2.py`'s are `[U, U, U, U, R, C, R, C, R, C,
+"data:image/png;base64,QUJD\n", "QUJD" * 10 + "\n", R + "x" + C, C + U]` followed by `fuzz.py`'s from
+`'password = "'` on, without `"apikey="`. For a seed: `rnd = random.Random(seed)`, then
+`parts = [rnd.choice(PARTS) for _ in range(rnd.randint(2, 14))]`; the k-th `"ZVAL\n"` drawn (k from 1)
+becomes `"Zq7x%06d\n" % (seed * 100 + k)`, and `"Zq7x%06d\n" % (seed * 100 + 99)` is appended. A leak is
+a value in neither `scrub_secrets(text, strip_reminders=True, whole=True)` nor
+`within_line_scrub(text, True)` that `scrub_bounded(text, limit, strip_reminders=True)` shows at limit
+None or 2,048 (Python 3.15.2).
+
 | Run | texts | 4890f0d60 | this head (final code) |
 |---|---|---|---|
 | `fuzz.py` seeds 0–2,999 | 3,000 | 1 | 1 (the same) |
@@ -1113,7 +1127,8 @@ scratch `$TMPDIR/sf-scrubop-fix2`, a new `--basetemp` with `pytest` in its last 
 | 23:50 | **final 1**: `-k "every_data_uri_run_on_past_a_reminder or body_matches_are_linear or reads_each_closer_once or erased_key_step_only_adds_masks"` | 106 GB; 8.7 | **66 passed** in 32.6 s (22 + 1 + 1 + 42) |
 | 23:51 | **final 2a**: the growth test, 7 shapes | 106 GB; 10.5 | **7 passed** in 5.9 s |
 | 23:51 | **final 2b**: the rest of the module (`-k "not (linear_in_the_blocks and not body_matches)"`) | 106 GB; 10.5 (27.6 at its end) | **355 passed** in 344.9 s |
-| see the final answer | **final 3**: `tests/fake/test_state_contract.py tests/unit/test_invariants_index.py tests/unit/test_test_module_names.py tests/unit/test_handler_refusals.py` | — | see the final answer |
+| 00:01 | **final 3**: `tests/fake/test_state_contract.py tests/unit/test_invariants_index.py tests/unit/test_test_module_names.py tests/unit/test_handler_refusals.py`, at `19288409a` | 105 GB; 12.5 | **437 passed** in 21.0 s (37 + 25 + 1 + 374) |
+| after this report's last commit | final 3 again | see the final answer | see the final answer |
 
 Collect: 362 tests in `tests/unit/test_sessions_handoff_excerpts.py`, the only test module in
 `git diff --name-only 53a7bac93...HEAD` (with `docs/acceptance-contract.md`, this report and
