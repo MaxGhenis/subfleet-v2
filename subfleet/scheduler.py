@@ -1381,7 +1381,7 @@ def cache_until(last_use: str | datetime | None, cache_ttl: str | None) -> str |
 def turn_route(decision: Decision | Mapping[str, Any], affinity_lane: str | None, *, floor: float,
                reading_ttl_s: int, last_use: str | None = None, cache_ttl: str | None = None,
                context_tokens: int | None = None) -> dict[str, Any] | None:
-    """C-11.10, C-26.2: what the person is told when a turn leaves its warm lane.
+    """C-11.11, C-26.2: what the person is told when a turn leaves its warm lane.
 
     None when the turn has no affinity lane, no lane was chosen, or it runs on
     its affinity lane. Otherwise the move: `from` (the warm lane), `to`, the warm

@@ -195,7 +195,7 @@ def test_turn_cap_invariants(policy, running, detached, fleet_caps, lane_caps, a
 
 
 def test_a_turn_that_leaves_its_warm_lane_says_why_and_when_it_reopens(policy):
-    """C-11.10, C-26.2 a turn whose affinity lane is closed by a reported limit still
+    """C-11.11, C-26.2 a turn whose affinity lane is closed by a reported limit still
     moves at once, and its route names the warm lane, the reason, when the lane
     reopens, and whether the cache was still alive (staying would have read it)."""
     from subfleet.scheduler import turn_route
