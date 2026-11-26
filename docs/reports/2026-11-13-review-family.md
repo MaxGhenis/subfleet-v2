@@ -12,7 +12,7 @@ The numbered routing rule controls: Astra remains the Claude caller's eligible m
 
 `scheduler.py` shares the chain across evaluation, provider pinning, and demand/FIFO accounting; `daemon.py` uses it during submission validation, and `route_check.py` preserves its wait reason during reservation rechecks. No capacity in the required family means waiting and a reason naming that family. Existing same-family pins are also guarded at evaluation. Explicit same-family model submissions refuse with `review-same-family`, exit 7, before job/event insertion. `--allow-same-family` records a boolean on the job, authorizes a same-family pin, and appends the original chain after independent choices. True authorization joins the request digest; default false leaves old digests intact.
 
-`why --caller-family` overrides normal caller detection; shape explanations otherwise detect exactly as `run` does. Existing-job explanations use the job's family. `runs show --json` carries `caller_family` and `allow_same_family`. CLI help, README, and acceptance clauses C-6.23–24 document the behavior, with C-3.8/C-6.5/C-6.21/C-17.2 corrected and one contiguous change-log entry added.
+`why --caller-family` overrides normal caller detection; shape explanations otherwise detect exactly as `run` does. Existing-job explanations use the job's family. `runs show --json` carries `caller_family` and `allow_same_family`. CLI help, README, and acceptance clauses C-6.23–24 document the behavior, with C-3.9/C-6.5/C-6.21/C-17.2 corrected and one contiguous change-log entry added.
 
 ## What `why` prints
 
