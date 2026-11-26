@@ -62,6 +62,27 @@ def test_c18_5_finalization_reads_usage_even_without_a_new_receipt(daemon, monke
     assert evidence["usage"]["normalized"]["prompt"] == 100
 
 
+@pytest.mark.parametrize("has_receipt", [False, True], ids=["dead-guardian", "exit-receipt"])
+def test_c18_5_a_failed_capture_reads_no_live_usage(daemon, monkeypatch, has_receipt):
+    """C-18.5: usage fallback must respect the stream capture verdict."""
+    with_launch(daemon, monkeypatch)
+    daemon._contain = lambda a: EMPTY
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")
+    adir = attempt_dir(daemon.root, JOB, 1)
+    (adir / "stdout").write_text(LINE + "\n")
+    if has_receipt:
+        publish_receipt(daemon)
+
+    def fail_freeze(*args):
+        raise OSError("capture I/O failed")
+
+    monkeypatch.setattr(daemon, "_freeze_stream", fail_freeze)
+    daemon._finalize(attempt(daemon))
+    evidence = json.loads(attempt(daemon)["evidence_json"])
+    assert evidence["classification"]["stream_capture"]["status"] == "unreadable"
+    assert "usage" not in evidence
+
+
 def test_c18_6_daemon_usage_dispatch_is_read_only(daemon, monkeypatch):
     """C-18.6: the socket operation delegates to the report without writing evidence."""
     from subfleet import usage_report
