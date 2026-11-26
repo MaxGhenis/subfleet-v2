@@ -1003,7 +1003,7 @@ This is unchanged from fix rounds 1 and 2:
     - Commands: for each block, 4,000 and 8,000 `cd a; ` and 4,000 `cd a/..; `, followed by a commit (or a `subfleet run`) and a stash. Each runs on the overlay and on the Claude block alone. The payload cwd is a checkout with a second worktree.
     - Each row must finish inside 60 s, stay within its bound, and be refused with the block's own refusal. On a timeout, the whole process group is killed.
     - The bound is 10 times fix r1's CPU on that row and side, and never under 1 s (table below).
-    - **Before** (`122fc9ca5`, with fix r2's hook): all 12 failed. **After:** passed.
+    - **Before** (fix r2's hook; this test is the same in `122fc9ca5` and `fdd9d6af5`): all 12 failed. **After:** passed.
   - **`test_too_many_folder_and_command_pairs_are_refused`.**
     - 64 folders × 32 commits × (1 + one `-C`) is 4,096 and is allowed. One more `cd` is refused, on both sides.
     - The same holds for 16 runs × (1 + one `-C` + two `-p`).
@@ -1159,7 +1159,7 @@ No clause in `docs/acceptance-contract.md` names the overlay's rules, their pars
 | --- | --- | --- | --- | --- |
 | after 23:22Z | step 0's three calls (above) | 49, 8 and 4 passed | 10-12 | 108 GB |
 | before 23:37Z | `measure.py` on fix r1 (`324d2a84`, from `e908a6892`, with `claude-blocks/fix-r1/`) | the "Fix r1" column | ~11 | not recorded |
-| 23:38-23:40Z | before-r3: `122fc9ca5`'s tests with fix r2's hook | all 12 chain rows, both logical tests and the pair-cap test failed; the physical-spelling and grandchild tests passed | 7-8 | not recorded |
+| 23:38-23:40Z | before-r3, with fix r2's hook: the tests in the working tree, in several calls, as `fdd9d6af5`'s two fixes went in (the grandchild and link tests need the session's `PATH`, and the brief block's link test exists only from `fdd9d6af5` on), so the results are those of the tests `fdd9d6af5` commits | all 12 chain rows, both logical tests and the pair-cap test failed; the physical-spelling and grandchild tests passed | 7-8 | not recorded |
 | then | the brief block's two overlay rows, alone | failed again, 48 s | 6-8 | not recorded |
 | scratch | differential check of `join` and `cdl` | 0 mismatches in 20,000 cases each | not recorded | not recorded |
 | 23:44Z | after-r3, the tree committed as `499399d00`: the 24 selected tests | **24 passed**, 75 s | 8 | not recorded |
