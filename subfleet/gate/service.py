@@ -13,8 +13,11 @@ import re
 import subprocess
 import threading
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
+from .. import route_check, scheduler
+from ..contracts import DEFAULT_CAPS
 from ..sessions.transcripts import TooLarge, read_regular
 from ..store import utc_now
 from ..launch_env import helper_policy
@@ -66,6 +69,13 @@ def round_limit(value: int | None, policy: dict, current: int | None = None) -> 
     # v1's 0 spelling still parses; the permanent policy cap always applies.
     requested = current if value is None else value
     return min(requested, cap) if requested else cap
+
+
+def queue_deadline(policy: dict) -> int:
+    cap = int(policy.get("caps", {}).get("gate_queue_s", DEFAULT_CAPS["gate_queue_s"]))
+    if cap < 1:
+        raise GateError("policy gate_queue_s must be positive")
+    return cap
 
 
 def capture(state: dict, *, runner=subprocess.run) -> tuple[dict, bytes | None]:
@@ -246,6 +256,23 @@ class GateService:
         prior = rounds[-1] if rounds else {}
         if prior.get("status") == "changes_requested" and prior.get("revision") == expected and not response.strip():
             raise GateError("artifact is unchanged after changes requested; change it or pass --response FILE", 3)
+        deadline = queue_deadline(self.daemon.policy)
+        shape = {"kind": "gate-review", "pinned_model": state["peer"], "pinned_lane": account,
+                 "exclusions": list(exclusions), "sandbox": "read-only", "isolated_review": True}
+        try:
+            view = self.daemon._pin_view(self.daemon._desktop_identity())
+            refusals = scheduler.unadmittable(self.daemon.policy, view, shape, far_s=deadline)
+        except route_check.ROUTE_ERRORS:
+            refusals = None  # C-6.12 handles unevaluable routes at admission.
+        if refusals:
+            pin = f" pinned to {account}" if account else ""
+            message = (f"no {state['peer']} lane can take this peer round{pin} within {deadline} s "
+                       f"({', '.join(refusals)}); nothing was submitted and no round was spent; "
+                       f"run subfleet gate continue {state['id']} --main-approve with the expected "
+                       "revision once a lane can take the round")
+            state.update(status="blocked", blocker=message)
+            self._save(state, "round-unplaceable")
+            return self._result(state)
         stamp = utc_now()
         record = {"number": len(rounds) + 1, "attempt_id": uuid.uuid4().hex,
                   "started_at": stamp, "finished_at": None, "revision": expected,
@@ -322,6 +349,43 @@ class GateService:
         self._save(state, "merge-result")
         return self._result(state, result["code"], result.get("message"))
 
+    def _has_attempt(self, job_id):
+        return self.store.one("SELECT 1 FROM attempts WHERE job_id=? LIMIT 1", (job_id,)) is not None
+
+    def _end_unplaced(self, state, job):
+        if job is None:
+            return None
+        job_id, job_state = job["job_id"], job["state"]
+        queued = job_state in {"queued", "waiting"}
+        if queued:
+            deadline = queue_deadline(self.daemon.policy)
+            age = (datetime.now(timezone.utc) - datetime.fromisoformat(job["created_at"])).total_seconds()
+            if age < deadline:
+                return None
+        elif job_state not in _TERMINAL:
+            return None
+        if self._has_attempt(job_id):
+            return None
+        if queued:
+            cancelled = self.daemon._request_cancel(
+                job_id, {"by": "daemon", "reason": "gate-queue-deadline",
+                         "gate_id": state["id"], "queued_s": int(age)}, without_attempt=True)
+            if not cancelled:
+                return None
+            why = f"not placed within {deadline} s (waiting: {job['wait_reason'] or 'queued'})"
+        else:
+            why = f"ended {job_state} before any lane took it"
+        record = state["rounds"].pop()
+        record.update(status="unplaced", finished_at=utc_now(), error=why)
+        state.setdefault("unplaced_rounds", []).append(record)
+        message = (f"peer job {job_id} {why}; no round was spent; "
+                   f"subfleet why {job_id} shows what held it; "
+                   f"subfleet gate continue {state['id']} --main-approve with the expected revision "
+                   "starts a fresh round")
+        state.update(status="blocked", blocker=message)
+        self._save(state, "round-unplaced")
+        return {**self._result(state, 4), "job_id": job_id}
+
     def poll(self, gate_id):
         with self._lock(gate_id):
             state = self._load(gate_id)
@@ -338,6 +402,9 @@ class GateService:
             if not record.get("peer_run_id"):
                 return self._submit(state)
             job = self.store.get_job(record["peer_run_id"])
+            unplaced = self._end_unplaced(state, job)
+            if unplaced is not None:
+                return unplaced
             if job and job["state"] not in _TERMINAL:
                 return self._result(state)
             return self._consume(state, job)
@@ -436,14 +503,24 @@ class GateService:
                     return self._complete(state)
             if state["status"] == "reviewing":
                 job = self.store.get_job(state["rounds"][-1].get("peer_run_id"))
-                if job and job["state"] not in _TERMINAL:
-                    return self._result(state, 4, "another peer review is already running; no duplicate launched")
-                current, _ = capture(state, runner=self.runner)
-                if args.main_approve:
-                    assert_expected(revision(current), expected_revision(args, current))
-                else:
-                    assert_optional_expected(args, current, state["rounds"][-1]["revision"])
-                return self.poll(args.gate_id)
+                unplaced = self._end_unplaced(state, job)
+                if unplaced is None:
+                    if job and job["state"] not in _TERMINAL:
+                        if job["state"] in {"queued", "waiting"} and not self._has_attempt(job["job_id"]):
+                            deadline = queue_deadline(self.daemon.policy)
+                            message = (f"another peer review is already queued (job {job['job_id']}); "
+                                       f"it ends unplaced {deadline} s after it was submitted if no lane "
+                                       "takes it; no duplicate launched")
+                            return self._result(state, 4, message)
+                        return self._result(state, 4, "another peer review is already running; no duplicate launched")
+                    current, _ = capture(state, runner=self.runner)
+                    if args.main_approve:
+                        assert_expected(revision(current), expected_revision(args, current))
+                    else:
+                        assert_optional_expected(args, current, state["rounds"][-1]["revision"])
+                    return self.poll(args.gate_id)
+                if not args.main_approve:
+                    return unplaced
             subject, _ = capture(state, runner=self.runner)
             if state["status"] == "completed":
                 assert_optional_expected(args, subject, approved)

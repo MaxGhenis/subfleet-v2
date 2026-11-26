@@ -227,6 +227,7 @@ class Exit(enum.IntEnum):
 
 DEFAULT_CAPS: dict[str, int | None] = {
     "gate_max_rounds": 4,
+    "gate_queue_s": 1800,
     # C-6.4: every count cap is null by default, which is no cap: a job waits
     # only for a lane that can take it, and is refused only for what it is, never
     # for a count Subfleet imposes (Max, 2026-09-27: "we should uncap everything
