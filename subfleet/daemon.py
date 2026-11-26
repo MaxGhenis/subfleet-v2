@@ -3133,10 +3133,10 @@ class Daemon:
             # C-6.2 before C-26.13: a session can become a conversation's after
             # its resume or revive was accepted (`conversation.open` with
             # `native` binds it at once), so a retry of that request is
-            # answered from its job below, as C-6.2 answers every retry, and
-            # admission fails the job if it has not launched. Only a request
-            # the daemon has not accepted is refused here, before the rest of
-            # validation, so the refusal is what a new request hears.
+            # answered from its job below under C-6.2, and admission fails the
+            # job if it has not launched. The resume pin refusal also waits for
+            # that lookup when a policy name resolves the source ID. A new
+            # request hears the session refusal here, before the rest of validation.
             accepted = bool(fence) and self._accepted_request(args.request_id)
             if fence and not accepted:
                 self._refuse_conversation_session(*fence)
@@ -3272,6 +3272,7 @@ class Daemon:
                 depends = dependencies.record(str(workdir), review_root=review_root, out_path=out)
                 pin = args.pinned_model
                 model = None
+                pin_refusal = None
                 if pin is not None:
                     pin_error = None
                     try:
@@ -3282,13 +3283,18 @@ class Daemon:
                                          and self.policy["models"][model]["id"] != resume["model_id"]):
                         # C-12.4: a resume's pin is its source attempt's model, which its
                         # caller cannot change (`_resume_submission`): its repair is a fresh job.
-                        raise AdapterError(f"unknown pinned model {pin!r}; policy models: "
-                                           + ", ".join(self.policy["models"]), code=7,
-                                           fix=refusals.RESUME_PIN_FIX if resume is not None
-                                           else "pin a model from the live policy",
-                                           reason="unknown-pinned-model",
-                                           details={"model": pin, **({refusals.RESUME_PIN: True}
-                                                                     if resume is not None else {})}) from pin_error
+                        refusal = AdapterError(f"unknown pinned model {pin!r}; policy models: "
+                                               + ", ".join(self.policy["models"]), code=7,
+                                               fix=refusals.RESUME_PIN_FIX if resume is not None
+                                               else "pin a model from the live policy",
+                                               reason="unknown-pinned-model",
+                                               details={"model": pin, **({refusals.RESUME_PIN: True}
+                                                                         if resume is not None else {})})
+                        # C-6.2 settles an accepted retry from its job. An
+                        # unresolved pin leaves no digest to compare.
+                        if model is None or not accepted:
+                            raise refusal from pin_error
+                        pin_refusal = refusal
                 if args.needs_shell is not None and type(args.needs_shell) is not bool:
                     raise ValueError("needs_shell must be true or false")
                 if args.provider_qos is not None and (type(args.provider_qos) is not str
@@ -3345,8 +3351,8 @@ class Daemon:
                     raise ValueError("max_wall_s must be positive and within policy caps")
                 # C-6.2: retain the pre-alias-fix normalization for accepted
                 # resume retries. The digest can still resolve a key or retired
-                # alias spelled like the source ID. Routing uses the model pinned
-                # above, whose ID has already been checked against the source.
+                # alias spelled like the source ID. Routing requires a pin at
+                # the source ID; a retry with a deferred refusal cannot reach routing.
                 digest_model = resolve_model(self.policy, resume["model_id"]) if resume else model
                 digest = ids.payload_digest(prompt, workdir=str(workdir), workdir_head=head,
                     task=args.task, tier=args.tier, pinned_model=digest_model, pinned_lane=digest_pin,
@@ -3394,6 +3400,8 @@ class Daemon:
                 # The accepted job is gone (retention pruned it since the check
                 # above), so this request makes a new job after all.
                 self._refuse_conversation_session(*fence)
+            if pin_refusal is not None:
+                raise pin_refusal
             job_id = ids.job_id(args.name or args.task or model,
                                 existing=[r["job_id"] for r in self.store.query("SELECT job_id FROM jobs")])
             jobdir = self.root / "jobs" / job_id

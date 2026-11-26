@@ -2,6 +2,7 @@
 
 import json
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -159,6 +160,7 @@ def test_resume_keeps_source_effort_when_policy_aliases_share_a_model_id(
 
 #: A synthetic successor ID for `haiku`, so its old ID is left to another alias or to none.
 NEXT_HAIKU_ID = "claude-haiku-9-9-synthetic"
+SHADOW_ID = "claude-haiku-shadow-synthetic"
 #: The fix of a resume refused for its source's model (C-12.4, C-25.7).
 RESUME_MODEL_FIX = "submit a fresh job: a resume always runs on its source's model"
 
@@ -262,6 +264,54 @@ def test_imported_resume_pins_source_id_when_a_current_key_shadows_it(state_daem
     assert daemon.store.get_attempt(attempt["attempt_id"]) == source_attempt
 
 
+def test_imported_resume_named_by_its_source_id_pins_the_entry_at_that_id_past_a_current_key(
+        state_daemon, monkeypatch):
+    daemon, harness = state_daemon
+    source_id, attempt = finished_source(daemon, harness)
+    old_id = attempt["model_requested"]
+    assert old_id == "gpt-6-astra"
+    evidence = json.dumps({"imported": True, "imported_external": False,
+                           "model_short": old_id, "v1_class": None, "v1_lane": "codex-a",
+                           "v1_meta": "/legacy/runs/20260905-111855-astra/meta.json", "salvage_refs": []},
+                          sort_keys=True)
+    daemon.store.update_attempt(attempt["attempt_id"], evidence_json=evidence)
+    source_attempt = daemon.store.get_attempt(attempt["attempt_id"])
+    models = daemon.policy["models"]
+    models[old_id] = {**models["astra"], "id": "gpt-6-astra-synthetic", "effort": "low"}
+    reload_policy(daemon)
+
+    resumed_id = resume_job(daemon, harness, source_id)
+    launched = launch_resume(daemon, monkeypatch, resumed_id)
+    assert (daemon.store.get_job(resumed_id)["pinned_model"], launched) == ("astra", [
+        (source_attempt["lane_id"], "native-source-session", old_id,
+         daemon.policy["models"]["astra"].get("effort"))])
+    assert_resume_pins_source_model_id(daemon, resumed_id)
+    assert daemon.store.get_attempt(attempt["attempt_id"]) == source_attempt
+
+
+def test_resume_pins_the_entry_at_its_source_id_when_a_current_key_spelled_like_it_names_another(
+        state_daemon, monkeypatch):
+    daemon, harness = state_daemon
+    models = daemon.policy["models"]
+    models["opus"]["effort"] = "low"
+    models["opus_alternate"] = {**models["opus"], "effort": "high"}
+    reload_policy(daemon)
+    claude_lane(daemon)
+    source_id, source_attempt = finished_source(daemon, harness, pinned_lane="claude-1", pinned_model="opus_alternate")
+    assert json.loads(source_attempt["evidence_json"])["model_short"] == "opus_alternate"
+    old_id = source_attempt["model_requested"]
+    models = daemon.policy["models"]
+    del models["opus_alternate"]
+    models[old_id] = {**models["opus"], "id": "claude-opus-shadow-synthetic", "effort": "medium"}
+    reload_policy(daemon)
+
+    resumed_id = resume_job(daemon, harness, source_id)
+    launched = launch_resume(daemon, monkeypatch, resumed_id)
+    assert (daemon.store.get_job(resumed_id)["pinned_model"], launched) == (
+        "opus", [("claude-1", "native-source-session", old_id, "low")])
+    assert_resume_pins_source_model_id(daemon, resumed_id)
+
+
 @pytest.mark.parametrize("change", ["id-rollover", "alias-removed", "alias-retired", "id-rollover-retired-shadow"])
 def test_resume_after_a_policy_change_pins_an_entry_at_its_source_model_id(state_daemon, monkeypatch, change):
     """C-12.4: after an ID rollover or alias removal, the first current entry at the
@@ -301,23 +351,34 @@ def test_resume_after_a_policy_change_pins_an_entry_at_its_source_model_id(state
     assert_resume_pins_source_model_id(daemon, resumed_id)
 
 
-@pytest.mark.parametrize("retired_shadow", [False, True], ids=["no-alias", "retired-shadow"])
-def test_resume_is_refused_unknown_pinned_model_when_no_entry_holds_its_source_model_id(
-        state_daemon, retired_shadow):
-    """C-12.4, C-25.7 (review r3 of #310, P2 and P3): when no policy entry holds the source
-    attempt's model ID, the resume is refused at its pin, before the request digest, as
-    `unknown-pinned-model` (code 7) naming no policy path. The caller cannot change a resume's
-    pin, so the repair is a fresh job."""
-    daemon, harness = state_daemon
+def resume_source_with_missing_model_id(daemon, harness, shadow):
     claude_lane(daemon)
     source_id, source_attempt = finished_source(daemon, harness, pinned_lane="claude-1", pinned_model="haiku")
     old_id = source_attempt["model_requested"]
-    daemon.policy["models"]["haiku"]["id"] = NEXT_HAIKU_ID
-    if retired_shadow:
+    models = daemon.policy["models"]
+    models["haiku"]["id"] = NEXT_HAIKU_ID
+    if shadow == "retired-shadow":
         daemon.policy["retired"][old_id] = "haiku"
+    elif shadow == "key-shadow":
+        models[old_id] = {**models["haiku"], "id": SHADOW_ID}
     reload_policy(daemon)
-    with pytest.raises(AdapterError) as raised:
-        resume_job(daemon, harness, source_id)
+    return source_id, old_id
+
+
+def accepted_resume(daemon, harness, shadow):
+    source_id, old_id = resume_source_with_missing_model_id(daemon, harness, shadow)
+    # Simulate the earlier acceptance while keeping the post-rollover aliases and policy hash.
+    daemon.policy["models"]["haiku"]["id"] = old_id
+    resume_args = protocol.SubmitArgs(**harness.submit_args(kind="resume", parent_job_id=source_id))
+    first = daemon.submit(resume_args)
+    first_id = first["job_id"]
+    assert first["created"] is True
+    assert daemon.store.get_job(first_id)["pinned_model"] == "haiku"
+    daemon.policy["models"]["haiku"]["id"] = NEXT_HAIKU_ID
+    return source_id, old_id, resume_args, first_id
+
+
+def assert_refused_at_the_pin(raised, daemon, old_id):
     refusal = raised.value
     assert type(refusal) is AdapterError
     assert (refusal.reason, refusal.code) == ("unknown-pinned-model", 7)
@@ -327,6 +388,75 @@ def test_resume_is_refused_unknown_pinned_model_when_no_entry_holds_its_source_m
     assert refusal.details == {"model": old_id, "resume_pin": True}
     assert refusal.fix == RESUME_MODEL_FIX
     assert protocol.refusal_text(refusal) == (f"unknown pinned model {old_id}", RESUME_MODEL_FIX)
+
+
+@pytest.mark.parametrize("shadow", ["no-alias", "retired-shadow", "key-shadow"])
+def test_resume_is_refused_unknown_pinned_model_when_no_entry_holds_its_source_model_id(state_daemon, shadow):
+    """C-12.4, C-25.7 (review r3 of #310, P2 and P3): when no policy entry holds the source
+    attempt's model ID, the resume is refused at its pin, before the request digest, as
+    `unknown-pinned-model` (code 7) naming no policy path. The caller cannot change a resume's
+    pin, so the repair is a fresh job."""
+    daemon, harness = state_daemon
+    source_id, old_id = resume_source_with_missing_model_id(daemon, harness, shadow)
+    with pytest.raises(AdapterError) as raised:
+        resume_job(daemon, harness, source_id)
+    assert_refused_at_the_pin(raised, daemon, old_id)
+    assert [job["job_id"] for job in daemon.store.list_jobs()] == [source_id]
+
+
+@pytest.mark.parametrize("shadow", ["retired-shadow", "key-shadow"])
+def test_resume_retry_gets_its_job_back_when_no_entry_holds_its_source_model_id(state_daemon, monkeypatch, shadow):
+    daemon, harness = state_daemon
+    source_id, _, resume_args, first_id = accepted_resume(daemon, harness, shadow)
+    before = daemon.store.get_job(first_id)
+
+    retried = daemon.submit(resume_args)
+
+    assert retried["job_id"] == first_id
+    assert retried["request_id"] == resume_args.request_id
+    assert retried["created"] is False
+    assert daemon.store.get_job(first_id) == before
+    assert {job["job_id"] for job in daemon.store.list_jobs()} == {source_id, first_id}
+    assert launch_resume(daemon, monkeypatch, first_id) == []
+
+
+def test_resume_retry_with_another_payload_is_refused_as_a_different_payload(state_daemon):
+    daemon, harness = state_daemon
+    source_id, _, resume_args, first_id = accepted_resume(daemon, harness, shadow="retired-shadow")
+    Path(resume_args.prompt_path).write_text("different")
+
+    with pytest.raises(protocol.ProtocolError) as raised:
+        daemon.submit(resume_args)
+
+    error = raised.value
+    assert error.code == 2
+    assert error.reason == "different-payload"
+    assert error.details == {"job_id": first_id}
+    assert {job["job_id"] for job in daemon.store.list_jobs()} == {source_id, first_id}
+
+
+def test_resume_retry_is_refused_at_its_pin_when_no_policy_name_resolves_its_source_id(state_daemon):
+    daemon, harness = state_daemon
+    source_id, old_id, resume_args, first_id = accepted_resume(daemon, harness, shadow="no-alias")
+    before = daemon.store.get_job(first_id)
+
+    with pytest.raises(AdapterError) as raised:
+        daemon.submit(resume_args)
+
+    assert_refused_at_the_pin(raised, daemon, old_id)
+    assert daemon.store.get_job(first_id) == before
+    assert {job["job_id"] for job in daemon.store.list_jobs()} == {source_id, first_id}
+
+
+def test_resume_whose_accepted_job_is_gone_by_the_lookup_is_refused_at_its_pin(state_daemon, monkeypatch):
+    daemon, harness = state_daemon
+    source_id, old_id = resume_source_with_missing_model_id(daemon, harness, shadow="retired-shadow")
+    monkeypatch.setattr(daemon, "_accepted_request", lambda request_id: True)
+
+    with pytest.raises(AdapterError) as raised:
+        resume_job(daemon, harness, source_id)
+
+    assert_refused_at_the_pin(raised, daemon, old_id)
     assert [job["job_id"] for job in daemon.store.list_jobs()] == [source_id]
 
 
