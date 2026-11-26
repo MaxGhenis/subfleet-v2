@@ -916,3 +916,307 @@ Code head: `fc5d6bc4b`. Head built: the commit that adds this section.
 **Folders outside the job's scratch:**
 - `$TMPDIR/sf-gs-fix2` (`/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-gs-fix2`). Its logs, `run.sh`, `measure.py` and the TRUST sentence are copied to the attempt folder's `gs-fix-r2-evidence/`. A guarded `shutil.rmtree` that asserts `sf-gs-fix2` is in the path removed it at 19:48Z, and the folder is gone.
 - The `sf-mutants-*` folder that the capped mutant call left was inside it.
+
+## Fix round 3
+
+Brief: the hub's fix round 3 for review r3 of #303. Lane job 20261126-001705-gs-fix-r3 ran it in a detached checkout at `ce17026cd`. It started at 2026-11-25T23:17:27Z.
+
+**Status: done, with one item left open.**
+- Step 0 merged release/217 in its own commit.
+- Findings 1 and 3 are fixed in both hooks. Every new test that checks a fix failed before it and passes after it. The physical-spelling test is the exception: it passed before as well, because it guards fix r3's new logical walk, and mutant 17 kills it.
+- Finding 2's text and finding 4's description are corrected.
+- The pins, the undo step and mutants 15-19 are written. All 19 mutants were killed by their named tests.
+- These all passed: every guard module (the generated test included), step 5's four files, and the other unit modules that read the guard files.
+- Left open from finding 1: a command of about 700 KB of `cd` could still reach the hook's 60 s timeout. That figure is extrapolated, not measured (see "What stays open").
+
+Commits:
+- `fdb25acdc`: the merge of release/217 at `53a7bac93`.
+- `122fc9ca5`: the tests, before the fix.
+- `fdd9d6af5`: two test fixes. The shells get the session's `PATH`, and the brief block's logical row became its own test.
+- `499399d00`: the fix, in both blocks and the overlay.
+- `a94ff10a1`: the pins, the undo step, the mutants and the doc's pin table.
+- `77add6c55`: the mutant selection narrowed.
+- `519075e43`: the claims corrected in the doc, this report and the test docstrings. An automatic checkpoint first made this commit as `ccf1b275c`, with the subject "fixup! gs_mutants: …". I changed only its message.
+- `bef778bf1`: the longer chains measured and recorded in the doc, and the pair-cap docstring's numbers.
+- `63952c0b7`: the chain test renamed (see finding 1).
+- Then this report.
+
+### Step 0: the merge of release/217
+
+`fdb25acdc` merges `53a7bac93d01afd9165588bcaf789dae75540757` into `ce17026cd`. That release/217 head carries #333 (D-CODEX-0169) and #334.
+
+**Conflicts:**
+- **`private/guard/TRUST`.**
+  - `codex_version` comes from release/217 (codex-cli 0.169.1).
+  - The provenance runs in this order: the part both sides share (through r3b), the guard sync's four sentences, then D-CODEX-0169's sentence.
+  - `hook_sha256` stays `7c96811e…`.
+  - The merged TRUST is `2e16c035c3d1d54b0ede029fc6a82e4a527e400c3f2cdbd9b4983daada72c76c`.
+- **`tests/unit/test_guard_overlay.py`:** both sides' digests.
+- **`docs/private-guard-overlay.md`:** the D-CODEX-0169 section now says three things:
+  - It names #333's TRUST, `9fb9bcf7…` at `024b23f80`.
+  - The installed `0224cb3f…` also lacks the guard sync's sentences.
+  - The kit's `stage` refuses at this head.
+- **No conflict:** `tests/unit/test_guard_subfleet_root.py` and `docs/acceptance-contract.md` merged cleanly. The contract has 262 clauses on both sides, with no duplicate id.
+
+**Two semantic fixes, in the merge commit:**
+1. **The D-CODEX-0169 kit.** `tools/guard_pin_0169.py` derives the new TRUST from the live one plus the repository's D-CODEX-0169 sentence. It refuses unless the result matches the repository's TRUST everywhere but `hook_sha256`.
+   - This repository's TRUST also carries the guard sync's sentences, so `stage` refuses here. The kit is unchanged.
+   - `tests/unit/test_guard_pin_0169.py` rebuilds #333's TRUST from this repository's. It removes the guard sync's sentences (and any later dated guard sync sentence) and puts #333's hook hash (`af5e7239…`) back.
+   - A module fixture asserts the rebuilt TRUST's digest (`9fb9bcf7…`). Every kit call gets it as `repo_trust`, and `main`'s default is redirected through `stage.__kwdefaults__`.
+   - The new `test_the_kit_refuses_this_repositorys_trust` pins the refusal.
+2. **The fix r2 undo test.** It now undoes D-CODEX-0169's TRUST edits (its sentence and its `codex_version` line) before its own, which gives `d284687f…`.
+
+**Step 0's runs** (after `fdb25acdc`, load 10-12, 108 GB free):
+- `test_guard_overlay.py` and `test_guard_pin_0169.py`: 49 passed, 2.76 s.
+- `test_guard_subfleet_root.py -k "trust or undoing or overlay"`: 8 passed.
+- The doc and TRUST tests: 4 passed.
+
+### Where the Claude side lives
+
+This is unchanged from fix rounds 1 and 2:
+- The overlay is changed here. The Claude hook's text is the fixtures under `tests/fixtures/guard/claude-blocks/`, for the hub to install.
+- Fix round 2's two blocks are kept byte for byte as `claude-blocks/fix-r2/<rule>.sh` (`34c9279d…`, `407e2dfa…`), for the undo chain. `DriftTests::test_the_fix_r2_blocks_are_kept_byte_for_byte_and_are_not_in_the_overlay` pins them.
+- I never read or touched `~/.claude`.
+
+### The findings
+
+**Finding 1 (P1): the `cd` walk cost the square of the chain.**
+- **Cause.**
+  - Fix r2's `join(base, p)` returned `norm(base "/" p)`, so it split and rebuilt the whole folder at every `cd`. A relative chain of n `cd` split on the order of n² words.
+  - Review r3 measured 13 s of CPU at 4,000 `cd a; ` on the overlay, against fix r1's 0.24 s.
+  - A hook killed at its 60 s timeout allows, and nothing bounded the walk. The 64-path refusal counts keys after the walk, and the 15 s budget covers only git calls.
+- **Change, in both blocks and both hooks.**
+  - Every stored folder stays in `norm`'s form: the payload cwd, `$HOME`, each `cd` or `pushd` target, and the one before it.
+  - `join` splits only the new word, drops `.` and empty words, and appends the rest to the folder. An absolute word starts again from `/`. The brief block's `join` keeps a file path's trailing `/`, as before.
+  - A differential check in scratch compared the new `join` with the old `norm(base "/" p)` on 20,000 random cases: 0 mismatches.
+- **The product case, and a cap.**
+  - Each `git … commit` and each `subfleet run` is judged from every folder met before it. Take 2,000 `cd a; ` followed by 2,000 commits that each name one absolute `-C` (or 2,000 `subfleet run`s, each with an absolute `-C` and `-p`). That is four million joins, yet it gives one key, so the 64-path count never reaches them.
+  - **Without a cap** (scratch copies of the fixed hook and blocks with the cap removed), all four were allowed:
+    - hand block: overlay 13.75 s, Claude block 17.84 s;
+    - brief block: overlay 30.04 s, Claude block 26.90 s.
+  - **The cap.** Each block counts the (folder, command) pairs it examines, counting a pair once more for each `-C` (and, in the brief block, each `-p`). It refuses past 4,096, which is the 64-folder bound squared.
+  - **With the cap:** 0.146, 0.091, 0.173 and 0.111 s in the same order, all refused.
+  - **At the cap:** 64 folders, 63 of them about 20 KB long, then 32 commits with one `-C` (or 16 runs with one `-C` and two `-p`). That took 0.129, 0.063, 0.148 and 0.064 s, all allowed.
+- **Tests.**
+  - **`test_the_cpu_measure_counts_a_grandchilds_cpu`.** The measure reads `RUSAGE_CHILDREN` deltas. This test checks that it sees a busy awk run inside `$(…)`, as the blocks run their awk. It checks the measure, not the fix, and passed before and after.
+  - **`test_a_long_cd_chain_stays_within_its_cpu_bound`**, 12 rows.
+    - Commands: for each block, 4,000 and 8,000 `cd a; ` and 4,000 `cd a/..; `, followed by a commit (or a `subfleet run`) and a stash. Each runs on the overlay and on the Claude block alone. The payload cwd is a checkout with a second worktree.
+    - Each row must finish inside 60 s, stay within its bound, and be refused with the block's own refusal. On a timeout, the whole process group is killed.
+    - The bound is 10 times fix r1's CPU on that row and side, and never under 1 s (table below).
+    - **Before** (`122fc9ca5`, with fix r2's hook): all 12 failed. **After:** passed.
+  - **`test_too_many_folder_and_command_pairs_are_refused`.**
+    - 64 folders × 32 commits × (1 + one `-C`) is 4,096 and is allowed. One more `cd` is refused, on both sides.
+    - The same holds for 16 runs × (1 + one `-C` + two `-p`).
+    - **Before:** failed (allowed). **After:** passed.
+  - **A rename.** The chain test was first named `test_a_long_cd_chain_costs_cpu_near_linear_in_its_length`. Past these sizes the cost is not linear (see "What stays open"), so `63952c0b7` renamed it. The fix commit's subject, "linear cd parse", makes the same overclaim; it stays as committed.
+
+CPU per row (s). The table's columns:
+- **Fix r1** is the bound's basis, measured at a load of about 11, with hook `324d2a84` and `claude-blocks/fix-r1/`.
+- **Before** is fix r2, at a load of 7-8.
+- **After** is fix r3's head, at a load of 7.7.
+
+| Row | Fix r1: overlay / Claude | Bound: overlay / Claude | Before: overlay / Claude | After: overlay / Claude |
+| --- | --- | --- | --- | --- |
+| hand, 4,000 `cd a` | 0.116 / 0.074 | 1.16 / 1.0 | 8.73 / 8.60 or 8.74 | 0.170 / 0.109 |
+| hand, 8,000 `cd a` | 0.308 / 0.258 | 3.08 / 2.58 | timeout / timeout | 0.473 / 0.416 |
+| hand, 4,000 `cd a/..` | 0.201 / 0.169 | 2.01 / 1.69 | 33.89 / 34.10 | 0.263 / 0.221 |
+| brief, 4,000 `cd a` | 0.122 / 0.075 | 1.22 / 1.0 | 8.85 / 8.60 or 8.74 | 0.162 / 0.120 |
+| brief, 8,000 `cd a` | 0.300 / 0.267 | 3.0 / 2.67 | 46.34 / timeout | 0.440 / 0.395 |
+| brief, 4,000 `cd a/..` | 0.207 / 0.161 | 2.07 / 1.61 | 27.94 / 34.34 | 0.244 / 0.210 |
+
+Notes on the table:
+- The two Claude-block rows at 4,000 `cd a` failed at 8.60 s and 8.74 s. The run's output does not say which was the hand block and which the brief block.
+- The brief block's two overlay values, 46.34 and 27.94, come from a second run of just those two rows (48 s wall, load 6-8).
+- Review r3's 0.24 s for fix r1 was its reference. The bounds rest on my own fix r1 measurement, which is lower and so stricter.
+- **Before the guard sync.** The pre-guard-sync hook (`af5e7239…`) took 0.067 to 0.076 s on every overlay row. It has no Axiom blocks, and its stash rule denied each row, since the payload cwd has a second worktree. A fix r2 row that outlasted the timeout was allowed, so on the rows that timed out, fix r2 was weaker than the pre-guard-sync hook.
+
+**Finding 3 (P2): a `cd` target's `..` was resolved physically.**
+- **Cause.**
+  - Fix r2 kept `..` in the walk and resolved every folder with `cd -P`, so a `..` after a link went up from the link's target.
+  - bash and zsh resolve a `cd` target logically by default.
+  - Example: from `a/`, with `a/link` → `x/y`, `cd link/../rs` lands in `a/rs`. The block checked `x/rs`, which was not there, and allowed.
+- **Change, in both blocks and both hooks.**
+  - **`cdl(base, p)` resolves `..` by name.** Each `..` takes off the word before it, from the target's own words or else from the folder. At `/` a `..` does nothing, and after `.` or `..` it stays.
+  - **The walk keeps two folders.** `cur` is the logical one. `pcur` is the physical spelling, `..` kept, as `cd -P` resolves it. Each new one is a folder to check.
+    - So a shell that resolves links first is still judged where it lands. That covers `cd -P`, bash's `set -P`, and zsh's CHASE_LINKS or CHASE_DOTS, none of which the blocks parse.
+    - Both count toward the 64, and `cd -` swaps both.
+  - **Paths git and subfleet resolve keep `..` as written:** `-C`, `--git-dir`, `GIT_DIR=`, and `subfleet run`'s `-C` and `-p`. Both tools resolve these physically.
+  - **A differential check** compared `cdl` with a textual oracle on 20,000 random cases: 0 mismatches.
+- **Tests.**
+  - **Setup:** in scratch, `a/`, `x/y`, the link `a/link` → `x/y`, and two rulespec checkouts, `a/rs` and `x/rs2`. Each stages a rule file without its manifest.
+  - **Where the shell lands:** inside the tests, bash (`--norc -c`) and zsh (`-f -c`) run only `cd`, `set -P` and `pwd`, in that scratch folder.
+  - **`test_a_cd_through_a_link_and_dotdot_is_judged_where_the_shell_lands`.** Three commands, each followed by `git commit`: `cd link/../rs`, `pushd link/../rs`, and `cd link/.. && cd ./rs/`. Each must be denied on both sides. **Before:** failed (allowed). **After:** passed.
+  - **`test_a_cd_through_a_link_and_dotdot_reads_the_brief_where_the_shell_lands`.** `cd link/../briefs` runs, then a `subfleet run` with a brief that lacks the regime. Only `a/briefs` holds that brief. **Before:** failed (allowed). **After:** passed.
+  - **`test_the_physical_spelling_of_a_cd_target_is_still_judged`.** The `cd -P`, `set -P`, `setopt CHASE_LINKS`, `setopt CHASE_DOTS` and `git -C` forms of `link/../rs2`, plus the control `cd rs`, must stay denied. It passed before and after; mutant 17 kills it.
+  - **`test_too_many_places_to_check_is_refused`** keeps its numbers, and its docstring now says why.
+    - A `cd il/..` target's logical spelling is the folder it left, which is already counted.
+    - Its physical spelling is new at each hop, so 64 hops make 65 paths and are refused, and 63 hops make 64 and are allowed.
+
+**Finding 2 (P2): the text about the two folders exempt from the budget.**
+- **The claim.** Fix r2's text said the exemption covered every commit from one checkout: the payload cwd and the folder a command names.
+- **The rule.** The exemption covers the first two distinct keys (resolved folder, `--git-dir`) that exist, in the awk's order. The awk takes each commit in command order. For each commit it takes every folder met before it, with that commit's `-C` applied: the payload cwd first, then each `cd` or `pushd` target.
+- **Consequence.** `cd a && cd b && git commit` has three folders, so under load the budget can refuse `b` (review r3's case 1).
+- **Corrected in place:**
+  - the header comments of both blocks, and so the fixtures and the overlay;
+  - fix round 2's section of `docs/private-guard-overlay.md`;
+  - four of fix round 2's passages in this report: the 64-path bound, why the first two folders are exempt, item 1 of "What the bound guarantees", and "What it leaves open";
+  - I6 in `tests/unit/test_guard_sync.py`'s module docstring. It now says the rule holds per folder, and that a subfolder of a checkout is a folder of its own. The same docstring gains I9 (where the shell lands) and a fix r3 bullet.
+- **TRUST.** Its earlier sentences are not edited.
+- **No test.** No code changed, so there is no failing-before test.
+
+**Finding 4 (P3): mutant 3's description.** It now reads "the fix r1's `git[[:space:]].*(commit|\\$)` term (COMMIT_TERM) left out of the first prefilter literal", which is what the mutant removes. It is still killed.
+
+### What stays open
+
+**The parse's cost in bytes.**
+- A `cd` costs its own words plus one copy, and one hash, of its folder. So a chain that goes ever deeper still grows faster than linearly, as fix r1's did.
+- On the overlay's hand row (the `cd a; ` chain before a commit and a stash):
+
+  | `cd a; ` | Bytes | Fix r3 | Fix r1 |
+  | --- | --- | --- | --- |
+  | 16,000 | 96 KB | 1.794 s | 1.08 s |
+  | 32,000 | 192 KB | 5.531 s | 4.212 s |
+  | 64,000 | 384 KB | 23.089 s, refused (64 folders) | not run |
+
+- Holding one long folder while short `cd`s repeat costs each `cd` one copy of that folder. With a 100 KB folder under `/nowhere`:
+  - 10,000 `cd .` took 3.696 s, and 20,000 took 6.659 s.
+  - Both were allowed because no checkout is there, which is the correct decision, not a hole.
+- **The extrapolation (not measured).** About 700 KB of either shape in one command would reach the 60 s timeout, and the timeout allows. Under load it would take less, because the timeout counts wall time.
+- The 64,000 row's wall time was not captured. It returned a refusal, so it ended inside 60 s at a load of 32.
+- **A round-4 cap would bound it:** a running count of the folder bytes each `cd` copies, refused through the same `TOOMANY` path. I did not build it, for two reasons:
+  - it moves both hashes and every pin again;
+  - the brief ranks the module runs and this report above it.
+
+**Carried over from fix r2, unchanged and not measured here:**
+- one or two checkouts whose index alone outlasts the timeout;
+- one git call that runs long after the last budget check;
+- up to 64 `cd -P` forks in each block;
+- the brief block's reads: up to 16 files, two `grep`s each, with no time bound.
+
+### Hash pairs
+
+- **New:** hook `899b43ec41dcbdb673298e6c22d14caea88f450ff33405789d8513a013657038`, TRUST `fa0df26c35087bf9116b9c6793490d70116ec13dac9a46576bb67287da35ad85`.
+  - TRUST changes only `hook_sha256` and appends one dated sentence, which ends as the pin test requires.
+  - The sentence: "2026-11-26, guard sync fix r3 (review r3 of #303): the fix r2's join split and rebuilt the whole path at every cd, so a relative cd chain cost the square of its length (13 s of CPU at 4,000 cd), and a chain that outlasts the 60 s timeout is allowed; both Axiom blocks now keep each folder normalized as they read the words and split only each new word; a cd or pushd target's .. takes off the word before it, as bash and zsh do by default, and where its physical spelling (.. kept, as cd -P resolves it) differs that folder is checked too; each block refuses more than 4096 (folder, command) pairs to examine, each -C or -p counted once more. The blocks are the text the hub installs in the Claude hook. The build recomputed hook_sha256 for the new bytes, and hooks_trust_hash and override again did not move; installed only after the hub's review and a live hooks/list preflight."
+- **Rollback:** the merged pair, hook `7c96811e…` with TRUST `2e16c035…`.
+- **Undo step.** `GS5_TEXT` in `test_guard_subfleet_root.py` maps the two new blocks back to `claude-blocks/fix-r2/`. `test_fix_r3_undoing_its_step_gives_the_merged_pair` rebuilds both files byte for byte from it and `FR3_PROVENANCE`.
+- **The other undo tests.**
+  - `GS4_BLOCKS` now reads `fix-r2/`. `R3_TEXT` and every older undo test undo `GS5_TEXT` first.
+  - The fix r2 undo test then undoes fix r3's TRUST edits, then D-CODEX-0169's.
+  - The search-rel r12d rebuild undoes `GS5_TEXT + GS4_TEXT + GS3_TEXT`.
+- **Where the pins live:**
+  - `tests/unit/test_guard_overlay.py`;
+  - `tests/unit/test_guard_subfleet_root.py` (`NEW_HOOK_SHA256`);
+  - `tools/guard_subfleet_root_mutations.py`;
+  - `tests/unit/test_guard_sync.py`: `AXIOM_SHA256` for the fixtures and `AXIOM_R2_SHA256` for the kept fix r2 text;
+  - the doc's table.
+
+### The Claude hook edits the hub makes at install
+
+In `~/.claude/hooks/guard-never-rules.sh`:
+1. Add `git-config-pin.txt`'s line (`f653d463…`) right after the input read. Skip this step if the live hook already carries that line from d2958.
+2. Replace the prefilter line (`c46d8eec…`) with `prefilter.txt` (`2acb063e…`), if that is not done yet. This step is unchanged since fix round 1.
+3. Replace the two blocks. The live hook may hold any of these texts, named here as (brief block, hand block):
+   - the hub's 2026-11-11 cut, `77002282…` and `f870acdf…`;
+   - fix round 1's text, `45775b4d…` and `0b6b418c…`;
+   - fix round 2's text, `34c9279dbf1226cde2108ce983b1073142c663038a4fa45cda90665a43df42d5` and `407e2dfae5cfc0447c466738ce2c15a2324ac2a213f9436503a9a775fb61a106`.
+
+   Whichever it is, replace it with `axiom-brief-regime.sh` (`9f4b5c207ce29c953cdda48d7f06700a8a2318a6e366c13a7ffa9f55fe64208f`) and `hand-authored-rulespec.sh` (`e811e9551d70d7cd87144b1dde1f911555b30d5ef3176a60065a8dda4e0ae35a`).
+
+The blocks need what fix round 2's needed: bash 3.2, `tr`, and git 2.28 or later. They start no new command: the new code is awk functions in the blocks' existing awk. The TRUST sentence's conditions hold: install only after the hub's review and a live `hooks/list` preflight.
+
+### Mutants
+
+`tools/gs_mutants.py` applies each mutant alone to a `git archive` of HEAD under `$SF`, then runs the mutant's named test there.
+
+| Mutant | What it reverts | Named test | Result |
+| --- | --- | --- | --- |
+| 15 join-splits-the-folder-again | both blocks' `join` back to fix r2's | `test_a_long_cd_chain_stays_within_its_cpu_bound[hand-cd_a-4000-overlay]` | killed |
+| 16 no-logical-dotdot | `cur = join(cur, v)` again, in both blocks | `test_a_cd_through_a_link_and_dotdot_is_judged_where_the_shell_lands` | killed |
+| 17 no-physical-spelling | the physical spelling is no longer a folder to check | `test_the_physical_spelling_of_a_cd_target_is_still_judged` | killed |
+| 18 no-pair-cap | both pair caps removed | `test_too_many_folder_and_command_pairs_are_refused` | killed |
+| 19 dotdot-spelling-split-again | a target holding `..` normalized by splitting the whole path again | `test_a_long_cd_chain_stays_within_its_cpu_bound[hand-cd_a..-4000-overlay]` | killed |
+| 1-14 | earlier rounds' changes | as before | all killed |
+
+- **The join texts.** The tool's `HAND_JOIN` and `BRIEF_JOIN` now hold fix r3's text, with fix r2's and fix r1's kept as `*_R2` and `*_R1`. Mutants 8, 13 and 15 apply them.
+- **The selection** adds the fix r3 tests. `77add6c55` narrowed its `dotdot` term to `link_and_dotdot`, since `dotdot` had matched three unscoped-search tests.
+- **Control:** the full selection, unmutated, gave 84 passed.
+- **After the rename,** mutants 15 and 19 ran again under the test's new name. Both were killed.
+
+### Contract
+
+No clause in `docs/acceptance-contract.md` names the overlay's rules, their parse, their cost or their caps. C-14.1 covers the pair's bytes as a class. So I amended nothing and added no change-log line.
+
+### Commands and results
+
+**Environment:**
+- `TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)`, `UV_CACHE_DIR=$TMPDIR/uv-cache`, scratch `SF=$TMPDIR/sf-gs-fix3`, `PYTHONPATH` unset.
+- `.venv` was missing, so `uv sync --group dev` made it (0.6 s).
+- Each pytest call ran as `uv run --no-sync --with 'pytest-xdist>=3.6' pytest -p no:cacheprovider -n 4 --basetemp "$SF/pytest-<label>"`, with a fresh basetemp, except where the table says otherwise. This session's later calls also ran under `timeout 585`.
+- Each call recorded `df -H /` and `uptime` first. Free disk stayed between 103 and 108 GB. Times are UTC.
+
+| At | Command | Result | Load | Free |
+| --- | --- | --- | --- | --- |
+| after 23:22Z | step 0's three calls (above) | 49, 8 and 4 passed | 10-12 | 108 GB |
+| before 23:37Z | `measure.py` on fix r1 (`324d2a84`, from `e908a6892`, with `claude-blocks/fix-r1/`) | the "Fix r1" column | ~11 | not recorded |
+| 23:38-23:40Z | before-r3: `122fc9ca5`'s tests with fix r2's hook | all 12 chain rows, both logical tests and the pair-cap test failed; the physical-spelling and grandchild tests passed | 7-8 | not recorded |
+| then | the brief block's two overlay rows, alone | failed again, 48 s | 6-8 | not recorded |
+| scratch | differential check of `join` and `cdl` | 0 mismatches in 20,000 cases each | not recorded | not recorded |
+| 23:44Z | after-r3, the tree committed as `499399d00`: the 24 selected tests | **24 passed**, 75 s | 8 | not recorded |
+| 23:4xZ | `measure.py` on head (the rows), and on head and the uncapped copies (product and at-cap cases) | the "After" column and the cap's numbers | 7.7 for the rows; the rest not recorded | not recorded |
+| 23:4xZ | `growth.py`: 16,000 and 32,000 on head and fix r1 | "What stays open" | not recorded | not recorded |
+| 23:51-23:55Z | pins (`a94ff10a1`'s tree): pin, undo, drift, overlay and kit tests | **90 passed**, 237 s | 10→36 | 106 GB |
+| 23:56Z | `gs_mutants.py` control, the full selection | **84 passed**, 139 s | 45→15 | 106 GB |
+| 23:58-00:02Z | `gs_mutants.py --named-only --no-control`: 15-19, then 1-5, 6-10, 11-14 | **all 19 killed** | not recorded | 105-106 GB |
+| 00:08:52-00:10:32Z | `test_guard_sync.py -k 'not generated_staged'` | **121 passed**, 100.28 s | 24→26 | 104 GB |
+| 00:10:41-00:27:04Z | `test_guard_overlay.py test_guard_pin_0169.py test_guard_search_rel.py -k 'not generated_staged'` | **131 passed, 2 skipped**, 982.70 s; the Bash tool moved it to the background after 595 s (deviation 10) | 28-36 | 104 GB |
+| 00:22:51-00:23:45Z | `worst.py`: 64,000 `cd a`; the 100 KB folder with 10,000 and 20,000 `cd .` | "What stays open" | 32-36 | 104 GB |
+| 00:28:02-00:33:58Z | `test_guard_subfleet_root.py`, its first 83 collected ids (`@file`) | **81 passed, 2 skipped**, 355.66 s | 14→28 | 104 GB |
+| 00:34:05-00:36:05Z | the other 83 ids, which include `test_r5_…` and `test_r7_…` | **83 passed**, 119.70 s | 18→26 | 104 GB |
+| 00:36:14-00:36:37Z | step 5: `tests/fake/test_state_contract.py tests/unit/test_invariants_index.py tests/unit/test_test_module_names.py tests/unit/test_handler_refusals.py` | **437 passed**, 22.61 s | 20→16 | 104 GB |
+| 00:37:06-00:37:37Z | the other modules that read the guard files: `test_guard_trust.py test_review_publish_env_round8.py test_doctor.py test_round10_refusal_context.py` | **228 passed**, 30.09 s | 11→9 | 104 GB |
+| 00:37:48-00:37:58Z | `test_same_decisions_on_generated_staged_files` alone, no `-n` | **1 passed**, 9.34 s (fix round 2 got no result for it at its cap) | 8.6 | 104 GB |
+| 00:38:05Z | `measure.py` on the pre-guard-sync hook (`af5e7239`, from `82d3dd819`) | 0.067-0.076 s, each row denied by the stash rule | 8 | 104 GB |
+| 00:39:32Z | after the rename (`63952c0b7`): overlay, pin kit, the chain test, DriftTests | **71 passed**, 3.51 s | 5.6 | 104 GB |
+| 00:39:48-00:40:23Z | mutants 15 and 19, `--named-only --no-control` | **killed** | 6.6 | 103 GB |
+| 00:41:30Z | `test_guard_subfleet_root.py -k "test_r5_the_overlay_doc or test_r7_known or trust or undoing"`, no `-n` | **10 passed**, 0.99 s | 7.9 | 105 GB |
+
+**Notes on the runs:**
+- **Skips.** The two skips in each skipped call were not itemized (`-rs` was not set). `test_guard_search_rel.py`'s opt-in tests skip without `SUBFLEET_CLAUDE_UNSCOPED_SEARCH` or `SEARCH_REL_TIMING`.
+- **The 00:10:41Z call** ran on `519075e43`'s tree. `bef778bf1`'s doc edit (the open-items paragraph) landed as it ended. The subfleet-root halves ran at `bef778bf1`, which includes the doc tests, and the last two calls ran at `63952c0b7`.
+
+### Not run
+
+- `tests/e2e/`, including `test_guard_and_isolation.py`, which reads the TRUST, and the full suite. CI runs them.
+- `tools/guard_subfleet_root_mutations.py` (only its pinned hook hash moved) and `tools/guard_search_rel_mutations.py`.
+- `gs_mutants.py`'s full selection under each mutant: every mutant ran `--named-only`. Only the control ran the full selection.
+- These were not measured: the 64,000 row's wall time, the 700 KB extrapolation, the 64 `cd -P` forks and the brief block's reads.
+- The byte cap that "What stays open" describes.
+
+### Deviations
+
+1. **Every mutant call ran `--named-only`.** The full selection, at five mutants per call, would pass the Bash tool's 600 s limit.
+2. **The CPU bounds rest on my own fix r1 measurement**, at a load of about 11: 10 times it, and never under 1 s. They do not use review r3's 0.24 s.
+3. **The pair cap and its text.** The brief asked for a cap if the product case needed one, and it did. Its refusal reuses each block's `TOOMANY` path, with the text extended, for example "…, or more than 4096 folders to examine (each folder for each git commit after it, once more for each -C)".
+4. **Extra rows:** `pushd`, `cd link/.. && cd ./rs/`, the zsh CHASE_LINKS and CHASE_DOTS rows, and the brief block's link test.
+5. **Shells in the tests.** The tests run bash and zsh with only `cd`, `set -P` and `pwd`, inside the test's scratch folder, to show where the shell lands, as the brief allows.
+6. **`fdd9d6af5` fixes the tests after their first commit.**
+   - The keychain exec guard (C-20.6) refused shells started under pytest with `PATH=/usr/bin:/bin`, so they now get the session's `PATH`.
+   - The brief block's logical row became its own test, because the hand row's failure hid it.
+7. **`77add6c55` narrows the mutant selection.**
+8. **`uv sync --group dev` ran** because `.venv` was missing.
+9. **`519075e43` rewords an automatic checkpoint commit** (`ccf1b275c`). Only the message changed.
+10. **One call ran in the background.** The call at 00:10:41Z ran past the Bash tool's 595 s limit, and the tool moved it to the background, which the brief forbids. While it ran I started no other test run, and I read its output file to get the result. After that I split the calls: the subfleet-root module ran in two halves of 83 ids, each under `timeout 585`.
+11. **`63952c0b7` renames a test this round added**, `test_a_long_cd_chain_costs_cpu_near_linear_in_its_length`.
+12. **The measurement scripts import the test module's helpers:** `AxiomFixture`, `timed_overlay` and `timed_claude`.
+
+### Folders outside the job's scratch
+
+- **`$SF`** (`/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-gs-fix3`) held the scripts, the hook variants, the logs, the basetemps and the scratch checkouts.
+  - Copied to the attempt folder's `gs-fix-r3-evidence/` (1.0 MB): the scripts, logs, the merge's TRUST sides, the hook variants, this section's draft, and the moved run's output.
+  - A guarded `shutil.rmtree` that asserts `sf-gs-fix3` is in the path removed `$SF` at 00:45Z, and the folder is gone.
+  - The `sf-mutants-*` exports were inside it, and the tool removed each one.
+- **18 `sf-test-homes-*` folders** sit in `$TMPDIR`. The newest is from 21:58Z on 2026-11-25, before this job started at 23:17Z. None is from my runs, and I deleted none.
+- **Kept:** `$TMPDIR/uv-cache` (shared) and the worktree's ignored `.venv`.
+
+Head built: the commit that adds this section.
