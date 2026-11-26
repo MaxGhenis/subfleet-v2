@@ -1,5 +1,9 @@
 # Job retention by archive
 
+Revision 9, 2026-11-26: files with identical bytes can share a stored copy
+within one archive. Restore recreates each independent file and preserves
+hard-link groups. Accounting reports `shared_bytes` (D-STORE-SHARE1, C-8.4).
+
 Revision 8, 2026-11-09: section 18, the operator's delete path for the trees
 the pass keeps for good (d2660, C-8.7).
 
@@ -44,7 +48,10 @@ back:
 - **Files.** Every file of the job's allocated worktree and of its job
   directory, uncommitted, untracked and ignored alike, byte for byte: an APFS
   clone (`fclonefileat`, no space until either side changes), or a byte copy on
-  a volume without clones. Two exceptions, both deleted without a copy:
+  a volume without clones. A file with one link may share a stored copy with
+  another file in the same archive when their sha256 and size match. Each
+  such file restores on its own inode. Two exceptions, both deleted without
+  a copy:
   - a tracked file whose raw bytes hash to a blob that a network remote holds
     (section 6);
   - regenerable output: a file a rule proves the project's own tools make
@@ -213,7 +220,8 @@ anchored) is left as it is: the remnant's repository has lost its `HEAD` and
                      for); link targets; hard-link groups; the salvage commits; the regenerable
                      directories; the totals (section 11)
     summary.json     totals, for `retention archives`
-    files/           the stored files (clones), named by the signature of the version archived
+    files/           stored clones or copies, named by source signature. A shared name uses the
+                     signature of the first version stored with those bytes.
     commits.bundle   the anchor, its only head, with every commit no network remote holds
                      (absent when a network remote already reaches the anchor)
     rows.json        the job's rows, as deleted
@@ -425,7 +433,7 @@ idle journal's deferral is recalled once per daemon.
 | A linked worktree nested in the tree (its admin directory elsewhere) | The job is kept |
 | Another job's worktree registered in a repository inside this tree | This job is pinned until that one retires with its own anchor (section 10) |
 | An admin directory reduced to `index` and `logs/` | Archived byte for byte as the admin tree |
-| Symlinks, hard links, FIFOs, modes, mtimes | Recorded and restored; links are never followed |
+| Symlinks, hard links, FIFOs, modes, mtimes | Recorded and restored; links are never followed. Independent files sharing a stored copy restore with separate inodes and their own modes and mtimes. |
 | The job directory: prompts, logs, attempt records, deliverables | Archived byte for byte |
 | The job's rows | `rows.json` |
 
@@ -828,18 +836,20 @@ within discovery.
 
 ## 11. Accounting
 
-The manifest's totals, the `retention.pruned` and `retention.reclaimed`
-events, a pass's result and the daemon's log line keep apart:
+The manifest's totals, `summary.json`, the `retention.pruned` and
+`retention.reclaimed` events and a pass's result keep these figures apart:
 
 - `freed_bytes`: deleted without a copy, the omitted tracked files
   (`omitted_bytes`) and the regenerable output (`regenerable_bytes`);
-- `freed_disk_bytes`: what deleting those gives back on disk, measured at
-  archive time as the blocks no clone or other link shares
-  (`getattrlist` `ATTR_CMNEXT_PRIVATESIZE` on APFS; 0 for a file with other
-  links). A virtualenv uv cloned from its cache frees little;
-- `archived_bytes`: moved into the archive. These are clones, so deleting the
-  originals frees nothing; the space comes back only when the archive is
-  removed;
+- `freed_disk_bytes`: what deleting those files and shared originals gives
+  back on disk, measured at archive time as the blocks no clone or other
+  link shares (`getattrlist` `ATTR_CMNEXT_PRIVATESIZE` on APFS, 0 for a file
+  with other links). A virtualenv uv cloned from its cache frees little;
+- `archived_bytes`: the apparent size moved into the archive, counting each
+  stored copy once. A hard-link group spanning multiple source trees keeps
+  its per-tree count;
+- `shared_bytes`: the apparent size of one-link files whose stored copy was
+  already counted. Their originals' unshared blocks count in `freed_disk_bytes`;
 - `added_bytes`: the space the archive itself adds (final review of
   e50716e8, N1): its `commits.bundle`, `manifest.json`, `summary.json` and
   `rows.json` (`rarch.ADDED`, measured on disk after `rows.json` is written
@@ -854,15 +864,17 @@ copy's original gives back is not counted as freed, so it errs low. All are
 apparent sizes (`st_size`) except `freed_disk_bytes`. A pool's `bytes_before`
 and `bytes_after` count live trees (C-8.4's budget), not disk: the archive is
 outside the pools. Each pool in a pass's result also carries the
-`freed_bytes`, `freed_disk_bytes`, `archived_bytes` and `added_bytes` of the
-jobs it reclaimed; the daemon's catch-up and hourly log lines name all four
-and the net; `retention archives` names the added bytes of each archive and
-in total; `survey --sample` estimates them per job (the bundle as `git
+`freed_bytes`, `freed_disk_bytes`, `archived_bytes`, `added_bytes` and
+`shared_bytes` of the jobs it reclaimed. The daemon's catch-up and hourly log
+lines name the freed, archived and added figures with the net.
+`retention archives` names added and shared bytes for each archive and in
+total. `survey --sample` estimates freed, archived and added bytes per job (the bundle as `git
 rev-list --objects --disk-usage` measures the history it would carry, the
-manifest from its entries as the builder writes them, `rows.json` exactly) and
-reports the net, and the full survey estimates what the retiring jobs'
-archives add. APFS snapshots (Time Machine's local ones) keep deleted blocks
-until they expire.
+manifest from its entries as the builder writes them, `rows.json` exactly)
+and reports the net. The full survey estimates what the retiring jobs'
+archives add. The survey sizes duplicate files as separate copies, which can
+overstate `archived_bytes`. APFS snapshots (Time Machine's local ones) keep
+deleted blocks until they expire.
 
 ## 12. Progress
 
@@ -936,7 +948,8 @@ until they expire.
 
 `subfleet retention restore <job> [--to DIR] [--repository R] [--check]`, offline:
 
-1. Re-verify the archive: every stored file's sha256 and the bundle's heads.
+1. Re-verify the archive: every stored file's sha256, agreement on sha256 and
+   size among entries sharing a store name, and the bundle's heads.
 2. Fetch the bundle into the source repository (or `--repository`, any clone of
    the project) under `refs/subfleet-restored/<job>/`, and recreate each
    salvage ref there from the manifest (`refs/subfleet-restored/<job>/
@@ -945,6 +958,7 @@ until they expire.
    `DIR/worktree`, `DIR/job`, `DIR/admin`: directories, stored files (cloned
    back), omitted files from their blobs (each checked against its id),
    symlinks, hard links and FIFOs; then modes and mtimes, directories last.
+   A shared stored copy is cloned or copied back once per independent file.
    Regenerable entries are not recreated; the report lists each directory
    that dropped some under `not_restored`, with the paths dropped whose parent
    was not. Restored to its original place, the admin directory
@@ -980,7 +994,9 @@ Each is tested (section 16).
   Restoring gives back every entry that existed at
   archive time in the worktree, the job directory and the admin directory,
   except inside a regenerable directory (I11): path, type, permission bits,
-  bytes, link target, hard-link grouping, mtime.
+  bytes, link target, hard-link grouping, mtime. Independent files that
+  shared a stored copy restore on separate inodes alongside the recorded
+  hard-link groups.
 - **I2, delete only what is archived or regenerable.** An entry is unlinked
   only if the verified manifest lists it with a signature equal to its `lstat`
   just before the unlink, ctime included, or, for a file that had other links
@@ -1025,7 +1041,10 @@ Each is tested (section 16).
   archives`, the sampled survey) comes with `added_bytes`, the published
   archive's bundle, manifest, summary and rows and its byte copies, and a
   remote-less repository's bundle never exceeds
-  `retention.remote_less_history_bytes`.
+  `retention.remote_less_history_bytes`. The pass result, each pool, both
+  events and `retention archives` also report `shared_bytes`. The daemon's
+  log lines account for the shared originals' unshared blocks in
+  `freed_disk_bytes`. The survey estimates storage for each original file.
 - **I13, a hosted job keeps its own anchor.** A job registered in a
   repository inside another job's tree is never retired in the same pass as
   that job, nor without its registration.
@@ -1213,6 +1232,7 @@ finding:
 | Item | Tests |
 |---|---|
 | Round trip | `test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit`, `test_bundle_alone_restores_the_commits_in_a_fresh_clone`, both properties |
+| Shared stored files (D-STORE-SHARE1, C-8.4) | `test_retention_store_share.py` covers cross-tree sharing, independent restore, hard-link groups, crash and walk retries, readback, verified deletion, accounting and attempt streams. The two round-trip properties in `test_retention_archive_properties.py` cover shared-store metadata and inode grouping. |
 | Nothing depends on an uncontrolled repository | `test_scratch_source_clone_deleted_after_retirement_is_still_restorable`, `test_clone_of_a_local_repository_carries_its_whole_history`, `test_blob_only_in_a_local_branch_is_archived_not_omitted`, `test_local_path_remote_is_not_a_remote`, `test_borrowed_or_shallow_object_store_is_scratch`, `test_temporary_directory_source_is_scratch_by_default` |
 | Omission hashes the whole object | `test_corrupted_loose_object_is_not_trusted_for_omission[wrong-bytes, truncated]`, `test_object_reader_hashes_every_byte` |
 | Anchor idempotent | `test_anchor_is_deterministic_and_create_is_idempotent`, `test_rollback_after_anchoring_then_next_pass_retires` |

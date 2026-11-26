@@ -73,16 +73,17 @@ DEFER_PINNED_S = 3600
 #: A cache left by a rolled-back attempt is dropped after this long.
 CACHE_KEEP_S = 2 * 86400
 #: A manifest's totals. Apparent sizes (the sum of `st_size`): `archived_bytes`
-#: moved into the archive (clones share their blocks, so deleting the originals
-#: frees nothing), `omitted_bytes` of tracked files a network remote holds and
-#: `regenerable_bytes` of regenerable output, both deleted without a copy;
-#: `freed_bytes` is their sum. `freed_disk_bytes` is what deleting those two
-#: gives back on disk, measured at archive time: blocks no clone or other link
-#: shares (a virtualenv cloned from uv's cache frees little).
+#: moved into the archive (counted when a stored copy is first used in a walk),
+#: `shared_bytes` of one-link files that reuse a counted copy, `omitted_bytes`
+#: of tracked files a network remote holds, and `regenerable_bytes` of
+#: regenerable output. `freed_bytes` sums omitted and regenerable bytes.
+#: `freed_disk_bytes` measures the blocks of omitted, regenerable and shared
+#: originals that no clone or other link holds (a virtualenv cloned from
+#: uv's cache frees little).
 #: `copied_bytes` are the stored files the archive holds as byte copies (a
 #: volume without clones): new space, counted in `added_bytes`.
 TOTALS = ("entries", "archived_bytes", "omitted_bytes", "stored_files", "clones", "copies",
-          "regenerable_bytes", "regenerable_entries", "freed_disk_bytes", "copied_bytes")
+          "regenerable_bytes", "regenerable_entries", "freed_disk_bytes", "copied_bytes", "shared_bytes")
 #: The archive's resumable progress log while it is built; removed at publish.
 PROGRESS = "progress.jsonl"
 #: The files a published archive adds on disk besides its stored files
@@ -1327,10 +1328,11 @@ class Retirement:
 def added_bytes(directory: Path, totals: dict[str, Any]) -> int:
     """The space an archive adds on disk (final review of e50716e8, N1): its
     bundle, manifest, summary and rows (`ADDED`, apparent sizes, as found in
-    `directory`) and its byte copies (`copied_bytes`). Clones add nothing
-    until the files they replace are gone, which is `archived_bytes`. What
-    deleting a byte copy's original gives back is not in `freed_disk_bytes`,
-    so the net (`freed_disk_bytes - added_bytes`) errs low."""
+    `directory`) and its byte copies (`copied_bytes`). Clones share blocks
+    with their originals, and a shared entry reuses an existing stored copy.
+    `freed_disk_bytes` includes unshared blocks of shared entries' originals
+    and excludes those of originals counted as byte copies, so the net
+    (`freed_disk_bytes - added_bytes`) errs low."""
     total = int(totals.get("copied_bytes") or 0)
     for name in ADDED:
         try:
@@ -1353,14 +1355,14 @@ def rows_bytes(store: Any, job_id: str) -> int:
 
 
 def accounting(totals: dict[str, Any], added: int = 0) -> dict[str, int]:
-    """What a retirement frees, moves into the archive, and adds to it
-    (TOTALS, `added_bytes`). An archive of an earlier layout lacks the
-    regenerable figures (0)."""
+    """What a retirement frees, stores, shares, and adds (TOTALS, `added_bytes`).
+    Regenerable and shared figures default to zero for older archives."""
     omitted = int(totals.get("omitted_bytes") or 0)
     regenerable = int(totals.get("regenerable_bytes") or 0)
     return {"archived_bytes": int(totals.get("archived_bytes") or 0), "omitted_bytes": omitted,
             "regenerable_bytes": regenerable, "freed_bytes": omitted + regenerable,
-            "freed_disk_bytes": int(totals.get("freed_disk_bytes") or 0), "added_bytes": int(added)}
+            "freed_disk_bytes": int(totals.get("freed_disk_bytes") or 0), "added_bytes": int(added),
+            "shared_bytes": int(totals.get("shared_bytes") or 0)}
 
 
 def _repository_checkpoint(cancel: threading.Event | None, deadline: float | None,
@@ -1678,6 +1680,8 @@ class _Builder:
         self.progress_path = self.dir / PROGRESS
         self.progress: dict[str, dict[str, Any]] = {}
         self.pending: list[dict[str, Any]] = []
+        self.stores_by_content: dict[tuple[str, int], tuple[str, str]] = {}
+        self.counted_stores: set[str] = set()
         #: New progress records this call: a slice parks only after at least one,
         #: so a tree whose cached re-walk or one file's read outlasts the slice
         #: still moves forward every pass (review of a9a6cbf4, N3).
@@ -1775,12 +1779,14 @@ class _Builder:
                 denied = {k[len(prefix):] for k in self.progress if k.startswith(prefix)}
                 while True:
                     counts = dict.fromkeys(TOTALS, 0)
+                    counted = self.counted_stores.copy()
                     try:
                         entries, records = self._walk(label, path, omit if label == "worktree" else {}, fmt,
                                                       files_fd, counts, ignored if label == "worktree" else None,
                                                       denied)
                         break
                     except rfs.NotRegenerable as exc:
+                        self.counted_stores = counted
                         denied.add(exc.root)
                         self._note({"k": prefix + exc.root})
                 for key, value in counts.items():
@@ -1964,9 +1970,12 @@ class _Builder:
             totals["omitted_bytes"] += st.st_size
             totals["freed_disk_bytes"] += rfs.private_bytes(parent, name, st)
             return
-        if cached.get("store") and self._stored_ok(files_fd, cached["store"], st.st_size):
-            entry["store"], entry["sha256"] = cached["store"], cached["sha256"]
-            self._count_store(entry, st, links, key, totals, cached.get("method", "clone"))
+        store = cached.get("store")
+        if store and (st.st_nlink == 1 or store == key) and self._stored_ok(files_fd, store, st.st_size):
+            if store != key:
+                self._discard_store(files_fd, key)       # an unrecorded clone of this alias
+            entry["store"], entry["sha256"] = store, cached["sha256"]
+            self._account_store(entry, st, parent, name, links, key, totals, cached.get("method", "clone"))
             return
         self._tick()
         try:
@@ -1990,11 +1999,12 @@ class _Builder:
                     totals["omitted_bytes"] += st.st_size
                     totals["freed_disk_bytes"] += rfs.private_bytes(parent, name, st)
                     return
-            self._store(entry, fd, before, key, files_fd, links, totals)
+            self._store(entry, fd, before, parent, name, key, files_fd, links, totals)
         finally:
             os.close(fd)
 
-    def _store(self, entry: dict[str, Any], fd: int, before: os.stat_result, key: str, files_fd: int,
+    def _store(self, entry: dict[str, Any], fd: int, before: os.stat_result, parent: int, name: str,
+               key: str, files_fd: int,
                links: dict[tuple[int, int], str], totals: dict[str, int]) -> None:
         self._discard_store(files_fd, key)       # a clone of a crashed attempt, unrecorded
         method = rfs.clone_or_copy(fd, files_fd, key, self.ctx.check)
@@ -2003,10 +2013,27 @@ class _Builder:
         if not rfs.same_content_signature(before, after):
             os.unlink(key, dir_fd=files_fd)
             raise rfs.TreeError("changed", f"{entry['p']} changed while it was archived")
-        os.chmod(key, 0o600, dir_fd=files_fd, follow_symlinks=False)
-        entry["store"], entry["sha256"] = key, digest
-        self._note({"k": key, "store": key, "sha256": digest, "method": method})
-        self._count_store(entry, before, links, key, totals, method)
+        existing = self.stores_by_content.get((digest, before.st_size)) if before.st_nlink == 1 else None
+        store = key
+        if existing is not None and existing[0] != key:
+            os.unlink(key, dir_fd=files_fd)
+            store, method = existing
+        else:
+            os.chmod(key, 0o600, dir_fd=files_fd, follow_symlinks=False)
+        entry["store"], entry["sha256"] = store, digest
+        self._note({"k": key, "store": store, "sha256": digest, "method": method})
+        self._account_store(entry, before, parent, name, links, key, totals, method)
+
+    def _account_store(self, entry: dict[str, Any], st: os.stat_result, parent: int, name: str,
+                       links: dict[tuple[int, int], str], key: str, totals: dict[str, int], method: str) -> None:
+        store = entry["store"]
+        self.stores_by_content.setdefault((entry["sha256"], st.st_size), (store, method))
+        if st.st_nlink == 1 and store in self.counted_stores:
+            totals["shared_bytes"] += st.st_size
+            totals["freed_disk_bytes"] += rfs.private_bytes(parent, name, st)
+            return
+        self.counted_stores.add(store)
+        self._count_store(entry, st, links, key, totals, method)
 
     def _count_store(self, entry: dict[str, Any], st: os.stat_result, links: dict[tuple[int, int], str],
                      key: str, totals: dict[str, int], method: str) -> None:
@@ -2070,7 +2097,7 @@ class _Builder:
                         totals["omitted_bytes"] -= st.st_size
                         totals["freed_disk_bytes"] -= rfs.private_bytes(parent, name, st)
                         del entry["blob"]
-                        self._store(entry, fd, st, rfs.sig_key(st), files_fd, {}, totals)
+                        self._store(entry, fd, st, parent, name, rfs.sig_key(st), files_fd, {}, totals)
                     finally:
                         os.close(fd)
                 finally:
@@ -2172,20 +2199,25 @@ class _Builder:
                     "(retention.remote_less_history_bytes)")
 
     def _verify_store(self, trees: dict[str, dict[str, Any]]) -> None:
-        """Read every stored file back and check its size and sha256. Every copy
-        that does not read back is removed, so a kept cache never offers it
-        again and the next attempt clones those files anew (N10)."""
+        """Check each stored file against the size and sha256 its entries agree
+        on. Discard a failed copy so the next attempt writes it anew (N10)."""
         fd = rfs.open_dir(self.files)
         bad: list[str] = []
         try:
-            checked: set[str] = set()
+            checked: dict[str, tuple[str, int]] = {}
             for label, tree in trees.items():
                 for entry in tree["entries"]:
                     name = entry.get("store")
                     _require_file_bytes(entry, label)
-                    if not name or name in checked:
+                    if not name:
                         continue
-                    checked.add(name)
+                    content = (entry["sha256"], entry["size"])
+                    if name in checked:
+                        if checked[name] != content:
+                            self._discard_store(fd, name)
+                            bad.append(entry["p"])
+                        continue
+                    checked[name] = content
                     seen = self.progress.get("v:" + name, {})
                     if seen.get("sha256") == entry["sha256"] and seen.get("sig") is not None \
                             and seen["sig"] == _copy_sig(fd, name):
@@ -2243,7 +2275,8 @@ def list_archives(root: Path) -> list[dict[str, Any]]:
         except (OSError, ValueError):
             out.append({"archive": name, "error": "summary unreadable"})
             continue
-        out.append({"archive": name, **summary, "added_bytes": added_bytes(base / name, summary)})
+        out.append({"archive": name, **summary, "shared_bytes": int(summary.get("shared_bytes") or 0),
+                    "added_bytes": added_bytes(base / name, summary)})
     return out
 
 
@@ -2258,13 +2291,18 @@ def check_archive(root: Path, name: str) -> dict[str, Any]:
     problems: list[str] = []
     fd = rfs.open_dir(base / "files")
     try:
-        seen: set[str] = set()
+        seen: dict[str, tuple[str, int]] = {}
         for label, tree in manifest["trees"].items():
             for entry in tree["entries"]:
                 store = entry.get("store")
-                if not store or store in seen:
+                if not store:
                     continue
-                seen.add(store)
+                content = (entry["sha256"], entry["size"])
+                if store in seen:
+                    if seen[store] != content:
+                        problems.append(f"{label}/{entry['p']}: shared store sha256 or size mismatch")
+                    continue
+                seen[store] = content
                 try:
                     handle = os.open(store, rfs.O_FILE, dir_fd=fd)
                     try:

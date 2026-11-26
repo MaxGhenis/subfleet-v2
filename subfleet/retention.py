@@ -387,13 +387,15 @@ def _pins(store: Store, explicit: set[str], landed_salvage: set[int], *,
 # --- state kept across passes ---------------------------------------------------
 
 #: What a pass reports about the disk, apart from the pools' live-tree bytes
-#: (d635 accounting): deleted without a copy (`freed_bytes`: omitted tracked
-#: files and regenerable output; `freed_disk_bytes`: their blocks no clone
-#: shares) versus moved into the archive (`archived_bytes`), and the space the
-#: archives added (`added_bytes`: bundles, manifests, rows and byte copies;
-#: final review of e50716e8, N1). The net on disk is `freed_disk_bytes -
-#: added_bytes`.
+#: (d635 accounting). `freed_bytes` sums omitted tracked files and regenerable
+#: output. `freed_disk_bytes` includes those originals' unshared blocks and
+#: those of originals that reuse a stored copy. `archived_bytes` counts bytes
+#: stored, and `added_bytes` counts bundles, manifests, summaries, rows and
+#: byte copies (final review of e50716e8, N1). The net on disk is
+#: `freed_disk_bytes - added_bytes`. `shared_bytes` separately reports the
+#: apparent size of files reusing a counted stored copy.
 FREED_KEYS = ("freed_bytes", "freed_disk_bytes", "archived_bytes", "added_bytes")
+ACCOUNTING_KEYS = (*FREED_KEYS, "shared_bytes")
 
 
 @dataclass
@@ -486,7 +488,7 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
                                 "deferred": {}, "in_flight": [], "reclaimed": [], "conflicts": [],
                                 "progressed": False, "holder_scan_failed": False, "tmpdir_left": [],
                                 "listings": 0, "listing_s": 0.0, "listing": None, "awaiting_check2": [],
-                                **dict.fromkeys(FREED_KEYS, 0)}
+                                **dict.fromkeys(ACCOUNTING_KEYS, 0)}
     try:
         _checkpoint(cancel, deadline, clock=clock)
     except _Interrupted as exc:
@@ -737,10 +739,9 @@ class _Pass:
                 jobs_after[_pool(job)] -= 1
         for name in pools:
             pools[name].update(jobs_after=jobs_after[name], bytes_after=after[name])
-            # `bytes_*` count live trees against the budget; what leaving them
-            # did to the disk is apart: freed (deleted without a copy) versus
-            # moved into the archive (clones, which free nothing until removed).
-            pools[name].update(self.freed_by_pool.get(name) or dict.fromkeys(FREED_KEYS, 0))
+            # `bytes_*` count live trees against the budget. Archive accounting
+            # reports what leaving those trees did to disk usage.
+            pools[name].update(self.freed_by_pool.get(name) or dict.fromkeys(ACCOUNTING_KEYS, 0))
         # More work is waiting when a job was parked or held back by the batch or
         # the deadline, or when a pool's byte total is still only a lower bound
         # within its budget (its unmeasured jobs may put it over). A job whose
@@ -1179,14 +1180,12 @@ class _Pass:
             return
         self.acted += 1
         self.progress["reclaimed"].append(job_id)
-        # Truthful accounting (d635 disk relief): what the deletion gave back
-        # (tracked files a remote holds and regenerable output, deleted without
-        # a copy) apart from what it moved into the archive (clones: deleting
-        # the originals frees nothing) and what the archive itself added (its
-        # bundle and metadata, N1). `unlinked_bytes` is every file removed.
+        # Archive accounting includes the unshared blocks freed by deleting
+        # originals that reuse a stored copy. `unlinked_bytes` counts every
+        # file removed.
         moved = rarch.accounting(report.get("totals") or {}, report.get("added_bytes") or 0)
-        by_pool = self.freed_by_pool.setdefault(pool or "unknown", dict.fromkeys(FREED_KEYS, 0))
-        for key in FREED_KEYS:
+        by_pool = self.freed_by_pool.setdefault(pool or "unknown", dict.fromkeys(ACCOUNTING_KEYS, 0))
+        for key in ACCOUNTING_KEYS:
             self.progress[key] += moved[key]
             by_pool[key] += moved[key]
         data = {"deleted": report["deleted"], "unlinked_bytes": report["bytes"], **moved,
