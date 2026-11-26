@@ -946,11 +946,35 @@ def test_a_job_from_a_subfolder_starts_there_after_the_checkout_goes(state_daemo
     assert (daemon.root / "worktrees" / job_id / "pkg" / "module.txt").is_file()
 
 
+def bare_copy(repo: Path, bare: Path) -> Path:
+    """Copy branches, tags, objects and HEAD locally because review jobs refuse file transport (#340)."""
+    branch = git(repo, "symbolic-ref", "HEAD").removeprefix("refs/heads/")
+    git(bare.parent, "init", "-q", "--bare", "-b", branch, str(bare))
+    shutil.copytree(repo / ".git" / "objects", bare / "objects", dirs_exist_ok=True)
+    refs = git(repo, "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads", "refs/tags")
+    for line in refs.splitlines():
+        name, oid = line.split()
+        # The explicit bare fixture forbids discovering this repository with -C.
+        git(bare.parent, f"--git-dir={bare}", "update-ref", name, oid)
+    return bare
+
+
+def submodule_copy(sup: Path, repo: Path, name: str = "sm") -> Path:
+    """Build the submodule layout with local commands for review jobs (#340)."""
+    checkout = sup / name
+    shutil.copytree(repo, checkout, symlinks=True)
+    (sup / ".gitmodules").write_text(f'[submodule "{name}"]\n\tpath = {name}\n\turl = {repo}\n')
+    git(sup, "-c", "advice.addEmbeddedRepo=false", "add", ".gitmodules", name)
+    git(sup, "submodule", "absorbgitdirs", name)
+    git(sup, "submodule", "init", name)
+    return checkout
+
+
 def test_a_job_from_a_bare_repositorys_checkout_runs_after_the_checkout_goes(state_daemon, repo, tmp_path,  # noqa: F811
                                                                              offers):
     daemon, harness = state_daemon
     bare = tmp_path / "bare.git"
-    git(tmp_path, "clone", "-q", "--bare", str(repo), str(bare))
+    bare_copy(repo, bare)
     checkout = tmp_path / "bare-checkout"
     git(bare, "worktree", "add", "-q", "-b", "session/bare", str(checkout))
     close_every_lane(daemon)
@@ -959,6 +983,36 @@ def test_a_job_from_a_bare_repositorys_checkout_runs_after_the_checkout_goes(sta
     git(bare, "worktree", "remove", "--force", str(checkout))
     runs(daemon, job_id)
     assert job_id in registered(bare)
+
+
+def test_the_bare_and_submodule_setups_need_no_transport(repo, tmp_path, monkeypatch):
+    from subfleet.review_publish import GIT_DENIAL
+
+    for name, value in GIT_DENIAL.items():
+        monkeypatch.setenv(name, value)
+    with pytest.raises(subprocess.CalledProcessError) as exc:
+        git(tmp_path, "clone", "-q", "--bare", str(repo), str(tmp_path / "cloned.git"))
+    assert "transport 'file' not allowed" in exc.value.stderr
+
+    git(repo, "tag", "-a", "fixture-tag", "-m", "fixture tag")
+    bare = bare_copy(repo, tmp_path / "bare.git")
+    assert git(tmp_path, f"--git-dir={bare}", "rev-parse", "--is-bare-repository") == "true"
+    assert git(tmp_path, f"--git-dir={bare}", "symbolic-ref", "HEAD") == "refs/heads/task/example"
+    assert git(tmp_path, f"--git-dir={bare}", "for-each-ref", "--format=%(refname) %(objectname)") == git(
+        repo, "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads", "refs/tags"
+    )
+    git(tmp_path, f"--git-dir={bare}", "fsck", "--no-progress")
+
+    sup = tmp_path / "sup"
+    sup.mkdir()
+    git(sup, "init", "-q", "-b", "main")
+    checkout = submodule_copy(sup, repo)
+    modules = sup / ".git" / "modules" / "sm"
+    assert (checkout / ".git").read_text().strip() == "gitdir: ../.git/modules/sm"
+    assert git(tmp_path, f"--git-dir={modules}", "config", "core.worktree") == "../../../sm"
+    assert git(sup, "config", "submodule.sm.url") == str(repo)
+    assert git(sup, "config", "submodule.sm.active") == "true"
+    assert git(sup, "ls-files", "-s", "sm").split()[:2] == ["160000", git(repo, "rev-parse", "HEAD")]
 
 
 def test_a_tree_cut_from_the_repository_is_the_tree_the_checkout_would_cut(state_daemon, repo, linked,  # noqa: F811
@@ -1386,12 +1440,12 @@ def test_a_recorded_repository_moved_away_reads_as_no_record(state_daemon, repo,
 def shaped(request, repo, tmp_path, monkeypatch):
     """A checkout, and a common directory git refuses to run in once that checkout has gone: a
     submodule's enters its `core.worktree`, and a bare repository is refused under
-    `safe.bareRepository=explicit`."""
+    `safe.bareRepository=explicit`. Both repositories are built without file transport."""
     if request.param == "submodule":
         sup = tmp_path / "sup"
         sup.mkdir()
         git(sup, "init", "-q", "-b", "main")
-        git(sup, "-c", "protocol.file.allow=always", "submodule", "add", "-q", str(repo), "sm")
+        submodule_copy(sup, repo)
         git(sup, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-qm", "sm")
         return sup / "sm", sup / ".git" / "modules" / "sm"
     home = tmp_path / "home"
@@ -1400,7 +1454,7 @@ def shaped(request, repo, tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("GIT_CONFIG_GLOBAL", raising=False)
     bare = tmp_path / "bare.git"
-    git(tmp_path, "clone", "-q", "--bare", str(repo), str(bare))
+    bare_copy(repo, bare)
     checkout = tmp_path / "bare-checkout"
     subprocess.run(["git", f"--git-dir={bare}", "worktree", "add", "-q", "-b", "session/bare", str(checkout)], check=True)
     return checkout, bare
