@@ -117,7 +117,8 @@ def environment(extra: dict[str, str] | None = None) -> dict[str, str]:
 
 def run(args: Iterable[str], *, git_dir: Path | None = None, cwd: Path | None = None,
         stdin: bytes | None = None, timeout: float = 120, cancel: threading.Event | None = None,
-        env: dict[str, str] | None = None, ok: Iterable[int] = (0,), stdin_file=None) -> subprocess.CompletedProcess:
+        env: dict[str, str] | None = None, ok: Iterable[int] = (0,), stdin_file=None,
+        config: Iterable[str] = ()) -> subprocess.CompletedProcess:
     """One git command with a wall cap; cancellation kills its process group.
 
     A wrapper or Git child can retain the output pipes after its parent dies.
@@ -134,6 +135,8 @@ def run(args: Iterable[str], *, git_dir: Path | None = None, cwd: Path | None = 
         if args and args[0] == "init" and not any(a == "--template" or a.startswith("--template=") for a in args):
             args = ("init", "--template=", *args[1:])
     argv = ["git", *GIT_CONFIG]
+    for setting in config:
+        argv.extend(("-c", setting))
     if git_dir is not None:
         argv.append(f"--git-dir={git_dir}")
     argv.extend(args)
@@ -164,7 +167,8 @@ def run(args: Iterable[str], *, git_dir: Path | None = None, cwd: Path | None = 
                             pipe.close()
                     process.poll()
                 if cancel is not None and cancel.is_set():
-                    raise Cancelled(f"git {argv[len(GIT_CONFIG) + 1]} cancelled") from None
+                    command = args[0] if args else "command"
+                    raise Cancelled(f"git {command} cancelled") from None
                 raise GitError(f"git {' '.join(list(args)[:2])} timed out after {timeout:g} s") from None
     result = subprocess.CompletedProcess(argv, process.returncode, out, err)
     if result.returncode not in tuple(ok):
@@ -858,6 +862,13 @@ def temp_roots() -> set[str]:
                                           checked_override("TMPDIR", os.environ.get("TMPDIR")) or "/tmp")}
 
 
+def partial_clone(git_dir: Path, *, cancel: threading.Event | None = None) -> bool:
+    """Check the config markers for an object store with a promisor remote."""
+    partial = run(["config", "--get", "extensions.partialclone"], git_dir=git_dir, ok=(0, 1), cancel=cancel)
+    promisor = run(["config", "--get-regexp", r"^remote\..+\.promisor$"], git_dir=git_dir, ok=(0, 1), cancel=cancel)
+    return bool(partial.stdout.strip() or b"true" in promisor.stdout.lower())
+
+
 def scratch_reason(common: Path, state_root: Path, remotes: dict[str, str],
                    cancel: threading.Event | None = None) -> str | None:
     """Why a repository cannot be trusted to keep a blob, or None.
@@ -883,12 +894,10 @@ def scratch_reason(common: Path, state_root: Path, remotes: dict[str, str],
     if (common / "shallow").exists():
         return "shallow clone"
     try:
-        partial = run(["config", "--get", "extensions.partialclone"], git_dir=common, ok=(0, 1), cancel=cancel)
-        promisor = run(["config", "--get-regexp", r"^remote\..+\.promisor$"], git_dir=common, ok=(0, 1), cancel=cancel)
+        if partial_clone(common, cancel=cancel):
+            return "partial clone"
     except GitError as exc:
         return f"config unreadable: {exc}"
-    if partial.stdout.strip() or b"true" in promisor.stdout.lower():
-        return "partial clone"
     if not remotes:
         return "no network remote"
     return None
@@ -1241,9 +1250,17 @@ def resolve(git_dir: Path, ref: str, *, cancel: threading.Event | None = None) -
 def create_bundle(git_dir: Path, path: Path, refs: list[str], held: list[str], *, timeout: float = 3600,
                   cancel: threading.Event | None = None) -> None:
     args = ["bundle", "create", str(path), *refs]
+    config: tuple[str, ...] = ()
     if held:
         args += ["--not", *held]
-    run(args, git_dir=git_dir, timeout=timeout, cancel=cancel)
+        # The sparse walk can repack blobs the anchor names at different paths.
+        # In a partial clone, those blobs may only live at the promisor remote.
+        try:
+            if not partial_clone(git_dir, cancel=cancel):
+                config = ("pack.useSparse=false",)
+        except GitError:
+            pass  # Keep Git's default when the clone's config is unreadable.
+    run(args, git_dir=git_dir, timeout=timeout, cancel=cancel, config=config)
     fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC)
     try:
         rfs.fullsync(fd)

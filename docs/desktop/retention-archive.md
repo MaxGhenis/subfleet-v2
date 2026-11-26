@@ -1,5 +1,9 @@
 # Job retention by archive
 
+Revision 9, 2026-11-26: exclude objects already in prerequisite trees when
+packing an archive bundle for a full repository. Partial clones keep Git's
+default packing (D-BUNDLE-SPARSE1, C-8.4).
+
 Revision 8, 2026-11-09: section 18, the operator's delete path for the trees
 the pass keeps for good (d2660, C-8.7).
 
@@ -215,6 +219,8 @@ anchored) is left as it is: the remnant's repository has lost its `HEAD` and
     summary.json     totals, for `retention archives`
     files/           the stored files (clones), named by the signature of the version archived
     commits.bundle   the anchor, its only head, with every commit no network remote holds
+                     packed without Git's sparse walk when excluding remote history, except in a
+                     partial clone or when Git cannot read its configuration
                      (absent when a network remote already reaches the anchor)
     rows.json        the job's rows, as deleted
 <state>/retention-conflicts/<job>/     anything verified deletion found new or changed
@@ -417,7 +423,7 @@ idle journal's deferral is recalled once per daemon.
 | Tracked files, modified or not | Archived byte for byte, unless the raw bytes equal a blob a network remote holds (section 6) |
 | Untracked and ignored files: `build/`, `dist/`, `target/`, `.cache/`, data, logs | Archived byte for byte |
 | Regenerable output: a virtualenv, `node_modules`, `__pycache__`, tool caches | Each file a rule of section 7 proves regenerable is deleted with the tree, not archived; everything else in the directory, inside the tool's own entries too, is archived |
-| Staged content | The index file is archived; every blob it stages is in the anchor's `index/` tree, in the bundle |
+| Staged content | The archive holds the index file, and the anchor's `index/` tree names every staged blob. When the pack uses the non-sparse walk, a staged blob in a prerequisite commit's tree is supplied by the network remote and omitted from the bundle. Partial clones keep Git's default packing. |
 | Detached, reflog-only, `ORIG_HEAD`, `MERGE_HEAD`, `FETCH_HEAD`, `refs/worktree/*`, `refs/bisect/*`, rebase state | Every commit, tree and blob id the admin directory names is a parent or entry of the anchor, in the bundle; the directory itself is archived |
 | Salvage commits | Parents of the anchor, so in the bundle or on a network remote; the manifest records each ref and commit; the refs themselves are never touched |
 | Nested repositories (`.git` directories, bare repositories), including salvage `skipped` paths | Archived byte for byte, object stores included, wherever they are, inside a would-be virtualenv too; if any non-exempt file has no stored bytes to verify, the job is protected with `unarchived path` and that path |
