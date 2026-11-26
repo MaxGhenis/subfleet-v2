@@ -21,7 +21,7 @@ from .protocol import PROVIDER_QOS_REQUESTS
 from .contracts import (CAPACITY_RECHECK_BASE_S, CAPACITY_RECHECK_CEILING_S, CAPACITY_RECHECK_EVENT_CEILING_S, DEFAULT_CAPS,
                         HEADROOM_FLOOR, Decision, Exit, hold_source_shown, launch_has_shell)
 from .policy import (MEMORY_PRESSURE_LEVELS, PolicyError, admission_settings, cap, flatten_chain, lane_slot_cap,
-                     lane_order, provider_cap, provider_caps_on, resolve_model, resolve_sandbox, turn_cap, job_needs_shell)
+                     fill_on, lane_order, provider_cap, provider_caps_on, resolve_model, resolve_sandbox, turn_cap, job_needs_shell)
 
 ACTIVE_ATTEMPTS = frozenset({"reserved", "starting", "running", "finalizing"})
 

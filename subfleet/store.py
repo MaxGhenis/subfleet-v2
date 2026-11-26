@@ -1083,6 +1083,8 @@ class Store:
     def fill_reading_candidates(self, *, now: str | datetime | None = None) -> list[Row]:
         """C-11.11: provider readings that can bind fill at this or a later clock.
 
+        Snapshots that rank only on reset can skip this query.
+
         Admission's latest evidence remains untouched. For each key retain all
         ties at its latest numeric provider observation no later than now, all
         future observations (so the clock can make them applicable), and every
@@ -1097,15 +1099,20 @@ class Store:
             parsed = datetime.fromisoformat(instant.replace("Z", "+00:00"))
             instant = (parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else
                        parsed.astimezone(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        provider = (
+            "label IN ('provider','stale-provider') AND typeof(utilization) IN ('integer','real') "
+            "AND utilization BETWEEN -1.7976931348623157e308 AND 1.7976931348623157e308"
+        )
+        # Enumerate keys with the covering index, then seek each key's newest
+        # qualifying timestamp and join on it to keep all ties.
         return self.query(
-            "WITH provider AS (SELECT * FROM readings WHERE label IN ('provider','stale-provider') "
-            "AND typeof(utilization) IN ('integer','real') "
-            "AND utilization BETWEEN -1.7976931348623157e308 AND 1.7976931348623157e308), "
-            "top AS (SELECT lane_id,scope,window,max(observed_at) AS at FROM provider "
-            "WHERE observed_at GLOB ? AND observed_at<=? GROUP BY lane_id,scope,window) "
-            "SELECT r.* FROM provider r JOIN top ON r.lane_id=top.lane_id AND r.scope=top.scope "
-            "AND r.window=top.window AND r.observed_at=top.at "
-            "UNION ALL SELECT * FROM provider WHERE NOT observed_at GLOB ? OR observed_at>? "
+            "WITH keys AS (SELECT DISTINCT lane_id,scope,window FROM readings) "
+            "SELECT r.* FROM keys k JOIN readings r ON r.lane_id=k.lane_id "
+            "AND r.scope=k.scope AND r.window=k.window AND r.observed_at=("
+            "SELECT observed_at FROM readings WHERE lane_id=k.lane_id AND scope=k.scope AND window=k.window "
+            f"AND observed_at GLOB ? AND observed_at<=? AND {provider} ORDER BY observed_at DESC LIMIT 1) "
+            f"WHERE {provider} "
+            f"UNION ALL SELECT * FROM readings WHERE (NOT observed_at GLOB ? OR observed_at>?) AND {provider} "
             "ORDER BY observed_at DESC,reading_id DESC", (self.CANONICAL_TS, instant, self.CANONICAL_TS, instant))
 
     def weekly_projection_samples(self, *, now: str | datetime | None = None) -> list[Row]:

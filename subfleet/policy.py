@@ -342,6 +342,13 @@ def lane_order(policy: Mapping[str, Any], provider: str) -> str:
     return admission_settings(policy)["lane_order"].get(provider, "reset")
 
 
+def fill_on(policy: Mapping[str, Any]) -> bool:
+    """C-11.11: whether any configured model's provider ranks on fill evidence."""
+    return any(lane_order(policy, provider) == "fill"
+               for model in (policy.get("models") or {}).values()
+               if (provider := model.get("provider")) is not None)
+
+
 def lane_spread(policy: Mapping[str, Any], provider: str) -> int | None:
     """C-11.3: a shared band width or this provider's width (missing: 2)."""
     spread = admission_settings(policy)["lane_spread"]

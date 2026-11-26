@@ -73,6 +73,20 @@ def test_fill_unknown_model_pick_binds_all_applicable_scopes():
     assert result["ranked"][0]["fill_weekly_reset"] == reset(500_000)
 
 
+def test_unknown_model_pick_binds_a_scope_other_than_the_first_model():
+    configured = rules(expiring_s=None)
+    opus = configured["models"]["opus"]["id"]
+    lanes = [lane(f"claude-{n}", label=f"fixture-{n}@example.com") for n in range(2)]
+    rows = [reading("claude-0", .8, reset(400_000)),
+            reading("claude-0", .1, reset(500_000), scope=opus),
+            reading("claude-1", .5, reset(400_000))]
+    snapshot = capacity.build_view(lanes, rows, now=NOW)
+    result = picker.rank(configured, snapshot, family="claude")
+    first = result["ranked"][0]
+    assert first["lane_id"] == "claude-0"
+    assert first["fill_weekly_used"] == pytest.approx(.9)
+
+
 @pytest.mark.parametrize("boundary", ["expiring", "reset"])
 @settings(max_examples=100, deadline=None, derandomize=True)
 @given(seconds=st.integers(1, 100), threshold=st.integers(1000, 100_000), age=st.integers(121, 500_000))
@@ -99,6 +113,23 @@ def test_fill_cached_route_matches_evaluate_at_old_window_boundaries(boundary, s
     assert judged == 1
     assert full.chosen_lane == "claude-1"
     assert asdict(standing) == asdict(full)
+
+
+def test_fill_horizon_notes_a_future_row_the_admission_view_hides():
+    configured = rules()
+    lanes = [lane("claude-0"), lane("claude-1")]
+    weekly_reset = reset(3 * 86400)
+    rows = [reading("claude-0", .7, weekly_reset, age=100),
+            reading("claude-0", .4, weekly_reset, age=-10),
+            reading("claude-0", .1, weekly_reset, age=-20),
+            reading("claude-1", .5, weekly_reset)]
+    job = {"pinned_model": "opus", "sandbox": "read-only"}
+    snapshot = capacity.build_view(lanes, rows, now=NOW)
+    assert scheduler.evaluate(configured, snapshot, job).chosen_lane == "claude-1"
+    later = CLOCK + timedelta(seconds=10)
+    updated = capacity.build_view(lanes, rows, now=later)
+    assert scheduler.evaluate(configured, updated, job).chosen_lane == "claude-0"
+    assert capacity.lane_horizons(snapshot, policy=configured)["claude-0"] == later
 
 
 def test_fill_expiring_horizon_accepts_arbitrarily_large_whole_seconds():

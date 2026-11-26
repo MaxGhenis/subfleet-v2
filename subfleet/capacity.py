@@ -261,8 +261,8 @@ def fill_candidates(readings: Iterable[Any], *, now: str | datetime) -> list[dic
 
     def usable(row: Mapping[str, Any]) -> bool:
         used = row.get("utilization")
-        # Not `math.isfinite` on an int: SQLite's integers are all in range, and
-        # a Python int too large for a float is left for its reader to refuse.
+        # Only Python-built views can hold ints outside float range. The fill
+        # ranking and horizon readers raise OverflowError on such ints.
         return (row.get("label") in ("provider", "stale-provider")
                 and (isinstance(used, int) and not isinstance(used, bool)
                      or isinstance(used, float) and math.isfinite(used)))
@@ -702,14 +702,17 @@ def owned_lanes(view: Mapping[str, Any], owner: str = "v2") -> list[dict[str, An
     return [lane for lane in view["lanes"] if lane.get("owner") == owner]
 
 
-def store_rows(store: Any, *, now: str | datetime | None = None) -> dict[str, list]:
+def store_rows(store: Any, *, now: str | datetime | None = None, fill: bool = True) -> dict[str, list]:
     """The store rows `build_view` is made from, as its keyword arguments.
 
     C-3.7: read them in one `Store.snapshot()` and build the view after it, so
-    a view build holds no read connection (review of 5841d8b, finding 2)."""
+    a view build holds no read connection (review of 5841d8b, finding 2).
+    Pass `fill=False` to return empty fill evidence and skip its store query."""
     # Every reading that can be a key's newest, not every reading.
     readings = getattr(store, "latest_reading_candidates", store.list_readings)()
-    fill_readings = store.fill_reading_candidates(now=now) if hasattr(store, "fill_reading_candidates") else readings
+    fill_readings = []
+    if fill:
+        fill_readings = store.fill_reading_candidates(now=now) if hasattr(store, "fill_reading_candidates") else readings
     history = store.weekly_projection_samples(now=now) if hasattr(store, "weekly_projection_samples") else readings
     return {"lanes": store.lane_rows(), "readings": readings, "fill_readings": fill_readings, "weekly_samples": history,
             "closures": store.list_closures(),

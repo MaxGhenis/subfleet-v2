@@ -37,6 +37,13 @@ def cases(draw):
     return draw(policies(vary_lane_order=True)), store, draw(route_jobs(store))
 
 
+@st.composite
+def codex_fill_cases(draw):
+    policy, store, job = draw(cases())
+    policy["admission"]["lane_order"]["codex"] = "fill"
+    return policy, store, job
+
+
 # --- still_stands is exactly the full evaluation's answer ---------------------------------------
 
 def now_rows(before: dict, after: dict) -> dict:
@@ -120,6 +127,22 @@ def test_c6_3_still_stands_exactly_when_evaluate_now_chooses_the_same(case, data
     # is the evaluation's own (asserted in `check`).
     assert (verdict is None) == decidable, (verdict, decision.chosen_lane, full and full.chosen_lane)
     if verdict is None:            # `decision` is the decision now
+        assert scheduler.verdict_signature(decision) == scheduler.verdict_signature(full)
+        if decision.chosen_lane:
+            assert scheduler.probe_required(decision, job) == scheduler.probe_required(full, job)
+
+
+@SETTINGS
+@given(codex_fill_cases(), st.data())
+def test_c6_3_codex_fill_still_stands_exactly_when_evaluate_now_chooses_the_same(case, data):
+    policy, store, job = case
+    after, seconds = data.draw(commits(store))
+    result = check(policy, store, job, after, seconds)
+    if result is None:
+        return
+    verdict, decidable, decision, full = result
+    assert (verdict is None) == decidable, (verdict, decision.chosen_lane, full and full.chosen_lane)
+    if verdict is None:
         assert scheduler.verdict_signature(decision) == scheduler.verdict_signature(full)
         if decision.chosen_lane:
             assert scheduler.probe_required(decision, job) == scheduler.probe_required(full, job)

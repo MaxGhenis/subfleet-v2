@@ -2269,13 +2269,15 @@ class Daemon:
         views read live/quarantined attempts without evidence and their jobs,
         plus every nonterminal job (`STATUS_ATTEMPTS`, `STATUS_JOBS`, C-17.4).
 
+        Fill readings are loaded only if a configured model's provider uses fill.
+
         Only the reads: the view is built after the snapshot ends, so building
         it holds no read connection. Six views building at once used to hold
         all six, and every other read waited (review of 5841d8b, finding 2)."""
         with self.store.snapshot():
             lanes = self.store.lane_rows()
             rows = {"lanes": lanes, "readings": self.store.latest_reading_candidates(),
-                    "fill_readings": self.store.fill_reading_candidates(),
+                    "fill_readings": self.store.fill_reading_candidates() if scheduler.fill_on(self.policy) else [],
                     "closures": self.store.list_closures(),
                     "attempts": self.store.query(ROUTE_ATTEMPTS if route else STATUS_ATTEMPTS),
                     "jobs": self.store.query(ROUTE_JOBS if route else STATUS_JOBS)}

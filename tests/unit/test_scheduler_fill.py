@@ -24,7 +24,7 @@ from subfleet import scheduler
 from subfleet.policy import DEFAULT_POLICY_PATH, admission_settings, load_policy
 from tests.routing_strategies import NOW as ROUTE_NOW, policies, route_jobs, stores, view_of
 from tests.unit.test_scheduler_weekly import (
-    CLOCK, PROVIDERS, admission_fleets, fleet, heterogeneous_fleets, reset,
+    CLOCK, PROVIDERS, admission_fleets, fleet, heterogeneous_fleets, reading, reset,
 )
 
 
@@ -229,6 +229,13 @@ def test_fill_more_weekly_use_never_ranks_after_less_in_equal_earlier_tiers(gene
     assert ordered.index(high) < ordered.index(low)
 
 
+def test_fill_fewer_in_flight_ranks_first_at_equal_use():
+    weekly_reset = reset(3 * 86400)
+    case = fill_case(fleet("claude", [(.5, .5, weekly_reset, 1), (.5, .5, weekly_reset, 0)],
+                           spread=None))
+    assert candidates(case) == ["claude-1", "claude-0"]
+
+
 @pytest.mark.parametrize("provider,model", PROVIDERS)
 @pytest.mark.parametrize("weekly,five", [(.02, .10), (.25, .125), (.03, .4)])
 @pytest.mark.parametrize("window", ["seven_day", "five_hour"])
@@ -312,6 +319,18 @@ def test_fill_only_latest_applicable_open_windows_contribute_at_any_age(rows):
     assert detail["fill_weekly_used"] == (weekly["utilization"] if weekly else 0)
     assert detail["fill_weekly_reset"] == (weekly["resets_at"] if weekly else None)
     assert detail["fill_five_hour_used"] == (five["utilization"] if five else 0)
+
+
+def test_fill_equal_weekly_use_binds_the_earliest_reset():
+    earlier, later = reset(3600), reset(3 * 86400)
+    case = fill_case(fleet("claude", [(.5, .5, later, 0), (.5, .5, earlier, 0)], spread=None))
+    opus = case[0]["models"]["opus"]["id"]
+    case[1]["readings"].append(reading("claude-1", .5, later, scope=opus))
+    decision = scheduler.evaluate(*case)
+    detail = decision.evaluations[0]["candidate_details"]["claude-1"]
+    assert detail["fill_weekly_reset"] == earlier
+    assert detail["fill_expiring"] is True
+    assert decision.chosen_lane == "claude-1"
 
 
 @pytest.mark.parametrize("age", [121, 86400, 500000])

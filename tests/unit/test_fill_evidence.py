@@ -3,18 +3,23 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import asdict
 import json
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from hypothesis import given, settings, strategies as st
 
 from subfleet import capacity, route_check, scheduler
 from subfleet.contracts import Credential, Lane, LaneOwner, Reading, ReadingLabel
+from subfleet.daemon import Daemon
 from subfleet.policy import DEFAULT_POLICY_PATH, admission_settings, load_policy
 from subfleet.store import Store
+from tests.routing_strategies import NOW, policies, route_jobs, stores, view_of
 
 
 CLOCK = datetime(2026, 11, 7, 12, tzinfo=timezone.utc)
@@ -53,6 +58,73 @@ def detail(decision, identity="claude-1"):
     evaluation = decision.evaluations[0]
     return evaluation["candidate_details"].get(identity) or next(
         row for row in evaluation["rejections"] if row["lane_id"] == identity)
+
+
+def test_snapshots_query_fill_rows_only_when_requested(tmp_path, monkeypatch):
+    with Store(tmp_path / "state.sqlite3") as store:
+        put(store, [reading()])
+        query = Mock(wraps=store.fill_reading_candidates)
+        monkeypatch.setattr(store, "fill_reading_candidates", query)
+        daemon = object.__new__(Daemon)
+        daemon.store = store
+        daemon.policy = load_policy(DEFAULT_POLICY_PATH)
+        daemon.timers = SimpleNamespace(view_rows=lambda lanes: {})
+
+        for route in (False, True):
+            rows = daemon._capacity_rows(route=route)
+            query.assert_not_called()
+            assert rows["view"]["fill_readings"] == []
+
+        for provider in ("claude", "codex"):
+            daemon.policy["admission"]["lane_order"] = {provider: "fill"}
+            for route in (False, True):
+                rows = daemon._capacity_rows(route=route)
+                query.assert_called_once_with()
+                assert rows["view"]["fill_readings"]
+                query.reset_mock()
+
+        assert capacity.store_rows(store, now=CLOCK, fill=False)["fill_readings"] == []
+        query.assert_not_called()
+        assert capacity.store_rows(store, now=CLOCK)["fill_readings"]
+        query.assert_called_once_with(now=CLOCK)
+
+        query.reset_mock()
+        daemon.policy = {
+            "models": {"fixture": {"id": "fixture-model"}},
+            "admission": {"lane_order": {"claude": "fill"}},
+        }
+        assert daemon._capacity_rows(route=True)["view"]["fill_readings"] == []
+        query.assert_not_called()
+
+
+@settings(max_examples=300, deadline=None, derandomize=True)
+@given(policies(), stores(), st.data())
+def test_reset_decisions_and_horizons_ignore_fill_rows(rules, store, data):
+    job = data.draw(route_jobs(store))
+    view = view_of(store, NOW, ttl=rules["caps"]["reading_ttl_s"])
+    without_fill = dict(view, fill_readings=[])
+
+    def outcome(call):
+        try:
+            return call()
+        except route_check.ROUTE_ERRORS as exc:
+            return type(exc), exc.args
+
+    assert outcome(lambda: asdict(scheduler.evaluate(rules, view, job))) == outcome(
+        lambda: asdict(scheduler.evaluate(rules, without_fill, job)))
+    assert outcome(lambda: capacity.lane_horizons(view, policy=rules)) == outcome(
+        lambda: capacity.lane_horizons(without_fill, policy=rules))
+
+
+def test_c_int_too_large_for_a_float_raises_in_the_reader():
+    row = {**asdict(reading(.5, -10, 36000)), "utilization": 10**400}
+    assert capacity.fill_candidates([row], now=CLOCK) == [row]
+    with pytest.raises(OverflowError):
+        scheduler.fill_ranking_usage([row], now=CLOCK, admission=admission_settings({}))
+    view = {"now": stamp(), "lanes": [{"lane_id": row["lane_id"], "provider": "claude"}],
+            "fill_readings": [row]}
+    with pytest.raises(OverflowError):
+        capacity.lane_horizons(view, policy=policy())
 
 
 @pytest.mark.parametrize("mask", [reading(.1, 1), reading(.1, -1, label="unknown"),

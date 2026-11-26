@@ -1,12 +1,10 @@
 # Claude fill-first ranking (D-FILL1)
 
-The shipped default changed to reset in 'Default fix r2' below.
-
 Implemented from `266c3ab8b0be2548fbe0abc77273fa1ccd7fa9a9`, in the assigned isolated workspace. The sandbox denies the shared Git `index.lock`: every named-file staging attempt failed, so no commit or branch switch could be made. The files remain available for Subfleet salvage. Nothing was pushed, no history was rewritten, and no caller worktree file or live state was read or changed.
 
 ## Order and policy
 
-`admission.lane_order` defaults to `{"claude": "fill", "codex": "reset"}`. An omitted provider in an explicit map uses `reset`. `admission.expiring_s` accepts positive whole seconds or null, defaults to 21600, and null disables expiry preference. `admission.lane_spread` accepts its existing positive integer/null scalar or a provider map; omitted map providers use 2. The default remains 2. Validation names the offending key, including provider entries.
+`admission.lane_order` ships as `{"claude": "reset", "codex": "reset"}`. “Why reset ships” explains the default. An omitted provider in an explicit map uses `reset`. `admission.expiring_s` accepts positive whole seconds or null, defaults to 21600, and null disables expiry preference. `admission.lane_spread` accepts its existing positive integer/null scalar or a provider map; omitted map providers use 2. The default remains 2. Validation names the offending key, including provider entries.
 
 Both orders share one prefix: desktop last, a turn's affinity first in its desktop class, load band, then Claude stranded capacity. The separate desktop-org build can insert `desktop_possible` immediately after desktop in that one prefix. Fill then orders weekly reserve false first, five-hour reserve false first, expiring true first, expiring reset ascending, weekly use descending, in-flight ascending, lane id. All non-expiring lanes share the reset-tier value.
 
@@ -46,12 +44,12 @@ The full export has 41,803 numeric rows from **2026-10-24T00:05:21Z through 2026
 
 ## Invariants and tests
 
-`tests/unit/test_scheduler_fill.py` contains 38 cases with 4,100 configured Hypothesis examples. The frozen full base evaluator permits complete decision/error comparisons without Git history at test time. Its SHA-256 is `f6c9ad0cae11fd8b9d624f856b0782ddb7e155cbc4dfca1ab85ce141d1da7d54`; extracted `rank_key` is `1e100b7a9681f7bf7dc19ebf5d8e701785ce3fb8d5d0d57d5041e45f88bc6a54`, and `ranking_usage` is `ade25eea6e4bdbed6f569d7812bafbd64c1c3a093bbf87341d01d338083a7e21`. The frozen bytes were checked against `git show 266c3ab8b0be:subfleet/scheduler.py` while building. Both evaluators receive the same policy, view and job, including the input policy hash; changed default-policy bytes naturally have a different hash.
+`tests/unit/test_scheduler_fill.py` contains 42 cases with 4,500 configured Hypothesis examples. The frozen full base evaluator permits complete decision/error comparisons without Git history at test time. Its SHA-256 is `f6c9ad0cae11fd8b9d624f856b0782ddb7e155cbc4dfca1ab85ce141d1da7d54`; extracted `rank_key` is `1e100b7a9681f7bf7dc19ebf5d8e701785ce3fb8d5d0d57d5041e45f88bc6a54`, and `ranking_usage` is `ade25eea6e4bdbed6f569d7812bafbd64c1c3a093bbf87341d01d338083a7e21`. The frozen bytes were checked against `git show 266c3ab8b0be:subfleet/scheduler.py` while building. Both evaluators receive the same policy, view and job, including the input policy hash; changed default-policy bytes naturally have a different hash.
 
 | Invariant | Test in `test_scheduler_fill.py` |
 | --- | --- |
 | Same candidates and exact refusal predicates, only ranking changes | `test_fill_and_reset_have_identical_candidates_and_refusals`; `test_fill_complete_chain_has_identical_candidates_and_rejection_predicates`; `test_fill_keeps_the_same_probe_predicate_for_each_pinned_lane` |
-| Reset equals complete frozen-base decisions/errors; default Codex equals base | `test_reset_decisions_equal_frozen_release217`; `test_reset_complete_chain_decisions_and_errors_equal_frozen_release217`; `test_default_codex_decisions_equal_frozen_release217` (shipped and omitted defaults); `test_frozen_release217_ranking_sources_have_verified_sha256` |
+| Complete reset decisions and errors equal the frozen base, including both providers' defaults | `test_reset_decisions_equal_frozen_release217`; `test_reset_complete_chain_decisions_and_errors_equal_frozen_release217`; `test_default_decisions_equal_frozen_release217` (shipped and omitted defaults); `test_frozen_release217_ranking_sources_have_verified_sha256` |
 | Desktop last; affinity leads its class | `test_fill_desktop_last_and_turn_affinity_leads_its_class` |
 | Higher weekly use cannot rank later with all earlier tiers equal | `test_fill_more_weekly_use_never_ranks_after_less_in_equal_earlier_tiers` |
 | Only latest applicable open windows contribute, otherwise zero | `test_fill_only_latest_applicable_open_windows_contribute_at_any_age`; `test_fill_keeps_old_open_provider_reading_and_ignores_expired_one` |
@@ -65,7 +63,7 @@ Additional generated tests cover bounded store candidates versus full histories 
 
 ## Mutants
 
-`tools/fill_rank_mutations.py` applied each mutant alone to a pristine file copy, ran its named test, restored the original bytes in `finally`, and verified SHA-256. No Git checkout was needed. All six died by assertions, with no collection/import errors counted as kills. Evidence: [2026-11-08-fill-first-mutants.json](2026-11-08-fill-first-mutants.json).
+`tools/fill_rank_mutations.py` applied each mutant alone to a pristine file copy, ran its named test, restored the original bytes in `finally`, and verified SHA-256. No Git checkout was needed. The first build's six mutants failed by assertion. “Default fix r2” records eight mutants and “Review fix r1” records this round's run. Evidence: [2026-11-08-fill-first-mutants.json](2026-11-08-fill-first-mutants.json).
 
 | Mutant | Killing test in `test_scheduler_fill.py` |
 | --- | --- |
@@ -74,7 +72,7 @@ Additional generated tests cover bounded store candidates versus full histories 
 | Expired window still counts | `test_fill_keeps_old_open_provider_reading_and_ignores_expired_one[121]` |
 | Expiring tier dropped | `test_fill_expiring_precedes_nonexpiring_and_earlier_expiring_reset_wins` |
 | Desktop dropped from fill | `test_fill_desktop_last_and_turn_affinity_leads_its_class[claude-opus]` |
-| Default Codex follows fill | `test_default_codex_decisions_equal_frozen_release217[omitted]` |
+| Default Codex follows fill | `test_default_decisions_equal_frozen_release217[codex-astra-omitted]` |
 
 ## Verification and commands
 
@@ -107,7 +105,7 @@ Head: `266c3ab8b0be2548fbe0abc77273fa1ccd7fa9a9`
 
 ### Cause
 
-`tests/unit/test_store_contention_queries.py::test_a_view_from_the_store_matches_one_from_every_reading` (C-3.7) failed on both Pythons. `capacity.store_rows` takes `Store.fill_reading_candidates(now=now)` when the store has it and every reading otherwise, and `build_view` copied whichever it got into `view["fill_readings"]`. The SQL drops each key's canonical provider history before its latest observation; every reading keeps it. So the two views held different raw rows. Reproduced at 0e5edeba5: 1 failed, 211 passed.
+`tests/unit/test_store_contention_queries.py::test_a_view_from_the_store_matches_one_from_every_reading` (C-3.7) failed on both Pythons. At `0e5edeba5`, `capacity.store_rows` took `Store.fill_reading_candidates(now=now)` when the store had it and fell back to the ordinary reading candidates otherwise. `build_view` copied its input into `view["fill_readings"]`. The SQL dropped each key's canonical provider history before its latest observation, while a view built from every reading kept that history. The two views held different raw rows. The reproduction yielded 1 failure and 211 passes.
 
 ### Consumer audit
 
@@ -116,16 +114,16 @@ Every reader of `fill_readings` in `subfleet/` and `tools/` (`grep -rln "fill_re
 | Reader | What it reads, at which clock | Rows that are neither the latest numeric provider observation at or before that clock, nor after it, change its result? |
 | --- | --- | --- |
 | `scheduler.evaluate` → `judge_lane` → `fill_ranking_usage` (`scheduler.py:1399`, `:1048`, `:971`) | `view["fill_readings"]` by lane and scope, at `view["now"]`, the view's clock in whole seconds | No. Per scope and window it takes the latest numeric provider row at or before its clock, then checks its reset. Every tie at that instant and every later row is kept. Fully tied rows give the same output fields. |
-| `picker.pick` (`picker.py:139`) | `fill_ranking_usage` at `view["now"]` | No, for the same reason. |
+| `picker.rank` (`picker.py:139`) | `fill_ranking_usage` at `view["now"]` | No, for the same reason. |
 | `route_check.still_stands` (`route_check.py:187`) | `fill_candidates`, which the daemon passes as the raw `basis["rows"]["view"]["fill_readings"]`, at the reservation's clock, never earlier than the view's | Not affected: it reads the store's raw rows, not the view's. With no `fill_candidates`, it reads the view's rows at a later clock, and the later rows are kept. |
-| `Daemon._capacity_rows` (`daemon.py:2197`) | reads `fill_reading_candidates()` at the snapshot's `utc_now()` | It is the source and is unchanged. |
-| `Daemon._pick` (`daemon.py:2747`) | drops overridden lanes' rows | Dropping by lane commutes with a reduction by lane, scope and window. |
-| `Daemon._route_rows` (`daemon.py:9096`) | reading ids of the raw rows in `rows["view"]` | Not affected: raw rows. |
-| `capacity.lane_horizons` (`capacity.py`, called only from `Daemon._pick`; `decision_horizon` has no production caller) | every fill-order provider row: a future `observed_at`, else a reset after the view's clock, and the start of the expiring tier | **Yes.** It notes the reset (and expiring start) of any numeric provider row whose window is still open, including a row that a later observation has replaced. No evaluation at any clock reads that row again, so the clock is spurious, and dropping the row moves the lane's horizon later. No decision changes (`test_decision_horizon.py`'s property: the same decision at every instant up to the horizon). The `rejudged` route counter (`_count_route`) can fall. |
+| `Daemon._capacity_rows` (`daemon.py:2280`) | Reads `fill_reading_candidates()` at the snapshot's `utc_now()` when a configured model's provider uses fill | Supplies `fill_readings: []` when every configured model uses reset. |
+| `Daemon._pick` (`daemon.py:2832`) | drops overridden lanes' rows | Dropping by lane commutes with a reduction by lane, scope and window. |
+| `Daemon._route_rows` (`daemon.py:9407–9408`) | reading ids of the raw rows in `rows["view"]` | Not affected: raw rows. |
+| `capacity.lane_horizons` (`capacity.py:319`) | For each retained fill-order provider row, notes a future `observed_at`, or the open window's reset and any upcoming expiring tier. `Daemon._pick` (`daemon.py:2837`) is its only production caller. | **Yes.** A replaced observation can still move the horizon earlier when it has a noncanonical timestamp or when the replacement arrived between the store snapshot and the view's clock. `build_view` runs `fill_candidates`, which drops a replaced canonical row when the replacement is present in the snapshot and observable at the view's clock. Removing a redundant clock can lower the `rejudged` route counter. `test_decision_horizon.py` checks decision stability up to each horizon. |
 | `tools/replay_weekly_ranking.py` | its own SQL and its own fill selection (`fill_latest`) | Never reads a view. |
-| `render.status`, `policy` compatibility entry (`policy.py:1041`), `Actions` (`actions.py:820`), `Timers.snapshot` | build views from given rows; only the policy entry calls `evaluate` | `evaluate` is unaffected, as above; none calls `lane_horizons`. `status.json` never serializes `fill_readings`. |
+| `render.status`, `policy` compatibility entry (`policy.py:1051`), `Actions` (`actions.py:822`), `Timers.snapshot` | Build views from given rows. The timer reads fill rows only when a configured model's provider uses fill. Only the policy entry calls `evaluate`. | The policy entry's evaluation follows the rule above. No path calls `lane_horizons`. `status.json` omits `fill_readings`. |
 
-So the reduction the brief prefers, to exactly the rows that can bind fill by parsed time, gives `capacity.lane_horizons` a different result whenever the snapshot holds a replaced provider row with an open window. The query keeps such a row when its timestamp is noncanonical; a view built from every reading keeps every such row. I didn't check which writers store noncanonical timestamps: the importer and the adapters pass `observed_at` through from their callers. As the brief directs, I did not apply that reduction.
+So the reduction the brief prefers, to exactly the rows that can bind fill by parsed time, gives `capacity.lane_horizons` a different result whenever the snapshot holds a replaced provider row with an open window. The query can keep such a row when its timestamp is noncanonical. Before this fix, a view built from every reading kept all replaced rows. I didn't check which writers store noncanonical timestamps: the importer and the adapters pass `observed_at` through from their callers. As the brief directs, I did not apply that reduction.
 
 ### Fix
 
@@ -391,9 +389,9 @@ Either of these can support a hub ruling to change Claude's default.
 
 The shipped file and `ADMISSION_DEFAULTS` ship `{"claude": "reset", "codex": "reset"}`. Omitted providers in explicit maps use reset. `lane_spread` defaults to the scalar 2, and `expiring_s` defaults to 21600 and applies only under fill. Fill uses its existing comparator, evidence, validation and clock paths, including the store's fill query.
 
-To opt in, set `admission.lane_order` to `{"claude": "fill"}` in the existing state-root `policy.json` and restart the daemon. `Daemon.__init__` loads the file at `subfleet/daemon.py:1021` and computes its hash at line 1022. Startup copies the shipped bytes when the file is absent (lines 1018–1020), so a previous explicit fill setting persists until edited. `_pick` passes the digest to `scheduler.evaluate` (`daemon.py:2827`), which records it in the decision (`scheduler.py:1446–1448`). The stored digest identifies the exact policy file bytes when inspecting a decision with `why` (`policy.py:368–370`, `daemon.py:9175–9176`). The reservation check separately verifies policy object identity (`daemon.py:9319`).
+To opt in, set `admission.lane_order` to `{"claude": "fill"}` in the existing state-root `policy.json` and restart the daemon. `Daemon.__init__` loads the file at `subfleet/daemon.py:1025` and computes its hash at line 1026. Startup copies the shipped bytes when the file is absent (lines 1023–1024), so a previous explicit fill setting persists until edited. `_pick` passes the digest to `scheduler.evaluate` (`daemon.py:2833–2834`), which records it in the decision (`scheduler.py:1446–1448`). The stored digest identifies the exact policy file bytes when inspecting a decision with `why` (`policy.py:375–377`, `daemon.py:9207–9208`). The reservation check separately verifies policy object identity (`daemon.py:9351`).
 
-The only production call to `capacity.lane_horizons` is `Daemon._pick` at `daemon.py:2831`, which passes its configured policy and that policy's reading TTL. `capacity.decision_horizon` has no production call site and forwards its optional policy to `lane_horizons` at `capacity.py:416`. Omitting `policy` now uses reset clocks. A caller that omitted it while the operator had enabled fill would miss the fill clocks.
+The only production call to `capacity.lane_horizons` is `Daemon._pick` at `daemon.py:2837`, which passes its configured policy and that policy's reading TTL. `capacity.decision_horizon` has no production call site and forwards its optional policy to `lane_horizons` at `capacity.py:415`. Omitting `policy` now uses reset clocks. A caller that omitted it while the operator had enabled fill would miss the fill clocks.
 
 The steps 2 and 3 staging attempt hit the same `index.lock` denial.
 
@@ -636,7 +634,7 @@ The list groups parameter variants under their function. The JSON holds each ful
   - `test_c6_9_c11_8_the_incident_38_jobs_are_not_held_behind_the_desktop_pin` — Reset with fill covered by `tests/unit/test_unadmittable_pin.py::test_c6_9_c11_8_no_job_waits_behind_a_job_no_lane_can_admit`.
 - `tests/unit/test_weekly_rank_vs_base.py`
   - `test_a_bucket_the_provider_stopped_reporting_does_not_unmeasure_a_freshly_read_lane` — Reset with fill covered by `tests/unit/test_weekly_rank_vs_base.py::test_no_lane_newly_needs_a_pre_launch_probe[claude-True]`.
-  - `test_equal_weekly_headroom_binds_the_earliest_reset` `[False-claude-opus]`, `[True-claude-opus]` — Reset with fill covered by `tests/unit/test_scheduler_fill.py::test_fill_only_latest_applicable_open_windows_contribute_at_any_age`.
+  - `test_equal_weekly_headroom_binds_the_earliest_reset` `[False-claude-opus]`, `[True-claude-opus]` — Reset with fill covered by `tests/unit/test_scheduler_fill.py::test_fill_equal_weekly_use_binds_the_earliest_reset`.
   - `test_every_lane_is_judged_as_the_base_judged_it` `[64b4175f-claude]` — Both orders.
   - `test_no_lane_newly_needs_a_pre_launch_probe` `[claude-False]`, `[claude-True]` — Both orders.
   - `test_pick_excludes_no_lane_the_base_recommended` `[claude-False]`, `[claude-True]` — Both orders.
@@ -710,7 +708,7 @@ Draft. This PR adds `fill` as an admission lane-order setting (D-FILL1). Claude 
 #### What changes
 
 - `admission.lane_order` chooses each provider's ranking after a shared prefix of desktop, turn affinity, load band and stranded capacity. The shipped map is `{"claude": "reset", "codex": "reset"}`. To opt in, set `admission.lane_order` to `{"claude": "fill"}` in `policy.json` and restart the daemon.
-- Fill ranks lanes with no weekly reserve first, then those with no five-hour reserve, then those whose binding weekly reset is within `admission.expiring_s` (21,600 s by default). It uses the earlier reset among expiring lanes, then the highest weekly usage, fewest in-flight jobs and lane ID. Reset follows C-11.3.
+- Fill ranks lanes that still hold their weekly reserve ahead of lanes that have used into it. It applies the same rule to the five-hour reserve, then ranks lanes whose binding weekly reset is within `admission.expiring_s` (21,600 s by default). It uses the earlier reset among expiring lanes, then the highest weekly usage, fewest in-flight jobs and lane ID. Reset follows C-11.3.
 - `admission.lane_spread` accepts a provider map and defaults to the scalar 2.
 - `why`, `pick --all` and decision reasons show the fill evidence: `lane_order`, `fill_weekly_used`, `fill_weekly_reset`, `fill_five_hour_used` and `fill_expiring`.
 - The contract gains C-11.11.
@@ -730,3 +728,220 @@ Draft. This PR adds `fill` as an admission lane-order setting (D-FILL1). Claude 
 - All eight mutants failed their named test by assertion. CI runs the whole suite.
 
 Report `docs/reports/2026-11-08-fill-first.md`, “Default fix r2”.
+
+## Review fix r1
+
+Started at 2026-11-26 10:38:24 UTC on `7f344288ac32fba20f10154379493d6fc339abe9`. The initial status showed no tracked changes or untracked files.
+
+### Release/217 and Git
+
+`git merge-base --is-ancestor 53a7bac93d01afd9165588bcaf789dae75540757 HEAD` returned 0. `gh api repos/MaxGhenis/subfleet-v2/branches/release/217 --jq .commit.sha` returned `a4d21501e987db98150776ba3d065def462645ac`, and `git cat-file -e 'a4d21501e987db98150776ba3d065def462645ac^{commit}'` returned 0. `git merge --no-ff --no-commit a4d21501e987db98150776ba3d065def462645ac` failed before the merge because the sandbox denied `ORIG_HEAD.lock`. The status and unmerged-path checks were empty. I continued from the assigned head. The invariant index belongs to the contract run below.
+
+Git also denied `index.lock` for each named-file staging attempt. I tested the test-only worktree before editing production code, then kept the resulting changes and evidence in the assigned worktree for Subfleet salvage.
+
+### Findings
+
+| Finding | Status and evidence |
+| --- | --- |
+| P2 1. Fill query under reset | Fixed. `policy.fill_on` checks the provider of each configured model. Daemon route and operator snapshots and `Timers.snapshot` skip fill evidence under the shipped reset policy. Models supplied without a provider by raw timer policies contribute no fill order. `capacity.store_rows` keeps its default and accepts `fill=False`. `test_snapshots_query_fill_rows_only_when_requested` failed before the fix on one unexpected query and passed after it. Its added providerless case exposed a `KeyError` in the first gate and passed with the final guard. The 300-example `test_reset_decisions_and_horizons_ignore_fill_rows` passed before and after. |
+| P2 2. In-flight tie | Fixed. `test_fill_fewer_in_flight_ranks_first_at_equal_use` passed before and after and killed `in-flight-dropped`. At equal weekly use, the lane with zero in-flight jobs ranks ahead of the lane with one. |
+| P2 3. Binding reset tie | Fixed. `test_fill_equal_weekly_use_binds_the_earliest_reset` passed before and after and killed `binding-latest-reset`. The +1 h account reset binds at equal use with the +3 d model reset, so `claude-1` ranks first in the expiring tier. |
+| P2 4. Future-observation clock | Fixed. `test_fill_horizon_notes_a_future_row_the_admission_view_hides` passed before and after and killed `horizon-fill-future-dropped`. The first of two future observations moves the choice at +10 s and sets the horizon at +10 s. |
+| P2 5. Nonfirst model scope | Fixed. `test_unknown_model_pick_binds_a_scope_other_than_the_first_model` passed before and after and killed `picker-fill-first-model-only`. Opus scope contributes 0.9 weekly use to the unknown-model pick. |
+| P2 6. Reserve order | Text corrected. The proposed body now puts lanes that still hold their weekly reserve first, then applies the same rule to the five-hour reserve. `test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above` pins the pre-existing order at equality and one float above. |
+| P3 1. Milestone row 3 | Text corrected. C-11.11 states that a lane without a fresh reading can rank first on open-window use while keeping its C-11.4 probe predicate. Row 3 scopes measured-first and the C-11.3 reserve/reset clauses to reset. `test_fill_pick_and_why_show_the_same_fields_and_keep_freshness` exercises the existing behavior. |
+| P3 2. Stale report passages | Text corrected. The report names the shipped reset map, 42 scheduler cases and 4,500 configured Hypothesis examples, the current symbols and source locations, and the historical mutant counts. Source locations were checked with `sed -n`. |
+| P3 3. Oversized int | Text corrected. Only a Python-built view can hold an integer outside float range. The fill ranking and horizon readers raise `OverflowError`. `test_c_int_too_large_for_a_float_raises_in_the_reader` passed before and after. |
+| P3 4. Codex fill route law | Fixed. The new 1,500-example `test_c6_3_codex_fill_still_stands_exactly_when_evaluate_now_chooses_the_same` passed before and after and killed `horizon-fill-claude-only`. The shared policy strategy and existing route laws keep their original draws. |
+
+### Snapshot measurement
+
+The fixture used `random.Random(11)`, 50,000 readings, 20 lanes, two scopes, two windows and the review's mixed labels. SQLite reported 3.53.1. Each case used one warm-up and 21 timed samples. The route rows column counts only fill readings. The post-skip route cases rotated through the same 21 sample rounds. The pre-fix driver executed its warm-up and logged the 21-sample summary. The post-skip driver also logged the warm-up duration.
+
+| Stage and case | Rows | Median ms | Min ms | Max ms |
+| --- | ---: | ---: | ---: | ---: |
+| Before, latest query | 80 | 657.26 | 100.18 | 1,209.89 |
+| Before, fill query | 80 | 4,352.66 | 1,908.54 | 11,359.24 |
+| Before, shipped reset route | 80 | 3,490.80 | 838.64 | 11,253.48 |
+| Before, Claude fill route | 80 | 1,213.86 | 595.00 | 3,266.22 |
+| After skip, latest query | 80 | 304.68 | 77.61 | 636.57 |
+| After skip, fill query | 80 | 1,684.36 | 606.66 | 3,398.47 |
+| After skip, shipped reset route | 0 | 312.27 | 98.31 | 702.39 |
+| After skip, Claude fill route | 80 | 2,024.15 | 660.12 | 3,996.44 |
+| After skip, shipped reset route with `fill_on` forced true | 80 | 1,551.84 | 607.57 | 3,383.77 |
+
+Before `uptime` reported 11:48 local and loads 104.94, 86.88 and 64.61, with 79 GB free. After `uptime` reported 12:04 local and loads 15.16, 42.53 and 57.52, with 88 GB free. The same-run reset control attributes a 1,239.57 ms median difference to the query gate under that load. Host load shifted between snapshots, limiting comparisons across runs.
+
+The skip preserved both plans. `EXPLAIN QUERY PLAN` emitted the following rows before and after it.
+
+```text
+latest_reading_candidates
+1 0 MERGE (UNION ALL)
+3 1 LEFT
+5 3 CO-ROUTINE top
+11 5 SCAN readings USING COVERING INDEX readings_latest
+52 3 SCAN top
+55 3 SEARCH r USING INDEX readings_latest (lane_id=? AND scope=? AND window=? AND observed_at=?)
+83 3 USE TEMP B-TREE FOR ORDER BY
+101 1 RIGHT
+104 101 SCAN readings
+123 101 USE TEMP B-TREE FOR ORDER BY
+
+fill_reading_candidates
+1 0 MERGE (UNION ALL)
+3 1 LEFT
+5 3 CO-ROUTINE top
+12 5 SCAN readings USING INDEX readings_latest
+68 3 SCAN top
+71 3 SEARCH readings USING INDEX readings_latest (lane_id=? AND scope=? AND window=? AND observed_at=?)
+111 3 USE TEMP B-TREE FOR ORDER BY
+129 1 RIGHT
+132 129 SCAN readings
+165 129 USE TEMP B-TREE FOR ORDER BY
+```
+
+The fill query still scanned the `top` CTE with a non-covering index after the skip. The rewrite scans distinct keys with the existing covering index, seeks the newest qualifying canonical timestamp per key, and joins every eligible tie. The fallback arm still keeps every future canonical row and every noncanonical row that passes the same provider and finite-use filter.
+
+| Interleaved query trial | Rows | Median ms | Min ms | Max ms |
+| --- | ---: | ---: | ---: | ---: |
+| Original fill SQL | 80 | 2,017.35 | 968.90 | 3,901.80 |
+| Distinct keys and indexed seek | 80 | 313.17 | 72.07 | 594.31 |
+
+The candidate returned the same 80 rows in the same order and reduced the median by 84.48%. The median paired reduction was 87.73%. The 11:08:15 UTC trial took 80.09 s. `uptime` reported 12:08 local and loads 50.27, 44.56 and 55.07. Free disk was 84 GB. The production SQL matches the timed SQL. The store equivalence checks passed in the fill and route groups. I kept the rewrite. It uses the existing schema and `readings_latest` index.
+
+```text
+fill_reading_candidates with the rewrite
+1 0 MERGE (UNION ALL)
+3 1 LEFT
+5 3 CO-ROUTINE keys
+8 5 SCAN readings USING COVERING INDEX readings_latest
+23 3 SCAN k
+26 3 SEARCH r USING INDEX readings_latest (lane_id=? AND scope=? AND window=? AND observed_at=?)
+34 3 CORRELATED SCALAR SUBQUERY 2
+40 34 SEARCH readings USING INDEX readings_latest (lane_id=? AND scope=? AND window=? AND observed_at<?)
+104 3 USE TEMP B-TREE FOR ORDER BY
+122 1 RIGHT
+125 122 SCAN readings
+158 122 USE TEMP B-TREE FOR ORDER BY
+```
+
+### Mutants
+
+The tool ran all thirteen initially in 1,512.41 s and on the final source in 55.19 s. Every child recorded one assertion failure, zero passes and zero skips. The tool uses full node IDs for witnesses outside the scheduler test module and verified that it restored its source files after both runs.
+
+| Mutant | Assertion witness | Initial seconds, UTC, free, load | Final seconds, UTC, free, load |
+| --- | --- | --- | --- |
+| `weekly-ascending` | `test_fill_more_weekly_use_never_ranks_after_less_in_equal_earlier_tiers` | ≤120 s, 11:24:39, 73G, 119.87 97.84 75.77 | 1.15 s, 12:25:21, 71G, 19.72 23.70 34.52 |
+| `ttl-only` | `test_fill_keeps_old_open_provider_reading_and_ignores_expired_one[121]` | ≤87 s, 11:26:39, 73G, 125.82 108.10 82.81 | 0.38 s, 12:25:23, 71G, 19.02 23.49 34.38 |
+| `expired-counts` | `test_fill_keeps_old_open_provider_reading_and_ignores_expired_one[121]` | ≤68 s, 11:28:06, 81G, 87.83 102.54 83.24 | 0.47 s, 12:25:24, 71G, 19.02 23.49 34.38 |
+| `expiring-dropped` | `test_fill_expiring_precedes_nonexpiring_and_earlier_expiring_reset_wins` | ≤143 s, 11:29:14, 80G, 37.37 84.20 77.83 | 7.13 s, 12:25:25, 71G, 19.02 23.49 34.38 |
+| `desktop-dropped` | `test_fill_desktop_last_and_turn_affinity_leads_its_class[claude-opus]` | 274.26 s, 11:31:37, 79G, 16.82 57.36 67.87 | 8.55 s, 12:25:33, 71G, 17.79 23.08 34.11 |
+| `default-codex-fill` | `test_default_decisions_equal_frozen_release217[codex-astra-omitted]` | 67.10 s, 11:36:39, 78G, 86.74 79.71 75.09 | 2.94 s, 12:25:42, 71G, 17.33 22.90 33.98 |
+| `default-claude-fill` | `test_default_decisions_equal_frozen_release217[claude-opus-omitted]` | 81.37 s, 11:38:01, 77G, 80.32 79.91 75.65 | 2.77 s, 12:25:45, 71G, 16.82 22.70 33.84 |
+| `shipped-default-claude-fill` | `test_default_decisions_equal_frozen_release217[claude-opus-shipped]` | 70.49 s, 11:39:42, 77G, 46.57 68.74 71.84 | 2.89 s, 12:25:49, 71G, 16.27 22.49 33.70 |
+| `in-flight-dropped` | `test_fill_fewer_in_flight_ranks_first_at_equal_use` | 11.38 s, 11:41:16, 77G, 73.22 70.97 72.33 | 0.36 s, 12:25:52, 71G, 15.45 22.21 33.54 |
+| `binding-latest-reset` | `test_fill_equal_weekly_use_binds_the_earliest_reset` | 6.58 s, 11:41:35, 77G, 70.87 70.61 72.17 | 0.32 s, 12:25:53, 71G, 15.45 22.21 33.54 |
+| `horizon-fill-future-dropped` | `test_fill_routing.py::test_fill_horizon_notes_a_future_row_the_admission_view_hides` | 8.74 s, 11:41:50, 77G, 70.58 70.56 72.12 | 0.32 s, 12:25:54, 71G, 15.45 22.21 33.54 |
+| `picker-fill-first-model-only` | `test_fill_routing.py::test_unknown_model_pick_binds_a_scope_other_than_the_first_model` | 6.18 s, 11:42:05, 77G, 66.20 69.60 71.75 | 0.24 s, 12:25:54, 71G, 15.45 22.21 33.54 |
+| `horizon-fill-claude-only` | `test_route_check.py::test_c6_3_codex_fill_still_stands_exactly_when_evaluate_now_chooses_the_same` | 397.90 s, 11:42:20, 77G, 62.48 68.61 71.36 | 20.37 s, 12:25:55, 71G, 15.45 22.21 33.54 |
+
+The first four initial child times are upper bounds measured between adjacent preflights. The first scratch logger used a timing attribute removed in pytest 9.1.1. The runner recorded each named assertion failure and exit 1, and the final run logged every child.
+
+### Ordered test runs
+
+Ordinary pytest runs used `uv run --no-sync --with 'pytest-xdist>=3.6' pytest -p no:cacheprovider -n 4`, a fresh `--basetemp $SF/pytest-<label>`, and `--tb=short`. The three new-test batches and the initial fill module run used `-v`. The other runs used `-q`. Module runs used `-ra`.
+
+| Run | Pass / fail / skip / error | Pytest seconds | Wall seconds | UTC start | Free | Load averages |
+| --- | ---: | ---: | ---: | --- | ---: | --- |
+| `new-before` | 7 / 1 / 0 / 0 | 280.19 | 300.68 | 10:58:07 | 72G | 101.43 85.22 71.88 |
+| `new-after` | 8 / 0 / 0 / 0 | 715.07 | 732.75 | 11:11:00 | 84G | 20.17 35.51 49.68 |
+| `fill-files` | 132 / 0 / 0 / 0 | 245.40 | 251.85 | 11:52:27 | 77G | 66.79 54.19 60.04 |
+| `route-files` | 247 / 0 / 0 / 0 | 868.69 | 873.60 | 11:56:47 | 79G | 30.58 50.59 57.62 |
+| `remaining-1` | 347 / 1 / 0 / 0 | 247.07 | 248.52 | 12:11:22 | 72G | 27.61 45.44 52.14 |
+| `remaining-2` | 708 / 0 / 0 / 0 | 137.13 | 138.98 | 12:15:33 | 70G | 27.48 34.77 45.58 |
+| `remaining-3` | 251 / 0 / 0 / 0 | 168.56 | 169.80 | 12:17:53 | 71G | 27.35 33.45 43.50 |
+| `contract` | 437 / 0 / 0 / 0 | 25.62 | 26.18 | 12:20:43 | 70G | 23.90 30.24 40.38 |
+| `no-models` | 91 / 0 / 0 / 0 | 2.96 | 3.56 | 12:21:09 | 70G | 19.29 28.67 39.52 |
+| `adjacent-fake` | 35 / 0 / 0 / 0 | 46.73 | 47.26 | 12:21:13 | 71G | 18.14 28.28 39.31 |
+| `adjacent-unit` | 265 / 157 / 0 / 0 | 84.63 | 85.54 | 12:22:01 | 71G | 20.27 27.49 38.46 |
+| `partial-model-before` | 0 / 1 / 0 / 0 | 1.83 | 2.50 | 12:23:41 | 71G | 16.68 24.58 36.13 |
+| `new-after-final` | 8 / 0 / 0 / 0 | 28.72 | 29.59 | 12:24:51 | 71G | 23.71 24.75 35.26 |
+| `fill-files-final` | 132 / 0 / 0 / 0 | 15.44 | 15.96 | 12:26:16 | 71G | 13.91 21.41 32.98 |
+| `route-files-final` | 247 / 0 / 0 / 0 | 118.69 | 119.27 | 12:26:32 | 71G | 16.77 21.60 32.79 |
+| `remaining-1-final` | 348 / 0 / 0 / 0 | 111.44 | 111.98 | 12:28:32 | 71G | 11.93 18.55 30.18 |
+| `remaining-2-final` | 708 / 0 / 0 / 0 | 75.29 | 75.83 | 12:30:24 | 71G | 19.48 19.55 29.11 |
+| `remaining-3-final` | 251 / 0 / 0 / 0 | 91.24 | 91.93 | 12:31:41 | 71G | 20.23 19.70 28.35 |
+| `contract-final` | 437 / 0 / 0 / 0 | 21.77 | 22.40 | 12:33:13 | 71G | 22.52 21.20 28.08 |
+| `no-models-final` | 91 / 0 / 0 / 0 | 1.56 | 2.03 | 12:33:35 | 71G | 17.77 20.17 27.51 |
+| `adjacent-fake-final` | 35 / 0 / 0 / 0 | 21.80 | 22.24 | 12:33:37 | 71G | 17.77 20.17 27.51 |
+| `adjacent-unit-final` | 422 / 0 / 0 / 0 | 30.52 | 30.89 | 12:34:00 | 71G | 14.39 19.19 26.95 |
+
+`new-before`, `new-after` and `new-after-final` select the eight tests named in the findings table. The seven law and witness tests passed in all three runs. The initial red run failed at the intended query assertion. The first post-fix run printed one xdist teardown warning from Hypothesis's GC callback and exited 0. `partial-model-before` ran only `tests/unit/test_fill_evidence.py::test_snapshots_query_fill_rows_only_when_requested` after adding a providerless fixture and before guarding against it.
+
+Run arguments by label. The command passes each module list as `@$SF/<label>.txt`. Its `-final` run uses the same file list.
+
+- `fill-files` in `tests/unit/` used `test_scheduler_fill.py`, `test_policy_fill.py`, `test_fill_routing.py`, `test_fill_evidence.py`, `test_replay_weekly_fill.py`.
+- `route-files` in `tests/unit/` used `test_decision_horizon.py`, `test_route_check.py`, `test_store_contention_queries.py`.
+- `remaining-1` in `tests/fake/` used `test_admission_liveness.py`, `test_admission_route_isolation.py`, `test_admission_stateful.py`, `test_policy_sandbox.py`, `test_probe_turn.py`, `test_provider_active_cap_fake.py`, `test_review_needs_shell.py`, `test_route_view.py`, `test_routing_tier_preferences.py`, `test_unadmittable_pin_admission.py`.
+- `remaining-2` in `tests/unit/` used `test_admission_uncapped.py`, `test_capacity_steer_route.py`, `test_claude_usage.py`, `test_cli.py`, `test_lease_waiter_selection.py`, `test_picker.py`, `test_policy.py`, `test_policy_ramp.py`, `test_policy_sandbox_resolution.py`.
+- `remaining-3` in `tests/unit/` used `test_provider_active_cap.py`, `test_scheduler.py`, `test_scheduler_split.py`, `test_scheduler_tier_preferences.py`, `test_scheduler_weekly.py`, `test_scoped_stream_capacity.py`, `test_unadmittable_now.py`, `test_unadmittable_pin.py`, `test_weekly_rank_vs_base.py`.
+- `contract` used `tests/fake/test_state_contract.py`, `tests/unit/test_handler_refusals.py`, `tests/unit/test_invariants_index.py`, `tests/unit/test_test_module_names.py`.
+- `no-models` in `tests/unit/` used `test_render_quota_projection.py`, `test_reset_credit_demand.py`.
+- `adjacent-fake` in `tests/fake/` used `test_admission_latency.py`, `test_status_payload.py`, `test_launch_qos_review_r2.py`, `test_admission_held_waiters.py`, `test_admission_lease_waiters.py`.
+- `adjacent-unit` in `tests/unit/` used `test_reset_credit_review_r1.py`, `test_timers_daemon.py`, `test_status_json.py`, `test_claude_cards_wiring.py`, `test_native_operations.py`, `test_status_hold_source.py`, `test_timers_busy_read.py`, `test_timers_probe.py`.
+
+### Regression follow-up
+
+- The first `remaining-1` run failed `test_d261_a_build_job_outside_a_repository_is_refused_with_the_way_out`. With scratch inside the assigned checkout, the fixture's workdir inherited the checkout during Git discovery and submit accepted it. I set `GIT_CEILING_DIRECTORIES` to the fixture's own root through its daemon helper policy for that one test in the final rerun (`SF_GIT_FIXTURE_CEILING=1`). It exercised the real Git refusal and passed. The tracked fixture keeps its original source.
+- The first `adjacent-unit` run failed 157 cases because some policy fixtures supplied model IDs without providers. The gate assumed a provider key and raised `KeyError` in the timer snapshot. The supplemental query-spy case reproduced it. `fill_on` now skips model entries without a provider, and the final unit run verifies the repaired timer and status paths.
+- All final module groups passed with zero skips. The PR, store and contract groups passed 2,123 tests. The two no-model modules and both adjacent groups added 548 tests for 2,671 final module passes.
+
+### Text corrected in place
+
+- **Order and policy.** Updated the shipped map to reset for both providers, pointed to “Why reset ships,” and removed the redundant banner.
+- **Invariants and tests.** Updated the scheduler file's case and example counts and named `test_default_decisions_equal_frozen_release217`, which covers shipped and omitted defaults for both providers.
+- **Mutants.** Scoped six assertion kills to the first build, pointed to the eight in Default fix r2 and the thirteen in this round, and gave the Codex omission test its current `[codex-astra-omitted]` ID.
+- **Consumer audit.** Named `picker.rank`. Updated the scheduler, picker, route-check, daemon, capacity, policy and actions references. Described the daemon and timer query gates, put the historical snapshot fallback in past tense, and clarified the horizon effect of a noncanonical observation or a replacement that arrives in the snapshot-to-view gap. `build_view` drops a replaced canonical row when it can see the replacement at its clock.
+- **Default fix r2, Policy and horizons.** Checked and updated each of the startup copy, policy load and hash, scheduler call and decision digest, stored decision digest, reservation policy check, horizon and forwarding references.
+- **Default fix r2, Probe comparison.** Replaced the witness for both `[False-claude-opus]` and `[True-claude-opus]` variants of `test_equal_weekly_headroom_binds_the_earliest_reset` with `test_fill_equal_weekly_use_binds_the_earliest_reset`. The preserved `2026-11-08-fill-first-default-r2-probe.json` still names `test_fill_only_latest_applicable_open_windows_contribute_at_any_age`.
+- **Default fix r2, Proposed PR body.** Corrected the weekly and five-hour reserve direction. A report-wide search found one inverted sentence.
+- **Acceptance contract.** Extended the first D-FILL1 change-log entry in place. C-11.11 states the measured-key and probe rule, and milestone row 3 points to the separate fill order. The check found 261 unique normative clause IDs. All 370 change-log bullets retain their positions, including the existing duplicate from PR #198, and the edit creates no gap. The other D-FILL1 entry, C-11.3 and the desktop integration sentence keep their text.
+
+### Hub PR body draft
+
+- “The daemon reads fill's evidence through its own store query, `Store.fill_reading_candidates`, so a newer unknown or null reading can't hide provider use that still belongs to an open window.” Qualify the call with the live policy. Daemon route and operator snapshots and the timer status snapshot call it only when a configured model's provider uses fill. The separate evidence still preserves a usable reading behind those masks.
+- “Each of the eight mutants in `tools/fill_rank_mutations.py` fails its named test by assertion (`docs/reports/2026-11-08-fill-first-mutants-default-r2.json`). They sort weekly use ascending, put a 120 s TTL on fill's readings, count expired windows, drop the expiring tier or the desktop term, and make fill the default for Codex, for Claude or in the shipped file.” Eight is the Default fix r2 result. The review-fix run has thirteen assertion kills. It adds in-flight, equal-use binding reset, future observation, unknown-model nonfirst scope and Codex horizon checks. The evidence is `docs/reports/2026-11-08-fill-first-mutants-review-r1.json`.
+- “The report maps each of the 307 to a test that still exercises fill under the shipped map: 233 select fill, 54 run both orders, and 20 rely on a named test that covers the same law under fill (`docs/reports/2026-11-08-fill-first-default-r2-probe.json`).” The historical counts still apply. Cite the corrected report for the equal-use binding tie witness. The historical JSON carries the old witness.
+- “At `0ab7eed83`, this head's first parent, every run passed.” Identify `0ab7eed83` as the Default fix r2 head and keep its counts attached to that SHA.
+- “On this head, two local runs passed 2,115 tests across `tests/fake/test_state_contract.py`, `tests/unit/test_invariants_index.py`, `tests/unit/test_test_module_names.py`, `tests/unit/test_handler_refusals.py`, `tests/unit/test_store_contention_queries.py` and all 35 test files this PR changes.” Attribute those counts to the reviewed head `7f344288a`. The final PR, store and contract runs cover 2,123 passing tests.
+- “This PR still awaits an independent review.” Review r1 approved `7f344288a`. The hub owns the scoped r2 review after collection and the #318 merge sequence.
+
+### Left for an issue
+
+All ten review findings are closed. The common `UNION ALL` fallback still scans `readings` for noncanonical timestamps and, under fill, future observations. The measured rewrite closes the requested plan investigation through the covering key scan and indexed seeks.
+
+### Commands and deviations
+
+- `date -u +%FT%TZ`, `git rev-parse HEAD` and `git status --short --untracked-files=all` recorded the start and clean checkout. I read the review and probe texts, report passages, contract clauses and hub draft with `cat`, `sed -n` and `rg`. The release reads and merge attempt are recorded above. Setup `df -H /` showed 83 GB free and `uptime` showed loads 97.34, 71.94 and 52.17.
+- `getconf DARWIN_USER_TEMP_DIR` selected the requested scratch parent. `mkdir -m 700` there failed with `Operation not permitted`. I created `$PWD/build/sf-fill-fix1` with mode 700 and `$SF/t`, then set `TMPDIR` and `HYPOTHESIS_STORAGE_DIRECTORY` under `$SF` for the runs.
+- `uv sync --group dev` failed to initialize the existing shared cache with `Operation not permitted`. A retry with `$SF/uv-cache` installed the dev packages on CPython 3.15.2. `uv run --no-sync --with 'pytest-xdist>=3.6' pytest --version` confirmed pytest 9.1.1. The test runs reported xdist 3.8.0 and Hypothesis 6.168.1.
+- `PYTHONPATH="$PWD" uv run --no-sync python "$SF/fill_timing.py"` ran the baseline. I ran the same command with `--force-fill` after the gate and used `PYTHONPATH="$PWD" uv run --no-sync python "$SF/fill_query_experiment.py"` for the paired SQL trial. All three exited 0. The measurement tables record the load, available disk and plans. The baseline warm-up duration is unavailable.
+- `git diff --name-only 53a7bac93d01afd9165588bcaf789dae75540757 HEAD -- 'tests/*test_*.py'` returned 35 files. I checked available space and `uptime` before each test run. The mutant wrapper also sampled each child. `du -sm` recorded space after every run. Each ordinary module group used up to four xdist workers.
+- `uv run --no-sync python tools/fill_rank_mutations.py --basetemp "$SF/pytest-mutants-fix1" --output docs/reports/2026-11-08-fill-first-mutants-review-r1.json` exited 0. The parent started at 11:24:06 UTC with 73 GB free and loads 119.75, 95.46 and 74.17. The final rerun used `--basetemp "$SF/pytest-mutants-fix1-final"` and refreshed the same output file. It started at 12:25:21 UTC with 71 GB free and loads 19.72, 23.70 and 34.52, and exited 0.
+- `git diff --check`, Python compilation and the mutation pattern check passed. `sed -n` verified the source citations. Checks against `git show HEAD:<path>` verified the historical JSON, shipped policy, store schema, frozen evaluator, comparator and equality functions. The contract check found edits at lines 9, 611 and 708 only.
+- I tried named-file staging for the tests, skip, SQL rewrite, mutation tool and evidence, text corrections, and this report. Each failed with the shared Git `index.lock` denial. No staging attempt reached `git commit`.
+- The full suite belongs to CI. The index-specific migration, plan and offline runs apply to schema changes. The rewrite uses the existing index.
+
+### Scratch and final state
+
+`$SF` is the ignored `build/sf-fill-fix1` directory in the assigned worktree. It held the timing and reporting drivers, logs, argument files, `$SF/t`, Hypothesis storage, the local uv cache and the named `pytest-*` basetemps. The pytest scratch plugin redirected kept failure state into `$SF/t`, removed completed `tmp_path` directories and reclaimed completed generated-example directories from the named fake-daemon laws. Each measurement deleted its `timing/` SQLite store. Each ordinary run removed its basetemp immediately. The mutation parent removed its child basetemps together at exit.
+
+The largest sampled scratch use was 25 MiB excluding the local uv cache. The last `du -sm` recorded 34 MiB under `$SF`, including 33 MiB in that cache. I did not separately measure cumulative device writes.
+
+`test_weekly_rank_vs_base.py` created eight archive directories under `$SF/t`. The two runs removed `sf-64b4175f-6juos_rx`, `sf-64b4175f-sd_tvmct`, `sf-f3bffcea-0hzd8brg`, `sf-f3bffcea-hmud7ds6`, `sf-f3bffcea-n8ednuau`, `sf-f3bffcea-p_wgqnwn`, `sf-f3bffcea-r_ipo9yb` and `sf-f3bffcea-sztngav9`.
+
+At 12:34:54 UTC, `python3 -B "$SF/cleanup.py"` inventoried Darwin temp and used `shutil.rmtree` with a guard on the `sf-fill-fix1` path component. It removed `$SF`, including test homes, logs, scratch scripts, Hypothesis storage, scratch bytecode and the local uv cache, then removed the empty `build/` parent. It also removed generated `__pycache__` directories in `subfleet`, its `adapters`, `conversations`, `gate`, `guard` and `sessions` packages, `tests`, `tests/unit`, `tests/fake`, `tests/fixtures/fill_first` and `tools`. The direct Darwin temp check found zero associated directories. It left 24 unrelated matching entries alone. No worktree-root `.hypothesis` or `.pytest_cache` appeared.
+
+I left the 17 MiB `.venv` in the worktree as requested and verified its imports after cleanup. The shared uv cache remains in place. Final free disk was 71 GB and load averages were 11.32, 17.69 and 25.91. The assigned checkout retains the tracked edits and the new mutation JSON for salvage.
+
+Head built: 7f344288ac32fba20f10154379493d6fc339abe9

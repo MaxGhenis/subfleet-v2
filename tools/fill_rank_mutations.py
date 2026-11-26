@@ -41,6 +41,35 @@ MUTANTS = {
     "shipped-default-claude-fill": ("subfleet/default_policy.json", '"lane_order": {\n      "claude": "reset",',
         '"lane_order": {\n      "claude": "fill",',
         "test_default_decisions_equal_frozen_release217[claude-opus-shipped]"),
+    "in-flight-dropped": ("subfleet/scheduler.py",
+        '-detail["fill_weekly_used"], detail["in_flight"], identity)',
+        '-detail["fill_weekly_used"], identity)',
+        "test_fill_fewer_in_flight_ranks_first_at_equal_use"),
+    "binding-latest-reset": ("subfleet/scheduler.py",
+        'key=lambda row: (-row["utilization"], _time(row["resets_at"]), row["scope"])',
+        'key=lambda row: (-row["utilization"], -_time(row["resets_at"]).timestamp(), row["scope"])',
+        "test_fill_equal_weekly_use_binds_the_earliest_reset"),
+    "horizon-fill-future-dropped": ("subfleet/capacity.py",
+        '        if observed > instant:\n'
+        '            note(row["lane_id"], observed)\n'
+        '        elif row.get("resets_at") and (reset := _time(row["resets_at"])) > instant:',
+        '        if observed > instant:\n'
+        '            pass\n'
+        '        elif row.get("resets_at") and (reset := _time(row["resets_at"])) > instant:',
+        "tests/unit/test_fill_routing.py::test_fill_horizon_notes_a_future_row_the_admission_view_hides"),
+    "picker-fill-first-model-only": ("subfleet/picker.py",
+        'view.get("fill_readings", view.get("readings", []))\n'
+        '                           if reading["lane_id"] == identity and reading["scope"] in\n'
+        '                           ("account", *[policy["models"][name]["id"] for name in models])]',
+        'view.get("fill_readings", view.get("readings", []))\n'
+        '                           if reading["lane_id"] == identity and reading["scope"] in\n'
+        '                           ("account", policy["models"][models[0]]["id"])]',
+        "tests/unit/test_fill_routing.py::test_unknown_model_pick_binds_a_scope_other_than_the_first_model"),
+    "horizon-fill-claude-only": ("subfleet/capacity.py",
+        'if (lane_order(policy, providers.get(row["lane_id"], "")) != "fill"',
+        'if (lane_order(policy, providers.get(row["lane_id"], "")) != "fill"'
+        ' or providers.get(row["lane_id"]) != "claude"',
+        "tests/unit/test_route_check.py::test_c6_3_codex_fill_still_stands_exactly_when_evaluate_now_chooses_the_same"),
 }
 
 
@@ -72,8 +101,9 @@ def main() -> int:
                 compile(changed, str(target), "exec")
             try:
                 target.write_text(changed)
+                node = test if "::" in test else f"{TESTS}::{test}"
                 command = [sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider",
-                           "--basetemp", str(args.basetemp / name), f"{TESTS}::{test}"]
+                           "--basetemp", str(args.basetemp / name), node]
                 run = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
                 failures = [line for line in run.stdout.splitlines() if line.startswith("FAILED ")]
                 killed = run.returncode == 1 and bool(failures) and "AssertionError" in run.stdout
