@@ -1210,7 +1210,7 @@ def test_the_physical_spelling_of_a_cd_target_is_still_judged(tmp_path):
 def test_too_many_folder_and_command_pairs_are_refused(tmp_path):
     """Fix r3: every `git … commit` (`subfleet run`) is judged from every folder met before it, so N `cd` then N
     commits that each name one absolute -C cost N² path joins while giving one key, which the 64-path refusal never
-    counts (2,000 of each passed the 8,000-row bound; see the report). Each block counts every (folder, command) pair
+    counts (2,000 of each took 13.8 to 30 s of CPU without the cap, and was allowed; see the report). Each block counts every (folder, command) pair
     it examines, once more for each -C (and -p) word applied to it, and refuses past 4,096, the 64-folder bound
     squared; it never allows past it. 64 folders (the payload cwd and 63 `cd`) × 32 commits × (1 + one -C) is 4,096,
     allowed; one more `cd` is refused, on both sides, and likewise for 16 runs × (1 + one -C + two -p)."""

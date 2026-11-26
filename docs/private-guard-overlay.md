@@ -783,9 +783,13 @@ What the fix r3 leaves open:
 - The parse's bound: a `cd` costs its own words and one copy of its folder, and a command's
   (folder, command) pairs stop at 4,096. A folder grows with the chain, so a long relative chain
   still costs more than linear time in bytes copied, as the fix r1's did: on the overlay, 1.8 s of
-  CPU at 16,000 `cd a; ` (96 KB) and 5.5 s at 32,000 (192 KB), against the fix r1's 1.1 and 4.2 s.
-  A command of several hundred KB of `cd` could still reach the timeout (extrapolated, not
-  measured).
+  CPU at 16,000 `cd a; ` (96 KB) and 5.5 s at 32,000 (192 KB), against the fix r1's 1.1 and 4.2 s,
+  and 23.1 s at 64,000 (384 KB), refused. A long folder held while short `cd`s repeat costs each
+  `cd` a copy of it: with a 100 KB folder, 3.7 s at 10,000 `cd .` and 6.7 s at 20,000, allowed
+  because no checkout is there. Extrapolated from these, not measured, about 700 KB of either shape
+  in one command reaches the 60 s timeout, and less under load, since the timeout counts wall time;
+  the timeout allows. A running count of the folder bytes each `cd` copies, refused through the same
+  `TOOMANY`, would bound it; that is left to the hub.
 - One or two checkouts whose index alone outlasts the timeout, and one git call that runs long
   after the last budget check, as in the fix r2.
 - Up to 64 `cd -P` forks in each block (each a fork with no exec) before git runs or a brief is
