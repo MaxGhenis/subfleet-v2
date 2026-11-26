@@ -15,7 +15,7 @@ import subprocess
 
 import pytest
 
-from subfleet.store import MIGRATIONS, Store
+from subfleet.store import MIGRATIONS, NOTICE_WAKE_PREDATES, Store
 
 
 FIXTURES = Path(__file__).parents[1] / "fixtures/store/review-upgrade"
@@ -37,26 +37,36 @@ def snapshot(store):
 @pytest.mark.parametrize("revision", ["release-217-v10", "wake-caller-307-v11", "review-subject-old-v11"])
 def test_real_historical_store_upgrades_to_12_and_reopens_unchanged(tmp_path, revision):
     path = archived_store(tmp_path / "historic.sqlite3", revision)
+    with sqlite3.connect(path) as conn:
+        conn.executemany(
+            "INSERT INTO notices(job_id,session_id,text,state,created_at) "
+            "VALUES ('historic-review','synthetic-session','synthetic notice',?,'before')",
+            [(state,) for state in ("offered", "surfaced", "acknowledged")],
+        )
     with Store(path, read_only=True) as source:
         old_job = source.one("SELECT * FROM jobs WHERE job_id='historic-review'")
-        old_notice = source.one("SELECT * FROM notices WHERE job_id='historic-review'")
+        old_notices = source.query("SELECT * FROM notices ORDER BY notice_id")
     with Store(path) as upgraded:
         assert upgraded.one("SELECT MAX(version) AS version FROM schema_version")["version"] == 12
         job = upgraded.one("SELECT * FROM jobs WHERE job_id='historic-review'")
-        notice = upgraded.one("SELECT * FROM notices WHERE job_id='historic-review'")
-        assert REVIEW_FIELDS <= job.keys()
-        assert WAKE_FIELDS <= notice.keys()
-        assert {key: job[key] for key in old_job} == old_job
-        assert {key: notice[key] for key in old_notice} == old_notice
-        # This PR installs storage only, without #307's historical-notice wake behavior.
-        assert notice["wake_state"] is None
-        assert notice["wake_attempts"] == 0
+        assert job == {**dict.fromkeys(REVIEW_FIELDS), **old_job}
+        expected_notices = []
+        for old_notice in old_notices:
+            wake = dict.fromkeys(WAKE_FIELDS)
+            wake["wake_attempts"] = 0
+            if "wake_state" not in old_notice and old_notice["state"] in ("pending", "offered"):
+                wake.update(wake_state="stale", wake_reason=NOTICE_WAKE_PREDATES)
+            expected_notices.append({**wake, **old_notice})
+        assert upgraded.query("SELECT * FROM notices ORDER BY notice_id") == expected_notices
         assert upgraded.query("SELECT * FROM caller_wake_sessions") == []
         assert upgraded.one("SELECT sql FROM sqlite_master WHERE name='notices_caller_wake'")
         assert upgraded.one("SELECT sql FROM sqlite_master WHERE name='jobs_review_subject'")
         # release/217's C-8.4 index (D-NOTICE-KEEP1). The release and #307 dumps
         # already carry it; the schema script adds it to old #314's on open.
         assert upgraded.one("SELECT sql FROM sqlite_master WHERE type='index' AND name='events_notice_retired'")
+        # Keep an eligible new notice in the store for the second open.
+        new_notice = upgraded.add_notice("historic-review", "new notice", "synthetic-session")
+        assert upgraded.one("SELECT wake_state FROM notices WHERE notice_id=?", (new_notice,)) == {"wake_state": None}
         after = snapshot(upgraded)
     with Store(path) as reopened:
         assert snapshot(reopened) == after
@@ -122,20 +132,30 @@ def test_failed_schema_script_rolls_back_upgrade_and_next_open_retries(tmp_path,
         assert snapshot(reopened) == after
 
 
-@pytest.mark.parametrize("revision", ["review-subject-old-v11", "wake-caller-307-v11"])
-def test_recorded_version_12_repairs_missing_slot_columns_without_new_versions(tmp_path, revision):
+@pytest.mark.parametrize("revision,partial_wake", [
+    pytest.param("review-subject-old-v11", False, id="old-314"),
+    pytest.param("review-subject-old-v11", True, id="old-314-with-wake-state"),
+    pytest.param("wake-caller-307-v11", False, id="307"),
+])
+def test_recorded_version_12_repairs_missing_slot_columns_without_new_versions(tmp_path, revision, partial_wake):
     path = archived_store(tmp_path / "historic.sqlite3", revision)
     # Old #330 recorded 12 before its schema script failed on an old #314
     # store. A version row alone must not hide either slot's missing columns.
     with sqlite3.connect(path) as conn:
         conn.execute("INSERT INTO schema_version VALUES (12,'2026-11-02T00:00:00Z')")
+        if partial_wake:
+            conn.execute("ALTER TABLE notices ADD COLUMN wake_state TEXT")
     with Store(path, read_only=True) as source:
         before = snapshot(source)
     with Store(path) as repaired:
         assert REVIEW_FIELDS <= repaired.get_job("historic-review").keys()
         notice = repaired.one("SELECT * FROM notices WHERE job_id='historic-review'")
         assert WAKE_FIELDS <= notice.keys()
-        assert notice["wake_state"] is None and notice["wake_attempts"] == 0
+        if "wake_state" in before["notices"][0]:
+            assert notice["wake_state"] is None and notice["wake_reason"] is None
+        else:
+            assert notice["wake_state"] == "stale" and notice["wake_reason"] == NOTICE_WAKE_PREDATES
+        assert notice["wake_attempts"] == 0
         assert repaired.query("SELECT * FROM caller_wake_sessions") == []
         assert repaired.one("SELECT sql FROM sqlite_master WHERE name='notices_caller_wake'")
         assert repaired.one("SELECT sql FROM sqlite_master WHERE name='jobs_review_subject'")

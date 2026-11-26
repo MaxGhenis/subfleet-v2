@@ -246,17 +246,24 @@ def test_mine_missing_identity_names_codex_and_override(root, capsys, verb):
     assert "CODEX_THREAD_ID" in error and "SUBFLEET_SESSION_ID" in error
 
 
-def test_runs_round_is_beside_review_name_and_json_retains_columns(daemon, capsys):
+@pytest.mark.parametrize("review", [
+    pytest.param(None, id="older-daemon"),
+    pytest.param({"verdict": "request_changes", "levels": {"P0": 0, "P1": 1, "P2": 0, "P3": 0},
+                  "valid": True, "consistent": True, "reason": None}, id="accepted-result"),
+])
+def test_runs_round_is_beside_review_name_and_json_retains_columns(daemon, capsys, review):
     row = {"job_id": JOB, "state": "queued", "task": "review", "name": "pr-review",
            "caller_family": "codex", "review_subject": "key", "review_round": 2}
+    if review is not None:
+        row.update(state="succeeded", accepted_attempt_id=f"{JOB}/a1", review=review)
     daemon({"capabilities": lambda request: {"capabilities": ["jobs.kind.v1"]},
             "list": lambda request: {"jobs": [row]}, "show": lambda request: {"job": row}})
     assert cli.main(["runs"]) == 0
     assert "pr-review [round 2]" in capsys.readouterr().out
     assert cli.main(["runs", "--json"]) == 0
-    assert json.loads(capsys.readouterr().out) == row
+    assert json.loads(capsys.readouterr().out) == {**row, "review": review}
     assert cli.main(["runs", "show", JOB, "--json"]) == 0
-    assert json.loads(capsys.readouterr().out)["job"] == row
+    assert json.loads(capsys.readouterr().out) == {"job": row, "review": review}
 
 
 def test_run_help_documents_caller_and_review_flags(capsys):
