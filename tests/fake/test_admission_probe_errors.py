@@ -224,6 +224,8 @@ def test_c6_12_an_unreadable_auth_json_refuses_the_launch_and_names_the_fix(flee
     refusal = ("lane auth.json is unreadable" if content == b"{"
                else "lane auth.json is not an object") + "; fix: log this lane in again"
     assert receipt["rc"] == 7 and receipt["spawn_error"] == refusal
+    # The launch stand-in forbids a guardian, so finalization has no processes to find.
+    monkeypatch.setattr(service, "_contain", lambda attempt: procs.Containment())
     service._schedule(attempt["attempt_id"], service._process_attempt, attempt["attempt_id"], paced=True)
     job = service.store.get_job(job_id)
     assert (job["state"], job["rc"]) == ("failed", 7)                    # as an API-key home's job ends
