@@ -1,0 +1,572 @@
+Installed 7 packages in 244ms
+============================= test session starts ==============================
+platform darwin -- Python 3.15.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5
+configfile: pyproject.toml
+plugins: xdist-3.8.0, timeout-2.4.0, hypothesis-6.168.1
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+created: 4/4 workers
+4 workers [13 items]
+
+FFFFFFFFFFFFF                                                            [100%]
+=================================== FAILURES ===================================
+________ test_c15_9_a_fold_io_failure_still_surfaces_the_notice[unlink] ________
+[gw2] darwin -- Python 3.15.2 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wcall-fix-r5-a1-7x65682i/sf-wcall-fix5/uv-cache/builds-v0/.tmpJ4bcBd/bin/python
+
+core = namespace(root=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wc...ke_engine.<locals>.<lambda> at 0x10c9a3cc0>, _lane_session_ids=<function wake_engine.<locals>.<lambda> at 0x10c9a3c10>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10bd11480>
+failure = 'unlink'
+
+    @pytest.mark.parametrize("failure", ["replace", "unlink"])
+    def test_c15_9_a_fold_io_failure_still_surfaces_the_notice(core, monkeypatch, failure):
+        """A failed aggregate replace or record unlink leaves the activity readable
+        and still allows a working receipt to authorize delivery."""
+        clock = [1800000000.0]
+        wake_engine(core, monkeypatch, clock)
+        assert offline_hook(core, event="SessionStart", source="clear") == ""
+        aggregate = notice_claims.activity_path(core.root, SESSION)
+        original = json.loads(aggregate.read_text())
+        records = aggregate.with_suffix(".d")
+        clock[0] += 1
+        with notice_claims.delivery_lock(core.root, SESSION) as held:
+            assert held
+            assert offline_hook(core) == ""
+        human_at = clock[0]
+        wire_id = add_notice(core)
+        replace = os.replace
+        unlink = Path.unlink
+    
+        def replace_except_aggregate(source, destination):
+            if Path(destination) == aggregate:
+                raise OSError(errno.EIO, "fixture aggregate replacement failed")
+            return replace(source, destination)
+    
+        def unlink_except_records(path, *args, **kwargs):
+            if path.parent == records and path.suffix == ".json":
+                raise OSError(errno.EIO, "fixture published record unlink failed")
+            return unlink(path, *args, **kwargs)
+    
+        if failure == "replace":
+            monkeypatch.setattr(notice_claims.os, "replace", replace_except_aggregate)
+        else:
+            monkeypatch.setattr(Path, "unlink", unlink_except_records)
+    
+        clock[0] += 1
+        output = offline_hook(core, event="SessionStart", source="compact")
+        merged = {"at": clock[0], "source": "compact", "human_at": human_at}
+        assert len(list(records.glob("*.json"))) == 2
+        assert not list(aggregate.parent.glob(f"{aggregate.name}.*.tmp"))
+        assert json.loads(aggregate.read_text()) == (original if failure == "replace" else merged)
+        assert notice_claims.read_activity(core.root, SESSION) == merged
+        assert core.store.one("SELECT state FROM notices")["state"] == "pending"
+        receipts = notice_claims.read_receipts(core.root, SESSION)
+>       assert TEXT in output, (output, receipts)
+E       AssertionError: ('', [])
+E       assert 'job-done succeeded; rc=0; -o /fake/result.md' in ''
+
+tests/unit/test_notice_claims.py:816: AssertionError
+____________ test_c15_9_a_fold_removes_stopped_folds_temporaries[8] ____________
+[gw3] darwin -- Python 3.15.2 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wcall-fix-r5-a1-7x65682i/sf-wcall-fix5/uv-cache/builds-v0/.tmpJ4bcBd/bin/python
+
+core = namespace(root=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wc...ke_engine.<locals>.<lambda> at 0x10aaffc10>, _lane_session_ids=<function wake_engine.<locals>.<lambda> at 0x10a98fab0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109bed480>
+pending_records = 8
+
+    @pytest.mark.parametrize("pending_records", [0, 8])
+    def test_c15_9_a_fold_removes_stopped_folds_temporaries(core, monkeypatch, pending_records):
+        """A successful fold cleans up stopped folds, even when there is nothing to merge."""
+        clock = [1800000000.0]
+        wake_engine(core, monkeypatch, clock)
+        add_notice(core)
+        assert TEXT in offline_hook(core)
+        aggregate = notice_claims.activity_path(core.root, SESSION)
+        spool = aggregate.parent
+        assert len(list(spool.iterdir())) == len(session_entries(core.root, SESSION)) == 5
+    
+        with notice_claims.delivery_lock(core.root, SESSION) as held:
+            assert held
+            for _ in range(pending_records):
+                clock[0] += 1
+                assert offline_hook(core) == ""
+        # Eight prompts under the delivery lock add eight records inside .activity.d.
+        assert len(list(spool.iterdir())) == 5
+        assert len(session_entries(core.root, SESSION)) == 5 + pending_records
+        if pending_records:
+            clock[0] += 1
+            assert offline_hook(core) == ""
+            assert len(session_entries(core.root, SESSION)) == 5
+    
+        for index in range(3):
+            temporary = aggregate.with_name(f"{aggregate.name}.{index:032x}.tmp")
+            temporary.write_text(aggregate.read_text())
+        assert len(list(spool.iterdir())) == 8
+    
+        if pending_records:
+            clock[0] += 1
+            assert offline_hook(core) == ""
+        else:
+            with notice_claims.delivery_lock(core.root, SESSION) as held:
+                assert held
+                assert notice_claims.fold_activity(core.root, SESSION) == 0
+        assert activity_records(core.root, SESSION) == [aggregate]
+>       assert len(list(spool.iterdir())) == 5
+E       AssertionError: assert 8 == 5
+E        +  where 8 = len([PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wcall-fix-r5-a1-...removes_stop0/hooks/notice-receipts/df3b30891ef33f71b796fa5abcaff2ce5ad80c9204d18921e3164d77089b43b9.activity.d'), ...])
+E        +    where [PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wcall-fix-r5-a1-...removes_stop0/hooks/notice-receipts/df3b30891ef33f71b796fa5abcaff2ce5ad80c9204d18921e3164d77089b43b9.activity.d'), ...] = list(<generator object Path.iterdir.<locals>.<genexpr> at 0x10aa854e0>)
+E        +      where <generator object Path.iterdir.<locals>.<genexpr> at 0x10aa854e0> = iterdir()
+E        +        where iterdir = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wcall-fix-r5-a1-7x65682i/sf-wcall-fix5/pytest-before/popen-gw3/test_c15_9_a_fold_removes_stop0/hooks/notice-receipts').iterdir
+
+tests/unit/test_notice_claims.py:861: AssertionError
+____ test_c15_9_a_fold_preserves_the_wake_decision_for_equal_activity_times ____
+[gw0] darwin -- Python 3.15.2 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wcall-fix-r5-a1-7x65682i/sf-wcall-fix5/uv-cache/builds-v0/.tmpJ4bcBd/bin/python
+
+core = namespace(root=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wc...ke_engine.<locals>.<lambda> at 0x108d93cc0>, _lane_session_ids=<function wake_engine.<locals>.<lambda> at 0x108d93c10>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108031480>
+
+    def test_c15_9_a_fold_preserves_the_wake_decision_for_equal_activity_times(core, monkeypatch):
+        """A late, earlier-named compact must not outrank a clear in the fold snapshot."""
+        clock = [1800000000.0]
+        engine, sent = wake_engine(core, monkeypatch, clock)
+        names = iter((2, 1))  # The clear publishes first, but sorts after the compact.
+        monkeypatch.setattr(notice_claims, "_time_ns", lambda: next(names))
+        aggregate = notice_claims.activity_path(core.root, SESSION)
+        raw_session = "raw-records"
+        raw_records = notice_claims.activity_path(core.root, raw_session).with_suffix(".d")
+        raw_records.mkdir(parents=True)
+        replace = os.replace
+        before_replace = []
+    
+        def publish_during_replace(source, destination):
+            if Path(destination) == aggregate:
+                # The fold holds both locks. This hook misses the activity lock,
+                # publishes anyway, and misses the delivery lock as well.
+                assert offline_hook(core, event="SessionStart", source="compact") == ""
+                before_replace.append(notice_claims.read_activity(core.root, SESSION))
+                for record in aggregate.with_suffix(".d").glob("*.json"):
+                    (raw_records / record.name).write_bytes(record.read_bytes())
+            replace(source, destination)
+    
+        monkeypatch.setattr(notice_claims.os, "replace", publish_during_replace)
+        with notice_claims.delivery_lock(core.root, SESSION) as held:
+            assert held
+            assert offline_hook(core, event="SessionStart", source="clear") == ""
+            assert notice_claims.fold_activity(core.root, SESSION) == 1
+        cleared = {"at": clock[0], "source": "clear", "human_at": None}
+        assert before_replace == [cleared]
+        assert notice_claims.read_activity(core.root, raw_session) == cleared
+        after_replace = notice_claims.read_activity(core.root, SESSION)
+        add_notice(core)
+        with core.store.transaction() as tx:
+            tx.execute("INSERT INTO notices(job_id,session_id,text,state,created_at) "
+                       "VALUES ('job-done',?,?,'pending',?)", (raw_session, TEXT, CREATED))
+        clock[0] += 301
+        engine.pass_once()
+        rows = core.store.query("SELECT session_id,state,wake_state FROM notices ORDER BY session_id")
+>       assert (after_replace, rows, [sid for sid, _ in sent]) == (cleared, [
+            {"session_id": raw_session, "state": "pending", "wake_state": None},
+            {"session_id": SESSION, "state": "pending", "wake_state": None},
+        ], [])
+E       AssertionError: assert ({'at': 18000...ipt-session']) == ({'at': 18000...': None}], [])
+E         
+E         At index 0 diff: {'at': 1800000000.0, 'source': 'compact', 'human_at': None} != {'at': 1800000000.0, 'source': 'clear', 'human_at': None}
+E         Use -v to get more diff
+
+tests/unit/test_notice_claims.py:446: AssertionError
+____________ test_c15_9_a_fold_removes_stopped_folds_temporaries[0] ____________
+[gw2] darwin -- Python 3.15.2 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wcall-fix-r5-a1-7x65682i/sf-wcall-fix5/uv-cache/builds-v0/.tmpJ4bcBd/bin/python
+
+core = namespace(root=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wc...ke_engine.<locals>.<lambda> at 0x10c9ba8d0>, _lane_session_ids=<function wake_engine.<locals>.<lambda> at 0x10c9baa30>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10bd11350>
+pending_records = 0
+
+    @pytest.mark.parametrize("pending_records", [0, 8])
+    def test_c15_9_a_fold_removes_stopped_folds_temporaries(core, monkeypatch, pending_records):
+        """A successful fold cleans up stopped folds, even when there is nothing to merge."""
+        clock = [1800000000.0]
+        wake_engine(core, monkeypatch, clock)
+        add_notice(core)
+        assert TEXT in offline_hook(core)
+        aggregate = notice_claims.activity_path(core.root, SESSION)
+        spool = aggregate.parent
+        assert len(list(spool.iterdir())) == len(session_entries(core.root, SESSION)) == 5
+    
+        with notice_claims.delivery_lock(core.root, SESSION) as held:
+            assert held
+            for _ in range(pending_records):
+                clock[0] += 1
+                assert offline_hook(core) == ""
+        # Eight prompts under the delivery lock add eight records inside .activity.d.
+        assert len(list(spool.iterdir())) == 5
+        assert len(session_entries(core.root, SESSION)) == 5 + pending_records
+        if pending_records:
+            clock[0] += 1
+            assert offline_hook(core) == ""
+            assert len(session_entries(core.root, SESSION)) == 5
+    
+        for index in range(3):
+            temporary = aggregate.with_name(f"{aggregate.name}.{index:032x}.tmp")
+            temporary.write_text(aggregate.read_text())
+        assert len(list(spool.iterdir())) == 8
+    
+        if pending_records:
+            clock[0] += 1
+            assert offline_hook(core) == ""
+        else:
+            with notice_claims.delivery_lock(core.root, SESSION) as held:
+                assert held
+                assert notice_claims.fold_activity(core.root, SESSION) == 0
+        assert activity_records(core.root, SESSION) == [aggregate]
+>       assert len(list(spool.iterdir())) == 5
+E       AssertionError: assert 8 == 5
+E        +  where 8 = len([PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wcall-fix-r5-a1-...removes_stop0/hooks/notice-receipts/df3b30891ef33f71b796fa5abcaff2ce5ad80c9204d18921e3164d77089b43b9.activity.d'), ...])
+E        +    where [PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wcall-fix-r5-a1-...removes_stop0/hooks/notice-receipts/df3b30891ef33f71b796fa5abcaff2ce5ad80c9204d18921e3164d77089b43b9.activity.d'), ...] = list(<generator object Path.iterdir.<locals>.<genexpr> at 0x10c9ca980>)
+E        +      where <generator object Path.iterdir.<locals>.<genexpr> at 0x10c9ca980> = iterdir()
+E        +        where iterdir = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wcall-fix-r5-a1-7x65682i/sf-wcall-fix5/pytest-before/popen-gw2/test_c15_9_a_fold_removes_stop0/hooks/notice-receipts').iterdir
+
+tests/unit/test_notice_claims.py:861: AssertionError
+___ test_c15_9_activity_merge_is_independent_of_fold_and_reconcile_grouping ____
+[gw1] darwin -- Python 3.15.2 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wcall-fix-r5-a1-7x65682i/sf-wcall-fix5/uv-cache/builds-v0/.tmpJ4bcBd/bin/python
+
+core = namespace(root=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wc... store=<subfleet.store.Store object at 0x10ad5d160>, _pin_notice_jobs=<function core.<locals>.<lambda> at 0x10ad778a0>)
+
+    @settings(max_examples=100, deadline=None, derandomize=True, database=None,
+>             suppress_health_check=[HealthCheck.function_scoped_fixture])
+                   ^^^^^^^
+
+tests/unit/test_notice_claims.py:466: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.15/site-packages/hypothesis/core.py:1691: in _raise_to_user
+    raise the_error_hypothesis_found
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+core = namespace(root=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wc... store=<subfleet.store.Store object at 0x10ad5d160>, _pin_notice_jobs=<function core.<locals>.<lambda> at 0x10ad778a0>)
+records = [(0, 'compact', None, 'late'), (0, 'clear', None, 'folded')]
+
+    @settings(max_examples=100, deadline=None, derandomize=True, database=None,
+              suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @given(records=st.lists(st.tuples(
+        st.integers(0, 2), st.sampled_from((None, "startup", "resume", "compact", "clear")),
+        st.one_of(st.none(), st.integers(0, 2)), st.sampled_from(("reconciled", "folded", "late")),
+    ), min_size=1, max_size=12))
+    @example(records=[(0, "compact", None, "late"), (0, "clear", None, "folded")])
+    @example(records=[(0, "compact", None, "late"), (0, "clear", None, "reconciled")])
+    def test_c15_9_activity_merge_is_independent_of_fold_and_reconcile_grouping(core, records):
+        """The final claim's read and apply agree with merging all the raw records."""
+        session = f"grouped-{next(ACTIVITY_EXAMPLES)}"
+        raw = f"{session}-raw"
+    
+        def write_records(sid, include):
+            directory = notice_claims.activity_path(core.root, sid).with_suffix(".d")
+            directory.mkdir(parents=True, exist_ok=True)
+            for index, (at, source, human_at, group) in enumerate(records):
+                if group in include:
+                    path = directory / f"{index:020d}-{'0' * 32}.json"
+                    path.write_text(json.dumps({"at": at, "source": source, "human_at": human_at}))
+    
+        write_records(raw, {"reconciled", "folded", "late"})
+        expected = notice_claims.read_activity(core.root, raw)
+        assert expected["at"] == max(record[0] for record in records)
+        assert expected["human_at"] == max((record[2] for record in records if record[2] is not None),
+                                           default=None)
+        with notice_claims.delivery_lock(core.root, session) as held:
+            assert held
+            write_records(session, {"reconciled"})
+            notice_claims.reconcile(core, session)
+            write_records(session, {"folded"})
+            notice_claims.fold_activity(core.root, session)
+            write_records(session, {"late"})
+            with notice_claims.activity_lock(core.root, session, wait_s=0) as held:
+                assert held
+                with core.store.transaction() as tx:
+                    notice_claims.apply_activity(tx, session, notice_claims.read_activity(core.root, session))
+>       assert core.store.one("SELECT active_at,source FROM caller_wake_sessions WHERE session_id=?",
+                              (session,)) == {"active_at": expected["at"], "source": expected["source"]}
+E       AssertionError: assert {'active_at':...e': 'compact'} == {'active_at':...rce': 'clear'}
+E         
+E         Omitting 1 identical items, use -vv to show
+E         Differing items:
+E         {'source': 'compact'} != {'source': 'clear'}
+E         Use -v to get more diff
+E       (note: 1 other explicit example also failed with this error; use Verbosity.verbose to view)
+E       Failing explicit example: test_c15_9_activity_merge_is_independent_of_fold_and_reconcile_grouping(
+E           core=namespace(root=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wcall-fix-r5-a1-7x65682i/sf-wcall-fix5/pytest-before/popen-gw1/test_c15_9_activity_merge_is_i0'), store=<subfleet.store.Store object at 0x10ad5d160>, _pin_notice_jobs=<function core.<locals>.<lambda> at 0x10ad778a0>),
+E           records=[(0, 'compact', None, 'late'), (0, 'clear', None, 'folded')],
+E       )
+
+tests/unit/test_notice_claims.py:502: AssertionError
+______ test_c15_9_applying_equal_time_activity_preserves_a_holding_source ______
+[gw0] darwin -- Python 3.15.2 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wcall-fix-r5-a1-7x65682i/sf-wcall-fix5/uv-cache/builds-v0/.tmpJ4bcBd/bin/python
+
+core = namespace(root=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wc... store=<subfleet.store.Store object at 0x108038b90>, _pin_notice_jobs=<function core.<locals>.<lambda> at 0x108d93480>)
+
+    def test_c15_9_applying_equal_time_activity_preserves_a_holding_source(core):
+        stamp = 1800000000.0
+        with core.store.transaction() as tx:
+            tx.execute("INSERT INTO caller_wake_sessions(session_id,active_at,source) VALUES (?,?,'clear')",
+                       (SESSION, stamp))
+            notice_claims.apply_activity(tx, SESSION, {"at": stamp, "source": "compact", "human_at": None})
+>       assert core.store.one("SELECT active_at,source FROM caller_wake_sessions WHERE session_id=?",
+                              (SESSION,)) == {"active_at": stamp, "source": "clear"}
+E       AssertionError: assert {'active_at':...e': 'compact'} == {'active_at':...rce': 'clear'}
+E         
+E         Omitting 1 identical items, use -vv to show
+E         Differing items:
+E         {'source': 'compact'} != {'source': 'clear'}
+E         Use -v to get more diff
+
+tests/unit/test_notice_claims.py:458: AssertionError
+_________ test_prune_finds_partial_indexes_naming_case_variants[bare] __________
+[gw0] darwin -- Python 3.15.2 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wcall-fix-r5-a1-7x65682i/sf-wcall-fix5/uv-cache/builds-v0/.tmpJ4bcBd/bin/python
+
+identifier = 'WAKE_STATE'
+
+    @pytest.mark.parametrize('identifier', ['WAKE_STATE', '"WAKE_STATE"', '[WAKE_STATE]', '`WAKE_STATE`'],
+                             ids=['bare', 'double-quoted', 'bracketed', 'backticked'])
+    def test_prune_finds_partial_indexes_naming_case_variants(identifier):
+        with sqlite3.connect(':memory:') as conn:
+            conn.execute('CREATE TABLE notices (job_id TEXT, wake_state TEXT)')
+            conn.execute(f'CREATE INDEX pending_wakes ON notices(job_id) WHERE {identifier} IS NULL')
+            for name in _indexes_naming_column(conn, 'notices', 'wake_state'):
+                conn.execute(f'DROP INDEX "{name}"')
+>           conn.execute('ALTER TABLE notices DROP COLUMN wake_state')
+E           sqlite3.OperationalError: error in index pending_wakes after drop column: no such column: WAKE_STATE
+
+tests/unit/test_prune_217.py:211: OperationalError
+_______ test_c15_9_a_fold_io_failure_still_surfaces_the_notice[replace] ________
+[gw1] darwin -- Python 3.15.2 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wcall-fix-r5-a1-7x65682i/sf-wcall-fix5/uv-cache/builds-v0/.tmpJ4bcBd/bin/python
+
+core = namespace(root=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wc...ke_engine.<locals>.<lambda> at 0x10ae10bf0>, _lane_session_ids=<function wake_engine.<locals>.<lambda> at 0x10ae10ca0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10aa5f490>
+failure = 'replace'
+
+    @pytest.mark.parametrize("failure", ["replace", "unlink"])
+    def test_c15_9_a_fold_io_failure_still_surfaces_the_notice(core, monkeypatch, failure):
+        """A failed aggregate replace or record unlink leaves the activity readable
+        and still allows a working receipt to authorize delivery."""
+        clock = [1800000000.0]
+        wake_engine(core, monkeypatch, clock)
+        assert offline_hook(core, event="SessionStart", source="clear") == ""
+        aggregate = notice_claims.activity_path(core.root, SESSION)
+        original = json.loads(aggregate.read_text())
+        records = aggregate.with_suffix(".d")
+        clock[0] += 1
+        with notice_claims.delivery_lock(core.root, SESSION) as held:
+            assert held
+            assert offline_hook(core) == ""
+        human_at = clock[0]
+        wire_id = add_notice(core)
+        replace = os.replace
+        unlink = Path.unlink
+    
+        def replace_except_aggregate(source, destination):
+            if Path(destination) == aggregate:
+                raise OSError(errno.EIO, "fixture aggregate replacement failed")
+            return replace(source, destination)
+    
+        def unlink_except_records(path, *args, **kwargs):
+            if path.parent == records and path.suffix == ".json":
+                raise OSError(errno.EIO, "fixture published record unlink failed")
+            return unlink(path, *args, **kwargs)
+    
+        if failure == "replace":
+            monkeypatch.setattr(notice_claims.os, "replace", replace_except_aggregate)
+        else:
+            monkeypatch.setattr(Path, "unlink", unlink_except_records)
+    
+        clock[0] += 1
+        output = offline_hook(core, event="SessionStart", source="compact")
+        merged = {"at": clock[0], "source": "compact", "human_at": human_at}
+        assert len(list(records.glob("*.json"))) == 2
+        assert not list(aggregate.parent.glob(f"{aggregate.name}.*.tmp"))
+        assert json.loads(aggregate.read_text()) == (original if failure == "replace" else merged)
+        assert notice_claims.read_activity(core.root, SESSION) == merged
+        assert core.store.one("SELECT state FROM notices")["state"] == "pending"
+        receipts = notice_claims.read_receipts(core.root, SESSION)
+>       assert TEXT in output, (output, receipts)
+E       AssertionError: ('', [])
+E       assert 'job-done succeeded; rc=0; -o /fake/result.md' in ''
+
+tests/unit/test_notice_claims.py:816: AssertionError
+______ test_prune_finds_partial_indexes_naming_case_variants[backticked] _______
+[gw1] darwin -- Python 3.15.2 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wcall-fix-r5-a1-7x65682i/sf-wcall-fix5/uv-cache/builds-v0/.tmpJ4bcBd/bin/python
+
+identifier = '`WAKE_STATE`'
+
+    @pytest.mark.parametrize('identifier', ['WAKE_STATE', '"WAKE_STATE"', '[WAKE_STATE]', '`WAKE_STATE`'],
+                             ids=['bare', 'double-quoted', 'bracketed', 'backticked'])
+    def test_prune_finds_partial_indexes_naming_case_variants(identifier):
+        with sqlite3.connect(':memory:') as conn:
+            conn.execute('CREATE TABLE notices (job_id TEXT, wake_state TEXT)')
+            conn.execute(f'CREATE INDEX pending_wakes ON notices(job_id) WHERE {identifier} IS NULL')
+            for name in _indexes_naming_column(conn, 'notices', 'wake_state'):
+                conn.execute(f'DROP INDEX "{name}"')
+>           conn.execute('ALTER TABLE notices DROP COLUMN wake_state')
+E           sqlite3.OperationalError: error in index pending_wakes after drop column: no such column: WAKE_STATE
+
+tests/unit/test_prune_217.py:211: OperationalError
+________ test_c15_9_a_retry_can_expire_between_the_pass_start_and_claim ________
+[gw2] darwin -- Python 3.15.2 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wcall-fix-r5-a1-7x65682i/sf-wcall-fix5/uv-cache/builds-v0/.tmpJ4bcBd/bin/python
+
+callers = <tests.fake.test_caller_notice_wakes.Callers object at 0x10cbd1550>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10cd0d7f0>
+
+    def test_c15_9_a_retry_can_expire_between_the_pass_start_and_claim(callers, monkeypatch):
+        retry_sid = "b-retry-expiring"
+        expires_at = EPOCH + 0.5
+        callers.now = EPOCH - 4
+        callers.register(retry_sid)
+        retry = callers.finish(retry_sid, created=expires_at - RETRY_WINDOW_S)
+        callers.failures[retry_sid] = "no-peer-token"
+        callers.pass_once()
+        assert callers.row(retry)["wake_next_at"] < EPOCH < expires_at
+        callers.failures.pop(retry_sid)
+        callers.attempts.clear()
+    
+        callers.now = EPOCH
+        fresh = callers.finish(retry_sid)
+        held = [f"a-expiry-held-{index}" for index in range(4)]
+        for sid in held:
+            callers.register(sid)
+            callers.finish(sid)
+    
+        started = None
+    
+        def clock():
+            nonlocal started
+            now = time.monotonic()
+            if started is None:
+                started = now
+            return EPOCH + (now - started)
+    
+        send_times = []
+    
+        def timed_push(*args, **kwargs):
+            send_times.append(clock())
+            return callers.push(*args, **kwargs)
+    
+        monkeypatch.setattr(notify_push, "push_to_session", timed_push)
+        engine = caller_wakes.CallerWakeEngine(callers.daemon, now=clock)
+        with ExitStack() as locks:
+            for sid in held:
+                locks.callback(os.close, hold_activity_lock(callers.daemon.root, sid))
+            engine.pass_once()
+    
+        [sent_at] = send_times
+>       assert callers.counts() == Counter({fresh: 1}), f"send took place {sent_at - expires_at:.3f} s after expiry"
+E       AssertionError: send took place 0.637 s after expiry
+E       assert Counter({1: 1, 2: 1}) == Counter({2: 1})
+E         
+E         Omitting 1 identical items, use -vv to show
+E         Left contains 1 more item:
+E         {1: 1}
+E         Use -v to get more diff
+
+tests/fake/test_caller_notice_wakes.py:1420: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4508684640:daemon.py:1011 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4508684640:daemon.py:1104 reset credits: automatic redemption off; no-reset marker absent
+_______ test_prune_finds_partial_indexes_naming_case_variants[bracketed] _______
+[gw2] darwin -- Python 3.15.2 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wcall-fix-r5-a1-7x65682i/sf-wcall-fix5/uv-cache/builds-v0/.tmpJ4bcBd/bin/python
+
+identifier = '[WAKE_STATE]'
+
+    @pytest.mark.parametrize('identifier', ['WAKE_STATE', '"WAKE_STATE"', '[WAKE_STATE]', '`WAKE_STATE`'],
+                             ids=['bare', 'double-quoted', 'bracketed', 'backticked'])
+    def test_prune_finds_partial_indexes_naming_case_variants(identifier):
+        with sqlite3.connect(':memory:') as conn:
+            conn.execute('CREATE TABLE notices (job_id TEXT, wake_state TEXT)')
+            conn.execute(f'CREATE INDEX pending_wakes ON notices(job_id) WHERE {identifier} IS NULL')
+            for name in _indexes_naming_column(conn, 'notices', 'wake_state'):
+                conn.execute(f'DROP INDEX "{name}"')
+>           conn.execute('ALTER TABLE notices DROP COLUMN wake_state')
+E           sqlite3.OperationalError: error in index pending_wakes after drop column: no such column: WAKE_STATE
+
+tests/unit/test_prune_217.py:211: OperationalError
+_____________ test_c15_9_activity_lock_waits_share_one_pass_budget _____________
+[gw3] darwin -- Python 3.15.2 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wcall-fix-r5-a1-7x65682i/sf-wcall-fix5/uv-cache/builds-v0/.tmpJ4bcBd/bin/python
+
+callers = <tests.fake.test_caller_notice_wakes.Callers object at 0x10aae2a50>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109becd60>
+
+    def test_c15_9_activity_lock_waits_share_one_pass_budget(callers, monkeypatch):
+        from subfleet import notice_claims
+    
+        held = [f"a-budget-held-{index:02d}" for index in range(32)]
+        free = "b-budget-free"
+        for sid in [*held, free]:
+            callers.register(sid)
+        held_notices = [callers.finish(sid) for sid in held]
+        free_notice = callers.finish(free)
+        lock = notice_claims.activity_lock
+        waits = []
+    
+        def record_wait(root, sid, *, wait_s):
+            waits.append((sid, wait_s))
+            return lock(root, sid, wait_s=wait_s)
+    
+        monkeypatch.setattr(notice_claims, "activity_lock", record_wait)
+        with ExitStack() as locks:
+            for sid in held:
+                locks.callback(os.close, hold_activity_lock(callers.daemon.root, sid))
+            start = time.monotonic()
+            first = callers.pass_once()
+            elapsed = time.monotonic() - start
+            assert first == {"delivered": 0, "sessions": 0, "examined": 32}
+            assert callers.attempts == []
+            for notice in held_notices:
+                row = callers.row(notice)
+                assert (row["state"], row["transport"], row["wake_state"], row["wake_attempts"],
+                        row["wake_at"], row["wake_next_at"]) == ("pending", None, None, 0, None, None)
+            # Allow 125 ms per caller for store, registry, transcript, rendering and scheduling work.
+            limit = 1.0 + 0.125 * len(held)
+>           assert elapsed < limit, f"pass took {elapsed:.3f} s with {len(held)} activity locks held"
+E           AssertionError: pass took 9.903 s with 32 activity locks held
+E           assert 9.902743291982915 < 5.0
+
+tests/fake/test_caller_notice_wakes.py:1369: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4474153888:daemon.py:1011 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4474153888:daemon.py:1104 reset credits: automatic redemption off; no-reset marker absent
+_____ test_prune_finds_partial_indexes_naming_case_variants[double-quoted] _____
+[gw3] darwin -- Python 3.15.2 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wcall-fix-r5-a1-7x65682i/sf-wcall-fix5/uv-cache/builds-v0/.tmpJ4bcBd/bin/python
+
+identifier = '"WAKE_STATE"'
+
+    @pytest.mark.parametrize('identifier', ['WAKE_STATE', '"WAKE_STATE"', '[WAKE_STATE]', '`WAKE_STATE`'],
+                             ids=['bare', 'double-quoted', 'bracketed', 'backticked'])
+    def test_prune_finds_partial_indexes_naming_case_variants(identifier):
+        with sqlite3.connect(':memory:') as conn:
+            conn.execute('CREATE TABLE notices (job_id TEXT, wake_state TEXT)')
+            conn.execute(f'CREATE INDEX pending_wakes ON notices(job_id) WHERE {identifier} IS NULL')
+            for name in _indexes_naming_column(conn, 'notices', 'wake_state'):
+                conn.execute(f'DROP INDEX "{name}"')
+>           conn.execute('ALTER TABLE notices DROP COLUMN wake_state')
+E           sqlite3.OperationalError: error in index pending_wakes after drop column: no such column: "WAKE_STATE" - should this be a string literal in single-quotes?
+
+tests/unit/test_prune_217.py:211: OperationalError
+============================= slowest 8 durations ==============================
+26.85s call     tests/fake/test_caller_notice_wakes.py::test_c15_9_activity_lock_waits_share_one_pass_budget
+6.03s call     tests/fake/test_caller_notice_wakes.py::test_c15_9_a_retry_can_expire_between_the_pass_start_and_claim
+1.56s setup    tests/fake/test_caller_notice_wakes.py::test_c15_9_activity_lock_waits_share_one_pass_budget
+1.46s setup    tests/fake/test_caller_notice_wakes.py::test_c15_9_a_retry_can_expire_between_the_pass_start_and_claim
+1.09s teardown tests/fake/test_caller_notice_wakes.py::test_c15_9_activity_lock_waits_share_one_pass_budget
+0.86s setup    tests/unit/test_notice_claims.py::test_c15_9_a_fold_io_failure_still_surfaces_the_notice[unlink]
+0.81s call     tests/unit/test_notice_claims.py::test_c15_9_a_fold_preserves_the_wake_decision_for_equal_activity_times
+0.80s setup    tests/unit/test_notice_claims.py::test_c15_9_a_fold_removes_stopped_folds_temporaries[8]
+=========================== short test summary info ============================
+FAILED tests/unit/test_notice_claims.py::test_c15_9_a_fold_io_failure_still_surfaces_the_notice[unlink]
+FAILED tests/unit/test_notice_claims.py::test_c15_9_a_fold_removes_stopped_folds_temporaries[8]
+FAILED tests/unit/test_notice_claims.py::test_c15_9_a_fold_preserves_the_wake_decision_for_equal_activity_times
+FAILED tests/unit/test_notice_claims.py::test_c15_9_a_fold_removes_stopped_folds_temporaries[0]
+FAILED tests/unit/test_notice_claims.py::test_c15_9_activity_merge_is_independent_of_fold_and_reconcile_grouping
+FAILED tests/unit/test_notice_claims.py::test_c15_9_applying_equal_time_activity_preserves_a_holding_source
+FAILED tests/unit/test_prune_217.py::test_prune_finds_partial_indexes_naming_case_variants[bare]
+FAILED tests/unit/test_notice_claims.py::test_c15_9_a_fold_io_failure_still_surfaces_the_notice[replace]
+FAILED tests/unit/test_prune_217.py::test_prune_finds_partial_indexes_naming_case_variants[backticked]
+FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_a_retry_can_expire_between_the_pass_start_and_claim
+FAILED tests/unit/test_prune_217.py::test_prune_finds_partial_indexes_naming_case_variants[bracketed]
+FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_activity_lock_waits_share_one_pass_budget
+FAILED tests/unit/test_prune_217.py::test_prune_finds_partial_indexes_naming_case_variants[double-quoted]
+======================== 13 failed in 103.05s (0:01:43) ========================

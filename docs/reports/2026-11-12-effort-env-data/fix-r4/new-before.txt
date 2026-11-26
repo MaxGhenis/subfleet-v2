@@ -1,0 +1,144 @@
+Started 20261125T212430Z UTC
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   3996G     14G    108G    12%    487k  1.1G    0%   /
+Command uv run --no-sync --with pytest-xdist\>=3.6 pytest -n 4 -p no:cacheprovider -p round4_isolation --basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/pytest-new-before-20261125T212430Z -q -rs tests/fake/test_resume_contract.py::test_resume_is_refused_unknown_pinned_model_when_no_entry_holds_its_source_model_id tests/fake/test_resume_contract.py::test_resume_after_a_policy_change_pins_an_entry_at_its_source_model_id tests/fake/test_resume_contract.py::test_imported_resume_pins_source_id_when_a_current_key_shadows_it
+bringing up nodes...
+bringing up nodes...
+
+...F.FF                                                                  [100%]
+=================================== FAILURES ===================================
+_ test_resume_is_refused_unknown_pinned_model_when_no_entry_holds_its_source_model_id[retired-shadow] _
+[gw0] darwin -- Python 3.15.2 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/uv-cache/builds-v0/.tmprvTMod/bin/python
+
+state_daemon = (<subfleet.daemon.Daemon object at 0x10c044ec0>, <tests.fake.conftest.Harness object at 0x10c045010>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10cf10510>
+retired_shadow = True
+
+    @pytest.mark.parametrize("retired_shadow", [False, True], ids=["no-alias", "retired-shadow"])
+    def test_resume_is_refused_unknown_pinned_model_when_no_entry_holds_its_source_model_id(
+            state_daemon, monkeypatch, retired_shadow):
+        """C-12.4, C-25.7 (review r3 of #310, P2 and P3): when no policy entry holds the source
+        attempt's model ID, the resume is refused at its pin, before the request digest, as
+        `unknown-pinned-model` (code 7) naming no policy path. The caller cannot change a resume's
+        pin, so the repair is a fresh job."""
+        daemon, harness = state_daemon
+        claude_lane(daemon)
+        source_id, source_attempt = finished_source(daemon, harness, pinned_lane="claude-1", pinned_model="haiku")
+        old_id = source_attempt["model_requested"]
+        daemon.policy["models"]["haiku"]["id"] = NEXT_HAIKU_ID
+        if retired_shadow:
+            daemon.policy["retired"][old_id] = "haiku"
+        reload_policy(daemon)
+>       with pytest.raises(AdapterError) as raised:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AdapterError
+
+tests/fake/test_resume_contract.py:319: Failed
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4496576192:daemon.py:1030 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4496576192:daemon.py:1123 reset credits: automatic redemption off; no-reset marker absent
+----------------------------- Captured stdout call -----------------------------
+Baseline accepted pin='haiku'; adapter calls=[]; reasons=['resume-identity-mismatch']; attempt state='finalizing'; spawn_error='resume source identity is missing or does not match this attempt; fix: resubmit the resume from the original job'; child_pid=None; rc=7
+----------------------------- Captured stderr call -----------------------------
+subfleet: retired model 'claude-haiku-4-5-20251001' resolves to 'haiku'
+subfleet: retired model 'claude-haiku-4-5-20251001' resolves to 'haiku'
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4496576192:refusals.py:710 job 20261125-222506-haiku refused (AdapterError): resume source identity is missing or does not match this attempt; fix: resubmit the resume from the original job
+_ test_resume_after_a_policy_change_pins_an_entry_at_its_source_model_id[id-rollover-retired-shadow] _
+[gw0] darwin -- Python 3.15.2 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/uv-cache/builds-v0/.tmprvTMod/bin/python
+
+state_daemon = (<subfleet.daemon.Daemon object at 0x10c79dfd0>, <tests.fake.conftest.Harness object at 0x10c058050>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b101c70>
+change = 'id-rollover-retired-shadow'
+
+    @pytest.mark.parametrize("change", ["id-rollover", "alias-removed", "alias-retired", "id-rollover-retired-shadow"])
+    def test_resume_after_a_policy_change_pins_an_entry_at_its_source_model_id(state_daemon, monkeypatch, change):
+        """C-12.4: after an ID rollover or alias removal, the first current entry at the
+        source ID supplies the launch effort, even when a retired alias shadows that ID.
+        The recorded alias can itself be retired while still resolving to the source ID."""
+        daemon, harness = state_daemon
+        models = daemon.policy["models"]
+        models["opus"]["effort"] = "low"
+        models["opus_alternate"] = {**models["opus"], "effort": "high"}
+        reload_policy(daemon)
+        claude_lane(daemon)
+        rollover = change.startswith("id-rollover")
+        source_model = "haiku" if rollover else "opus_alternate"
+        source_id, source_attempt = finished_source(daemon, harness, pinned_lane="claude-1", pinned_model=source_model)
+        old_id = source_attempt["model_requested"]
+        assert json.loads(source_attempt["evidence_json"])["model_short"] == source_model
+        models = daemon.policy["models"]
+        if rollover:
+            models["haiku_legacy"] = {**models["haiku"]}
+            models["haiku"] = {**models["haiku"], "id": NEXT_HAIKU_ID, "effort": "high"}
+            if change == "id-rollover-retired-shadow":
+                daemon.policy["retired"][old_id] = "haiku"
+                models["haiku_legacy"]["effort"] = "medium"
+                models["haiku_alternate"] = {**models["haiku_legacy"], "effort": "low"}
+            expected = "haiku_legacy"
+        else:
+            del models["opus_alternate"]
+            if change == "alias-retired":
+                daemon.policy.setdefault("retired", {})["opus_alternate"] = "opus"
+            expected = "opus"
+        reload_policy(daemon)
+        resumed_id = resume_job(daemon, harness, source_id)
+        # The launch first: before this round an ID rollover was accepted, then refused here.
+        launched = launch_resume(daemon, monkeypatch, resumed_id)
+>       assert (daemon.store.get_job(resumed_id)["pinned_model"], launched) == (expected, [
+            ("claude-1", "native-source-session", old_id, daemon.policy["models"][expected].get("effort"))])
+E       AssertionError: assert ('haiku', []) == ('haiku_legac...', 'medium')])
+E         
+E         At index 0 diff: 'haiku' != 'haiku_legacy'
+E         Use -v to get more diff
+
+tests/fake/test_resume_contract.py:299: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4504281040:daemon.py:1030 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4504281040:daemon.py:1123 reset credits: automatic redemption off; no-reset marker absent
+----------------------------- Captured stderr call -----------------------------
+subfleet: retired model 'claude-haiku-4-5-20251001' resolves to 'haiku'
+subfleet: retired model 'claude-haiku-4-5-20251001' resolves to 'haiku'
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4504281040:refusals.py:710 job 20261125-222508-haiku-1 refused (AdapterError): resume source identity is missing or does not match this attempt; fix: resubmit the resume from the original job
+______ test_imported_resume_pins_source_id_when_a_current_key_shadows_it _______
+[gw2] darwin -- Python 3.15.2 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/uv-cache/builds-v0/.tmprvTMod/bin/python
+
+state_daemon = (<subfleet.daemon.Daemon object at 0x10a161fd0>, <tests.fake.conftest.Harness object at 0x109894050>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108a67bf0>
+
+    def test_imported_resume_pins_source_id_when_a_current_key_shadows_it(state_daemon, monkeypatch):
+        """C-12.4, C-23.32: a current key spelled like the source ID can point to a different model."""
+        daemon, harness = state_daemon
+        source_id, attempt = finished_source(daemon, harness)
+        evidence = json.dumps({"imported": True, "imported_external": False,
+                               "model_short": "astra-v1-only-name", "v1_class": None, "v1_lane": "codex-a",
+                               "v1_meta": "/legacy/runs/20260905-111855-astra/meta.json", "salvage_refs": []},
+                              sort_keys=True)
+        daemon.store.update_attempt(attempt["attempt_id"], evidence_json=evidence)
+        source_attempt = daemon.store.get_attempt(attempt["attempt_id"])
+        old_id = source_attempt["model_requested"]
+        models = daemon.policy["models"]
+        models[old_id] = {**models["astra"], "id": "gpt-6-astra-synthetic", "effort": "low"}
+        reload_policy(daemon)
+    
+        resumed_id = resume_job(daemon, harness, source_id)
+        assert daemon.store.get_attempt(attempt["attempt_id"]) == source_attempt
+        launched = launch_resume(daemon, monkeypatch, resumed_id)
+>       assert (daemon.store.get_job(resumed_id)["pinned_model"], launched) == ("astra", [
+            (source_attempt["lane_id"], "native-source-session", old_id,
+             daemon.policy["models"]["astra"].get("effort"))])
+E       AssertionError: assert ('gpt-6-astra', []) == ('astra', [('...a', 'ultra')])
+E         
+E         At index 0 diff: 'gpt-6-astra' != 'astra'
+E         Use -v to get more diff
+
+tests/fake/test_resume_contract.py:258: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4464189392:daemon.py:1030 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4464189392:daemon.py:1123 reset credits: automatic redemption off; no-reset marker absent
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4464189392:refusals.py:710 job 20261125-222508-gpt-6-astra refused (AdapterError): resume source identity is missing or does not match this attempt; fix: resubmit the resume from the original job
+3 failed, 4 passed in 44.67s
+Finished 2026-11-25 21:25:28 UTC, exit 1
+ 54M	/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4

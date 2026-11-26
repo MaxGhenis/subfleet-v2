@@ -1,0 +1,22 @@
+bringing up nodes...
+bringing up nodes...
+
+........................................................................ [ 16%]
+........................................................................ [ 32%]
+........................................................................ [ 49%]
+........................................................................ [ 65%]
+........................................................................ [ 82%]
+........................................................................ [ 98%]
+.....                                                                    [100%]
+============================= slowest 10 durations =============================
+45.61s call     tests/unit/test_handler_refusals.py::test_every_refusal_the_daemon_builds_names_a_known_reason
+18.67s call     tests/fake/test_state_contract.py::test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace
+14.42s call     tests/unit/test_handler_refusals.py::test_constant_refusal_text_and_its_template_say_the_same_thing
+13.33s call     tests/unit/test_handler_refusals.py::test_the_wire_shows_what_render_says
+9.52s call     tests/unit/test_handler_refusals.py::test_a_refusal_reads_its_most_specific_checked_form_and_never_its_exception
+7.18s call     tests/fake/test_state_contract.py::test_c6_4_a_parent_has_no_child_budget_unless_a_policy_sets_one
+6.95s call     tests/fake/test_state_contract.py::test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches
+6.75s call     tests/fake/test_state_contract.py::test_c4_5_state_transient_retries_same_lane_once_then_another
+6.37s call     tests/fake/test_state_contract.py::test_c6_3_state_concurrent_submit_admission_owns_one_slot
+6.31s call     tests/fake/test_state_contract.py::test_c8_3_state_stale_failed_export_cannot_overwrite_a_new_owner
+437 passed in 209.62s (0:03:29)

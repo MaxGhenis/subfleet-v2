@@ -182,11 +182,20 @@ def keep(found: Plan, job_dir: str | Path) -> dict:
     return {**found.record(), "bytes": total}
 
 
-def applied(job_dir: str | Path, worktree: str | Path) -> bool:
-    """Whether the kept copy was applied, in full, to `worktree`."""
+def applied(job_dir: str | Path, worktree: str | Path, *, strict: bool = False) -> bool:
+    """Whether the kept copy was applied, in full, to `worktree`.
+
+    Strict ownership reads expose OS errors so admission can distinguish a
+    transient read failure from an incomplete copy. Other callers retain the
+    boolean answer for an unreadable marker.
+    """
     try:
         return (Path(job_dir) / DIRECTORY / APPLIED).read_text() == str(worktree)
-    except (OSError, UnicodeDecodeError):
+    except OSError:
+        if strict:
+            raise
+        return False
+    except UnicodeDecodeError:
         return False
 
 

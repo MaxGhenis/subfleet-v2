@@ -1,0 +1,40 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.15.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/maxghenis/.subfleet/worktrees/20261117-083630-wcall-fix-r4
+configfile: pyproject.toml
+plugins: xdist-3.8.0, timeout-2.4.0, hypothesis-6.168.1
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+created: 4/4 workers
+4 workers [213 items]
+
+..s..s..s....s..s..sss.s....s..s.ss.ssssss.s.ss.......s......s.......... [ 33%]
+.s.s.s..s.ssss.s.s.......s.......s...................................... [ 67%]
+.....................................................................    [100%]
+=========================== short test summary info ============================
+SKIPPED [13] $TMPDIR/sf-wcall-fix4/plugins/r4_isolation.py:34: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:169: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:181: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:230: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:249: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:267: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:279: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:300: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:347: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:315: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:356: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:370: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:385: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:396: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:407: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:416: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:426: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:436: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:445: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:456: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:468: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:477: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:487: round-4 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:515: round-4 brief prohibits this fixture command or live process inspection
+================= 177 passed, 36 skipped in 289.42s (0:04:49) ==================

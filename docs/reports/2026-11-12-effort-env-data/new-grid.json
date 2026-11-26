@@ -1,0 +1,25 @@
+{
+  "label": "new-grid",
+  "command": [
+    "uv",
+    "--cache-dir",
+    "/private/tmp/sf-eff-b1/uv-cache",
+    "run",
+    "--no-sync",
+    "--with",
+    "pytest-xdist>=3.6",
+    "python",
+    "-m",
+    "pytest",
+    "-p",
+    "sf_eff_safety",
+    "-o",
+    "cache_dir=/private/tmp/sf-eff-b1/pytest-cache",
+    "--basetemp",
+    "/private/tmp/sf-eff-b1/new-grid",
+    "tests/unit/test_lane_settings.py",
+    "-q"
+  ],
+  "rc": 0,
+  "seconds": 168.26
+}

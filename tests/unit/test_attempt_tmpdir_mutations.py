@@ -54,12 +54,12 @@ MUTATIONS = {
                              "        name = None\n        if True:\n            return new_tombstone()")],
     # The mode change of a crash-left tombstone, which no rename precedes.
     "no-top-chmod": [("                if not self._own(record, tomb, parent):\n"
-                      "                    self.log.warning(\"TMPDIR removal refused for %s: its folder was swapped\", record.get(\"attempt_id\"))\n"
+                      "                    self.log.warning(\"TMPDIR removal refused for %s: its folder was swapped\", who)\n"
                       "                    return False\n",
                       "                pass\n")],
     # D-TMP1-P3 r2: the mode fixed before the rename, and the check before that.
     "no-pre-rename-chmod": [("                    if not self._own(record, name, parent):\n"
-                             "                        self.log.warning(\"TMPDIR removal refused for %s: its folder was swapped\", record.get(\"attempt_id\"))\n"
+                             "                        self.log.warning(\"TMPDIR removal refused for %s: its folder was swapped\", who)\n"
                              "                        return False\n",
                              "                    pass\n")],
     "no-pre-rename-identity-check": [("                if not self._is(record, source):\n",

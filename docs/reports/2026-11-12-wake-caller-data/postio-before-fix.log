@@ -1,0 +1,109 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+__ test_c15_9_late_transport_result_never_changes_a_reused_notice_id[success] __
+
+callers = <tests.fake.test_caller_notice_wakes.Callers object at 0x10c2842f0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c012520>
+delivered = True
+
+    @pytest.mark.parametrize("delivered", [True, False], ids=["success", "safe-connect-failure"])
+    def test_c15_9_late_transport_result_never_changes_a_reused_notice_id(callers, monkeypatch, delivered):
+        """Retention can delete an old notice while a different caller claims its reused id."""
+        callers.register("old-caller")
+        callers.register("new-caller")
+        old_id = callers.finish("old-caller")
+        old_job = callers.notices[old_id]
+        replacement = []
+    
+        def transport_result_after_reuse(session, body, **_kwargs):
+            assert session == "old-caller"
+            assert callers.row(old_id)["wake_state"] == "claimed"
+            with callers.daemon.store.transaction() as tx:
+                tx.execute("DELETE FROM notices WHERE notice_id=?", (old_id,))
+            new_id = callers.finish("new-caller")
+            assert new_id == old_id and callers.notices[new_id] != old_job
+            # Stand in for a concurrent delivery under the new caller's own lock.
+            with callers.daemon.store.transaction() as tx:
+                tx.execute("UPDATE notices SET state='surfaced',transport='caller-wake',"
+                           "wake_state='claimed',wake_at=? WHERE notice_id=?",
+                           (callers.now + 0.5, new_id))
+            replacement.append(callers.row(new_id))
+            if delivered:
+                callers.sent.append((session, body))
+                return {"delivered": True, "session_id": session}
+            return {"delivered": False, "session_id": session, "retryable": True,
+                    "reason": "send-failed: ConnectionRefusedError: fixture"}
+    
+        monkeypatch.setattr(notify_push, "push_to_session", transport_result_after_reuse)
+        callers.pass_once()
+        assert len(replacement) == 1
+>       assert callers.row(old_id) == replacement[0], "the old transport result belongs only to the old claim"
+E       AssertionError: the old transport result belongs only to the old claim
+E       assert {'notice_id':... launch', ...} == {'notice_id':... launch', ...}
+E         
+E         Omitting 13 identical items, use -vv to show
+E         Differing items:
+E         {'wake_state': 'delivered'} != {'wake_state': 'claimed'}
+E         Use -v to get more diff
+
+tests/fake/test_caller_notice_wakes.py:629: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4496867408:daemon.py:994 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4496867408:daemon.py:1082 reset credits: automatic redemption off; no-reset marker absent
+_ test_c15_9_late_transport_result_never_changes_a_reused_notice_id[safe-connect-failure] _
+
+callers = <tests.fake.test_caller_notice_wakes.Callers object at 0x10c2c0e10>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c011cd0>
+delivered = False
+
+    @pytest.mark.parametrize("delivered", [True, False], ids=["success", "safe-connect-failure"])
+    def test_c15_9_late_transport_result_never_changes_a_reused_notice_id(callers, monkeypatch, delivered):
+        """Retention can delete an old notice while a different caller claims its reused id."""
+        callers.register("old-caller")
+        callers.register("new-caller")
+        old_id = callers.finish("old-caller")
+        old_job = callers.notices[old_id]
+        replacement = []
+    
+        def transport_result_after_reuse(session, body, **_kwargs):
+            assert session == "old-caller"
+            assert callers.row(old_id)["wake_state"] == "claimed"
+            with callers.daemon.store.transaction() as tx:
+                tx.execute("DELETE FROM notices WHERE notice_id=?", (old_id,))
+            new_id = callers.finish("new-caller")
+            assert new_id == old_id and callers.notices[new_id] != old_job
+            # Stand in for a concurrent delivery under the new caller's own lock.
+            with callers.daemon.store.transaction() as tx:
+                tx.execute("UPDATE notices SET state='surfaced',transport='caller-wake',"
+                           "wake_state='claimed',wake_at=? WHERE notice_id=?",
+                           (callers.now + 0.5, new_id))
+            replacement.append(callers.row(new_id))
+            if delivered:
+                callers.sent.append((session, body))
+                return {"delivered": True, "session_id": session}
+            return {"delivered": False, "session_id": session, "retryable": True,
+                    "reason": "send-failed: ConnectionRefusedError: fixture"}
+    
+        monkeypatch.setattr(notify_push, "push_to_session", transport_result_after_reuse)
+        callers.pass_once()
+        assert len(replacement) == 1
+>       assert callers.row(old_id) == replacement[0], "the old transport result belongs only to the old claim"
+E       AssertionError: the old transport result belongs only to the old claim
+E       assert {'notice_id':... launch', ...} == {'notice_id':... launch', ...}
+E         
+E         Omitting 10 identical items, use -vv to show
+E         Differing items:
+E         {'wake_state': None} != {'wake_state': 'claimed'}
+E         {'wake_reason': 'inbox-unavailable'} != {'wake_reason': None}
+E         {'state': 'pending'} != {'state': 'surfaced'}
+E         {'transport': None} != {'transport': 'caller-wake'}
+E         Use -v to get more diff
+
+tests/fake/test_caller_notice_wakes.py:629: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4496873792:daemon.py:994 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4496873792:daemon.py:1082 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_late_transport_result_never_changes_a_reused_notice_id[success]
+FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_late_transport_result_never_changes_a_reused_notice_id[safe-connect-failure]
+2 failed in 0.61s

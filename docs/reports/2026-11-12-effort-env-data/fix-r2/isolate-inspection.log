@@ -1,0 +1,12 @@
+.                                                                        [100%]
+============================ Hypothesis Statistics =============================
+tests/unit/test_daemon_inspection_properties.py::test_the_export_query_matches_the_sweep_it_replaced:
+
+  - during generate phase (95.92 seconds):
+    - Typical runtimes: ~ 2-1309 ms, of which ~ 0-91 ms in data generation
+    - 150 passing, 0 failing, and 14 invalid test cases
+
+  - Stopped because settings.max_examples=150
+
+
+1 passed in 122.11s (0:02:02)

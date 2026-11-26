@@ -1,0 +1,57 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.15.2, pytest-9.1.1, pluggy-1.6.0 -- /Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5/.venv/bin/python
+hypothesis profile 'default'
+rootdir: /Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5
+configfile: pyproject.toml
+plugins: xdist-3.8.0, timeout-2.4.0, hypothesis-6.168.1
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+created: 4/4 workers
+4 workers [16 items]
+
+scheduling tests via LoadScheduling
+
+tests/unit/test_notice_claims.py::test_c15_9_receipt_write_failure_prints_nothing_and_leaves_no_partial_receipt[fsync] 
+tests/unit/test_notice_claims.py::test_c15_9_activity_merge_is_independent_of_fold_and_reconcile_grouping 
+tests/unit/test_notice_claims.py::test_c15_9_a_fold_preserves_the_wake_decision_for_equal_activity_times 
+tests/unit/test_notice_claims.py::test_c15_9_a_fold_io_failure_still_surfaces_the_notice[replace] 
+[gw1] [  6%] PASSED tests/unit/test_notice_claims.py::test_c15_9_receipt_write_failure_prints_nothing_and_leaves_no_partial_receipt[fsync] 
+[gw0] [ 12%] PASSED tests/unit/test_notice_claims.py::test_c15_9_a_fold_preserves_the_wake_decision_for_equal_activity_times 
+tests/unit/test_notice_claims.py::test_c15_9_applying_equal_time_activity_preserves_a_holding_source 
+tests/unit/test_notice_claims.py::test_c15_9_receipt_write_failure_prints_nothing_and_leaves_no_partial_receipt[replace] 
+[gw3] [ 18%] PASSED tests/unit/test_notice_claims.py::test_c15_9_a_fold_io_failure_still_surfaces_the_notice[replace] 
+[gw0] [ 25%] PASSED tests/unit/test_notice_claims.py::test_c15_9_applying_equal_time_activity_preserves_a_holding_source 
+tests/unit/test_notice_claims.py::test_c15_9_a_fold_io_failure_still_surfaces_the_notice[unlink] 
+tests/unit/test_notice_claims.py::test_c15_9_a_fold_removes_stopped_folds_temporaries[0] 
+[gw1] [ 31%] PASSED tests/unit/test_notice_claims.py::test_c15_9_receipt_write_failure_prints_nothing_and_leaves_no_partial_receipt[replace] 
+tests/unit/test_notice_claims.py::test_c15_9_a_fold_removes_stopped_folds_temporaries[8] 
+[gw0] [ 37%] PASSED tests/unit/test_notice_claims.py::test_c15_9_a_fold_removes_stopped_folds_temporaries[0] 
+[gw3] [ 43%] PASSED tests/unit/test_notice_claims.py::test_c15_9_a_fold_io_failure_still_surfaces_the_notice[unlink] 
+tests/fake/test_caller_notice_wakes.py::test_c15_9_a_retry_can_expire_between_the_pass_start_and_claim 
+tests/fake/test_caller_notice_wakes.py::test_c15_9_activity_lock_waits_share_one_pass_budget 
+[gw1] [ 50%] PASSED tests/unit/test_notice_claims.py::test_c15_9_a_fold_removes_stopped_folds_temporaries[8] 
+tests/unit/test_prune_217.py::test_prune_finds_partial_indexes_naming_case_variants[bare] 
+[gw1] [ 56%] PASSED tests/unit/test_prune_217.py::test_prune_finds_partial_indexes_naming_case_variants[bare] 
+tests/unit/test_prune_217.py::test_prune_finds_partial_indexes_naming_case_variants[backticked] 
+[gw1] [ 62%] PASSED tests/unit/test_prune_217.py::test_prune_finds_partial_indexes_naming_case_variants[backticked] 
+[gw0] [ 68%] PASSED tests/fake/test_caller_notice_wakes.py::test_c15_9_a_retry_can_expire_between_the_pass_start_and_claim 
+tests/unit/test_prune_217.py::test_prune_finds_partial_indexes_naming_case_variants[double-quoted] 
+[gw0] [ 75%] PASSED tests/unit/test_prune_217.py::test_prune_finds_partial_indexes_naming_case_variants[double-quoted] 
+[gw3] [ 81%] PASSED tests/fake/test_caller_notice_wakes.py::test_c15_9_activity_lock_waits_share_one_pass_budget 
+tests/unit/test_prune_217.py::test_prune_finds_partial_indexes_naming_case_variants[bracketed] 
+[gw3] [ 87%] PASSED tests/unit/test_prune_217.py::test_prune_finds_partial_indexes_naming_case_variants[bracketed] 
+[gw2] [ 93%] PASSED tests/unit/test_notice_claims.py::test_c15_9_activity_merge_is_independent_of_fold_and_reconcile_grouping 
+tests/unit/test_notice_claims.py::test_c15_9_a_fold_never_drops_a_corrupt_record 
+[gw2] [100%] PASSED tests/unit/test_notice_claims.py::test_c15_9_a_fold_never_drops_a_corrupt_record 
+
+============================= slowest 8 durations ==============================
+26.98s call     tests/unit/test_notice_claims.py::test_c15_9_activity_merge_is_independent_of_fold_and_reconcile_grouping
+20.93s call     tests/fake/test_caller_notice_wakes.py::test_c15_9_activity_lock_waits_share_one_pass_budget
+5.10s call     tests/fake/test_caller_notice_wakes.py::test_c15_9_a_retry_can_expire_between_the_pass_start_and_claim
+3.88s setup    tests/fake/test_caller_notice_wakes.py::test_c15_9_activity_lock_waits_share_one_pass_budget
+3.83s setup    tests/fake/test_caller_notice_wakes.py::test_c15_9_a_retry_can_expire_between_the_pass_start_and_claim
+1.17s setup    tests/unit/test_notice_claims.py::test_c15_9_a_fold_io_failure_still_surfaces_the_notice[replace]
+0.92s setup    tests/unit/test_notice_claims.py::test_c15_9_receipt_write_failure_prints_nothing_and_leaves_no_partial_receipt[fsync]
+0.71s call     tests/unit/test_notice_claims.py::test_c15_9_a_fold_removes_stopped_folds_temporaries[8]
+======================== 16 passed in 113.32s (0:01:53) ========================

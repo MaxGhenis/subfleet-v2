@@ -1,0 +1,85 @@
+== base-probes.keep
+E       AssertionError: never both: one inbox wake or one hook print
+E       assert (1 + 1) == 1
+E        +  where 1 = int(True)
+E       AssertionError: never both: one inbox wake or one hook print
+E       assert (1 + 1) == 1
+E        +  where 1 = int(True)
+E       AssertionError: the caller was active before the claim
+E       assert 1 == 0
+E       AssertionError: the caller was active before the claim
+E       assert 1 == 0
+E       AssertionError: the caller was active before the claim
+E       assert 1 == 0
+E       AssertionError: the caller was active before the claim
+E       assert 1 == 0
+FAILED tests/fake/test_caller_notice_wakes.py::test_posttooluse_pending_read_then_engine_send_never_both
+FAILED tests/fake/test_caller_notice_wakes.py::test_engine_claim_then_posttooluse_delivery_never_both
+FAILED tests/fake/test_caller_notice_wakes.py::test_human_prompt_during_header_render_prevents_wake[all]
+FAILED tests/fake/test_caller_notice_wakes.py::test_human_prompt_during_header_render_prevents_wake[prompt-hook]
+FAILED tests/fake/test_caller_notice_wakes.py::test_human_prompt_during_header_render_prevents_wake[registry]
+FAILED tests/fake/test_caller_notice_wakes.py::test_human_prompt_during_header_render_prevents_wake[transcript]
+6 failed, 53 deselected in 169.52s (0:02:49)
+== base-new
+E       BrokenPipeError: the harness closed the hook's stderr
+E       assert (2, True) == (0, False)
+E         
+E         At index 0 diff: 2 != 0
+E         Use -v to get more diff
+E           subfleet.protocol.ProtocolError: unknown notice state
+E       assert (2, True) == (0, False)
+E         
+E         At index 0 diff: 2 != 0
+E         Use -v to get more diff
+FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_a_posttooluse_print_that_fails_gives_its_claim_back
+FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_posttooluse_prints_its_job_line_only_when_the_session_has_no_notice
+FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_a_posttooluse_claim_after_its_client_gave_up_marks_nothing
+FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_posttooluse_honours_an_offline_hooks_receipt
+4 failed, 62 deselected in 91.78s (0:01:31)
+== base-unit
+E       AssertionError: assert ['list', 'wai...'notice.mark'] == ['list', 'wai...tice.pending']
+E         
+E         Left contains one more item: 'notice.mark'
+E         Use -v to get more diff
+E       AssertionError: assert 2 == 0
+E        +  where 2 = <function post_tool_use at 0x107db1010>({'session_id': 'sess-hook', 'hook_event_name': 'PostToolUse', 'cwd': '/repo', 'transcript_path': '/dev/null', ...}, PosixPath('/tmp/sf-o9un1g9y'), budget_s=30, stderr=<_io.StringIO object at 0x10827aef0>, now=<test_hooks.Clock object at 0x1080a6c10>, sleep=sleep)
+E        +    where <function post_tool_use at 0x107db1010> = hooks.post_tool_use
+E        +    and   {'session_id': 'sess-hook', 'hook_event_name': 'PostToolUse', 'cwd': '/repo', 'transcript_path': '/dev/null', ...} = payload('PostToolUse', tool_name='Bash', tool_input={'command': 'subfleet run -p p.md'}, tool_response='20260905-120000-demo')
+E        +    and   sleep = <test_hooks.Clock object at 0x1080a6c10>.sleep
+E       AssertionError: assert 2 == 0
+E        +  where 2 = <function post_tool_use at 0x107db1010>({'session_id': 'sess-hook', 'hook_event_name': 'PostToolUse', 'cwd': '/repo', 'transcript_path': '/dev/null', ...}, PosixPath('/tmp/sf-hfsf03bg'), budget_s=30, stderr=<_io.StringIO object at 0x108279b40>, now=<test_hooks.Clock object at 0x1080a7610>, sleep=sleep)
+E        +    where <function post_tool_use at 0x107db1010> = hooks.post_tool_use
+E        +    and   {'session_id': 'sess-hook', 'hook_event_name': 'PostToolUse', 'cwd': '/repo', 'transcript_path': '/dev/null', ...} = payload('PostToolUse', tool_name='Bash', tool_input={'command': 'subfleet run -p p.md'}, tool_response='20260905-120000-demo')
+E        +    and   sleep = <test_hooks.Clock object at 0x1080a7610>.sleep
+E       AssertionError: assert 2 == 0
+E        +  where 2 = <function post_tool_use at 0x107db1010>({'session_id': 'sess-hook', 'hook_event_name': 'PostToolUse', 'cwd': '/repo', 'transcript_path': '/dev/null', ...}, PosixPath('/tmp/sf-gkr0nrv5'), budget_s=30, stderr=<_io.StringIO object at 0x10827b5b0>, now=<test_hooks.Clock object at 0x108c3c180>, sleep=sleep)
+E        +    where <function post_tool_use at 0x107db1010> = hooks.post_tool_use
+E        +    and   {'session_id': 'sess-hook', 'hook_event_name': 'PostToolUse', 'cwd': '/repo', 'transcript_path': '/dev/null', ...} = payload('PostToolUse', tool_name='Bash', tool_input={'command': 'subfleet run -p p.md'}, tool_response='20260905-120000-demo')
+E        +    and   sleep = <test_hooks.Clock object at 0x108c3c180>.sleep
+E       AssertionError: assert 'notice.mark' == 'notice.pending'
+E         
+E         - notice.pending
+E         + notice.mark
+E       AssertionError: assert ['list', 'wai...'notice.mark'] == ['list', 'wai...tice.pending']
+E         
+E         Left contains one more item: 'notice.mark'
+E         Use -v to get more diff
+E       assert 0.5 == 0.25 ± 2.5e-07
+E         
+E         comparison failed
+E         Obtained: 0.5
+E         Expected: 0.25 ± 2.5e-07
+E       assert 0.25 == 0.125 ± 1.2e-07
+E         
+E         comparison failed
+E         Obtained: 0.25
+E         Expected: 0.125 ± 1.2e-07
+FAILED tests/unit/test_hooks.py::test_post_tool_use_delivers_a_finished_job_with_exit_two
+FAILED tests/unit/test_hooks.py::test_post_tool_use_that_lost_the_claim_prints_nothing[claimed-elsewhere]
+FAILED tests/unit/test_hooks.py::test_post_tool_use_that_lost_the_claim_prints_nothing[not-absent]
+FAILED tests/unit/test_hooks.py::test_post_tool_use_that_lost_the_claim_prints_nothing[absent-not-a-boolean]
+FAILED tests/unit/test_hooks.py::test_post_tool_notice_calls_keep_the_remaining_deadline
+FAILED tests/unit/test_hooks.py::test_post_tool_six_second_timeout_keeps_its_notice_claim
+FAILED tests/unit/test_hooks.py::test_terminal_poll_keeps_delivery_reserve[immediate]
+FAILED tests/unit/test_hooks.py::test_terminal_poll_keeps_delivery_reserve[at-poll-deadline]
+8 failed, 1 passed, 119 deselected in 90.78s (0:01:30)

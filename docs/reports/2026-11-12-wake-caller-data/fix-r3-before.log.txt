@@ -1,0 +1,309 @@
+Installed 8 packages in 51ms
+bringing up nodes...
+bringing up nodes...
+
+FFFF.FFF                                                                 [100%]
+=================================== FAILURES ===================================
+______ test_c15_9_offline_activity_survives_a_busy_delivery_lock[prompt] _______
+[gw1] darwin -- Python 3.15.2 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-224656-wcall-fix-r3-a1-7lyc6v5g/sf-wcall-fix3/uv-cache/builds-v0/.tmpUi5ClF/bin/python
+
+core = namespace(root=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-224656-wc...ke_engine.<locals>.<lambda> at 0x10aee3c10>, _lane_session_ids=<function wake_engine.<locals>.<lambda> at 0x10aee3950>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109bdda70>
+event = 'UserPromptSubmit', source = None, personal = True
+
+    @pytest.mark.parametrize("event,source,personal", [
+        ("UserPromptSubmit", None, True),
+        ("SessionStart", "clear", False),
+    ], ids=["prompt", "session-start"])
+    def test_c15_9_offline_activity_survives_a_busy_delivery_lock(core, monkeypatch, event, source, personal):
+        """A missed delivery claim still preserves personal activity and start source."""
+        clock = [1800000000.0]
+        wake_engine(core, monkeypatch, clock)
+        wire_id = add_notice(core)
+        last_wake = clock[0] - 1
+        with core.store.transaction() as tx:
+            tx.execute("INSERT INTO caller_wake_sessions(session_id,active_at,source,wake_streak,last_wake_at) "
+                       "VALUES (?,?,'compact',?,?)", (SESSION, clock[0] - 600, MAX_STREAK, last_wake))
+        with notice_claims.delivery_lock(core.root, SESSION) as held:
+            assert held
+            assert offline_hook(core, event=event, source=source) == ""
+>           assert notice_claims.read_activity(core.root, SESSION) == {
+                "at": clock[0], "source": source, "human_at": clock[0] if personal else None}
+E           AssertionError: assert None == {'at': 1800000000.0, 'source': None, 'human_at': 1800000000.0}
+E            +  where None = <function read_activity at 0x10a1616f0>(PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-224656-wcall-fix-r3-a1-7lyc6v5g/sf-wcall-fix3/pytest-before/popen-gw1/test_c15_9_offline_activity_su0'), 'receipt-session')
+E            +    where <function read_activity at 0x10a1616f0> = notice_claims.read_activity
+E            +    and   PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-224656-wcall-fix-r3-a1-7lyc6v5g/sf-wcall-fix3/pytest-before/popen-gw1/test_c15_9_offline_activity_su0') = namespace(root=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-224656-wc...ke_engine.<locals>.<lambda> at 0x10aee3c10>, _lane_session_ids=<function wake_engine.<locals>.<lambda> at 0x10aee3950>).root
+
+tests/unit/test_notice_claims.py:280: AssertionError
+_ test_c15_9_overlapping_activity_publications_keep_human_time_and_latest_source _
+[gw3] darwin -- Python 3.15.2 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-224656-wcall-fix-r3-a1-7lyc6v5g/sf-wcall-fix3/uv-cache/builds-v0/.tmpUi5ClF/bin/python
+
+core = namespace(root=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-224656-wc...ke_engine.<locals>.<lambda> at 0x10cc1fc10>, _lane_session_ids=<function wake_engine.<locals>.<lambda> at 0x10cc1fb60>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b86da70>
+
+    def test_c15_9_overlapping_activity_publications_keep_human_time_and_latest_source(core, monkeypatch):
+        """A later start may publish first without replacing an earlier personal prompt."""
+        clock = [1800000000.0]
+        wake_engine(core, monkeypatch, clock)
+        human_at = clock[0]
+        fsync = notice_claims.os.fsync
+        interleaved = []
+    
+        def sync(fd):
+            if not interleaved:
+                interleaved.append(True)
+                clock[0] += 1
+                notice_claims.record_offline_activity(core.root, SESSION, event="SessionStart", source="resume")
+            return fsync(fd)
+    
+        monkeypatch.setattr(notice_claims.os, "fsync", sync)
+        with notice_claims.delivery_lock(core.root, SESSION) as held:
+            assert held
+>           notice_claims.record_offline_activity(core.root, SESSION, event="UserPromptSubmit", source=None)
+
+tests/unit/test_notice_claims.py:311: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+root = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-224656-wcall-fix-r3-a1-7lyc6v5g/sf-wcall-fix3/pytest-before/popen-gw3/test_c15_9_overlapping_activit0')
+session = 'receipt-session', event = 'UserPromptSubmit', source = None
+personal = True
+
+    def record_offline_activity(root: Path, session: str, *, event: str, source: str | None,
+                                personal: bool = True) -> None:
+        """Keep the quiet clock even when this hook has no new notices to print.
+    
+        Only a personal prompt is personal input: Subfleet's own inbox envelope
+        moves the quiet clock but not `human_at` (review r1 of #307, finding 2).
+        """
+        if event not in ("SessionStart", "UserPromptSubmit"):
+            raise ValueError("invalid notice activity event")
+        previous = read_activity(root, session) or {}
+        now = time.time()
+        human_at = previous.get("human_at")
+        if event == "UserPromptSubmit" and personal:
+            human_at = max(now, human_at or 0)
+        value = {"at": max(now, previous.get("at") or 0),
+                 "source": source if event == "SessionStart" and isinstance(source, str) else None,
+                 "human_at": human_at}
+        path = activity_path(root, session)
+        temporary = path.with_suffix(".tmp")
+        try:
+            with temporary.open("w") as stream:
+                os.chmod(temporary, 0o600)
+                json.dump(value, stream)
+                stream.flush()
+                os.fsync(stream.fileno())
+>           os.replace(temporary, path)
+E           FileNotFoundError: [Errno 2] No such file or directory: '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-224656-wcall-fix-r3-a1-7lyc6v5g/sf-wcall-fix3/pytest-before/popen-gw3/test_c15_9_overlapping_activit0/hooks/notice-receipts/df3b30891ef33f71b796fa5abcaff2ce5ad80c9204d18921e3164d77089b43b9.activity.tmp' -> '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-224656-wcall-fix-r3-a1-7lyc6v5g/sf-wcall-fix3/pytest-before/popen-gw3/test_c15_9_overlapping_activit0/hooks/notice-receipts/df3b30891ef33f71b796fa5abcaff2ce5ad80c9204d18921e3164d77089b43b9.activity.json'
+
+subfleet/notice_claims.py:131: FileNotFoundError
+___ test_c15_9_offline_activity_survives_a_busy_delivery_lock[session-start] ___
+[gw1] darwin -- Python 3.15.2 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-224656-wcall-fix-r3-a1-7lyc6v5g/sf-wcall-fix3/uv-cache/builds-v0/.tmpUi5ClF/bin/python
+
+core = namespace(root=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-224656-wc...ke_engine.<locals>.<lambda> at 0x10ae08eb0>, _lane_session_ids=<function wake_engine.<locals>.<lambda> at 0x10ae08f60>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109bdd220>
+event = 'SessionStart', source = 'clear', personal = False
+
+    @pytest.mark.parametrize("event,source,personal", [
+        ("UserPromptSubmit", None, True),
+        ("SessionStart", "clear", False),
+    ], ids=["prompt", "session-start"])
+    def test_c15_9_offline_activity_survives_a_busy_delivery_lock(core, monkeypatch, event, source, personal):
+        """A missed delivery claim still preserves personal activity and start source."""
+        clock = [1800000000.0]
+        wake_engine(core, monkeypatch, clock)
+        wire_id = add_notice(core)
+        last_wake = clock[0] - 1
+        with core.store.transaction() as tx:
+            tx.execute("INSERT INTO caller_wake_sessions(session_id,active_at,source,wake_streak,last_wake_at) "
+                       "VALUES (?,?,'compact',?,?)", (SESSION, clock[0] - 600, MAX_STREAK, last_wake))
+        with notice_claims.delivery_lock(core.root, SESSION) as held:
+            assert held
+            assert offline_hook(core, event=event, source=source) == ""
+>           assert notice_claims.read_activity(core.root, SESSION) == {
+                "at": clock[0], "source": source, "human_at": clock[0] if personal else None}
+E           AssertionError: assert None == {'at': 1800000000.0, 'source': 'clear', 'human_at': None}
+E            +  where None = <function read_activity at 0x10a1616f0>(PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-224656-wcall-fix-r3-a1-7lyc6v5g/sf-wcall-fix3/pytest-before/popen-gw1/test_c15_9_offline_activity_su1'), 'receipt-session')
+E            +    where <function read_activity at 0x10a1616f0> = notice_claims.read_activity
+E            +    and   PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-224656-wcall-fix-r3-a1-7lyc6v5g/sf-wcall-fix3/pytest-before/popen-gw1/test_c15_9_offline_activity_su1') = namespace(root=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-224656-wc...ke_engine.<locals>.<lambda> at 0x10ae08eb0>, _lane_session_ids=<function wake_engine.<locals>.<lambda> at 0x10ae08f60>).root
+
+tests/unit/test_notice_claims.py:280: AssertionError
+_____ test_c15_9_reconcile_preserves_activity_published_after_its_snapshot _____
+[gw3] darwin -- Python 3.15.2 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-224656-wcall-fix-r3-a1-7lyc6v5g/sf-wcall-fix3/uv-cache/builds-v0/.tmpUi5ClF/bin/python
+
+core = namespace(root=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-224656-wc...ke_engine.<locals>.<lambda> at 0x10cbc8f60>, _lane_session_ids=<function wake_engine.<locals>.<lambda> at 0x10cbc9010>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b86dba0>
+
+    def test_c15_9_reconcile_preserves_activity_published_after_its_snapshot(core, monkeypatch):
+        """Replaying one snapshot cannot consume the next prompt or its human reset."""
+        clock = [1800000000.0]
+        wake_engine(core, monkeypatch, clock)
+        with core.store.transaction() as tx:
+            tx.execute("INSERT INTO caller_wake_sessions(session_id,active_at,source,wake_streak,last_wake_at) "
+                       "VALUES (?,?,'compact',?,?)", (SESSION, clock[0] - 600, MAX_STREAK, clock[0] - 1))
+        with notice_claims.delivery_lock(core.root, SESSION) as held:
+            assert held
+            notice_claims.record_offline_activity(core.root, SESSION, event="SessionStart", source="compact")
+        transaction = core.store.transaction
+        interleaved = []
+        human_at = clock[0] + 10
+    
+        def racing_transaction(*args, **kwargs):
+            if args and args[0] == "notice.offline_surfaced" and not interleaved:
+                interleaved.append(True)
+                clock[0] = human_at
+                notice_claims.record_offline_activity(core.root, SESSION, event="UserPromptSubmit", source=None)
+                clock[0] += 1
+                notice_claims.record_offline_activity(core.root, SESSION, event="SessionStart", source="resume")
+            return transaction(*args, **kwargs)
+    
+        monkeypatch.setattr(core.store, "transaction", racing_transaction)
+        with notice_claims.delivery_lock(core.root, SESSION) as held:
+            assert held
+            notice_claims.reconcile(core, SESSION)
+        assert interleaved == [True]
+>       assert notice_claims.read_activity(core.root, SESSION) == {
+            "at": clock[0], "source": "resume", "human_at": human_at}
+E       AssertionError: assert None == {'at': 1800000011.0, 'source': 'resume', 'human_at': 1800000010.0}
+E        +  where None = <function read_activity at 0x10bae1850>(PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-224656-wcall-fix-r3-a1-7lyc6v5g/sf-wcall-fix3/pytest-before/popen-gw3/test_c15_9_reconcile_preserves0'), 'receipt-session')
+E        +    where <function read_activity at 0x10bae1850> = notice_claims.read_activity
+E        +    and   PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-224656-wcall-fix-r3-a1-7lyc6v5g/sf-wcall-fix3/pytest-before/popen-gw3/test_c15_9_reconcile_preserves0') = namespace(root=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-224656-wc...ke_engine.<locals>.<lambda> at 0x10cbc8f60>, _lane_session_ids=<function wake_engine.<locals>.<lambda> at 0x10cbc9010>).root
+
+tests/unit/test_notice_claims.py:345: AssertionError
+__________ test_offline_prompt_under_render_lock_prevents_wake[busy] ___________
+[gw0] darwin -- Python 3.15.2 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-224656-wcall-fix-r3-a1-7lyc6v5g/sf-wcall-fix3/uv-cache/builds-v0/.tmpUi5ClF/bin/python
+
+callers = <tests.fake.test_caller_notice_wakes.Callers object at 0x10a4b9940>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1092e9a70>
+failure = 'busy'
+
+    @pytest.mark.parametrize("failure", ["busy", "socket"])
+    def test_offline_prompt_under_render_lock_prevents_wake(callers, monkeypatch, failure):
+        """Review r3: a completed offline prompt holds the wake even under its lock."""
+        from subfleet import notice_claims
+        from subfleet.client import DaemonError, DaemonUnavailable
+    
+        monkeypatch.setattr(notice_claims, "time", SimpleNamespace(time=lambda: callers.now))
+        sid = f"offline-render-{failure}"
+        callers.register(sid)
+        notice = callers.finish(sid)
+        header = render.notice_header
+        typed = []
+    
+        class OfflineClient:
+            def call(self, *args, **kwargs):
+                if failure == "busy":
+                    raise DaemonError(69, "fixture daemon is busy")
+                raise DaemonUnavailable("fixture socket is unavailable")
+    
+        def person_types(*args, **kwargs):
+            if not typed:
+                typed.append(True)
+                assert hook_prompt(callers, sid, "one more thing", client=OfflineClient()) == ""
+            return header(*args, **kwargs)
+    
+        monkeypatch.setattr(render, "notice_header", person_types)
+        callers.pass_once()
+        assert typed == [True]
+>       assert callers.counts()[notice] == 0, "the offline prompt completed before the claim"
+E       AssertionError: the offline prompt completed before the claim
+E       assert 1 == 0
+
+tests/fake/test_caller_notice_wakes.py:1196: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4465797376:daemon.py:996 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4465797376:daemon.py:1087 reset credits: automatic redemption off; no-reset marker absent
+_________ test_personal_prompt_under_taken_lock_resets_streak[offline] _________
+[gw2] darwin -- Python 3.15.2 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-224656-wcall-fix-r3-a1-7lyc6v5g/sf-wcall-fix3/uv-cache/builds-v0/.tmpUi5ClF/bin/python
+
+callers = <tests.fake.test_caller_notice_wakes.Callers object at 0x1090d8550>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107fb5ba0>
+connection = 'offline'
+
+    @pytest.mark.parametrize("connection", ["online", "offline"])
+    def test_personal_prompt_under_taken_lock_resets_streak(callers, monkeypatch, connection):
+        """A personal prompt resets eight unattended wakes even if it claims nothing."""
+        from subfleet import notice_claims
+    
+        clock = SimpleNamespace(time=lambda: callers.now)
+        monkeypatch.setattr(notice_claims, "time", clock)
+        monkeypatch.setattr(caller_wakes, "time", clock)
+        sid = f"personal-taken-lock-{connection}"
+        callers.register(sid)
+        notice = callers.finish(sid)
+        with callers.daemon.store.transaction() as tx:
+            tx.execute("INSERT INTO caller_wake_sessions(session_id,active_at,wake_streak,last_wake_at) "
+                       "VALUES (?,?,?,?)", (sid, callers.now - 600, MAX_STREAK, callers.now - 1))
+    
+        class OfflineClient:
+            def call(self, *args, **kwargs):
+                raise OSError("fixture app is restarting")
+    
+        with notice_claims.delivery_lock(callers.daemon.root, sid) as held:
+            assert held
+            client = OfflineClient() if connection == "offline" else InProcess(callers.daemon)
+            assert hook_prompt(callers, sid, "please continue", client=client) == ""
+        callers.activity[sid] = callers.now
+        callers.entries[sid] = {**callers.entries[sid], "status": "idle"}
+        callers.now += 301
+        callers.pass_once()
+>       assert callers.counts()[notice] == 1, "personal activity must reset the unattended streak"
+E       AssertionError: personal activity must reset the unattended streak
+E       assert 0 == 1
+
+tests/fake/test_caller_notice_wakes.py:1230: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4445650432:daemon.py:996 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4445650432:daemon.py:1087 reset credits: automatic redemption off; no-reset marker absent
+_________ test_offline_prompt_under_render_lock_prevents_wake[socket] __________
+[gw0] darwin -- Python 3.15.2 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-224656-wcall-fix-r3-a1-7lyc6v5g/sf-wcall-fix3/uv-cache/builds-v0/.tmpUi5ClF/bin/python
+
+callers = <tests.fake.test_caller_notice_wakes.Callers object at 0x1093a02d0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10a6eefd0>
+failure = 'socket'
+
+    @pytest.mark.parametrize("failure", ["busy", "socket"])
+    def test_offline_prompt_under_render_lock_prevents_wake(callers, monkeypatch, failure):
+        """Review r3: a completed offline prompt holds the wake even under its lock."""
+        from subfleet import notice_claims
+        from subfleet.client import DaemonError, DaemonUnavailable
+    
+        monkeypatch.setattr(notice_claims, "time", SimpleNamespace(time=lambda: callers.now))
+        sid = f"offline-render-{failure}"
+        callers.register(sid)
+        notice = callers.finish(sid)
+        header = render.notice_header
+        typed = []
+    
+        class OfflineClient:
+            def call(self, *args, **kwargs):
+                if failure == "busy":
+                    raise DaemonError(69, "fixture daemon is busy")
+                raise DaemonUnavailable("fixture socket is unavailable")
+    
+        def person_types(*args, **kwargs):
+            if not typed:
+                typed.append(True)
+                assert hook_prompt(callers, sid, "one more thing", client=OfflineClient()) == ""
+            return header(*args, **kwargs)
+    
+        monkeypatch.setattr(render, "notice_header", person_types)
+        callers.pass_once()
+        assert typed == [True]
+>       assert callers.counts()[notice] == 0, "the offline prompt completed before the claim"
+E       AssertionError: the offline prompt completed before the claim
+E       assert 1 == 0
+
+tests/fake/test_caller_notice_wakes.py:1196: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4465802752:daemon.py:996 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4465802752:daemon.py:1087 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/unit/test_notice_claims.py::test_c15_9_offline_activity_survives_a_busy_delivery_lock[prompt]
+FAILED tests/unit/test_notice_claims.py::test_c15_9_overlapping_activity_publications_keep_human_time_and_latest_source
+FAILED tests/unit/test_notice_claims.py::test_c15_9_offline_activity_survives_a_busy_delivery_lock[session-start]
+FAILED tests/unit/test_notice_claims.py::test_c15_9_reconcile_preserves_activity_published_after_its_snapshot
+FAILED tests/fake/test_caller_notice_wakes.py::test_offline_prompt_under_render_lock_prevents_wake[busy]
+FAILED tests/fake/test_caller_notice_wakes.py::test_personal_prompt_under_taken_lock_resets_streak[offline]
+FAILED tests/fake/test_caller_notice_wakes.py::test_offline_prompt_under_render_lock_prevents_wake[socket]
+7 failed, 1 passed in 20.04s

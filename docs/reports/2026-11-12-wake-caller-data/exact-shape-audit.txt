@@ -1,0 +1,278 @@
+tests/e2e/test_recovery.py:49:    assert len(e2e.rows("SELECT * FROM notices WHERE job_id=?", (job_id,))) == 1
+tests/e2e/test_recovery.py:109:    assert len(e2e.rows("SELECT * FROM notices WHERE job_id=?", (job_id,))) == 1
+tests/e2e/test_stop_bound.py:196:    assert len(e2e.rows("SELECT * FROM notices WHERE job_id=?", (job_id,))) == 1
+tests/e2e/test_milestone1_codex.py:104:    assert len(e2e.rows("SELECT * FROM notices WHERE job_id=?", (identity,))) == 1
+tests/e2e/test_milestone1_codex.py:197:    assert len(e2e.rows("SELECT * FROM notices WHERE job_id=?", (identity,))) == 1
+tests/e2e/test_conversations.py:294:    assert [row["state"] for row in notices] == ["pending"]
+tests/e2e/test_conversations.py:354:    assert e2e.rows("SELECT state, transport FROM notices WHERE job_id=?", (job_id,)) == [
+tests/e2e/test_conversations.py:357:        "SELECT state FROM service_notices WHERE session_id=?", (session,))] == ["pending"]
+tests/e2e/test_conversations.py:398:    assert e2e.rows("SELECT * FROM service_notices WHERE session_id=?", (session,)) == []
+tests/e2e/test_conversations.py:892:    assert e2e.rows("SELECT * FROM notices WHERE job_id=?", (job,)) == []
+tests/e2e/test_review_r3_strand_timing_e2e.py:90:    assert wakes, f"never woken: notice {notices}, requests {requests}"
+tests/frontend/test_review_r219_fix10_view.py:43:    assert len(run["notices_at"]) == 2 and run["reveal_starts"] == 1, diagnostic
+tests/frontend/test_review_r219_fix10_view.py:46:    assert before["consumed"] and before["notices"] == 2, diagnostic
+tests/frontend/test_review_r219_fix10_view.py:103:    assert run["caught_up"] and run["reveal_consumed"] and run["notices"] == 2, diagnostic
+tests/frontend/test_review_r219_fix10_view.py:126:    assert run["caught_up"] and run["reveal_consumed"] and run["notices"] == 2, diagnostic
+tests/frontend/test_review_r219_fix10_view.py:439:    assert len(run["notices_at"]) == 2 and run["reveal_starts"] == 1, diagnostic
+tests/frontend/test_review_r219_fix10_view.py:465:    assert run["arrivals_at"][0] <= run["folds_at"][0] < run["notices_at"][0], diagnostic
+tests/frontend/test_review_r219_fix10_view.py:478:def test_background_stream_crosses_both_notices_and_consumption(streaming_reveals, kind, events):
+tests/frontend/test_review_r219_fix10_view.py:488:    """Review r5's survivor as a fixed schedule: 50 events, 15 between the notices
+tests/frontend/test_review_r219_fix10_view.py:534:    boundary = run["consumed_at"] if phase == "consumption" else run["notices_at"][int(phase == "second_notice")]
+tests/frontend/test_review_r219_fix9_view.py:34:    assert run["caught_up"] and run["reveal_consumed"] and run["notices"] == 2, run
+tests/fake/test_unadmittable_pin_rereview.py:24:from tests.fake.test_unadmittable_pin_admission import (events, expire, fleet, service_notices,  # noqa: F401
+tests/fake/test_unadmittable_pin_rereview.py:54:    assert service_notices(service) == []                                 # withdrawn (deleted)
+tests/fake/test_unadmittable_pin_rereview.py:79:    assert len(service_notices(service)) == 1
+tests/fake/test_unadmittable_pin_rereview.py:181:    assert len(service_notices(service)) == 1
+tests/fake/test_unadmittable_pin_rereview.py:188:    assert service_notices(service) == []                                  # withdrawn, unread
+tests/fake/test_unadmittable_pin_rereview.py:194:    assert len(notices) == 1 and "can never admit it" in notices[0]["text"]
+tests/fake/test_unadmittable_pin_rereview.py:204:    assert [row["state"] for row in service_notices(service)] == ["surfaced"]
+tests/fake/test_crash_matrix.py:43:        assert len(daemon.rows("SELECT * FROM notices WHERE job_id=?", (job_id,))) == 1
+tests/fake/test_crash_matrix.py:53:    assert len(daemon.rows("SELECT * FROM notices WHERE job_id=?", (job_id,))) == 1
+tests/fake/test_crash_matrix.py:76:    assert len(daemon.rows("SELECT * FROM notices WHERE job_id=?", (job_id,))) == 1
+tests/fake/test_crash_matrix.py:79:    assert job_id in json.dumps(notices)
+tests/fake/test_crash_matrix.py:80:    assert len(daemon.rows("SELECT * FROM notices WHERE job_id=?", (job_id,))) == 1
+tests/frontend/test_queue_tray_notice.py:18:        rows = {row["name"]: row for row in notices["rows"] if row["width"] == width}
+tests/frontend/test_queue_tray_notice.py:22:    assert notices["visible_windows"] == 0
+tests/frontend/test_queue_tray_notice.py:27:        rows = {row["name"]: row for row in notices["rows"] if row["width"] == width}
+tests/frontend/test_review_r219_fix8_mutations.py:215:    assert run["caught_up"] and run["reveal_consumed"] and run["notices"] == 2, run
+tests/fake/test_workspace_enospc.py:37:    assert daemon.store.list_notices() == []
+tests/fake/test_wall_cancel_races.py:164:    assert any(jid in n["text"] and "max_wall_s" in n["text"] for n in service.store.list_notices(caller_session)
+tests/fake/test_task_hold_admission.py:451:        assert reopened.one("SELECT max(version) v FROM schema_version")["v"] == SCHEMA_VERSION
+tests/fake/test_finalization_replay.py:84:    assert len(daemon.store.list_notices()) == 1
+tests/fake/test_finalization_replay.py:99:    assert daemon.store.list_notices() == []
+tests/fake/test_finalization_replay.py:116:    assert daemon.store.list_notices() == []
+tests/fake/test_review_r223_wall_probes.py:302:    assert [row for row in service.store.list_notices('caller')
+tests/fake/test_review_r223_wall_probes.py:436:    notices = service.store.query("SELECT data_json FROM events WHERE job_id=? AND kind='job.pin_noticed'", (jid,))
+tests/fake/test_review_r223_wall_probes.py:437:    assert len(notices) == 1
+tests/fake/test_review_r223_wall_probes.py:438:    assert json.loads(notices[0]['data_json'])['reasons'] == ['disabled']
+tests/fake/test_review_r223_wall_probes.py:445:    assert 'disabled' in service.store.list_notices('caller')[0]['text']
+tests/fake/test_review_launch_permissions.py:88:    notice, = [n for n in service.store.list_notices() if n['job_id'] == job]
+tests/fake/test_review_launch_permissions.py:201:    notice, = [n for n in service.store.list_notices() if n['job_id'] == job]
+tests/fake/test_salvage_finalization.py:66:            for row in daemon.store.list_notices() if row["job_id"] == job_id]
+tests/fake/test_salvage_finalization.py:388:    assert calls == [1] and len(job_notices(daemon, job_id)) == 2
+tests/fake/test_salvage_finalization.py:420:    assert len(job_notices(daemon, job2)) == 1                                # the quarantine's own
+tests/fake/test_salvage_finalization.py:719:    assert job_notices(daemon, job_id)[0].split("\n")[-1] == (
+tests/fake/test_salvage_finalization.py:835:    assert job_notices(daemon, job_id)[0].split("\n")[1:] == ["cancelled while waiting to retry", A1_LINE]
+tests/fake/test_salvage_finalization.py:949:    assert job_notices(daemon, job_id)[0].split("\n")[1:] == ["attempt a2: unknown, rc=127: [Errno 32] Broken pipe; "
+tests/fake/test_salvage_finalization.py:1051:        assert "workspace preparation failed: SalvageError: git update-ref failed" in job_notices(daemon, job_id)[0]
+tests/fake/test_turn_listing.py:108:    assert [row["job_id"] for row in ledger.store.query("SELECT job_id FROM notices")] == ["j-queued"]
+tests/fake/test_workspace_contract.py:51:    assert branch in daemon.store.list_notices()[0]["text"]
+tests/fake/test_workspace_contract.py:52:    assert "fix:" in daemon.store.list_notices()[0]["text"]
+tests/fake/test_canonical_identity_fix2.py:118:        assert f"superseded by {first}" in service.store.one("SELECT text FROM notices WHERE job_id=?", (second,))["text"]
+tests/fake/test_canonical_identity_fix2.py:120:        assert service.store.one("SELECT text FROM notices WHERE job_id=?", (second,))["text"].count(f"superseded by {first}") == 1
+tests/fake/test_canonical_identity_fix2.py:226:        assert error in service.store.one("SELECT text FROM notices WHERE job_id=?", (job,))["text"]
+tests/unit/test_store_readers.py:195:            assert daemon.dispatch("notice.pending", {"session_id": "someone"}) == {"notices": []}
+tests/unit/test_store_readers.py:513:            assert daemon.dispatch("notice.pending", {"session_id": "someone"}) == {"notices": []}
+tests/fake/test_census_cwd_outcome.py:77:            assert any(f"pid {child.pid}: cwd in worktree" in n["text"] for n in notices)
+tests/fake/test_review_needs_shell.py:89:    notice, = [n for n in service.store.list_notices() if n['job_id'] == job]
+tests/fake/test_workspace_transient.py:76:    assert daemon.store.list_notices() == [] and daemon.store.list_leases() == []
+tests/fake/test_workspace_transient.py:197:    assert f"workspace preparation failed: SalvageError: {error}" in daemon.store.list_notices()[0]["text"]
+tests/fake/test_workspace_transient.py:222:    assert daemon.store.list_notices() == []
+tests/fake/test_workspace_transient.py:249:    assert daemon.store.list_notices()[0]["text"].splitlines()[1:] == [
+tests/fake/test_workspace_transient.py:290:    assert not (daemon.root / "worktrees" / job_id).exists() and daemon.store.list_notices() == []
+tests/fake/test_workspace_transient.py:377:    assert daemon.store.list_notices()[0]["text"].splitlines()[1:] == [
+tests/fake/test_workspace_transient.py:497:        assert notice_without_capability(daemon.store.list_notices()[-1]["text"]).split("\n")[1:] == [detail]
+tests/fake/test_workspace_transient.py:567:    assert notice_without_capability(daemon.store.list_notices()[-1]["text"]).split("\n")[1:] == [
+tests/fake/test_native_maintenance_startup.py:372:    assert any('service notices were not pruned' in line and 'OperationalError' in line for line in warnings)
+tests/fake/test_native_maintenance_startup.py:540:    assert calls == ['notices', 'batch']
+tests/fake/test_notice_delivery.py:164:    assert daemon.store.one("SELECT state FROM notices WHERE notice_id=?", (notice_id,))["state"] == "surfaced"
+tests/fake/test_notice_delivery.py:264:    assert daemon._prune_service_notices() == 3
+tests/fake/test_notice_delivery.py:265:    assert sorted(row["text"] for row in daemon.store.query("SELECT text FROM service_notices")) == sorted([
+tests/fake/test_notice_delivery.py:324:            assert shown == before, "a hook prints exactly this session's undelivered notices"
+tests/fake/test_lane_pilot.py:158:    assert daemon.store.list_notices() == []
+tests/fake/test_lane_pilot.py:190:    assert daemon.store.list_notices() == []
+tests/fake/test_wall_running_time.py:160:    assert any('other-session' in row['text'] and str(os.getpid()) in row['text'] for row in notices)
+tests/fake/test_wall_running_time.py:182:    assert service.dispatch('notice.pending', {'session_id': 'caller'})['notices'] == []
+tests/fake/test_wall_running_time.py:503:    assert service.dispatch('notice.pending', {'session_id': 'caller'})['notices'] == []
+tests/fake/test_request_routing.py:103:    assert daemon.store.one("SELECT text FROM service_notices WHERE session_id='s-1'")["text"] == "hello"
+tests/fake/test_retry_for_good_refusals.py:44:    assert len(notices) == 1
+tests/fake/test_retry_for_good_refusals.py:47:    assert words in notices[0]["text"]
+tests/fake/test_retry_for_good_refusals.py:54:    assert words in service.store.list_notices("caller")[0]["text"]
+tests/fake/test_retry_for_good_refusals.py:69:    assert service.store.query("SELECT 1 FROM service_notices WHERE session_id='caller'") == []
+tests/unit/test_store_ids.py:38:        assert store.one("SELECT version FROM schema_version")["version"] == SCHEMA_VERSION
+tests/unit/test_store_ids.py:69:        assert store.list_notices() == []
+tests/unit/test_store_ids.py:75:        assert len(store.list_notices()) == 1
+tests/unit/test_store_ids.py:120:        assert store.acknowledge_notices("other", [notice]) == 0
+tests/unit/test_store_ids.py:121:        assert store.acknowledge_notices("owner", [notice]) == 1
+tests/unit/test_store_ids.py:122:        assert store.list_notices(pending=True) == []
+tests/fake/test_unadmittable_pin_review.py:23:from tests.fake.test_unadmittable_pin_admission import (claude, events, fleet, service_notices,  # noqa: F401
+tests/fake/test_unadmittable_pin_review.py:51:    assert len(service_notices(service)) == 1                      # the one notice
+tests/fake/test_unadmittable_pin_review.py:70:    assert len(notices) == 1, [row["text"][:80] for row in notices]
+tests/fake/test_unadmittable_pin_review.py:95:        assert len(service_notices(again)) == 1, [row["text"][:80] for row in service_notices(again)]
+tests/fake/test_unadmittable_pin_review.py:118:    assert service.store.get_job(stuck)["rc"] == 3 and service_notices(service) == [], (
+tests/fake/test_unadmittable_pin_review.py:134:    assert not events(service, stuck, "job.pin_unadmittable") and service_notices(service) == []
+tests/fake/test_census_round6_cascade.py:154:        assert held_by(daemon, child) == {} and "worktree retained" not in notices(daemon, child)
+tests/fake/test_census_round6_cascade.py:157:    assert RETAINED in notices(daemon, child), notices(daemon, child)
+tests/fake/test_census_round6_cascade.py:190:    assert RETAINED in notices(daemon, child)
+tests/unit/test_timers_alerts.py:81:    """C-18.1, C-23.27: imported v1 alert-latch events prevent immediate duplicate notices."""
+tests/unit/test_host_push_build.py:216:        assert "disappeared after preparation" in " ".join(notices(core, job))
+tests/fake/test_unadmittable_pin_admission.py:144:    assert service_notices(service) == []
+tests/fake/test_unadmittable_pin_admission.py:147:    assert len(notices) == 1
+tests/fake/test_unadmittable_pin_admission.py:154:    assert len(noticed) == 1 and noticed[0]["data"]["service_notice_id"] == notices[0]["notice_id"]
+tests/fake/test_unadmittable_pin_admission.py:162:    assert len(service_notices(service)) == 1 and len(events(service, stuck, "job.pin_unadmittable")) == 1
+tests/fake/test_unadmittable_pin_admission.py:178:    assert service_notices(service) == [] and len(events(service, stuck, "job.pin_notice_withdrawn")) == 1
+tests/fake/test_unadmittable_pin_admission.py:241:    assert [row["state"] for row in service_notices(service)] == ["surfaced"]
+tests/fake/test_unadmittable_pin_admission.py:258:    assert service_notices(service) == [] and not events(service, stuck, "job.pin_noticed")
+tests/fake/test_unadmittable_pin_admission.py:273:    assert [row["state"] for row in service_notices(service)] == ["surfaced"]
+tests/fake/test_unadmittable_pin_admission.py:274:    assert service.dispatch("notice.pending", {"session_id": "caller-session"})["notices"] == []
+tests/fake/test_unadmittable_pin_admission.py:278:    assert [row["state"] for row in service_notices(service)] == ["surfaced"]
+tests/fake/test_unadmittable_pin_admission.py:298:        assert len(service_notices(again)) == 1 and len(events(again, stuck, "job.pin_unadmittable")) == 1
+tests/fake/test_unadmittable_pin_admission.py:316:    assert service_notices(service) == []                                    # the terminal notice says it all
+tests/fake/test_unadmittable_pin_admission.py:317:    assert len(service.store.query("SELECT * FROM notices WHERE job_id=?", (stuck,))) == 1
+tests/fake/test_unadmittable_pin_admission.py:329:    assert "it waits until that changes" in service_notices(service)[0]["text"]
+tests/fake/test_unadmittable_pin_admission.py:340:    assert service_notices(service) == [] and not events(service, stuck, "job.pin_unadmittable")
+tests/fake/test_unadmittable_pin_admission.py:351:    assert service_notices(service) == []
+tests/fake/test_unadmittable_pin_admission.py:380:    assert service.store.get_job(stuck)["state"] == "waiting" and service_notices(service) == []
+tests/fake/test_unadmittable_pin_admission.py:524:    assert service.dispatch("notice.pending", {"session_id": "someone"})["notices"] == []
+tests/fake/test_unadmittable_pin_admission.py:532:    assert len(service.dispatch("notice.pending", {"session_id": "someone"})["notices"]) == 1
+tests/fake/test_lane_fault.py:108:    texts = [row["text"] for row in daemon.store.list_notices() if row["job_id"] == job_id]
+tests/fake/test_lane_fault.py:129:    assert daemon.store.list_notices() == []                                   # not over yet
+tests/unit/test_review_pr127_fixes.py:71:    assert all(n["state"] == "surfaced" for n in svc.daemon.store.list_notices())
+tests/unit/test_review_pr127_fixes.py:81:    assert any("INDEX notices_job" in r["detail"] for r in plan), plan
+tests/unit/test_review_pr127_fixes.py:103:        if kind == "conversation.wake-notices":
+tests/unit/test_review_pr127_fixes.py:116:        assert svc.daemon.store.list_notices()[0]["state"] == "surfaced"
+tests/fake/test_record_secrecy.py:191:        assert shown["pending"]["result"]["notices"] == []
+tests/fake/test_salvage_worktree_gone.py:20:from tests.fake.test_salvage_finalization import events, finalizing, job_notices
+tests/unit/test_operator_notices.py:408:            assert offline.notices(session_id, resolved=resolved) == core.dispatch(
+tests/unit/test_operator_notices.py:420:        if table == "service_notices":
+tests/unit/test_operator_notices.py:457:        f"SELECT text, state FROM {'service_notices' if table == 'service' else 'notices'}")}
+tests/unit/test_operator_notices.py:469:    assert sorted(reply["acknowledged"]) == sorted(ids) and reply["notices"] == []
+tests/unit/test_operator_notices.py:521:    assert Offline(core.root).notices("a") == listed
+tests/unit/test_operator_notices.py:570:    assert cli.main(["notices"]) == int(Exit.OK)
+tests/unit/test_operator_notices.py:581:    assert cli.main(["notices", "--session", "operator", "--all", "--json"]) == int(Exit.OK)
+tests/unit/test_operator_notices.py:582:    assert json.loads(capsys.readouterr().out) == {"notices": LISTED}
+tests/unit/test_operator_notices.py:592:    assert cli.main(["notices", "--session", "operator", "--ack"]) == int(Exit.OK)
+tests/unit/test_operator_notices.py:607:    assert cli.main(["notices", "--session", "operator", "--withdraw", "--reason", "superseded"]) == int(Exit.OK)
+tests/unit/test_operator_notices.py:630:    assert cli.main(["notices", "--session", "s", "--ack", "--withdraw"]) == int(Exit.INVALID_INPUT)
+tests/unit/test_operator_notices.py:638:    assert cli.main(["notices", "--session", "operator"]) == int(Exit.OK)
+tests/unit/test_operator_notices.py:641:    assert cli.main(["notices", "--session", "operator", "--ack"]) == int(Exit.DAEMON_UNAVAILABLE)
+tests/unit/test_operator_notices.py:660:    assert cli.main(["notices", "--session", "operator", "--withdraw", "--reason", "never delivered"]) == 0
+tests/unit/test_operator_notices.py:663:    assert core.store.query("SELECT state FROM notices") == [{"state": "pending"}]
+tests/unit/test_operator_notices.py:780:    assert core.dispatch("notice.list", {"resolved": True})["notices"] == []
+tests/unit/test_operator_notices.py:812:    assert Offline(core.root).notices("s-caller")[0]["job_id"] == "pin-caller"
+tests/unit/test_offline.py:314:    assert reader.status()["schema_version"] == SCHEMA_VERSION
+tests/unit/test_review_r6_probes.py:61:        assert svc.store.one("SELECT MAX(version) v FROM schema_version")["v"] == 2
+tests/unit/test_review_r6_probes.py:304:        assert restarted.store.one("SELECT MAX(version) v FROM schema_version")["v"] == 2
+tests/fake/test_codex_turn_completed_fake.py:213:        assert len(daemon.store.list_notices()) == 1
+tests/fake/test_codex_turn_completed_fake.py:508:        assert len(daemon.store.list_notices()) == 1
+tests/fake/test_caller_notice_wakes.py:263:    assert callers.notices[notice] in surface(callers.daemon, callers.harness.root, "hook-first")
+tests/fake/test_sessions_end_to_end.py:288:    assert [row["session_id"] for row in notices] == [ALICE]
+tests/fake/test_sessions_end_to_end.py:289:    assert nudge_module.MARKER in notices[0]["text"]
+tests/fake/test_sessions_end_to_end.py:290:    assert notices[0]["state"] == "pending"
+tests/fake/test_sessions_end_to_end.py:322:    assert len(service.store.query("SELECT * FROM service_notices")) == 1
+tests/fake/test_sessions_end_to_end.py:415:    assert [row["session_id"] for row in notices] == [ALICE]
+tests/fake/test_sessions_end_to_end.py:891:    assert [row["session_id"] for row in notices] == ["operator-1"]
+tests/fake/test_notice_header.py:211:    assert daemon.store.list_notices() == []
+tests/fake/test_timers_end_to_end.py:150:        assert first_notices
+tests/fake/test_timers_end_to_end.py:151:        assert all(row['notice_id'] < 0 for row in first_notices)
+tests/fake/test_timers_end_to_end.py:168:        assert not set(ids) & {row['notice_id'] for row in daemon.dispatch('notice.pending', {'session_id':'test-operator'})['notices']}
+tests/unit/test_host_push.py:216:    assert "human or hub push" in world.core.store.list_notices()[0]["text"]
+tests/unit/test_host_push.py:682:        assert store.one("SELECT max(version) AS version FROM schema_version")["version"] == SCHEMA_VERSION
+tests/fake/test_daemon_launch.py:124:    recorded = json.dumps([daemon.store.query(f"SELECT * FROM {table}") for table in ("attempts", "events", "notices")])
+tests/fake/test_state_contract.py:148:    assert len(daemon.store.list_notices()) == 3
+tests/fake/test_state_contract.py:168:    assert daemon.store.list_notices() == []
+tests/fake/test_state_contract.py:173:    assert len(daemon.store.list_notices()) == 1
+tests/fake/test_state_contract.py:183:    assert daemon.store.list_notices()[0]["state"] == "pending"
+tests/fake/test_state_contract.py:185:    assert daemon.store.list_notices()[0]["state"] == "pending"
+tests/fake/test_state_contract.py:187:    assert daemon.store.list_notices()[0]["state"] == "acknowledged"
+tests/fake/test_state_contract.py:188:    assert daemon.dispatch("notice.pending", {"session_id": "fake-session"})["notices"] == []
+tests/fake/test_state_contract.py:382:    assert len(daemon.store.list_notices()) == 1
+tests/fake/test_state_contract.py:441:    assert daemon.store.list_notices() == []
+tests/fake/test_state_contract.py:446:    assert len(daemon.store.list_notices()) == 1
+tests/fake/test_state_contract.py:496:        assert "export failed" in daemon.store.list_notices()[0]["text"]
+tests/fake/test_state_contract.py:515:    assert len(daemon.store.list_notices()) == 1
+tests/fake/test_state_contract.py:522:    assert len(daemon.store.list_notices()) == 1
+tests/fake/test_state_contract.py:687:    assert daemon.store.list_notices() == []
+tests/fake/test_state_contract.py:738:    assert daemon.store.list_notices() == []
+tests/fake/test_unrun_worktrees.py:1261:    assert [notice["text"].splitlines()[1:] for notice in daemon.store.list_notices() if notice["job_id"] == job_id] == [[
+tests/fake/test_unrun_worktrees.py:1279:    assert [notice["text"].splitlines()[1:] for notice in daemon.store.list_notices() if notice["job_id"] == job_id] == [[
+tests/unit/test_suggestions_r1b_adversarial.py:579:        assert store.one("SELECT MAX(version) v FROM schema_version")["v"] == 2
+tests/fake/test_census_round4_endings.py:153:        assert "worktree retained" not in notices(daemon, job_id)
+tests/fake/test_census_round4_endings.py:157:    assert (RETAINED in notices(daemon, job_id)) == (scan == "observer"), notices(daemon, job_id)
+tests/fake/test_census_round4_endings.py:193:    assert RETAINED in notices(daemon, job_id)
+tests/fake/test_census_round4_endings.py:215:    assert job["state"] == "succeeded" and RETAINED in notices(daemon, job_id)
+tests/unit/test_store_contention_queries.py:454:        event(daemon.store, "session.nudged", {"session_id": "s-1", "n": 1})
+tests/unit/test_store_contention_queries.py:455:        event(daemon.store, "session.nudged", {"session_id": "s-1", "n": 2, "weight": float("nan")})
+tests/unit/test_store_contention_queries.py:457:            assert daemon._session_events(("session.nudged",), wanted)["session.nudged:s-1"]["n"] == 2
+tests/unit/test_store_contention_queries.py:468:        event(daemon.store, "session.nudged", {"session_id": "s-1", "n": 1})
+tests/unit/test_store_contention_queries.py:475:            found = daemon._session_events(("session.nudged",), wanted)
+tests/unit/test_store_contention_queries.py:476:            assert "session.nudged:s-x" not in found, (wanted, found)
+tests/unit/test_suggestions.py:556:        assert store.one("SELECT MAX(version) v FROM schema_version")["v"] == 2
+tests/unit/test_host_push_copy.py:24:    assert words in " ".join(notices(world.core, job_id))
+tests/unit/test_importer.py:307:        if table in ("events", "schema_version"):
+tests/unit/test_importer.py:336:    assert {"runs", "notices", "capacity-live-cache", "claude-oauth-raw",
+tests/unit/test_importer.py:339:    assert cursors["notices"]["files"][f"{SESSION}.jsonl"]["lines"] == 4
+tests/unit/test_importer.py:341:    assert cursors["notices"]["files"][f"{SESSION}.jsonl"]["retry"] == [2, 3]
+tests/unit/test_importer.py:999:    assert [row["state"] for row in notices] == ["surfaced", "pending"]
+tests/unit/test_importer.py:1000:    assert {row["session_id"] for row in notices} == {SESSION}
+tests/unit/test_importer.py:1001:    assert notices[0]["job_id"] == "20260905-100000-ok"
+tests/unit/test_importer.py:1006:    assert report.stores["notices"].reasons.get("unknown-job") == 2
+tests/unit/test_importer.py:1013:    assert not rows(v1["root"], "SELECT * FROM notices WHERE job_id=?", (late,))
+tests/unit/test_importer.py:1021:    assert report.stores["notices"].imported == 1
+tests/unit/test_importer.py:1022:    assert rows(v1["root"], "SELECT * FROM notices WHERE job_id=?", (late,))
+tests/unit/test_importer.py:1024:    assert report.stores["notices"].reasons.get("unknown-job") == 1
+tests/unit/test_importer.py:1082:    assert not rows(v1["root"], "SELECT * FROM notices WHERE transport='v1-socket'")
+tests/unit/test_importer.py:1087:    assert not rows(v1["root"], "SELECT * FROM notices WHERE transport='v1-socket'")
+tests/unit/test_importer.py:2086:    assert rows(v1["root"], "SELECT * FROM notices WHERE transport='v1-socket'") == before
+tests/unit/test_review_pr127_service.py:125:    assert svc.daemon.store.list_notices()[0]["state"] == "pending"
+tests/unit/test_prune_217.py:31:    'actions', 'events', 'service_notices', 'caller_wake_sessions',
+tests/unit/test_prune_217.py:180:        assert store.one('SELECT MAX(version) AS version FROM schema_version')['version'] == SCHEMA_VERSION
+tests/unit/test_pr192_review_r1.py:251:                elif table == "service_notices":
+tests/unit/test_hook_cost.py:51:            return {"jobs": []} if op == "list" else {"notices": []}
+tests/unit/test_conversation_store.py:261:        assert again.one("SELECT MAX(version) v FROM schema_version")["v"] == SCHEMA_VERSION
+tests/unit/test_conversation_store.py:380:    assert [r["version"] for r in s.query("SELECT version FROM schema_version ORDER BY version")] == [1, 2]
+tests/unit/test_conversation_store.py:385:    assert [r["version"] for r in s.query("SELECT version FROM schema_version ORDER BY version")] == [1, 2]
+tests/unit/test_store_notice_wake_migration.py:42:        columns = [row[1] for row in conn.execute("PRAGMA table_info(notices)")]
+tests/unit/test_store_notice_wake_migration.py:48:        assert [row["state"] for row in store.list_notices("caller", pending=True)] == ["pending", "offered"]
+tests/unit/test_store_notice_wake_migration.py:53:        assert store.query("SELECT version FROM schema_version ORDER BY version") == [
+tests/unit/test_store_notice_wake_migration.py:68:        migrated = store.query("SELECT * FROM events WHERE kind='schema.migrated'")
+tests/unit/test_store_notice_wake_migration.py:70:        assert store.query("SELECT * FROM notices ORDER BY notice_id") == notices
+tests/unit/test_store_notice_wake_migration.py:72:        assert store.query("SELECT * FROM schema_version ORDER BY version") == versions
+tests/unit/test_store_notice_wake_migration.py:73:        assert store.query("SELECT * FROM events WHERE kind='schema.migrated'") == migrated
+tests/unit/test_store_notice_wake_migration.py:82:        assert migrated.one("SELECT sql FROM sqlite_master WHERE name='notices_caller_wake'") == fresh.one(
+tests/unit/test_store_notice_wake_migration.py:92:        assert store.one("SELECT wake_state FROM notices WHERE notice_id=1")["wake_state"] == wake_state
+tests/unit/test_daemon_connections.py:317:    assert service.store.query("SELECT * FROM service_notices") == []
+tests/unit/test_retention_archive.py:1680:    assert [n["text"] for n in saved["notices"]] == ["late notice"]
+tests/unit/test_prune_decisions.py:526:    assert "service_notices" in report.verification["tables_checked"]
+tests/unit/test_reserve_authorization_plumbing.py:79:        assert [row["version"] for row in store.query("SELECT * FROM schema_version ORDER BY version")] == list(range(4, SCHEMA_VERSION + 1))
+tests/unit/test_reserve_authorization_plumbing.py:81:                if row["kind"] == "schema.migrated"] == [{"version": step} for step in range(5, SCHEMA_VERSION + 1)]
+tests/unit/test_reserve_authorization_plumbing.py:87:        assert store.one("SELECT MAX(version) AS version FROM schema_version")["version"] == 4
+tests/unit/test_reserve_authorization_plumbing.py:97:        assert fresh.one("SELECT MAX(version) AS version FROM schema_version")["version"] == SCHEMA_VERSION
+tests/unit/test_host_push_build_budget.py:113:            assert notices(core, first) == []
+tests/unit/test_host_push_storage_retry_budget.py:168:            assert notices(core, job) == []
+tests/unit/test_host_push_storage_retry_budget.py:179:        assert len(notices(core, job)) == 1
+tests/unit/test_host_push_storage_retry_budget.py:180:        assert "after 8 completion write failures" in notices(core, job)[0]
+tests/unit/test_host_push_storage_retry_budget.py:184:        assert len(notices(core, job)) == 1
+tests/unit/test_store_qos_migration.py:49:        assert store.one("SELECT MAX(version) AS v FROM schema_version")["v"] == SCHEMA_VERSION
+tests/unit/test_store_qos_migration.py:58:            "SELECT data_json FROM events WHERE kind='schema.migrated' ORDER BY event_id")]
+tests/unit/test_store_qos_migration.py:63:        assert [row["version"] for row in store.query("SELECT version FROM schema_version ORDER BY version")][-1] == SCHEMA_VERSION
+tests/unit/test_notice_claims.py:102:    assert core.store.one("SELECT state FROM notices WHERE notice_id=?", (wire_id,))["state"] == "pending"
+tests/unit/test_notice_claims.py:104:    assert core.store.one("SELECT state FROM notices WHERE notice_id=?", (wire_id,))["state"] == "surfaced"
+tests/unit/test_notice_claims.py:138:    assert core.store.one("SELECT state FROM notices")["state"] == "pending"
+tests/unit/test_notice_claims.py:154:    assert core.store.one("SELECT state FROM notices")["state"] == "pending"
+tests/unit/test_host_push_admission.py:326:            assert notices(core, push_job) == []
+tests/unit/test_host_push_store_interleavings.py:252:                   or phase == "notice" and sql.startswith("INSERT INTO notices")
+tests/unit/test_host_push_store_interleavings.py:340:        assert len(notices(core, job)) == 1
+tests/unit/test_host_push_store_interleavings.py:403:        assert notices(core, job) == []
+tests/unit/test_host_push_store_interleavings.py:407:        assert len(notices(core, job)) == 1
+tests/unit/test_host_push_store_interleavings.py:423:        assert notices(core, job) == []
+tests/unit/test_host_push_store_interleavings.py:428:        assert len(notices(core, job)) == 1
+tests/unit/test_host_push_store_interleavings.py:446:        assert notices(core, job) == []
+tests/unit/test_host_push_store_interleavings.py:550:                assert len(notices(core, job)) == 1
+tests/unit/test_host_push_store_interleavings.py:551:                assert "after 8 completion write failures" in notices(core, job)[0]
+tests/unit/test_host_push_store_interleavings.py:600:            assert len(notices(core, job)) == 1
+tests/unit/test_qos_review_r2.py:20:    assert status["schema_version"] == 9
+tests/unit/test_store_migration_2.py:100:        migrated = [row for row in store.list_events() if row["kind"] == "schema.migrated"]
+tests/unit/test_store_migration_2.py:110:        assert [row["version"] for row in store.query("SELECT * FROM schema_version")] == list(range(1, SCHEMA_VERSION + 1))
+tests/unit/test_store_migration_2.py:112:                    if row["kind"] == "schema.migrated"]) == SCHEMA_VERSION - 1
+tests/unit/test_store_migration_2.py:121:        assert [row["version"] for row in store.query("SELECT * FROM schema_version")] == [SCHEMA_VERSION]
+tests/unit/test_store_migration_2.py:122:        assert [row["kind"] for row in store.list_events()] == ["schema.applied"]
+tests/unit/test_store_migration_2.py:244:        assert store.one('SELECT MAX(version) AS version FROM schema_version')['version'] == SCHEMA_VERSION
+tests/unit/test_host_push_restart.py:82:        assert "inspect the remote" in world.core.store.list_notices()[0]["text"]
+tests/unit/test_hooks.py:167:def test_session_events_inside_a_launch_wake_nothing_and_surface_only_job_notices(
+tests/unit/test_hooks.py:354:def test_session_events_surface_pending_notices_and_mark_them(daemon, root, event):
+tests/unit/test_hooks.py:513:            "SELECT state FROM service_notices ORDER BY notice_id")] == [
+tests/unit/test_hooks.py:1037:        return {'notices': [notice(7)]} if op == 'notice.pending' else {}
+tests/unit/test_timers_daemon.py:20:        assert store.one('SELECT MAX(version) version FROM schema_version')['version'] == SCHEMA_VERSION
+tests/unit/test_timers_daemon.py:22:        assert store.query('SELECT * FROM service_notices') == []
+tests/unit/test_timers_daemon.py:87:            recovered = [notice for notice in notices if notice.get('recovery') and notice['home'] == str(tmp_path)]

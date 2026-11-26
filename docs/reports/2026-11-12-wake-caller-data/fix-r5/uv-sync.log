@@ -1,0 +1,18 @@
+Using CPython 3.15.2
+Creating virtual environment at: .venv
+Resolved 10 packages in 183ms
+   Building subfleet @ file:///Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5
+Downloading pygments (1.2MiB)
+ Downloaded pygments
+      Built subfleet @ file:///Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5
+Prepared 9 packages in 24.30s
+Installed 9 packages in 101ms
+ + hypothesis==6.168.1
+ + iniconfig==2.3.0
+ + packaging==26.3
+ + pluggy==1.6.0
+ + pygments==2.21.0
+ + pytest==9.1.1
+ + pytest-timeout==2.4.0
+ + sortedcontainers==2.4.0
+ + subfleet==2.0.0a0 (from file:///Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5)

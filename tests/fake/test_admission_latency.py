@@ -24,7 +24,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
 
-from subfleet import capacity, protocol, scheduler
+from subfleet import capacity, procs, protocol, scheduler, worktree_add
 from subfleet import daemon as daemon_module
 from subfleet.adapters import registry
 from subfleet.adapters.base import AdapterError
@@ -226,12 +226,26 @@ def check_reservation(service, attempt_id):
 
 @contextlib.contextmanager
 def fleet_daemon(root):
-    """`routing_state`, for one Hypothesis example: a daemon with codex-1 to codex-3."""
+    """`routing_state`, for one Hypothesis example: a daemon with codex-1 to codex-3.
+
+    Process identities are the fixture's, and so is C-6.8's census of a worktree add (review r2
+    of #329, P2): no add here leaves a process, and its leader is the daemon's own child, which
+    `Daemon._add_census` counts from its handle, so that census reads empty, as `state_daemon`'s
+    every census does. Read from the host's table it failed wherever `/bin/ps` is denied, and
+    every worktree add then waited `workspace`. Every other census is the real one, as before."""
     root.mkdir(parents=True)
     harness = Harness(root)
+    real_containment = daemon_module.procs.containment
+
+    def containment(pgid, guardian_pid, child_pid, attempt_id, *args, **kwargs):
+        if str(attempt_id).startswith(worktree_add.MARKER_PREFIX):
+            return daemon_module.procs.Containment()
+        return real_containment(pgid, guardian_pid, child_pid, attempt_id, *args, **kwargs)
+
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(daemon_module.procs, "boot_id", lambda: "fixture-boot")
         patch.setattr(daemon_module.procs, "proc_start", lambda pid: "fixture-start")
+        patch.setattr(daemon_module.procs, "containment", containment)
         patch.setattr(daemon_module.capacity, "read_desktop_account", lambda: None)
         patch.setattr(registry, "_factories", {"codex": FakeAdapter, "claude": FakeAdapter})
         service = Daemon(root)
@@ -240,6 +254,32 @@ def fleet_daemon(root):
             yield service, harness, patch
         finally:
             service.close()
+
+
+def test_fleet_daemon_cuts_a_writers_worktree_with_the_host_process_table_unreadable(tmp_path):
+    """Review r2 of #329 (P2): `fleet_daemon` faked process identities but left C-6.8's add
+    census on the host's process table, so where `/bin/ps` is denied (a sandboxed lane) a
+    writable job's add waited on an unverifiable census, and eight retention-fence cases
+    failed. With the table unreadable here, the worktree is cut and the job reserved."""
+    from tests.unit.test_salvage import git
+
+    def denied():
+        raise procs.InspectionError("the process table is unreadable here (fixture)")
+    with fleet_daemon(tmp_path / "state") as (service, harness, patch):
+        for argv in (("init", "-b", "task/x"), ("config", "user.name", "T"),
+                     ("config", "user.email", "t@example.invalid")):
+            git(harness.workdir, *argv)
+        (harness.workdir / "f.txt").write_text("x\n")
+        git(harness.workdir, "add", ".")
+        git(harness.workdir, "commit", "-m", "base")
+        for lane_id in LANES:
+            measure(service, lane_id)
+        job_id = submit(service, harness, sandbox="workspace-write")
+        patch.setattr(daemon_module.procs, "snapshot", denied)
+        service._admit()
+        assert service._holds.get(job_id) is None, service._holds.get(job_id)
+        assert reserved(service, job_id), service.store.get_job(job_id)
+        assert git(service.root / "worktrees" / job_id, "rev-parse", "HEAD") == git(harness.workdir, "rev-parse", "HEAD")
 
 
 COMMITS = st.sampled_from(["reading", "stale-reading", "full-reading", "close", "close-astra", "release",

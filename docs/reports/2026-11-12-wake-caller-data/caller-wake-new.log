@@ -1,0 +1,152 @@
+FF....................F.                                                 [100%]
+=================================== FAILURES ===================================
+___ test_c15_9_once_over_generated_finish_hook_failure_and_restart_histories ___
+
+callers = <tests.fake.test_caller_notice_wakes.Callers object at 0x10770c830>
+
+    @PROPERTY
+>   @given(operations=HISTORY)
+                   ^^^^^^^^^^
+
+tests/fake/test_caller_notice_wakes.py:161: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+callers = <tests.fake.test_caller_notice_wakes.Callers object at 0x10770c830>
+operations = [('finish', 1, 255), ('finish', 1, 92), ('finish', 0, 198), ('active', 1, 0)]
+
+    @PROPERTY
+    @given(operations=HISTORY)
+    def test_c15_9_once_over_generated_finish_hook_failure_and_restart_histories(callers, operations):
+        """Invariant 1 Once: successful delivery is durable across arbitrary passes and restarts."""
+        owned, _ = history(callers, operations)
+        callers.now += COOLDOWN_S + 600
+        callers.failures.clear()
+        callers.pass_once()
+        callers.restart(reopen=True)
+        callers.now += COOLDOWN_S
+        callers.pass_once()
+>       assert all(callers.counts()[notice] <= 1 for notice in owned)
+E       assert False
+E        +  where False = all(<generator object test_c15_9_once_over_generated_finish_hook_failure_and_restart_histories.<locals>.<genexpr> at 0x1084965e0>)
+E       Failing test case: test_c15_9_once_over_generated_finish_hook_failure_and_restart_histories(
+E           callers=<tests.fake.test_caller_notice_wakes.Callers object at 0x10770c830>,
+E           operations=[('finish', 1, 255),
+E            ('finish', 1, 92),
+E            ('finish', 0, 198),
+E            ('active', 1, 0)],
+E       )
+
+tests/fake/test_caller_notice_wakes.py:171: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4431055904:daemon.py:994 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4431055904:daemon.py:1082 reset credits: automatic redemption off; no-reset marker absent
+_ test_c15_9_never_both_over_generated_finish_hook_failure_and_restart_histories _
+  + Exception Group Traceback (most recent call last):
+  |   File "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/tests/fake/test_caller_notice_wakes.py", line 175, in test_c15_9_never_both_over_generated_finish_hook_failure_and_restart_histories
+  |     @given(operations=HISTORY)
+  |                    ^^^^^^^^^^
+  |   File "/private/tmp/sf-wc-b1/venv/lib/python3.15/site-packages/hypothesis/core.py", line 2295, in wrapped_test
+  |     raise the_error_hypothesis_found
+  | hypothesis.errors.FlakyFailure: Inconsistent results from replaying a test case!
+  |   last: INTERESTING from AssertionError at /Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/tests/fake/test_caller_notice_wakes.py:183
+  |   this: INTERESTING from AssertionError at /Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/tests/fake/test_caller_notice_wakes.py:138 (3 sub-exceptions)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "/private/tmp/sf-wc-b1/venv/lib/python3.15/site-packages/hypothesis/core.py", line 1223, in _execute_once_for_engine
+    |     result = self.execute_once(data)
+    |   File "/private/tmp/sf-wc-b1/venv/lib/python3.15/site-packages/hypothesis/core.py", line 1161, in execute_once
+    |     result = self.test_runner(data, run)
+    |   File "/private/tmp/sf-wc-b1/venv/lib/python3.15/site-packages/hypothesis/core.py", line 828, in default_executor
+    |     return function(data)
+    |   File "/private/tmp/sf-wc-b1/venv/lib/python3.15/site-packages/hypothesis/core.py", line 1118, in run
+    |     return test(*args, **kwargs)
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/tests/fake/test_caller_notice_wakes.py", line 175, in test_c15_9_never_both_over_generated_finish_hook_failure_and_restart_histories
+    |     @given(operations=HISTORY)
+    |                    ^^^^^^^^^^^
+    |   File "/private/tmp/sf-wc-b1/venv/lib/python3.15/site-packages/hypothesis/core.py", line 1013, in test
+    |     return self.test(*args, **kwargs)
+    |            ~~~~~~~~~^^^^^^^^^^^^^^^^^
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/tests/fake/test_caller_notice_wakes.py", line 183, in test_c15_9_never_both_over_generated_finish_hook_failure_and_restart_histories
+    |     assert not newly_shown & shown
+    | AssertionError: assert not ({9, 11} & {7, 8, 9, 10})
+    +---------------- 2 ----------------
+    | Traceback (most recent call last):
+    |   File "/private/tmp/sf-wc-b1/venv/lib/python3.15/site-packages/hypothesis/core.py", line 1223, in _execute_once_for_engine
+    |     result = self.execute_once(data)
+    |   File "/private/tmp/sf-wc-b1/venv/lib/python3.15/site-packages/hypothesis/core.py", line 1161, in execute_once
+    |     result = self.test_runner(data, run)
+    |   File "/private/tmp/sf-wc-b1/venv/lib/python3.15/site-packages/hypothesis/core.py", line 828, in default_executor
+    |     return function(data)
+    |   File "/private/tmp/sf-wc-b1/venv/lib/python3.15/site-packages/hypothesis/core.py", line 1118, in run
+    |     return test(*args, **kwargs)
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/tests/fake/test_caller_notice_wakes.py", line 175, in test_c15_9_never_both_over_generated_finish_hook_failure_and_restart_histories
+    |     @given(operations=HISTORY)
+    |                    ^^^^^^^^^^^
+    |   File "/private/tmp/sf-wc-b1/venv/lib/python3.15/site-packages/hypothesis/core.py", line 1013, in test
+    |     return self.test(*args, **kwargs)
+    |            ~~~~~~~~~^^^^^^^^^^^^^^^^^
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/tests/fake/test_caller_notice_wakes.py", line 178, in test_c15_9_never_both_over_generated_finish_hook_failure_and_restart_histories
+    |     owned, shown = history(callers, operations)
+    |                    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/tests/fake/test_caller_notice_wakes.py", line 138, in history
+    |     assert not current & shown, "a hook must never show a notice twice"
+    | AssertionError: a hook must never show a notice twice
+    | assert not ({24, 25} & {24})
+    +---------------- 3 ----------------
+    | Traceback (most recent call last):
+    |   File "/private/tmp/sf-wc-b1/venv/lib/python3.15/site-packages/hypothesis/core.py", line 1223, in _execute_once_for_engine
+    |     result = self.execute_once(data)
+    |   File "/private/tmp/sf-wc-b1/venv/lib/python3.15/site-packages/hypothesis/core.py", line 1161, in execute_once
+    |     result = self.test_runner(data, run)
+    |   File "/private/tmp/sf-wc-b1/venv/lib/python3.15/site-packages/hypothesis/core.py", line 828, in default_executor
+    |     return function(data)
+    |   File "/private/tmp/sf-wc-b1/venv/lib/python3.15/site-packages/hypothesis/core.py", line 1118, in run
+    |     return test(*args, **kwargs)
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/tests/fake/test_caller_notice_wakes.py", line 175, in test_c15_9_never_both_over_generated_finish_hook_failure_and_restart_histories
+    |     @given(operations=HISTORY)
+    |                    ^^^^^^^^^^^
+    |   File "/private/tmp/sf-wc-b1/venv/lib/python3.15/site-packages/hypothesis/core.py", line 1013, in test
+    |     return self.test(*args, **kwargs)
+    |            ~~~~~~~~~^^^^^^^^^^^^^^^^^
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/tests/fake/test_caller_notice_wakes.py", line 178, in test_c15_9_never_both_over_generated_finish_hook_failure_and_restart_histories
+    |     owned, shown = history(callers, operations)
+    |                    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/tests/fake/test_caller_notice_wakes.py", line 138, in history
+    |     assert not current & shown, "a hook must never show a notice twice"
+    | AssertionError: a hook must never show a notice twice
+    | assert not ({31, 32, 33} & {30, 31})
+    +------------------------------------
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4434087952:daemon.py:994 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4434087952:daemon.py:1082 reset credits: automatic redemption off; no-reset marker absent
+_______ test_c15_9_caps_bound_sessions_per_pass_and_group_their_notices ________
+
+callers = <tests.fake.test_caller_notice_wakes.Callers object at 0x108f1f330>
+
+    def test_c15_9_caps_bound_sessions_per_pass_and_group_their_notices(callers):
+        callers.daemon.policy["sessions"]["nudge_max_sessions"] = 2
+        for index in range(3):
+            sid = f"capped-{index}"
+            callers.register(sid)
+            for _ in range(2):
+                callers.finish(sid)
+        callers.pass_once()
+        assert len({sid for sid, _ in callers.sent}) == 2
+        assert len(callers.sent) == 2
+>       assert sum(callers.counts().values()) == 4
+E       assert 5 == 4
+E        +  where 5 = sum(dict_values([2, 1, 1, 1]))
+E        +    where dict_values([2, 1, 1, 1]) = <built-in method values of Counter object at 0x10875ec10>()
+E        +      where <built-in method values of Counter object at 0x10875ec10> = Counter({1: 2, 2: 1, 3: 1, 4: 1}).values
+E        +        where Counter({1: 2, 2: 1, 3: 1, 4: 1}) = counts()
+E        +          where counts = <tests.fake.test_caller_notice_wakes.Callers object at 0x108f1f330>.counts
+
+tests/fake/test_caller_notice_wakes.py:425: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4441732640:daemon.py:994 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4441732640:daemon.py:1082 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_once_over_generated_finish_hook_failure_and_restart_histories
+FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_never_both_over_generated_finish_hook_failure_and_restart_histories
+FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_caps_bound_sessions_per_pass_and_group_their_notices
+3 failed, 21 passed in 77.88s (0:01:17)

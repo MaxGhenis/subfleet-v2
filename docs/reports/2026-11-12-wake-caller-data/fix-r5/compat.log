@@ -1,0 +1,47 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.15.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5
+configfile: pyproject.toml
+plugins: xdist-3.8.0, timeout-2.4.0, hypothesis-6.168.1
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+created: 4/4 workers
+4 workers [1615 items]
+
+........................................................................ [  4%]
+........................................................................ [  8%]
+........................................................................ [ 13%]
+........................................................................ [ 17%]
+........................................................................ [ 22%]
+........................................................................ [ 26%]
+........................................................................ [ 31%]
+........................................................................ [ 35%]
+........................................................................ [ 40%]
+........................................................................ [ 44%]
+........................................................................ [ 49%]
+........................................................................ [ 53%]
+........................................................................ [ 57%]
+........................................................................ [ 62%]
+........................................................................ [ 66%]
+........................................................................ [ 71%]
+........................................................................ [ 75%]
+........................................................................ [ 80%]
+........................................................................ [ 84%]
+........................................................................ [ 89%]
+........................................................................ [ 93%]
+........................................................................ [ 98%]
+.......................s.......                                          [100%]
+SKIPPED tests/unit/test_compat.py::test_python_m_subfleet_runs_a_hook_end_to_end: Skipped: SessionStart launches a detached worker
+============================= slowest 8 durations ==============================
+45.92s call     tests/unit/test_compat.py::test_nothing_v1_accepted_reaches_a_v2_usage_error[run-n-cutover-compat-task-2]
+44.97s call     tests/unit/test_compat.py::test_nothing_v1_accepted_reaches_a_v2_usage_error[run-task-build-tier-env-claude-lane-model-check-backoff]
+44.44s call     tests/unit/test_compat.py::test_nothing_v1_accepted_reaches_a_v2_usage_error[run-dry-run-task-build-2]
+44.02s call     tests/unit/test_compat.py::test_nothing_v1_accepted_reaches_a_v2_usage_error[runs-last-1]
+11.08s call     tests/unit/test_compat.py::test_no_compatibility_invocation_delegates_to_v1
+3.66s call     tests/unit/test_compat.py::test_nothing_v1_accepted_reaches_a_v2_usage_error[run-dry-run-o-repo-out-md]
+3.63s call     tests/unit/test_compat.py::test_nothing_v1_accepted_reaches_a_v2_usage_error[run-task-build-tier-env-claude-lane-claude]
+2.89s call     tests/unit/test_compat.py::test_nothing_v1_accepted_reaches_a_v2_usage_error[runs-json-env-subfleet-state-dir]
+=========================== short test summary info ============================
+SKIPPED [1] tests/unit/test_compat.py: SessionStart launches a detached worker
+================= 1614 passed, 1 skipped in 182.76s (0:03:02) ==================

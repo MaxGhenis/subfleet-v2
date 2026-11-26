@@ -26,6 +26,7 @@ import pytest
 
 from subfleet import doctor, protocol, scheduler
 from subfleet import daemon as daemon_module
+from subfleet.daemon import ADMISSION_EVENT, RESERVATION_EVENT
 from subfleet.contracts import (CAPACITY_RECHECK_BASE_S, ClockSource, Closure, ClosureReason, Credential, Exit,
                                 Lane, LaneOwner, Reading, ReadingLabel)
 from subfleet.daemon import Daemon, after, utcnow
@@ -327,6 +328,7 @@ def test_c6_12_an_evaluation_made_again_off_the_lock_is_isolated_too(fleet, monk
     reenrol = successor(service)
     raced = submit(service, harness, pinned_model="astra", pinned_lane="codex-1")
     later = submit(service, harness, pinned_model="terra")
+    before = service.store.get_job(raced)["exclusions"]
     real, calls, locked = service._pick, {}, []
 
     def pick(job, **options):
@@ -346,7 +348,9 @@ def test_c6_12_an_evaluation_made_again_off_the_lock_is_isolated_too(fleet, monk
     assert not service.store.list_attempts(raced)
     assert not service.store.query("SELECT 1 FROM leases WHERE holder LIKE ?", (raced + "%",))
     kinds = [row["kind"] for row in service.store.query("SELECT kind FROM events WHERE job_id=?", (raced,))]
-    assert "attempt.reserved" not in kinds and "job.route_refused" in kinds          # rolled back, then settled
+    # Rolled back, then settled: admission's transaction left no event under either name (C-3.8).
+    assert not {ADMISSION_EVENT, RESERVATION_EVENT} & set(kinds) and "job.route_refused" in kinds
+    assert service.store.get_job(raced)["exclusions"] == before
     assert service._route_evaluations["moved"] == 1 and service._route_evaluations["again"] == 1
     assert admitted(service, later)
 
@@ -898,10 +902,14 @@ def test_c6_12_a_policy_edit_that_moves_a_tier_to_another_provider_waits_and_fai
     assert service.store.get_job(same)["state"] == "failed"
 
 
-def test_c6_12_a_refused_writable_job_leaves_no_worktree(incident, tmp_path):
+def test_c6_12_a_refused_writable_job_leaves_no_worktree(incident, tmp_path, monkeypatch):
     """C-6.12 admission cut `worktrees/<job>` before it evaluated the route; a refusal removes it."""
     from tests.unit.test_salvage import git
     service, harness = incident
+    # Routing state has no launched attempt or add holders. C-6.8's actual
+    # process-table boundary is exercised separately, not by this route test.
+    monkeypatch.setattr(daemon_module.procs, "containment",
+                        lambda *args, **kwargs: daemon_module.procs.Containment())
     repo = tmp_path / "repo"
     repo.mkdir()
     git(repo, "init", "-b", "task/example")
