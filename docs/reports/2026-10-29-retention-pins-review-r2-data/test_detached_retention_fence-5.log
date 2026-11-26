@@ -1,0 +1,77 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 06:47:28Z slot B load 
+ADMITTED 2026-10-29T06:47:28.381693+00:00 LOAD (15.5380859375, 19.11767578125, 21.2578125)
+F                                                                        [100%]OBSERVATION {"engines": [], "explicit": {}, "mutant": null, "loaded": []}
+
+=================================== FAILURES ===================================
+___ test_c6_11_a_worktree_lease_another_job_holds_is_never_called_retentions ___
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/hold-test_detached_retention_fence-5/pytest-of-maxghenis/pytest-0/test_c6_11_a_worktree_lease_an0')
+
+    def test_c6_11_a_worktree_lease_another_job_holds_is_never_called_retentions(tmp_path):
+        """`retiring` names only retention's fences: a writable turn waiting for a detached
+        writer's `worktree:` on its folder is held on that key with no `retiring`, and `why`
+        says another job holds it, never that retention is removing a worktree. Passes on
+        5253faa2 (no `retiring` at all); fails a fix that counts any `worktree:` holder."""
+        from tests.fake.test_admission_liveness import _turn_in
+        from tests.fake.test_writer_retention_fence import writer_in
+        with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+            measured(daemon, harness)
+            Workspaces(daemon, patch, real=False)
+            writer = writer_in(daemon, harness, harness.workdir)
+            daemon._admit()
+            assert _live(daemon, writer)
+            target = folders.exclusive_key(folders.canonical(harness.workdir))
+            turn = _turn_in(daemon, harness, 0, workdir=harness.workdir)
+            daemon._admit_turns()
+            hold = dict(daemon._holds.get(turn) or {})
+            assert not _live(daemon, turn) and hold["leases"] == [target] and "retiring" not in hold, hold
+            text = daemon._why_job(daemon._job(turn))["text"]
+>           assert f"a lease this job needs is held by another job: {target}" in text and "retention" not in text, text
+E           AssertionError: Conversation turn: 20261029-024730-turn-conversation-0 of conversation-0 is waiting (capacity)
+E             Its outcome goes to the conversation, not to a notice or a deliverable (C-26.12)
+E             Held: a lease this job needs is held by another job: worktree:/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/hold-test_detached_retention_fence-5/pytest-of-maxghenis/pytest-0/test_c6_11_a_worktree_lease_an0/state/work
+E             Rechecks: same verdict 1 times since 2026-10-29T06:47:30Z, last 2026-10-29T06:47:30Z
+E             Next check: 2026-10-29T06:47:31Z
+E             Decision: none recorded; evaluated now for this answer, not by admission
+E             Policy: 7a136e9289f06b69ea77cd7c12f2dd65f4aa16dec6ab103cb38c1c46e66fa4d8
+E             Walk: astra
+E             astra: chose codex-1; eligible
+E               candidate codex-1: eligible; in-flight=0; weekly reset=2026-10-30T06:47:30Z
+E               candidate codex-2: eligible; in-flight=0; weekly reset=2026-10-30T06:47:30Z
+E               candidate codex-3: eligible; in-flight=0; weekly reset=2026-10-30T06:47:30Z
+E               reading codex-1: account/seven_day 20% used [provider; source=fixture; age=0.725304s; reset=2026-10-30T06:47:30Z]
+E               reading codex-2: account/seven_day 20% used [provider; source=fixture; age=0.725304s; reset=2026-10-30T06:47:30Z]
+E               reading codex-3: account/seven_day 20% used [provider; source=fixture; age=0.725304s; reset=2026-10-30T06:47:30Z]
+E             Chosen: astra on codex-1
+E             Reason: astra: chose codex-1; eligible
+E           assert ('a lease this job needs is held by another job: worktree:/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/hold-test_detached_retention_fence-5/pytest-of-maxghenis/pytest-0/test_c6_11_a_worktree_lease_an0/state/work' in 'Conversation turn: 20261029-024730-turn-conversation-0 of conversation-0 is waiting (capacity)\nIts outcome goes to t...=fixture; age=0.725304s; reset=2026-10-30T06:47:30Z]\nChosen: astra on codex-1\nReason: astra: chose codex-1; eligible' and 'retention' not in 'Conversatio...-1; eligible'
+E             
+E             'retention' is contained here:
+E               _detached_retention_fence-5/pytest-of-maxghenis/pytest-0/test_c6_11_a_worktree_lease_an0/state/work
+E             ?           +++++++++
+E               Rechecks: same verdict 1 times since 2026-10-29T06:47:30Z, last 2026-10-29T06:47:30Z
+E               Next check: 2026-10-29T06:47:31Z
+E               Decision: none recorded; evaluated now for this answer, not by admission...
+E             
+E             ...Full output truncated (11 lines hidden), use '-vv' to show)
+
+tests/fake/test_detached_retention_fence.py:279: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4476943872:daemon.py:931 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4476943872:daemon.py:1019 reset credits: automatic redemption off; no-reset marker absent
+=============================== warnings summary ===============================
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; _hypothesis_globals
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; hypothesis
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/fake/test_detached_retention_fence.py::test_c6_11_a_worktree_lease_another_job_holds_is_never_called_retentions
+1 failed, 2 warnings in 1.54s

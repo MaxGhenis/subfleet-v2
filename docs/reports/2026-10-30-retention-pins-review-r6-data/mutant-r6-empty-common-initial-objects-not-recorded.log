@@ -1,0 +1,56 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 19:45:59Z slot B load 
+START mutant-r6-empty-common-initial-objects-not-recorded 2026-10-30T19:46:01.541715+00:00 load=(58.36572265625, 48.224609375, 48.16943359375)
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_ test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-lf] _
+
+world = World(base=PosixPath('/private/tmp/sf-r272r6/cases-27481/pytest/test_empty_common_target_keeps0'), trusted=True, remot...-r272r6/cases-27481/pytest/test_empty_common_target_keeps0/state'), store=<subfleet.store.Store object at 0x10af7be00>)
+named = False, state = 'running', ending = b'\n'
+
+    @pytest.mark.parametrize("ending", [None, b"\n", b"\r\n"], ids=["absent", "lf", "crlf"])
+    @pytest.mark.parametrize("named,state", [
+        pytest.param(False, "running", id="directory-live-control"),
+        pytest.param(True, "running", id="named-live", marks=pytest.mark.xfail(
+            strict=True, reason="R6-F1: empty common target guesses a parent and omits Git's own objects")),
+        pytest.param(False, "succeeded", id="directory-exporting-control"),
+        pytest.param(True, "succeeded", id="named-exporting-control"),
+    ])
+    def test_empty_common_target_keeps_the_own_store_git_reads(world, named, state, ending):
+        tree = world.job("owner")
+        owner, commit = source(world, tree)
+        outside = repo(world.base / "outside")
+        admin = outside / ".git"
+        if named:
+            admin = world.base / "container" / "worktrees" / "slot"
+            admin.parent.mkdir(parents=True)
+            (outside / ".git").rename(admin)
+            (outside / ".git").write_text(f"gitdir: {admin}\n")
+        # Keep the borrower's existing refs, index and reflogs fully readable too.
+        git(owner, "fetch", "--quiet", str(outside), "HEAD")
+        (admin / "objects").rename(world.base / "unused-objects")
+        (admin / "objects").symlink_to(owner / ".git" / "objects", target_is_directory=True)
+        if ending is not None:
+            (admin / "commondir").write_bytes(ending)
+    
+        # No mutation or incomplete read: this stable repository works in real Git.
+        assert git(outside, "fsck", "--no-dangling") == ""
+        assert git(outside, "show", commit + ":owner-only.txt") == "R5 owner-only storage"
+        recorded = dependencies.record(str(outside))
+        assert not recorded.get("incomplete"), recorded
+        reader(world, recorded, state=state)
+        if state == "succeeded":
+            world.store.acquire_lease("out:/outside/result", "borrower")
+        result = maintain(world)
+        if state == "running":
+>           assert "owner" not in result["pruned"] and tree.is_dir(), (recorded, result)
+E           AssertionError: ({'git': ['/private/tmp/sf-r272r6/cases-27481/pytest/test_empty_common_target_keeps0/outside/.git']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48940, 'bytes_after': 0, ...})
+E           assert ('owner' not in ['owner'])
+
+tests/fake/test_retention_dependency_review_r6.py:46: AssertionError
+============================ Hypothesis Statistics =============================
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-lf]
+1 failed in 13.84s

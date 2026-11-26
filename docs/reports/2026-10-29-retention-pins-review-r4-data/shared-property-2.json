@@ -1,0 +1,33 @@
+{
+  "label": "shared-property-2",
+  "start": "2026-10-30T03:18:45.887254+00:00",
+  "loads": [
+    21.7099609375,
+    25.42333984375,
+    25.60498046875
+  ],
+  "seconds": 101.06414508299713,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 99.41383712499737
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine"
+  ],
+  "phases": {
+    "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 127942656
+}

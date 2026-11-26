@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 10:40:17Z slot A load 
+............................                                             [100%]
+28 passed in 46.68s
+{"name": "regressions-r7-r6", "start": "2026-10-31T10:40:19.215475+00:00", "load": [39.15185546875, 38.2646484375, 36.4189453125], "seconds": 47.565597167002124, "exit": 0}

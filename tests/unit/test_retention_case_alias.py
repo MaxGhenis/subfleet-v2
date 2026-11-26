@@ -37,6 +37,10 @@ from subfleet.adapters.base import AdapterError
 from tests.unit.retention_world import World, git, snapshot
 from tests.unit.test_retention_shared_folders import nested_repository, run
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
+
 
 def tree_and_alias(daemon, harness, where: str) -> tuple[Path, str, Path, str]:
     """A finished job `Job` with its own worktree under the state root, as retention
@@ -339,16 +343,12 @@ def test_an_absent_nested_writer_under_a_parent_fence_waits_on_it(tmp_path, type
         assert [row["lease_key"] for row in daemon.store.list_leases() if row["holder"] == writer] == []
 
 
-def test_a_parent_typed_beyond_ascii_case_is_held_by_the_fence_but_keeps_no_tree(tmp_path):
-    """C-8.4's known limit for the folders above a tree (review of #141 at 7b9e7ca4,
-    P3; its `Ünï`/`ünï` probe). The state root is `…/Ünï/state`, and a conversation's
-    cwd typed `…/ünï/state/worktrees/jOB/vendor/lib` is submitted while retention has
-    `Job` in quarantine. Admission spells the folder again, the state root as the
-    volume stores it, and compares the names it could not look up folded, so the turn
-    waits on the fence and takes no row. `worktree-in-use` compares the cwd as submit
-    recorded it with SQLite's NOCASE and LIKE, which fold ASCII letters only, so the
-    queued job keeps no tree: an intended limit the contract states. With the state
-    root typed as stored (`Ünï`), only ASCII case differs and the job keeps the tree."""
+def test_a_parent_typed_beyond_ascii_case_is_held_by_the_fence_and_keeps_the_tree(tmp_path):
+    """C-8.4: intended closure of #141's ASCII-only pin limit. A legacy workdir
+    whose state-root parent is typed in another Unicode case keeps the tree too.
+    Admission still waits on the folded fence without reserving a row; fresh
+    submissions and legacy rows now agree because dependency pins fold names.
+    """
     from tests.fake.test_admission_latency import fleet_daemon, measure
     from tests.fake.test_admission_liveness import CODEX, _checkout, _live
     from tests.fake.test_turn_wait_reasons import SETTINGS
@@ -363,10 +363,15 @@ def test_a_parent_typed_beyond_ascii_case_is_held_by_the_fence_but_keeps_no_tree
         typed = {"ascii-case": alias, "beyond-ascii": Path(str(alias).replace("/Ünï/", "/ünï/"))}
         assert typed["beyond-ascii"].is_dir() and typed["beyond-ascii"].samefile(folder)
         assert daemon.store.acquire_lease(folders.exclusive_key(tree), "retention:Job")
-        kept, turns = {}, {}
+        kept, fresh_kept, turns = {}, {}, {}
         for how, cwd in typed.items():
             _, turns[how] = submit_while_moved(daemon, harness, cwd, lambda: wt.rename(aside),
                                                {**SETTINGS, "permission": "read-only"})
+            assert "/Ünï/state/" in daemon.store.get_job(turns[how])["workdir"]
+            fresh_kept[how] = retention._pin_reasons(daemon.store, set(), None, only="Job", root=daemon.root).get("Job")
+            # Preserve the pre-canonical-submission row whose pin used to be missed.
+            # Its folder and unspelled flag retain their original meanings.
+            daemon.store.update_job(turns[how], workdir=str(cwd))
             daemon._admit_turns()
             hold = daemon._holds.get(turns[how]) or {}
             assert not _live(daemon, turns[how]) and turn_rows(daemon, turns[how]) == [], hold
@@ -374,7 +379,8 @@ def test_a_parent_typed_beyond_ascii_case_is_held_by_the_fence_but_keeps_no_tree
             kept[how] = retention._pin_reasons(daemon.store, set(), None, only="Job", root=daemon.root).get("Job")
             daemon.store.update_job(turns[how], state="cancelled", cancel_requested_at="2026-10-10T00:00:00Z")
             aside.rename(wt)
-        assert kept == {"ascii-case": "worktree-in-use", "beyond-ascii": None}, kept
+        assert fresh_kept == {"ascii-case": "worktree-in-use", "beyond-ascii": "worktree-in-use"}, fresh_kept
+        assert kept == {"ascii-case": "worktree-in-use", "beyond-ascii": "worktree-in-use"}, kept
 
 
 @pytest.mark.parametrize("writable", [True, False], ids=["TURN", "READER"])

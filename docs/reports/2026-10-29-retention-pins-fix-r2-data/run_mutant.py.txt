@@ -1,0 +1,40 @@
+import hashlib
+import importlib.abc
+import importlib.machinery
+import json
+import os
+from pathlib import Path
+import runpy
+import sys
+
+scratch = Path('/private/tmp/sf-fix272r2')
+name = sys.argv[1]
+definition = json.loads(Path('docs/reports/2026-10-29-retention-pins-fix-r2-data/mutant-definitions.json').read_text())[name]
+loaded = []
+
+class Loader(importlib.machinery.SourceFileLoader):
+    def get_code(self, fullname):
+        path = self.get_filename(fullname)
+        source = Path(path).read_text()
+        assert source.count(definition['old']) == 1
+        mutated = source.replace(definition['old'], definition['new'])
+        code = compile(mutated, path, 'exec')
+        loaded.append({'module': fullname, 'path': path,
+                       'original_sha256': hashlib.sha256(source.encode()).hexdigest(),
+                       'mutated_sha256': hashlib.sha256(mutated.encode()).hexdigest()})
+        return code
+
+class Finder(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname != 'subfleet.dependencies':
+            return None
+        spec = importlib.machinery.PathFinder.find_spec(fullname, path)
+        spec.loader = Loader(fullname, spec.origin)
+        return spec
+
+sys.meta_path.insert(0, Finder())
+sys.argv = [str(scratch/'run_hold.py'), 'mutant-'+name, *definition['tests'], '-x']
+try:
+    runpy.run_path(str(scratch/'run_hold.py'), run_name='__main__')
+finally:
+    (scratch/('mutant-'+name+'-loaded.json')).write_text(json.dumps(loaded, indent=2)+'\n')

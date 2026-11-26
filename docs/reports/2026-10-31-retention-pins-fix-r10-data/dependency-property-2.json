@@ -1,0 +1,44 @@
+{
+  "name": "dependency-property-2",
+  "start": "2026-10-31T13:50:53.372729+00:00",
+  "load": [
+    74.90283203125,
+    62.3681640625,
+    76.4423828125
+  ],
+  "pytest_pid": 82325,
+  "failure_root": "/private/tmp/sf-fix272r10/failed-keep",
+  "args": [
+    "tests/unit/test_retention_dependency_properties.py",
+    "-k",
+    "monotone"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6110981249948964,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/subfleet/dependencies.py",
+  "product_sha256": "38f65f4089bee465ce3b8ac9d57cdb91a0dcae53d87542864cdba3720774f8a8",
+  "example_progress": {
+    "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement": {
+      "passed": 56,
+      "failures": [],
+      "interrupted": 1
+    }
+  },
+  "end": "2026-10-31T14:00:11.980834+00:00",
+  "seconds": 558.600212917001,
+  "peak_rss_mib": 142.390625,
+  "exit": 2
+}

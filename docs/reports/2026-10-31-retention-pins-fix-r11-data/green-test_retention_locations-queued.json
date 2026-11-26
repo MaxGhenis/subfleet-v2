@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T18:12:35.554084+00:00",
+  "args": [
+    "tests/unit/test_retention_locations.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r11/real-tmp/green-test_retention_locations",
+  "linked": false,
+  "driver_pid": 26632,
+  "lock_process_group": 26666
+}

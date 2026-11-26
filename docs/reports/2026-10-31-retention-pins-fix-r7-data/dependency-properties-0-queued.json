@@ -1,0 +1,8 @@
+{
+  "queued": "2026-10-31T03:42:24.214995+00:00",
+  "args": [
+    "tests/unit/test_retention_dependency_properties.py",
+    "-k",
+    "selection_never_retires"
+  ]
+}

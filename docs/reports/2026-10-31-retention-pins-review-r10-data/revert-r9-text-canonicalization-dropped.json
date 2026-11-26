@@ -1,0 +1,571 @@
+{
+  "name": "revert-r9-text-canonicalization-dropped",
+  "start": "2026-10-31T10:44:46.475826+00:00",
+  "load": [
+    38.99169921875,
+    39.283203125,
+    37.37353515625
+  ],
+  "args": [
+    "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.5357473330004723,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 24.99609783300184,
+      "wasxfail": null,
+      "failure": "tests/unit/test_retention_location_spelling.py:201: in test_spelling_inputs_keep_the_places_real_git_traverses\n    suppress_health_check=[HealthCheck.function_scoped_fixture])\n         ^^^^^^^^^^^^^^^^^^\ntests/unit/test_retention_location_spelling.py:206: in test_spelling_inputs_keep_the_places_real_git_traverses\n    observation = check_spelling_input(Path(directory), data)\n                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n/Users/maxghenis/.subfleet/worktrees/20261031-063315-pr272-review-r10/review-r10-data/run.py:134: in observed\n    result = original(base, data)\n             ^^^^^^^^^^^^^^^^^^^^\ntests/unit/test_retention_location_spelling.py:189: in check_spelling_input\n    assert_location_spelling(supplied, recorded.get(\"git\", []))\ntests/unit/test_retention_location_spelling.py:64: in assert_location_spelling\n    assert os.path.join(folders.canonical(os.path.dirname(place)), os.path.basename(place)) == place, place\nE   AssertionError: /System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpfr8eil1_/check\u00f3ut/.git\nE   assert '/private/tmp...check\u00f3ut/.git' == '/System/Volu...check\u00f3ut/.git'\nE     \nE     - /System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpfr8eil1_/check\u00f3ut/.git\nE     ? --------------------\nE     + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpfr8eil1_/check\u00f3ut/.git\nE   Failing test case: test_spelling_inputs_keep_the_places_real_git_traverses(\nE       record_property=append_property,\nE       data={'position': 'gitfile-target', 'spelling': 'data-volume', 'named': False},  # or any other generated value\nE   )\nE   {'position': 'gitfile-target', 'spelling': 'data-volume', 'named': False}"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.1030783340029302,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses"
+  ],
+  "product_file": "/private/tmp/sf-r272r10/reversion-r9-text-canonicalization-dropped/subfleet/dependencies.py",
+  "product_sha256": "6dbb0871f83aaa5462a5f60cf625c2780d6203ff13d198fae6bb420afcb29f4e",
+  "attempts": [
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "spelling": "data-volume",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp178qmshv/check\u00f3ut/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/System/Volu...check\u00f3ut/.git'\n  \n  - /System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp178qmshv/check\u00f3ut/.git\n  ? --------------------\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp178qmshv/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "commondir-file",
+        "spelling": "other-case",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "/PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMPFST4UQTY/CHECK\u00d3UT/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/PRIVATE/TMP...CHECK\u00d3UT/.git'\n  \n  - /PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMPFST4UQTY/CHECK\u00d3UT/.git\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpfst4uqty/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "alternates-line",
+        "spelling": "other-case",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMP8NMC_NDW/CHECK\u00d3UT/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/PRIVATE/TMP...CHECK\u00d3UT/.git'\n  \n  - /PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMP8NMC_NDW/CHECK\u00d3UT/.git\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp8nmc_ndw/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "spelling": "other-normalization",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp_0nwpukd/checko\u0301ut/.git\nassert '/private/tmp...ck\\xf3ut/.git' == '/private/tmp...\\u0301ut/.git'\n  \n  Skipping 80 identical leading characters in diff, use -v to show\n  - pukd/checko\u0301ut/.git\n  ?           ^^\n  + pukd/check\u00f3ut/.git\n  ?           ^"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "objects-pack",
+        "spelling": "other-normalization",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpozcv00hd/checko\u0301ut/.git\nassert '/private/tmp...ck\\xf3ut/.git' == '/private/tmp...\\u0301ut/.git'\n  \n  Skipping 80 identical leading characters in diff, use -v to show\n  - 00hd/checko\u0301ut/.git\n  ?           ^^\n  + 00hd/check\u00f3ut/.git\n  ?           ^"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "alternates-file",
+        "spelling": "data-volume",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "/System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpix2odhcg/check\u00f3ut/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/System/Volu...check\u00f3ut/.git'\n  \n  - /System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpix2odhcg/check\u00f3ut/.git\n  ? --------------------\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpix2odhcg/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "objects-pack",
+        "spelling": "other-case",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMPHQF_9RSD/CHECK\u00d3UT/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/PRIVATE/TMP...CHECK\u00d3UT/.git'\n  \n  - /PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMPHQF_9RSD/CHECK\u00d3UT/.git\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmphqf_9rsd/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "git-entry",
+        "spelling": "other-case",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMPOS7E68JS/CHECK\u00d3UT/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/PRIVATE/TMP...CHECK\u00d3UT/.git'\n  \n  - /PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMPOS7E68JS/CHECK\u00d3UT/.git\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpos7e68js/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "intermediate",
+        "spelling": "other-case",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMP4WJ7AAHS/CHECK\u00d3UT/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/PRIVATE/TMP...CHECK\u00d3UT/.git'\n  \n  - /PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMP4WJ7AAHS/CHECK\u00d3UT/.git\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp4wj7aahs/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "commondir-target",
+        "spelling": "other-case",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMPUX4JBGBF/CHECK\u00d3UT/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/PRIVATE/TMP...CHECK\u00d3UT/.git'\n  \n  - /PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMPUX4JBGBF/CHECK\u00d3UT/.git\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpux4jbgbf/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "spelling": "data-volume",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp8okjrxh9/check\u00f3ut/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/System/Volu...check\u00f3ut/.git'\n  \n  - /System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp8okjrxh9/check\u00f3ut/.git\n  ? --------------------\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp8okjrxh9/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "intermediate",
+        "spelling": "data-volume",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "/System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpqmtp_gju/check\u00f3ut/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/System/Volu...check\u00f3ut/.git'\n  \n  - /System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpqmtp_gju/check\u00f3ut/.git\n  ? --------------------\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpqmtp_gju/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "spelling": "other-case",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "/PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMPMIIB_0I0/CHECK\u00d3UT/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/PRIVATE/TMP...CHECK\u00d3UT/.git'\n  \n  - /PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMPMIIB_0I0/CHECK\u00d3UT/.git\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpmiib_0i0/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "commondir-file",
+        "spelling": "other-case",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMP2_NH3P6Q/CHECK\u00d3UT/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/PRIVATE/TMP...CHECK\u00d3UT/.git'\n  \n  - /PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMP2_NH3P6Q/CHECK\u00d3UT/.git\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp2_nh3p6q/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "alternates-line",
+        "spelling": "other-normalization",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpa6vg7pbg/checko\u0301ut/.git\nassert '/private/tmp...ck\\xf3ut/.git' == '/private/tmp...\\u0301ut/.git'\n  \n  Skipping 80 identical leading characters in diff, use -v to show\n  - 7pbg/checko\u0301ut/.git\n  ?           ^^\n  + 7pbg/check\u00f3ut/.git\n  ?           ^"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "objects-info",
+        "spelling": "other-case",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "/PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMPKL7E0LUW/CHECK\u00d3UT/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/PRIVATE/TMP...CHECK\u00d3UT/.git'\n  \n  - /PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMPKL7E0LUW/CHECK\u00d3UT/.git\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpkl7e0luw/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "git-entry",
+        "spelling": "data-volume",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "/System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpktn5kp0_/check\u00f3ut/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/System/Volu...check\u00f3ut/.git'\n  \n  - /System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpktn5kp0_/check\u00f3ut/.git\n  ? --------------------\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpktn5kp0_/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "spelling": "other-case",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMPPHHCA88W/OWN\u00c9R/POINTER\nassert '/private/tmp...own\u00e9r/POINTER' == '/PRIVATE/TMP...OWN\u00c9R/POINTER'\n  \n  - /PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMPPHHCA88W/OWN\u00c9R/POINTER\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpphhca88w/own\u00e9r/POINTER"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "objects-pack",
+        "spelling": "data-volume",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "/System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpqakobqrl/check\u00f3ut/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/System/Volu...check\u00f3ut/.git'\n  \n  - /System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpqakobqrl/check\u00f3ut/.git\n  ? --------------------\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpqakobqrl/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "intermediate",
+        "spelling": "other-normalization",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmppzjn_ydy/checko\u0301ut/.git\nassert '/private/tmp...ck\\xf3ut/.git' == '/private/tmp...\\u0301ut/.git'\n  \n  Skipping 80 identical leading characters in diff, use -v to show\n  - _ydy/checko\u0301ut/.git\n  ?           ^^\n  + _ydy/check\u00f3ut/.git\n  ?           ^"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "commondir-file",
+        "spelling": "data-volume",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmplvl7b92t/check\u00f3ut/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/System/Volu...check\u00f3ut/.git'\n  \n  - /System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmplvl7b92t/check\u00f3ut/.git\n  ? --------------------\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmplvl7b92t/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "objects-info",
+        "spelling": "other-normalization",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpdevtnntq/checko\u0301ut/.git\nassert '/private/tmp...ck\\xf3ut/.git' == '/private/tmp...\\u0301ut/.git'\n  \n  Skipping 80 identical leading characters in diff, use -v to show\n  - nntq/checko\u0301ut/.git\n  ?           ^^\n  + nntq/check\u00f3ut/.git\n  ?           ^"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "spelling": "data-volume",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "/System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpxf6c7bxq/own\u00e9r/pointer\nassert '/private/tmp...own\u00e9r/pointer' == '/System/Volu...own\u00e9r/pointer'\n  \n  - /System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpxf6c7bxq/own\u00e9r/pointer\n  ? --------------------\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpxf6c7bxq/own\u00e9r/pointer"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "objects",
+        "spelling": "other-case",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMPZ9GZ1QKF/CHECK\u00d3UT/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/PRIVATE/TMP...CHECK\u00d3UT/.git'\n  \n  - /PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMPZ9GZ1QKF/CHECK\u00d3UT/.git\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpz9gz1qkf/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "commondir-file",
+        "spelling": "other-normalization",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmplaknxw_8/checko\u0301ut/.git\nassert '/private/tmp...ck\\xf3ut/.git' == '/private/tmp...\\u0301ut/.git'\n  \n  Skipping 80 identical leading characters in diff, use -v to show\n  - xw_8/checko\u0301ut/.git\n  ?           ^^\n  + xw_8/check\u00f3ut/.git\n  ?           ^"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "objects-pack",
+        "spelling": "data-volume",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp3x6kb_ac/check\u00f3ut/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/System/Volu...check\u00f3ut/.git'\n  \n  - /System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp3x6kb_ac/check\u00f3ut/.git\n  ? --------------------\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp3x6kb_ac/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "git-entry",
+        "spelling": "data-volume",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpeefoywbx/check\u00f3ut/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/System/Volu...check\u00f3ut/.git'\n  \n  - /System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpeefoywbx/check\u00f3ut/.git\n  ? --------------------\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpeefoywbx/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "alternates-file",
+        "spelling": "other-case",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMP0VKBTMML/CHECK\u00d3UT/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/PRIVATE/TMP...CHECK\u00d3UT/.git'\n  \n  - /PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMP0VKBTMML/CHECK\u00d3UT/.git\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp0vkbtmml/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "spelling": "other-normalization",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp3bi20s4y/owne\u0301r/pointer\nassert '/private/tmp...\\xe9r/pointer' == '/private/tmp...0301r/pointer'\n  \n  Skipping 78 identical leading characters in diff, use -v to show\n  - i20s4y/owne\u0301r/pointer\n  ?           ^^\n  + i20s4y/own\u00e9r/pointer\n  ?           ^"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "objects-info",
+        "spelling": "data-volume",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp_rtyf_b0/check\u00f3ut/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/System/Volu...check\u00f3ut/.git'\n  \n  - /System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp_rtyf_b0/check\u00f3ut/.git\n  ? --------------------\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp_rtyf_b0/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "commondir-target",
+        "spelling": "other-case",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "/PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMPWZIGW7Z6/CHECK\u00d3UT/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/PRIVATE/TMP...CHECK\u00d3UT/.git'\n  \n  - /PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMPWZIGW7Z6/CHECK\u00d3UT/.git\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpwzigw7z6/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "objects-info",
+        "spelling": "data-volume",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "/System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp1y9xpfvs/check\u00f3ut/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/System/Volu...check\u00f3ut/.git'\n  \n  - /System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp1y9xpfvs/check\u00f3ut/.git\n  ? --------------------\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp1y9xpfvs/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "objects-info",
+        "spelling": "other-case",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMPCGGCEEGD/CHECK\u00d3UT/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/PRIVATE/TMP...CHECK\u00d3UT/.git'\n  \n  - /PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMPCGGCEEGD/CHECK\u00d3UT/.git\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpcggceegd/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "spelling": "data-volume",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "/System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpzim9w8c9/check\u00f3ut/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/System/Volu...check\u00f3ut/.git'\n  \n  - /System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpzim9w8c9/check\u00f3ut/.git\n  ? --------------------\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpzim9w8c9/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "alternates-file",
+        "spelling": "data-volume",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp_d0qkg88/check\u00f3ut/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/System/Volu...check\u00f3ut/.git'\n  \n  - /System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp_d0qkg88/check\u00f3ut/.git\n  ? --------------------\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp_d0qkg88/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "alternates-line",
+        "spelling": "other-case",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "/PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMP5EMCCZ11/CHECK\u00d3UT/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/PRIVATE/TMP...CHECK\u00d3UT/.git'\n  \n  - /PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMP5EMCCZ11/CHECK\u00d3UT/.git\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp5emccz11/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "commondir-target",
+        "spelling": "data-volume",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "/System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmplrli4zvd/check\u00f3ut/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/System/Volu...check\u00f3ut/.git'\n  \n  - /System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmplrli4zvd/check\u00f3ut/.git\n  ? --------------------\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmplrli4zvd/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "git-entry",
+        "spelling": "other-normalization",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpc0164071/checko\u0301ut/.git\nassert '/private/tmp...ck\\xf3ut/.git' == '/private/tmp...\\u0301ut/.git'\n  \n  Skipping 80 identical leading characters in diff, use -v to show\n  - 4071/checko\u0301ut/.git\n  ?           ^^\n  + 4071/check\u00f3ut/.git\n  ?           ^"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "alternates-line",
+        "spelling": "data-volume",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp3zjop0ld/check\u00f3ut/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/System/Volu...check\u00f3ut/.git'\n  \n  - /System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp3zjop0ld/check\u00f3ut/.git\n  ? --------------------\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp3zjop0ld/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "spelling": "other-case",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMPF_EIYRBG/CHECK\u00d3UT/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/PRIVATE/TMP...CHECK\u00d3UT/.git'\n  \n  - /PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMPF_EIYRBG/CHECK\u00d3UT/.git\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpf_eiyrbg/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "alternates-file",
+        "spelling": "other-case",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "/PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMP13HH2A3W/CHECK\u00d3UT/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/PRIVATE/TMP...CHECK\u00d3UT/.git'\n  \n  - /PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMP13HH2A3W/CHECK\u00d3UT/.git\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp13hh2a3w/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "git-entry",
+        "spelling": "other-case",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "/PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMP7BYLB13_/CHECK\u00d3UT/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/PRIVATE/TMP...CHECK\u00d3UT/.git'\n  \n  - /PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMP7BYLB13_/CHECK\u00d3UT/.git\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp7bylb13_/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "objects-pack",
+        "spelling": "other-case",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "/PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMPOL1CYNDM/CHECK\u00d3UT/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/PRIVATE/TMP...CHECK\u00d3UT/.git'\n  \n  - /PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMPOL1CYNDM/CHECK\u00d3UT/.git\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpol1cyndm/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "intermediate",
+        "spelling": "data-volume",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpxtiik_7s/check\u00f3ut/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/System/Volu...check\u00f3ut/.git'\n  \n  - /System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpxtiik_7s/check\u00f3ut/.git\n  ? --------------------\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpxtiik_7s/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "objects",
+        "spelling": "data-volume",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "/System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpg4stfkdk/check\u00f3ut/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/System/Volu...check\u00f3ut/.git'\n  \n  - /System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpg4stfkdk/check\u00f3ut/.git\n  ? --------------------\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpg4stfkdk/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "commondir-file",
+        "spelling": "data-volume",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "/System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp03zfqese/check\u00f3ut/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/System/Volu...check\u00f3ut/.git'\n  \n  - /System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp03zfqese/check\u00f3ut/.git\n  ? --------------------\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp03zfqese/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "commondir-target",
+        "spelling": "data-volume",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpl3enm8hm/check\u00f3ut/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/System/Volu...check\u00f3ut/.git'\n  \n  - /System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpl3enm8hm/check\u00f3ut/.git\n  ? --------------------\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpl3enm8hm/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-pointer",
+        "spelling": "data-volume",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpl7sfm0nx/own\u00e9r/pointer\nassert '/private/tmp...own\u00e9r/pointer' == '/System/Volu...own\u00e9r/pointer'\n  \n  - /System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpl7sfm0nx/own\u00e9r/pointer\n  ? --------------------\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpl7sfm0nx/own\u00e9r/pointer"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "objects",
+        "spelling": "other-case",
+        "named": true
+      },
+      "outcome": "failed",
+      "error": "/PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMP3PNCCXSI/CHECK\u00d3UT/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/PRIVATE/TMP...CHECK\u00d3UT/.git'\n  \n  - /PRIVATE/TMP/SF-R272R10/REAL-TMP/REVERT-R9-TEXT-CANONICALIZATION-DROPPED/TMP3PNCCXSI/CHECK\u00d3UT/.git\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp3pnccxsi/check\u00f3ut/.git"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "alternates-file",
+        "spelling": "other-normalization",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmphui0t1hl/checko\u0301ut/.git\nassert '/private/tmp...ck\\xf3ut/.git' == '/private/tmp...\\u0301ut/.git'\n  \n  Skipping 80 identical leading characters in diff, use -v to show\n  - t1hl/checko\u0301ut/.git\n  ?           ^^\n  + t1hl/check\u00f3ut/.git\n  ?           ^"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "objects",
+        "spelling": "other-normalization",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmp5o_ox1ne/checko\u0301ut/.git\nassert '/private/tmp...ck\\xf3ut/.git' == '/private/tmp...\\u0301ut/.git'\n  \n  Skipping 80 identical leading characters in diff, use -v to show\n  - x1ne/checko\u0301ut/.git\n  ?           ^^\n  + x1ne/check\u00f3ut/.git\n  ?           ^"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses",
+      "input": {
+        "position": "gitfile-target",
+        "spelling": "data-volume",
+        "named": false
+      },
+      "outcome": "failed",
+      "error": "/System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpfr8eil1_/check\u00f3ut/.git\nassert '/private/tmp...check\u00f3ut/.git' == '/System/Volu...check\u00f3ut/.git'\n  \n  - /System/Volumes/Data/private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpfr8eil1_/check\u00f3ut/.git\n  ? --------------------\n  + /private/tmp/sf-r272r10/real-tmp/revert-r9-text-canonicalization-dropped/tmpfr8eil1_/check\u00f3ut/.git"
+    }
+  ],
+  "end": "2026-10-31T10:45:20.381002+00:00",
+  "seconds": 33.90331750000041,
+  "peak_rss_mib": 142.953125,
+  "exit": 1
+}

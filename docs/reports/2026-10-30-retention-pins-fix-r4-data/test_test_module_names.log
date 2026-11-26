@@ -1,0 +1,11 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 05:10:59Z slot A load 
+START test_test_module_names 2026-10-30T05:11:00.752581+00:00 load=(18.03173828125, 21.10791015625, 21.60693359375)
+.                                                                        [100%]
+1 passed in 2.31s

@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T16:21:26.747747+00:00",
+  "args": [
+    "-p",
+    "tests.conftest",
+    "review-r11-data/round_probes.py"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/route-independent",
+  "linked": false,
+  "driver_pid": 98673,
+  "lock_process_group": 99879
+}

@@ -23,7 +23,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Iterator, Sequence
+from typing import Any, Callable, Iterator, Sequence
 
 from ..lockwatch import WatchedLock
 from ..sessions.transcripts import NotRegularFile
@@ -93,6 +93,12 @@ CREATE TABLE IF NOT EXISTS messages (
   UNIQUE (conversation_id, seq)
 );
 CREATE INDEX IF NOT EXISTS messages_by_state ON messages(conversation_id, state, seq);
+CREATE TABLE IF NOT EXISTS message_stop_requests (
+  message_id TEXT NOT NULL REFERENCES messages(message_id) ON DELETE CASCADE,
+  turn_seq INTEGER NOT NULL,
+  requester_json TEXT NOT NULL,
+  PRIMARY KEY (message_id, turn_seq)
+);
 CREATE TABLE IF NOT EXISTS final_wake_intents (
   message_id TEXT PRIMARY KEY REFERENCES messages(message_id) ON DELETE CASCADE,
   final_text TEXT NOT NULL, settled_at REAL NOT NULL
@@ -345,6 +351,10 @@ class ConversationStore:
             self._db.executescript(SCHEMA)
             from .wakes import SCHEMA as WAKE_SCHEMA
             self._db.executescript(WAKE_SCHEMA)
+            # C-25.7: suggested conversations, an additive table as the wake tables are.
+            from .suggestions import SCHEMA as SUGGESTION_SCHEMA, add_columns as add_suggestion_columns
+            self._db.executescript(SUGGESTION_SCHEMA)
+            add_suggestion_columns(self._db)
             # Additive columns need no numbered step: a build without them still reads the
             # rows (it selects by name and ignores what it does not know).
             columns = {row["name"] for row in self._db.execute("PRAGMA table_info(conversations)")}
@@ -360,8 +370,12 @@ class ConversationStore:
                              "WHERE title IS NOT NULL AND title_source IS NULL")
             # A waiting message's reason (another writer, a deferral) reaches the
             # app with its state (design §12).
-            if "state_reason" not in {row["name"] for row in self._db.execute("PRAGMA table_info(changes)")}:
+            change_columns = {row["name"] for row in self._db.execute("PRAGMA table_info(changes)")}
+            if "state_reason" not in change_columns:
                 self._db.execute("ALTER TABLE changes ADD COLUMN state_reason TEXT")
+            # C-25.7: a suggestion's feed row names it; additive, as `state_reason` was.
+            if "suggestion_id" not in change_columns:
+                self._db.execute("ALTER TABLE changes ADD COLUMN suggestion_id TEXT")
             self._add_turn_windows()
             if version is None:
                 self._db.execute("INSERT INTO schema_version VALUES (?,?)", (SCHEMA_VERSION, utcnow()))
@@ -574,16 +588,36 @@ class ConversationStore:
                 row = tx.execute("SELECT reason FROM legacy_sessions WHERE session_key IN (?, '*') "
                                  "ORDER BY session_key='*' LIMIT 1", (f"{provider}:{native_session_id}",)).fetchone()
                 held = row["reason"] if row else None
-            cid = new_id("cv")
-            tx.execute(
-                "INSERT INTO conversations(conversation_id,provider,native_session_id,title,title_source,workspace,workspace_kind,"
-                "allow_main,lane_id,settings_json,origin,handoff_from_json,request_id,legacy_hold,created_at,"
-                "updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (cid, provider, native_session_id, title, "person" if title else None, workspace, workspace_kind, int(allow_main), lane_id,
-                 json.dumps(settings), origin, json.dumps(handoff_from) if handoff_from else None, request_id,
-                 held, now, now))
-            self._change(tx, cid, None, None)
+            cid = self.insert_conversation(tx, provider=provider, workspace=workspace, workspace_kind=workspace_kind,
+                                           settings=settings, origin=origin, native_session_id=native_session_id,
+                                           title=title, allow_main=allow_main, lane_id=lane_id, request_id=request_id,
+                                           handoff_from=handoff_from, legacy_hold=held, now=now)
         return self.conversation(cid), True
+
+    def insert_conversation(self, tx: sqlite3.Connection, *, provider: str, workspace: str, workspace_kind: str,
+                            settings: dict, origin: str, native_session_id: str | None = None,
+                            title: str | None = None, allow_main: bool = False, lane_id: str | None = None,
+                            request_id: str | None = None, handoff_from: dict | None = None,
+                            legacy_hold: str | None = None, now: str | None = None) -> str:
+        """A new conversation's row and its feed row, inside the caller's transaction
+        (`create_conversation`, and a suggestion's start, C-25.7, which writes it with
+        its own claim). The caller has checked the request id and native session."""
+        if provider not in PROVIDERS:
+            raise ConversationError("bad-provider", "provider must be claude or codex")
+        settings = validate_settings(provider, settings)
+        if isinstance(title, str):
+            title = title.strip() or None
+        now = now or utcnow()
+        cid = new_id("cv")
+        tx.execute(
+            "INSERT INTO conversations(conversation_id,provider,native_session_id,title,title_source,workspace,workspace_kind,"
+            "allow_main,lane_id,settings_json,origin,handoff_from_json,request_id,legacy_hold,created_at,"
+            "updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (cid, provider, native_session_id, title, "person" if title else None, workspace, workspace_kind, int(allow_main), lane_id,
+             json.dumps(settings), origin, json.dumps(handoff_from) if handoff_from else None, request_id,
+             legacy_hold, now, now))
+        self._change(tx, cid, None, None)
+        return cid
 
     def rename_conversation(self, conversation_id: str, title: str) -> dict:
         """A person's rename permanently takes precedence over an in-flight title."""
@@ -977,11 +1011,19 @@ class ConversationStore:
                        text: str, attachments: list[str], settings: dict, origin: str = "person",
                        wake_claim: dict | None = None,
                        continues: str | None = None, state: str = QUEUED,
-                       state_reason: str | None = None) -> tuple[dict, bool]:
+                       state_reason: str | None = None,
+                       on_accept: Callable[[sqlite3.Connection], None] | None = None,
+                       starts_suggestion: str | None = None) -> tuple[dict, bool]:
         """Durably accept a message (C-24.2, C-24.3). Idempotent by id and digest;
         in order by the client's predecessor. A row Subfleet writes already
         settled (a withdrawal tombstone, IR-7) is born in its final `state`, so
-        the dispatcher never sees it queued."""
+        the dispatcher never sees it queued. `on_accept` runs inside the
+        transaction that inserts the row, and only then (a suggestion's start
+        records `started` with its first message, C-25.7); a repeat that finds
+        the message accepted already does not call it. A conversation a
+        suggestion's Start made takes no message until its brief, which that
+        Start submits naming the suggestion (`starts_suggestion`), and the brief
+        only as its first (`suggestions.admit_message`, in this transaction)."""
         if state not in (QUEUED, *TERMINAL_STATES):
             raise ValueError(f"a message is accepted queued or terminal, not {state}")
         message_id = canonical_uuid(message_id)
@@ -1012,6 +1054,8 @@ class ConversationStore:
                 if again["digest"] != digest:
                     raise ConversationError("message-id-conflict", "message id already used with different content")
                 return _decode_message(dict(again)), False
+            from .suggestions import admit_message
+            admit_message(tx, conversation_id, starts_suggestion)
             if wake_claim is not None:
                 from .wakes import claim
                 claim(tx, conversation_id, message_id, wake_claim, accepted_at=now)
@@ -1043,6 +1087,8 @@ class ConversationStore:
                            "WHERE conversation_id=? AND title IS NULL AND title_source IS NULL",
                            (fallback_title(text), message_id, conversation_id))
             self._change(tx, conversation_id, message_id, state)
+            if on_accept is not None:
+                on_accept(tx)
         return self.message(message_id), True
 
     def insert_legacy_history(self, *, conversation_id: str, message_id: str, text: str, state: str,
@@ -1091,6 +1137,8 @@ class ConversationStore:
             again = tx.execute("SELECT * FROM messages WHERE message_id=?", (message_id,)).fetchone()
             if again:
                 return same(again), False
+            from .suggestions import admit_message
+            admit_message(tx, conversation_id, None)      # C-25.7: not before a suggestion's brief
             if tx.execute("SELECT 1 FROM messages WHERE conversation_id=? AND origin<>'legacy' LIMIT 1",
                           (conversation_id,)).fetchone():
                 raise ConversationError("history-after-messages",
@@ -1203,7 +1251,8 @@ class ConversationStore:
             return tx.execute("SELECT 1 FROM messages WHERE message_id=? AND state=? AND job_id=?",
                               (message_id, WAITING, job_id)).fetchone() is not None
 
-    def withdraw(self, message_id: str, *, expect: tuple[str, ...], stop_at: str, unbound: bool = False) -> bool:
+    def withdraw(self, message_id: str, *, expect: tuple[str, ...], stop_at: str, unbound: bool = False,
+                 requester: dict | None = None) -> bool:
         """A person's withdrawal of a message (C-24.7): `cancelled`, reason
         `withdrawn`, only from `expect` and, with `unbound`, only while no job is
         bound to it, with the person's stop recorded in the same statement (an
@@ -1217,9 +1266,30 @@ class ConversationStore:
                              f"stop_requested_at=COALESCE(stop_requested_at, ?) WHERE {where}",
                              (CANCELLED, "withdrawn", utcnow(), stop_at, *params))
             if cur.rowcount:
+                self._save_stop_request(tx, message_id, requester)
                 row = tx.execute("SELECT conversation_id FROM messages WHERE message_id=?", (message_id,)).fetchone()
                 self._change(tx, row["conversation_id"], message_id, CANCELLED, reason="withdrawn")
             return bool(cur.rowcount)
+
+    @staticmethod
+    def _save_stop_request(tx, message_id: str, requester: dict | None) -> None:
+        if requester is not None:
+            tx.execute("INSERT OR IGNORE INTO message_stop_requests(message_id,turn_seq,requester_json) "
+                       "SELECT message_id,turn_seq,? FROM messages WHERE message_id=?",
+                       (json.dumps(requester), message_id))
+
+    def request_stop(self, message_id: str, *, stop_at: str, requester: dict) -> None:
+        """The stop and its first requester survive a pending job submission,
+        in one transaction. Each turn sequence has its own requester."""
+        with self.transaction() as tx:
+            tx.execute("UPDATE messages SET stop_requested_at=COALESCE(stop_requested_at,?),updated_at=? "
+                       "WHERE message_id=?", (stop_at, utcnow(), message_id))
+            self._save_stop_request(tx, message_id, requester)
+
+    def stop_requester(self, message_id: str, turn_seq: int) -> dict | None:
+        row = self.one("SELECT requester_json FROM message_stop_requests WHERE message_id=? AND turn_seq=?",
+                       (message_id, turn_seq))
+        return json.loads(row["requester_json"]) if row else None
 
     def update_message(self, message_id: str, **fields: Any) -> None:
         allowed = {"job_id", "turn_seq", "turn_ref", "served", "stop_requested_at", "resolution"}
@@ -1594,8 +1664,12 @@ class ConversationStore:
             size += len(row["data_json"]) + 64
             if out and size > max_bytes:
                 break
+            data = json.loads(row["data_json"])
+            if row["kind"] == "suggestion":
+                from .suggestions import event_view
+                data = event_view(data)
             out.append({"seq": row["seq"], "message_id": row["message_id"], "kind": row["kind"], "ts": row["ts"],
-                        "data": json.loads(row["data_json"])})
+                        "data": data})
             nxt = row["seq"]
         return {"events": out, "next": nxt, "reset": reset, "floor": floor}
 
@@ -1828,8 +1902,15 @@ class ConversationStore:
         rows = self.query("SELECT ch.*,c.title,c.title_source FROM changes ch "
                           "LEFT JOIN conversations c ON c.conversation_id=ch.conversation_id "
                           "WHERE ch.seq>? ORDER BY ch.seq LIMIT ?", (after, max(1, min(limit, 1000))))
+        # C-25.7: a suggestion's row carries the suggestion as it is now (its brief cut
+        # to a preview), so a client updates its card without asking again.
+        from .suggestions import Suggestions
+        named = [row["suggestion_id"] for row in rows if row.get("suggestion_id")]
+        views = Suggestions(self).views_for_changes(named) if named else {}
         for row in rows:
             row["steered_into"] = steered_into(row.get("state_reason"))
+            if row.get("suggestion_id"):
+                row["suggestion"] = views.get(row["suggestion_id"])
         return {"changes": rows, "next": rows[-1]["seq"] if rows else after}
 
     def wait(self, predicate, timeout_s: float) -> bool:

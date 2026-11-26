@@ -1,0 +1,27 @@
+{
+  "completed_runs": 99,
+  "ordinary_runs": 45,
+  "unique_ordinary_nodes": 829,
+  "unresolved_ordinary_failures": [],
+  "locked_runs": 99,
+  "longest_seconds": 563.0703851670005,
+  "peak_rss_mib": 202.65625,
+  "incomplete_runs": [],
+  "invalid_runs": [
+    "superseded-red-r9-firmlink-corrected",
+    "superseded-mutant-r9-canonical-auxiliary-trial",
+    "r9-firmlink",
+    "superseded-mutant-r9-file-canonicalization-dropped",
+    "superseded-r9-marked",
+    "superseded-mutant-r9-scanned-target-canonicalization-dropped"
+  ],
+  "ordinary_failures": {
+    "archive": 2
+  },
+  "mutants": {
+    "Survived": 7,
+    "Killed": 31,
+    "Positive trial": 1
+  },
+  "peak_pytest_concurrency": 2
+}

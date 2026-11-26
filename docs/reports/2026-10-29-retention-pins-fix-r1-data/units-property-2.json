@@ -1,0 +1,33 @@
+{
+  "name": "units-property-2",
+  "start": "2026-10-29T05:38:19.162499+00:00",
+  "load": [
+    21.0029296875,
+    22.92919921875,
+    25.6552734375
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-011712-pr272-fix-r1",
+  "collected": [
+    "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [
+    {
+      "nodeid": "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification",
+      "valid": 150,
+      "invalid": 0,
+      "calls": 173,
+      "settings_max": 150
+    }
+  ],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

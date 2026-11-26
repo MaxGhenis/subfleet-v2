@@ -1,0 +1,10 @@
+{
+  "r6_only_marks": true,
+  "r7_only_mark": true,
+  "subfleet/retention_git.py": true,
+  "subfleet/retention_archive.py": true,
+  "subfleet/retention_survey.py": true,
+  "subfleet/retention.py": true,
+  "docs/acceptance-contract.md": true,
+  "original_property_prefix_unchanged": true
+}

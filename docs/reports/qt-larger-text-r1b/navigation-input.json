@@ -1,0 +1,308 @@
+{
+  "a_pending": true,
+  "a_suspended": true,
+  "a_trace": [
+    {
+      "at_bottom": true,
+      "event": "reveal",
+      "suspended": true
+    },
+    {
+      "distance": 93,
+      "event": "reveal_check",
+      "presented": false,
+      "source": "document",
+      "target": "person:m000100"
+    }
+  ],
+  "b_caught_up": true,
+  "b_position": {
+    "content": 14985,
+    "from_end": 25,
+    "offset": 14406,
+    "viewport": 554
+  },
+  "b_trace": [
+    {
+      "at_bottom": true,
+      "event": "marker_appeared",
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "marker_disappearing",
+      "suspended": false
+    },
+    {
+      "at_bottom": false,
+      "event": "marker_false",
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "marker_appeared",
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "move",
+      "landing": false,
+      "move": "jump",
+      "new_length": 0,
+      "old_length": 0,
+      "settling": true,
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "marker_disappearing",
+      "suspended": false
+    },
+    {
+      "at_bottom": false,
+      "event": "marker_false",
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "marker_appeared",
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "move",
+      "landing": false,
+      "move": "jump",
+      "new_length": 127,
+      "old_length": 0,
+      "settling": true,
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "marker_disappearing",
+      "suspended": false
+    },
+    {
+      "at_bottom": false,
+      "event": "marker_false",
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "marker_appeared",
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "move",
+      "landing": false,
+      "move": "jump",
+      "new_length": 127,
+      "old_length": 127,
+      "settling": true,
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "marker_disappearing",
+      "suspended": false
+    },
+    {
+      "at_bottom": false,
+      "event": "marker_false",
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "marker_appeared",
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "move",
+      "landing": false,
+      "move": "jump",
+      "new_length": 0,
+      "old_length": 127,
+      "settling": true,
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "marker_disappearing",
+      "suspended": false
+    },
+    {
+      "at_bottom": false,
+      "event": "marker_false",
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "marker_appeared",
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "move",
+      "landing": false,
+      "move": "jump",
+      "new_length": 127,
+      "old_length": 0,
+      "settling": true,
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "marker_disappearing",
+      "suspended": false
+    },
+    {
+      "at_bottom": false,
+      "event": "marker_false",
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "marker_appeared",
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "move",
+      "landing": false,
+      "move": "jump",
+      "new_length": 127,
+      "old_length": 127,
+      "settling": true,
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "marker_disappearing",
+      "suspended": false
+    },
+    {
+      "at_bottom": false,
+      "event": "marker_false",
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "marker_appeared",
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "move",
+      "landing": false,
+      "move": "jump",
+      "new_length": 0,
+      "old_length": 127,
+      "settling": true,
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "marker_disappearing",
+      "suspended": false
+    },
+    {
+      "at_bottom": false,
+      "event": "marker_false",
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "marker_appeared",
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "move",
+      "landing": false,
+      "move": "jump",
+      "new_length": 135,
+      "old_length": 0,
+      "settling": true,
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "marker_disappearing",
+      "suspended": false
+    },
+    {
+      "at_bottom": false,
+      "event": "marker_false",
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "marker_appeared",
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "move",
+      "landing": false,
+      "move": "jump",
+      "new_length": 135,
+      "old_length": 135,
+      "settling": true,
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "marker_disappearing",
+      "suspended": false
+    },
+    {
+      "at_bottom": false,
+      "event": "marker_false",
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "marker_appeared",
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "move",
+      "landing": false,
+      "move": "jump",
+      "new_length": 17,
+      "old_length": 135,
+      "settling": true,
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "marker_disappearing",
+      "suspended": false
+    },
+    {
+      "at_bottom": false,
+      "event": "marker_false",
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "marker_appeared",
+      "suspended": false
+    },
+    {
+      "at_bottom": true,
+      "event": "move",
+      "landing": false,
+      "move": "jump",
+      "new_length": 17,
+      "old_length": 17,
+      "settling": true,
+      "suspended": false
+    }
+  ],
+  "pin_replaced": true
+}

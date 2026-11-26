@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T17:14:29.277730+00:00",
+  "args": [
+    "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/earlier-test_retention_dependency_properties-4",
+  "linked": false,
+  "driver_pid": 19274,
+  "lock_process_group": 19425
+}

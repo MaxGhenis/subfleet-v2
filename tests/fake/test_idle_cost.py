@@ -58,7 +58,7 @@ def service(tmp_path, monkeypatch, process_inspection_available):
         daemon.close()
 
 
-def test_c5_12_running_attempts_share_one_ps_per_interval(service, spawns):
+def test_c5_12_running_attempts_share_one_ps_per_interval(service, spawns, monkeypatch):
     """C-5.12, C-5.3 four healthy attempts ticked twenty times cost one `ps` and one `sysctl`, not three hundred."""
     daemon, harness = service
     guardians, attempts = [], []
@@ -82,11 +82,15 @@ def test_c5_12_running_attempts_share_one_ps_per_interval(service, spawns):
         getattr(procs, "forget_boot_id", lambda: None)()          # absent before C-5.12; the count below is the test
         daemon.inspect_interval_s = 30           # one interval spans the whole loop below
         spawns.clear()
+        # Since D-CEN1 the census reads environments in this process: count those scans too.
+        scans, listing = [], procs.kernel.pids
+        monkeypatch.setattr(procs.kernel, "pids", lambda: scans.append(1) or listing())
         for _ in range(20):
             for aid in attempts:
                 daemon._process_attempt(aid)
         assert sorted(call[0].rsplit("/", 1)[-1] for call in spawns) == ["ps", "sysctl"]
         assert not any("-axEww" in call for call in spawns)       # the environment scan is for a census that decides
+        assert not scans
         for aid, child in zip(attempts, guardians):
             a = daemon.store.get_attempt(aid)
             assert a["state"] == "running" and str(child.pid) in a["evidence_json"]

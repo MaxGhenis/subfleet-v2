@@ -1,0 +1,53 @@
+{
+  "name": "test_retention_archive-9",
+  "start": "2026-10-29T14:31:56.084699+00:00",
+  "load": [
+    36.74658203125,
+    40.8779296875,
+    38.7021484375
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_nested_linked_worktree_keeps_the_job": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_nested_repository_is_archived_byte_for_byte": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_registration_reduced_to_its_index_and_logs_is_archived_not_kept": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_an_admin_directory_that_lost_its_backlink_but_holds_more_keeps_the_job": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_job_without_worktree_is_archived_with_its_rows": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_missing_worktree_with_a_live_registration_is_anchored": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/unit/test_retention_archive.py::test_nested_linked_worktree_keeps_the_job",
+    "tests/unit/test_retention_archive.py::test_nested_repository_is_archived_byte_for_byte",
+    "tests/unit/test_retention_archive.py::test_a_registration_reduced_to_its_index_and_logs_is_archived_not_kept",
+    "tests/unit/test_retention_archive.py::test_an_admin_directory_that_lost_its_backlink_but_holds_more_keeps_the_job",
+    "tests/unit/test_retention_archive.py::test_job_without_worktree_is_archived_with_its_rows",
+    "tests/unit/test_retention_archive.py::test_missing_worktree_with_a_live_registration_is_anchored"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 37.40808945799654,
+  "rss": 125714432
+}

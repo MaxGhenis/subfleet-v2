@@ -1,0 +1,11 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 23:28:48Z slot B load 
+START test_retention_salvage_properties-1 2026-10-30T23:29:04.240410+00:00 load=(78.845703125, 76.849609375, 64.48779296875)
+
+============================ Hypothesis Statistics =============================
+!!!!!!!!!!!!!!!!!!! KeyboardInterrupt: 540 second hold bound !!!!!!!!!!!!!!!!!!!
+/private/tmp/sf-fix272r6/run_hold.py:81: KeyboardInterrupt: 540 second hold bound
+(to show a full traceback on KeyboardInterrupt use --full-trace)
+no tests ran in 523.24s (0:08:43)

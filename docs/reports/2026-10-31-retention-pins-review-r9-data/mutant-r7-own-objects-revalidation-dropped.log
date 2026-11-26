@@ -1,0 +1,7 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 08:35:31Z slot B load 
+.                                                                        [100%]
+1 passed in 5.68s
+{"name": "mutant-r7-own-objects-revalidation-dropped", "start": "2026-10-31T08:35:33.483332+00:00", "load": [35.29150390625, 28.48193359375, 29.15966796875], "seconds": 7.484489333000965, "exit": 0}

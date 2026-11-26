@@ -1,0 +1,171 @@
+VERDICT #277: APPROVE
+
+Reviewed 6ce2b608b5b8a2375c01c0e9fe610548f686f314 against release/217 676a34bf1.
+Production files are unchanged. New P1/P2/P3 findings: none.
+
+1. R1 P2: FIXED at subfleet/store.py:144 (readers :819, :823, :835).
+Executed old_store with old-dispatch and old-turn on schema 9,
+then Store(path, read_only=True). get_job('old-dispatch'),
+get_job_by_request('old-dispatch') and list_jobs() all supply provider_qos=utility;
+the read-only file stays at schema 9. test_qos_review_r1.py: 9 passed.
+After migration raw SQL reads NULL. Attempt readers gain no provider_qos field
+on migrated or read-only stores, offline included (13 migration/QoS tests passed).
+
+The domain readers are Store.get_job/get_job_by_request/list_jobs; Daemon._job
+(show, wait and why), list and _capacity_rows (status); Offline._job_dict
+(show, list and status). Capacity, retention and the read-only retention survey
+use the Store readers. The archive's job_rows retains raw rows for rows.json;
+private conversation SQL is internal. Neither is a normalized job API.
+
+2. Exact launch rule: PASS. Read scheduler.launch_qos (scheduler.py:262), its
+daemon decision/launch sites (daemon.py:1969, :8755), and all guardian construction
+sites. Executed fake counterexamples: a caller removed and restored between
+attempts; a child of a finished priority parent; persisted cycles both listed and
+unlisted; a turn; a probe for an honoured job; re-enrolment after an honoured
+launch. These pass, including the new re-enrolment regression. Operator values
+Inherit, leading-space inherit, trailing-space inherit and INHERIT do not opt out.
+The property ran 600 examples: 165 inherit, 435 utility, 71 honoured requests and
+94 inheriting from the operator alone. The host-without-taskpolicy fallback
+remains as before.
+
+3. Guardian port: PASS. Read the local WIP guardian with git show and compared
+both WIP/head and release/head. The PR's 28 added/9 removed lines are confined to
+the requested flag, precedence, receipt field and their documentation. No WIP
+turn exception was ported. Executed reference read:
+git show origin/wip/backup-2026-10/feat/turn-qos--turn-qos:subfleet/guardian.py
+
+start.json publication -> abandon check -> argv/spawn
+is preserved (guardian.py:284 -> :291 -> :296). The same computed qos feeds
+receipt and wrapper. Guardian tests passed; four new cases inject abandon at
+publication for utility and inherit,
+and check order, wrapper and absence of a spawn/output on abandonment.
+
+4. Migration/digest/refusals: PASS. Migration 10 adds only a nullable CHECK column;
+old-schema migration tests pass. Base Store over a migrated file refuses with
+'store schema 10 is newer than supported schema 9'; C-3.5 states this refusal.
+Executed base/head payload_digest for b'' and b'booked run', task review,
+policy_hash fixture, workdir scratch: old = omitted = NULL = utility; default
+differs. CLI inherit/background/Default/empty and guardian
+default/background/INHERIT/empty each exit 2 with invalid choice and legal choices.
+Fake daemon validation also rejects integer and boolean requests.
+
+5. Text: PASS. Read C-5.1's exception/change-list, the reports and supplied hub
+evidence. The single allowed read was gh pr view 277 --repo MaxGhenis/subfleet-v2
+--json body; it matched pr-body-b2.md. No factual contradiction at head was found.
+B2's historical counts/timing measurements are not claimed as r2 measurements.
+
+Primary verification: 208 passed, 2 process tests skipped. Every changed test file,
+the guardian/store migration files and all three guards ran. Seven new regressions
+passed. Times below are UTC on 2026-10-28; loads are os.getloadavg's actual 1-minute
+average at pytest session start/end (sysctl load reads are denied).
+
+Hold | Start | Load start -> end | Mode
+h02 | 22:20:49 | 26.02 -> 61.77 | shared slot B
+h01-direct | 22:37:19 | 92.70 -> 89.42 | direct after 30-minute wait
+h03 | 22:34:11 | 86.50 -> 90.36 | shared slot B
+
+File | Result | Hold
+tests/unit/test_cli_qos.py | 12 passed | h02
+tests/unit/test_guardian.py | 13 passed | h02
+tests/unit/test_guardian_qos.py | 14 passed | h02
+tests/unit/test_guardian_qos_request.py | 19 passed | h02
+tests/unit/test_launch_qos_property.py | 10 passed | h02
+tests/unit/test_qos_review_r2.py | 5 passed | h02
+tests/unit/test_store_migration_2.py | 21 passed | h02
+tests/unit/test_qos_review_r1.py | 9 passed | h01-direct
+tests/unit/test_store_qos_migration.py | 13 passed | h01-direct
+tests/fake/test_launch_provider_qos.py | 21 passed | h03
+tests/fake/test_launch_qos_review_r1.py | 6 passed | h03
+tests/fake/test_launch_qos_review_r2.py | 2 passed | h03
+tests/fake/test_provider_qos_booked.py | 2 skipped | h03
+tests/fake/test_state_contract.py | 37 passed | h03
+tests/unit/test_invariants_index.py | 25 passed | h03
+tests/unit/test_test_module_names.py | 1 passed | h03
+
+The timing spot check could not execute the daemon workloads: the existing
+C-5.3 fixture skipped all 22 cases at head and all 22 at base because macOS boot
+identity is unavailable. The base source assertion passed. Head and base were
+invoked in that order, separated by a shared-lock wait; this is not a usable
+back-to-back timing comparison. No timing conclusion is claimed. Both booked
+process tests also skipped. Own-shell ps was denied, so no PRI reading was
+obtained and the 31-versus-20 check is left to CI. No clamp escape was attempted.
+
+Timing invocation | Start UTC | Load start -> end | Result/mode
+timing-head-direct | 22:47:23 | 101.67 -> 102.33 | 22 skipped; direct after 30-minute wait
+timing-base-direct | 23:21:23 | 109.47 -> 108.62 | 22 skipped; direct after 30-minute wait
+
+All nine mutants were killed: b2's seven and two for the new coverage gaps.
+Each was an exact, single-occurrence replacement of the named function, compiled
+into its original module globals inside its own pytest process. No production
+file changed; selected fakes/guardian tests execute that function in-process.
+Failure messages were checked: assertion mismatches (and the expected KeyError
+for the legacy reader), with no setup/teardown error or timeout counted as a kill.
+
+Mutant | Result failed/passed | Start UTC | Load start -> end | Slot/mode
+Class check removed | 1/0 | 22:45:15 | 113.90 -> 114.77 | B
+Request check removed | 1/0 | 23:00:37 | 113.78 -> 113.32 | direct
+Probe inherits | 1/0 | 23:30:46 | 125.82 -> 123.77 | direct
+Operator env ignored | 1/0 | 23:21:41 | 107.37 -> 102.77 | B
+Receipt records request | 1/3 | 23:30:47 | 125.82 -> 123.77 | direct
+Operator case/space normalized | 4/0 | 23:44:18 | 46.39 -> 46.39 | A
+Missing-column default dropped | 3/0 | 23:56:01 | 29.47 -> 28.55 | direct
+Status normalization dropped (new) | 1/0 | 23:44:53 | 55.52 -> 55.52 | A
+Post-publication check dropped (new) | 4/0 | 23:44:32 | 50.07 -> 49.11 | A
+
+Executed killing inputs and source replacements:
+1. scheduler.launch_qos: priority_class(...) == priority -> True
+   tests/unit/test_launch_qos_property.py::test_d_qos_booked1_why_says_why[not-listed]
+2. scheduler.launch_qos: requested_qos(job) != default -> False
+   tests/unit/test_launch_qos_property.py::test_d_qos_booked1_why_says_why[utility]
+3. Daemon._execute_probe: add guardian_qos_args(self._launch_qos(job)[0])
+   tests/fake/test_launch_provider_qos.py::test_d_qos_booked1_a_probe_for_an_honoured_job_stays_clamped
+4. guardian.provider_qos: env == INHERIT -> False
+   tests/unit/test_guardian_qos_request.py::test_d_qos_booked1_either_side_unclamps_and_neither_clamps_what_the_other_lets_inherit[utility-inherit-None]
+5. guardian.run_guardian: qos or INHERIT -> qos_request
+   tests/unit/test_guardian_qos_request.py -k start_json_records
+6. guardian.provider_qos: add .strip().lower() to operator value
+   tests/unit/test_qos_review_r1.py -k operator_qos
+7. store.job_flags: value.get(key) is None -> key in value and value[key] is None
+   tests/unit/test_qos_review_r1.py -k read_only_store
+8. Daemon._capacity_rows: job_flags(row) -> row
+   tests/fake/test_launch_qos_review_r2.py -k status_capacity
+9. guardian.run_guardian: post-publication abandoned(attempt_dir) -> None
+   tests/unit/test_qos_review_r2.py -k qos_start_publication
+
+Direct runs followed these unadmitted queues, stopped only through their own
+tool sessions after at least 30 minutes: r1/migration 22:05-22:36; timing head
+22:15-22:46; request mutant 22:26-22:56; timing base 22:49-23:19; probe and
+receipt mutants 22:58-23:29; reader mutant 23:24-23:55. No other run was outside
+the shared lock. No pytest lasted 10 minutes; the longest primary file group
+was 275.27 seconds. No xdist, at most four pytest workers.
+
+What did not execute: the two booked real-daemon cases (including 31-versus-20),
+and the daemon workloads in the requested timing pair (22 skips per revision).
+Full suite and frontend live verification remain for CI. No mutant remains
+unrun. R1's four accepted deviations remain accepted.
+
+Environment synchronized once with the required uv_sync_hold.sh and locked dev
+group/Python 3.14, with private venv/cache/TMPDIR/Hypothesis storage. One pytest
+per hold, no xdist. A private plugin redirects failure retention into scratch
+before its prune hook runs. A local git archive supplies the baseline. Package
+paths were recorded; the timing pair asserted imports under each revision's root.
+
+Changes for salvage: tests/unit/test_qos_review_r2.py (five cases) and
+tests/fake/test_launch_qos_review_r2.py (two cases), then this report.
+Staging the two named test files failed because shared Git metadata is read-only:
+Unable to create .../.git/worktrees/20261028-180011-pr277-review-r2/index.lock:
+Operation not permitted. No commit was made; HEAD remains 6ce2b608b5b8.
+Intended test commit: test: cover QoS status readers and guardian launch ordering
+Intended report commit: docs: record PR 277 review r2 verification
+Both commit messages must end with:
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Cleanup: scratch last measured 193 MiB (below 1 GB), then removed with the
+prescribed guarded rmtree command. The baseline archive, environment/cache,
+Hypothesis data and private kept failure roots are removed. No bytecode,
+.hypothesis or build directory of this job remains in the worktree. All started
+commands and test processes have ended. No sub-agents, live store, real Subfleet
+CLI/provider, foreign process signal, fetch, merge, push or PR write was used.
+Network access was limited to the permitted dependency sync and one PR-body read.
+
+DONE

@@ -1,0 +1,123 @@
+{
+  "label": "retention_archive-10",
+  "start": "2026-10-29T20:22:46.593275+00:00",
+  "loads": [
+    15.017578125,
+    20.78173828125,
+    18.80615234375
+  ],
+  "seconds": 41.460500582999885,
+  "exit": 0,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_job_registered_inside_another_jobs_tree_retires_first_with_its_own_anchor",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.2980872080001973
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_an_in_flight_host_is_refused_at_commit_and_its_guest_waits_for_it",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 7.779181417000018
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_nested_linked_worktree_keeps_the_job",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.9035104579998006
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_nested_repository_is_archived_byte_for_byte",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.693177749999904
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_registration_reduced_to_its_index_and_logs_is_archived_not_kept",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.0180655409999417
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_an_admin_directory_that_lost_its_backlink_but_holds_more_keeps_the_job",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.5502137079997738
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_job_without_worktree_is_archived_with_its_rows",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.7850574579997556
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_missing_worktree_with_a_live_registration_is_anchored",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 6.577243959000043
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_archive.py::test_a_job_registered_inside_another_jobs_tree_retires_first_with_its_own_anchor",
+    "tests/unit/test_retention_archive.py::test_an_in_flight_host_is_refused_at_commit_and_its_guest_waits_for_it",
+    "tests/unit/test_retention_archive.py::test_nested_linked_worktree_keeps_the_job",
+    "tests/unit/test_retention_archive.py::test_nested_repository_is_archived_byte_for_byte",
+    "tests/unit/test_retention_archive.py::test_a_registration_reduced_to_its_index_and_logs_is_archived_not_kept",
+    "tests/unit/test_retention_archive.py::test_an_admin_directory_that_lost_its_backlink_but_holds_more_keeps_the_job",
+    "tests/unit/test_retention_archive.py::test_job_without_worktree_is_archived_with_its_rows",
+    "tests/unit/test_retention_archive.py::test_missing_worktree_with_a_live_registration_is_anchored"
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_a_job_registered_inside_another_jobs_tree_retires_first_with_its_own_anchor": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_an_in_flight_host_is_refused_at_commit_and_its_guest_waits_for_it": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_nested_linked_worktree_keeps_the_job": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_nested_repository_is_archived_byte_for_byte": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_registration_reduced_to_its_index_and_logs_is_archived_not_kept": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_an_admin_directory_that_lost_its_backlink_but_holds_more_keeps_the_job": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_job_without_worktree_is_archived_with_its_rows": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_missing_worktree_with_a_live_registration_is_anchored": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 123420672
+}

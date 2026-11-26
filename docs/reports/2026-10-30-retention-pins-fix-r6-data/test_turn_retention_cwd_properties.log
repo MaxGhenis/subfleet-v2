@@ -1,0 +1,15 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 00:06:48Z slot A load 
+START test_turn_retention_cwd_properties 2026-10-31T00:06:56.474573+00:00 load=(37.61669921875, 34.90673828125, 41.6005859375)
+.                                                                        [100%]
+============================ Hypothesis Statistics =============================
+tests/fake/test_turn_retention_cwd_properties.py::test_t1_t3_actual_cwd_fences_hold_reservation_and_name_the_folder:
+
+  - during generate phase (46.45 seconds):
+    - Typical runtimes: ~ 455-2516 ms, of which ~ 0-3 ms in data generation
+    - 40 passing, 0 failing, and 1 invalid test cases
+
+  - Stopped because settings.max_examples=40
+
+
+1 passed in 64.82s (0:01:04)

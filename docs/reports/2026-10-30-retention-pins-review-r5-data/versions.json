@@ -1,0 +1,13 @@
+{
+  "python": "3.14.7",
+  "git": "2.55.0",
+  "workers": "serial pytest per hold, at most two owned pytest processes",
+  "pytest_whole_run_cap_seconds": 570,
+  "ci_buckets": {
+    "pass": 0,
+    "pending": 10,
+    "fail": 0,
+    "skipping": 0,
+    "cancel": 0
+  }
+}

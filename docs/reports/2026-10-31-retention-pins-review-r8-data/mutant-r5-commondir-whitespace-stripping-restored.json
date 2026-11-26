@@ -1,0 +1,60 @@
+{
+  "label": "mutant-r5-commondir-whitespace-stripping-restored",
+  "start": "2026-10-31T06:34:07.119819+00:00",
+  "loads": [
+    38.01611328125,
+    35.55517578125,
+    34.3681640625
+  ],
+  "seconds": 24.29410979199929,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-commondir-trailing]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.7530114590008452,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-commondir-trailing]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 3.4176916250016802,
+      "properties": [],
+      "failure": "world = World(base=PosixPath('/private/tmp/sf-r272r8/cases-32227/pytest/test_pointer_path_whitespace_k0'), trusted=True, remot...-r272r8/cases-32227/pytest/test_pointer_path_whitespace_k0/state'), store=<subfleet.store.Store object at 0x10874fb60>)\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108ee4640>\npointer = 'commondir-trailing', state = 'running'\n\n    @pytest.mark.parametrize(\"pointer\", [\"gitfile-leading\", \"gitfile-trailing\", \"commondir-trailing\"])\n    @pytest.mark.parametrize(\"state\", [\n        pytest.param(\"running\", id=\"live\"),\n        pytest.param(\"succeeded\", id=\"exporting-control\"),\n    ])\n    def test_pointer_path_whitespace_keeps_the_storage_git_reads(world, monkeypatch, pointer, state):\n        tree = world.job(\"owner\")\n        owner, commit = source(world, tree)\n        outside = world.base / \"outside\"\n        if pointer.startswith(\"gitfile\"):\n            outside.mkdir()\n        else:\n            repo(outside)\n        # A relative gitdir path can start in a space. Absolute gitdir and common\n        # paths can end in one. Git preserves those bytes before resolving the link.\n        alias = outside / \" metadata\" if pointer == \"gitfile-leading\" else world.base / \"metadata \"\n        alias.symlink_to(owner / \".git\", target_is_directory=True)\n        if pointer.startswith(\"gitfile\"):\n            named = alias.name if pointer == \"gitfile-leading\" else str(alias)\n            (outside / \".git\").write_text(f\"gitdir: {named}\\n\")\n        else:\n            (outside / \".git\" / \"commondir\").write_text(str(alias) + \"\\n\")\n        assert git(outside, \"show\", commit + \":owner-only.txt\") == \"R5 owner-only storage\"\n        off_transaction(world, monkeypatch)\n        recorded = dependencies.record(str(outside))\n        assert not recorded.get(\"incomplete\"), recorded\n        reader(world, recorded, state=state)\n        if state == \"succeeded\":\n            world.store.acquire_lease(\"out:/outside/result\", \"borrower\")\n        result = maintain(world)\n        if state == \"running\":\n>           assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)\nE           AssertionError: ({'git': ['/private/tmp/sf-r272r8/cases-32227/pytest/test_pointer_path_whitespace_k0/outside/.git', '/private/tmp/sf-r...h_whitespace_k0/metadata/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48628, 'bytes_after': 0, ...})\nE           assert ('owner' not in ['owner'])\n\ntests/fake/test_retention_dependency_review_r5.py:310: AssertionError"
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-commondir-trailing]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.11633454200091364,
+      "properties": [],
+      "failure": null
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-commondir-trailing]"
+  ],
+  "all_nodes": [
+    "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-commondir-trailing]"
+  ],
+  "property_settings": {},
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+      "mutated": "bc00919807af783c0992e106df76664aaa59015b3e10393354df425d8c7de485"
+    }
+  ],
+  "dependency_source": {
+    "file": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/subfleet/dependencies.py",
+    "sha256": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d"
+  },
+  "rss": 119980032
+}

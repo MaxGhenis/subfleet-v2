@@ -29,6 +29,12 @@ from subfleet.store import Store
 from tests.unit.retention_world import World, snapshot
 from tests.unit.test_retention_shared_folders import NAME, TREE, nested_repository, run
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+# These tests expect one call to retire a job, or to reach its commit-time recheck
+# (fix round 1: CI run 42368334717 failed them at d5aa4b3ae).
+pytestmark = pytest.mark.retention_catch_up
+
 
 @pytest.fixture
 def world(tmp_path):

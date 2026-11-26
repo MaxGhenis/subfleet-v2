@@ -9,8 +9,10 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
 
+from . import task_holds
 from .capacity import ACTIVE_ATTEMPT_STATES, build_view
-from .contracts import READING_TTL_S, attempt_dir
+from .contracts import READING_TTL_S, attempt_dir, hold_note_of, hold_source
+from .launch_env import refused_reference
 from .quota_projection import instant, weekly_projections
 
 
@@ -69,15 +71,79 @@ def reading_text(value: Any) -> str:
     return result + (" [" + "; ".join(details) + "]" if details else "")
 
 
-def closure_text(value: Any) -> str:
-    """C-9.6: closures show their scope, reason, source, and explicit clock."""
+#: D-STATUS-SRC1: what `status` calls each kind of limit.
+LIMIT_WORDS = {"provider-limit": "provider limit", "credits": "credits limit", "cooldown": "cooldown"}
+
+
+def lane_home(lane: Mapping[str, Any]) -> str:
+    """The same public lane name in alerts, status, notices and acknowledgements."""
+    return str(lane.get("home") or lane.get("credential_ref") or lane.get("lane_id") or "the lane")
+
+
+def _held_text(closure: Mapping[str, Any], *, home: str | None = None) -> str:
+    """C-9.6: the operator's end is a safety bound, with the validated stored note."""
+    note = hold_note_of(closure.get("source_event"))
+    return (f"{home or lane_home(closure)}: held by the operator" + (f": {note}" if note else "")
+            + f" (until {closure.get('until_at')} at the latest)")
+
+
+def closure_line(value: Any, *, home: str | None = None) -> str:
+    """D-STATUS-SRC1: one closure as `subfleet status` lists it, saying what it is.
+
+    `<home>: held by the operator[: <note>] (until <end> at the latest)` for an operator hold, else
+    `<lane> provider limit on account until <end> (reported)`, with the limit's
+    kind, its scope and its clock source."""
     closure = _row(value)
+    reason = _label(closure.get("reason", "closed"))
+    if reason == "operator-hold":
+        return _held_text(closure, home=home)
+    clock = f" ({_label(closure['clock_source'])})" if closure.get("clock_source") else ""
+    return (f"{closure.get('lane_id')} {LIMIT_WORDS.get(reason, reason)} on {closure.get('scope')} "
+            f"until {closure.get('until_at')}{clock}")
+
+
+def closure_text(value: Any, *, home: str | None = None) -> str:
+    """C-9.6: closures show their scope, reason, source, and explicit clock; a hold
+    says it is the operator's, with its note (D-STATUS-SRC1)."""
+    closure = _row(value)
+    if _label(closure.get("reason", "closed")) == "operator-hold":
+        return _held_text(closure, home=home)
     result = f"{closure['scope']} until {closure['until_at']} ({_label(closure.get('reason', 'closed'))}"
     if closure.get("clock_source"):
         result += f"; {_label(closure['clock_source'])} clock"
     if closure.get("source_event"):
         result += f"; event={closure['source_event']}"
     return result + ")"
+
+
+def attempt_shell_text(job: Mapping[str, Any]) -> str:
+    """C-12.4: capability of the recorded attempt, unknown for older records.
+
+    A sentence only for `none` and `commands` (design-r2 section 2): a writable
+    review says `publish: denied` alone, and a writable job that may publish (a
+    build) says nothing (#221 review r1b, P3-3).
+    """
+    if isinstance(job.get("job"), Mapping):
+        job = {**job, **job["job"]}
+    attempts = job.get("attempts") or ()
+    attempt = job.get("attempt") or (attempts[-1] if attempts else job)
+    capability = attempt.get("capability")
+    denied = "; publish: denied" if attempt.get("publish_denied") else ""
+    if capability is None or capability == "writable":
+        return denied.removeprefix("; ")
+    try:
+        evidence = json.loads(attempt.get("evidence_json") or "{}")
+    except (TypeError, ValueError):
+        evidence = {}
+    model = evidence.get("model_short") or attempt.get("model_requested") or job.get("model") or "unknown"
+    sandbox = job.get("sandbox") or attempt.get("sandbox") or "unknown"
+    lane = attempt.get("lane_id") or job.get("lane_id") or "unknown"
+    text = f"ran {sandbox} on {lane} ({model})"
+    if capability == "none":
+        text += " with no shell: it could not run any command"
+    else:
+        text += ": commands ran, but nothing could be written, temp files included, so pytest could not run"
+    return text + denied
 
 
 def notice_header(job: Mapping[str, Any], state_root: str | Path, *,
@@ -123,12 +189,49 @@ def notice_header(job: Mapping[str, Any], state_root: str | Path, *,
             f"deliverable={deliverable}; out={out}")
 
 
+def uncommitted_text(record: Mapping[str, Any] | None) -> str:
+    """D-SH1 round 6: what a policy review's worktree holds of its caller's
+    uncommitted work, or why it read the checkout in place instead."""
+    if not isinstance(record, Mapping) or not record:
+        return ""
+    if record.get("fallback"):
+        return ("ran read-only in the caller's checkout: its uncommitted changes could not be "
+                f"copied into a worktree ({record['fallback']})")
+    return (f"the worktree included the caller's uncommitted changes as of submit: {record.get('files')} files "
+            f"({record.get('tracked')} tracked, {record.get('untracked')} untracked)")
+
+
+def notice_text(job: Mapping[str, Any], state_root: str | Path, summary: str, *,
+                require_file: bool = False) -> str:
+    """C-15.1: preserve every existing line; launch evidence is the final line.
+
+    A policy review's workspace line (`uncommitted_text`) comes just before it.
+    """
+    text = notice_header(job, state_root, require_file=require_file) + "\n" + summary
+    workspace = uncommitted_text(job.get("uncommitted"))
+    capability = attempt_shell_text(job)
+    return text + (f"\n{workspace}" if workspace else "") + (f"\n{capability}" if capability else "")
+
+
+def append_notice_detail(text: str, detail: str) -> str:
+    """Add a later export/push result before recorded launch evidence, if any."""
+    body, separator, last = text.rpartition("\n")
+    if separator and (last.startswith(("ran read-only on ", "ran workspace-write on "))
+                      or last == "publish: denied"):
+        return body + "\n" + detail + "\n" + last
+    return text + "\n" + detail
+
+
 def _table(headers: list[str], rows: list[list[str]]) -> str:
     widths = [max(len(header), *(len(row[index]) for row in rows)) if rows else len(header)
               for index, header in enumerate(headers)]
     def line(row: list[str]) -> str:
         return "  ".join(value.ljust(width) for value, width in zip(row, widths)).rstrip()
     return "\n".join([line(headers), line(["-" * width for width in widths]), *(line(row) for row in rows)])
+
+
+def restricted_runs_text(ids: list[str]) -> str:
+    return f"last 24h: {len(ids)} runs with no shell or no writes; ids: {', '.join(ids) or '-'}"
 
 
 def status(view: Mapping[str, Any]) -> str:
@@ -142,8 +245,16 @@ def status(view: Mapping[str, Any]) -> str:
                           now=view.get("now"), reading_ttl_s=view.get("reading_ttl_s", READING_TTL_S),
                           weekly_samples=view.get("weekly_samples"))
     lines = [f"Capacity at {snapshot['now']}", "Codex order: weekly reset ascending, then lane id; unmeasured last."]
+    lines.extend(provider_cap_text(row) for row in view.get("provider_caps", ()))
+    if "restricted_runs_24h" in view:
+        lines.append(restricted_runs_text(view["restricted_runs_24h"]))
     if view.get("disk") is not None:
         lines.append(disk_line(view["disk"]))
+    if view.get("ramp") is not None:
+        lines.append(ramp_line(view["ramp"]))
+    if view.get("task_holds"):
+        # C-11.10: the operator's holds on tasks; lanes stay open to every other task.
+        lines.append("Task holds: " + "; ".join(task_hold_line(hold) for hold in view["task_holds"]))
     rows = []
     for lane in snapshot["lanes"]:
         # C-10.6: an operator looking at a lane with no readings has to be able
@@ -153,6 +264,9 @@ def status(view: Mapping[str, Any]) -> str:
             ("disabled", not lane.get("enabled", True)),
             ("identity-mismatch", lane.get("identity_status") == "mismatch"),
             ("identity-unverified", lane.get("identity_status") == "unverified"),
+            # D-ENV1: held, its variable every launch inherits (the variable is a name).
+            (f"credential-refused={lane.get('credential_ref')}",
+             lane.get("credential_kind") == "env" and refused_reference(lane.get("credential_ref"))),
         ) if enabled]
         if lane.get("probe_state"):
             flags.append(f"probe={_label(lane['probe_state'])}")
@@ -166,7 +280,7 @@ def status(view: Mapping[str, Any]) -> str:
                          " · " + projection_text(lane["weekly_projections"][row["scope"]])
                          if row["window"] == "seven_day" and row["scope"] in lane["weekly_projections"] else "")
                          for row in lane["readings"]) or "unknown",
-                     "; ".join(closure_text(row) for row in lane["closures"]) or "none"])
+                     "; ".join(closure_text(row, home=lane_home(lane)) for row in lane["closures"]) or "none"])
     lines.append(_table(["Lane", "Provider", "Account", "Owner", "Flags", "In-flight",
                          "Weekly reset", "Readings", "Closures"], rows))
     lines.extend(projection_totals(snapshot["lanes"]))
@@ -206,13 +320,18 @@ def status(view: Mapping[str, Any]) -> str:
 
 #: C-6.11: one line per reason admission can leave a job unplaced.
 _HOLD_TEXT = {
+    "ramp": "placement ramp: {used} of {limit} starts used in the last {window_s} s; next slot at {next_slot_at}",
     "disk": "disk admission is holding: free {free_gb} GB, reserved {reserved_gb} GB, floor {floor_gb} GB; "
             "resume margin {resume_margin_gb} GB, placement reserve {placement_reserve_gb} GB (C-6.17)",
     "behind-older-job": "held behind {behind}, an older {tier} job that is waiting and could run on the same model (C-6.9)",
     "fleet-full": "the fleet is at max_active_attempts ({max_active_attempts}); nothing later is evaluated until a slot frees",
     "slot-kept": "{live} of {max_active_attempts} attempts are running and the last slot is kept for {kept_for}, an older {tier} job that is waiting (C-6.9)",
+    "provider-cap": "{provider}: {live} of {max_active_attempts} running ({key}); waiting for a provider slot",
+    "provider-slot-kept": "{provider}: {live} of {max_active_attempts} running ({key}); the last provider slot is kept for {kept_for}, an older {tier} job (C-6.9)",
     "parent-cap": "its parent job already has as many attempts running as max_active_attempts_per_parent allows",
     "lease-held": "a lease this job needs is held by another job: {leases}",
+    "lease-held:retiring": "retention is removing a finished job's worktree{where} ({trees}); it waits until "
+                           "retention lets go of it (C-8.4){others}",
     "probe-pending": "its lane is being probed before the job may start on it",
     "lane-proving": "every lane that could take it has gone admission.prove_idle_s without a model's answer and "
                     "is being proven by one attempt, its pilot; the job starts once a pilot shows its model "
@@ -233,7 +352,20 @@ _HOLD_TEXT = {
                     "is not; admission.machine_guard sets the thresholds (C-6.13)",
     "pin-unadmittable": "its pinned lane {lane_id} can never admit it: {refusals}; it holds no other job back "
                         "and {ends} (C-11.8)",
+    "task-held": "the operator holds {task} jobs at admission until {until} ({note}); it starts once the hold "
+                 "ends or `{release}`, and holds no other job back (C-11.10)",
 }
+
+
+def task_hold_line(hold: Mapping[str, Any]) -> str:
+    """C-11.10: one hold in force, as both status views show it."""
+    target = f"sandbox {hold['sandbox']}" if "sandbox" in hold else hold.get("task")
+    return f"{target} until {hold.get('until')}: {hold.get('note')}"
+
+
+def provider_cap_text(row: Mapping[str, Any]) -> str:
+    text = f"{row['provider']}: {row['live']} of {row['max_active_attempts']} running ({row['key']})"
+    return text + (f"; {row['probes']} exempt probe reservations" if row.get("probes") else "")
 
 
 def disk_floor_detail(reading: Mapping[str, Any]) -> str:
@@ -244,6 +376,13 @@ def disk_floor_detail(reading: Mapping[str, Any]) -> str:
         if key in reading:
             parts.append(f"{key}: {reading[key]}")
     return "; ".join(parts)
+
+
+def ramp_line(reading: Mapping[str, Any]) -> str:
+    """C-6.18: the same one-line placement budget in both status views."""
+    return (f"placement ramp: {reading['used']} of {reading['limit']} starts used "
+            f"in the last {reading['window_s']} s; next slot at "
+            + (reading.get("next_slot_at") or "now"))
 
 
 def disk_line(reading: Mapping[str, Any]) -> str:
@@ -267,7 +406,11 @@ _PIN_REFUSALS = {
     "config-dir": "{lane} has its own config directory, where the conversation's transcript is not (C-26.2)",
     "owner-v1": "{lane} is owned by Subfleet v1",
     "disabled": "{lane} is disabled",
+    "auth-dead": "{lane}'s provider rejected its credential; a new login or re-enrolment is needed",
     "identity-mismatch": "{lane}'s credential proved to hold another account (C-10.6)",
+    "credential-refused": "{lane} names {credential_ref}, a variable every launch inherits, so it holds no "
+                          "credential of its own (D-ENV1); point it at a daemon variable no launch inherits "
+                          "in lanes.json, same lane id, provider and account, and restart the daemon",
     "credential-latched": "{lane}'s last probe found its credential {probe_status}, which only a new login "
                           "or a re-enrolment ends",
     "credential-latched:expired-token": "{lane}'s token expired and the one heal the timers allow a Codex "
@@ -279,21 +422,45 @@ _PIN_REFUSALS = {
 
 def pin_refusals(stuck: Mapping[str, Any]) -> str:
     """C-11.8: why a pinned lane can never admit its job, in words: each standing
-    refusal `scheduler.pin_unadmittable` (or `refused_for_good`) named."""
+    refusal `scheduler.pin_unadmittable` (or `refused_for_good`) named.
+
+    A hold and a limit keep separate rows (C-9.6), so two closures can share a
+    scope and an end, and `scheduler.judge_lane` then names that refusal once
+    per row. Keep the operator's hold apart from provider reasons sharing its
+    clock (D-RAMP-HOLD-LABEL)."""
     lane = stuck.get("lane_id") or "the lane"
-    closures = {f"closed:{row['scope']}:{row['until_at']}": row for row in stuck.get("closures") or ()}
+    closures: dict[str, list[Mapping[str, Any]]] = {}
+    for row in stuck.get("closures") or ():
+        closures.setdefault(f"closed:{row['scope']}:{row['until_at']}", []).append(row)
     parts = []
-    for reason in stuck.get("reasons") or ():
-        closure = closures.get(reason)
-        if closure is not None:
-            parts.append(f"{lane} is closed for {closure['scope']}"
-                         + (f" ({closure['reason']})" if closure.get("reason") else "") + f" until {closure['until_at']}")
+    reasons = list(dict.fromkeys(stuck.get("reasons") or ()))
+    # Canonicalize closure order while preserving the other standing refusals.
+    closed_reasons = iter(sorted(reason for reason in reasons if reason in closures))
+    for original in reasons:
+        reason = next(closed_reasons) if original in closures else original
+        rows = closures.get(reason)
+        if rows:
+            rows = sorted(rows, key=lambda row: (str(_label(row.get("reason"))), str(row.get("source_event"))))
+            for row in rows:
+                if _label(row.get("reason")) == "operator-hold":
+                    # #263 pin evidence has no source field. An explicitly present
+                    # source still goes through the unchanged strict note reader.
+                    source = row if "source_event" in row else {**row, "source_event": hold_source(None)}
+                    parts.append(closure_text(source, home=lane_home(stuck)))
+            rows = [row for row in rows if _label(row.get("reason")) != "operator-hold"]
+            if not rows:
+                continue
+            why = ", ".join(sorted({str(getattr(row["reason"], "value", row["reason"]))
+                                    for row in rows if row.get("reason")}))
+            parts.append(f"{lane} is closed for {rows[0]['scope']}" + (f" ({why})" if why else "")
+                         + f" until {rows[0]['until_at']}")
         elif str(reason).startswith("closed:"):
             parts.append(f"{lane} is {reason}")
         else:
             status = stuck.get("probe_status") or "unusable"
             text = _PIN_REFUSALS.get(f"{reason}:{status}") or _PIN_REFUSALS.get(reason, reason)
-            parts.append(text.format(lane=lane, probe_status=status))
+            parts.append(text.format(lane=lane, probe_status=status,
+                                     credential_ref=stuck.get("credential_ref") or "its credential variable"))
     return "; ".join(parts) or "it refuses the job"
 
 
@@ -308,6 +475,10 @@ def pin_notice(job_id: str, stuck: Mapping[str, Any], fail_at: str | None) -> st
 
     Not a C-15.1 notice (the job has not ended): a service notice to the
     session that submitted it, which the session hooks surface (C-15.2)."""
+    if stuck.get("all_lanes"):
+        return (f"{job_id}: waiting; every candidate lane refuses its retry: {pin_refusals(stuck)}.\n"
+                f"Fix: restore a usable lane or `subfleet kill {job_id}`. "
+                f"Meanwhile {pin_ends(fail_at)}, and it holds no other job back (C-11.8).")
     lane = stuck.get("lane_id") or "its lane"
     return (f"{job_id}: waiting; its pinned lane {lane} can never admit it: {pin_refusals(stuck)}.\n"
             f"Fix: resubmit it unpinned, or pinned to another lane (-a or -H), then `subfleet kill {job_id}`; "
@@ -318,6 +489,10 @@ def pin_notice(job_id: str, stuck: Mapping[str, Any], fail_at: str | None) -> st
 
 def pin_failure(stuck: Mapping[str, Any], since: str | None) -> str:
     """C-11.8: the summary of the terminal notice of a job failed for its pin (C-15.1)."""
+    if stuck.get("all_lanes"):
+        return ("no lane: every candidate lane refused its retry"
+                + (f" from {since} on" if since else "") + f": {pin_refusals(stuck)}; "
+                "fix: restore a usable lane and resubmit (C-11.8)")
     lane = stuck.get("lane_id") or "its lane"
     return (f"no lane: its pinned lane {lane} could never admit it"
             + (f" from {since} on" if since else "") + f": {pin_refusals(stuck)}; "
@@ -330,6 +505,16 @@ def _machine(hold: Mapping[str, Any]) -> str:
              if hold.get("load_per_cpu") is not None else "",
              f"memory pressure {hold['memory_pressure']}, threshold {hold['memory_threshold']}"
              if hold.get("memory_pressure") is not None else ""]
+    if hold.get("cpu_idle") is not None:
+        parts.append(f"CPU idle {hold['cpu_idle']:.1%}, minimum {hold['cpu_idle_min']:.1%}")
+    if hold.get("disk_busy") is not None:
+        parts.append(f"disk service {hold['disk_busy']:.3f} ms/op, maximum {hold['disk_busy_max']:.3f}")
+    for signal, label, direction in (("cpu_idle", "CPU idle", "at least"), ("disk_busy", "disk busy", "at most")):
+        if f"{signal}_resume" in hold:
+            resume = hold[f"{signal}_resume"]
+            target = f"{resume:.1%}" if signal == "cpu_idle" else f"{resume:.3f} ms/op"
+            parts.append(f"{label} release needs {direction} {target} "
+                         f"for {hold[f'{signal}_release_s']:g} seconds ({hold[f'{signal}_clear_s']:.1f} s clear)")
     return "; ".join(part for part in parts if part) or "busy"
 
 
@@ -339,6 +524,26 @@ def _blocked(hold: Mapping[str, Any]) -> str:
              f"held by the legacy import: {hold['legacy_hold']}" if hold.get("legacy_hold") else "",
              f"it could not be checked: {hold.get('error_type')}: {hold.get('error')}" if hold.get("error_type") else ""]
     return "; ".join(part for part in parts if part) or "blocked"
+
+
+#: C-8.4: what a held job needs in a tree retention is retiring, besides its folder (`dependencies`).
+_NEEDS = {"review-root": "review root (-D)", "output": "output path (-o)", "git-storage": "git storage"}
+
+
+def _retiring(hold: Mapping[str, Any]) -> dict[str, str]:
+    """C-8.4: the fields of `lease-held:retiring`. Retention's fence is no job's lease
+    but a finished job's worktree being removed, which the held job's folder, or
+    another place it needs (`needs`: its review root, `-o` path or git storage), is
+    or is in (`retiring`, `folder`); any other key the job waits for is named after it."""
+    fences = list(hold.get("retiring") or ())
+    trees = ", ".join(str(key).split(":", 1)[1] for key in fences)
+    folder = hold.get("folder")
+    what = _NEEDS.get(str(hold.get("needs")), "folder")
+    others = [key for key in hold.get("leases") or () if key not in fences]
+    return {"trees": trees,
+            "where": (f", its {what}" if folder and trees == folder else
+                      f" that its {what} {folder} is in" if folder else " it works in"),
+            "others": "; a lease it needs is also held by another job: " + ", ".join(others) if others else ""}
 
 
 def why_queue(standing: Mapping[str, Any]) -> list[str]:
@@ -359,32 +564,54 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
         lines = [f"Job: {standing.get('job_id')} is {state}{reason}"]
     if standing.get("class") == "priority":
         lines.append("class priority (admission.priority_callers)")
+    qos = standing.get("qos") or {}
+    if qos.get("requested") == "default" and qos.get("reason"):
+        # D-QOS-BOOKED1: a `run --qos default` says whether a launch now honours it, and
+        # why; the clamp every other job runs under (C-5.1) has nothing to explain.
+        lines.append(qos["reason"])
+        started = qos.get("started")
+        if started:
+            lines.append(f"a{started['seq']}'s provider started at {started['provider_qos']} (start.json)")
     hold, recheck = standing.get("hold"), standing.get("recheck")
     if state not in ("queued", "waiting"):
         return lines
     if hold:
         reason = hold.get("reason", "unknown")
         template = _HOLD_TEXT.get(reason)
+        if reason == "behind-older-job" and hold.get("key", "").startswith("providers."):
+            template = "held behind {behind}, an older {tier} job waiting for the same provider's capacity (C-6.9)"
         if reason == "lease-held" and hold.get("queued") and not hold.get("leases"):
             # C-6.9, C-26.9: FIFO on a lease; nothing holds it, an older job is waiting for it.
             template = "a lease this job needs is kept for an older job that is waiting for it: {queued}"
+        if reason == "lease-held" and hold.get("retiring"):
+            template = _HOLD_TEXT["lease-held:retiring"]      # C-8.4: retention's fence, named as such
         if reason == "probe-pending" and hold.get("behind"):
             # C-6.9: FIFO on a probe; an older job waits on the same one and carries it first.
             template = ("{lane} must be probed for {model} before the job may start on it, and {behind}, an "
                         "older job waiting on that probe, carries it first (C-6.9)")
         if template:
             fields = {**hold, "leases": ", ".join(hold.get("leases", ())) or "-",
+                      **(_retiring(hold) if hold.get("retiring") else {}),
                       "queued": ", ".join(hold.get("queued", ())) or "-",
                       "pids": ", ".join(str(pid) for pid in hold.get("pids", ())) or "?", "blocked": _blocked(hold),
                       "machine": _machine(hold)}
             if reason == "disk" and hold.get("free_gb") is None:
                 fields["free_gb"] = "unknown"
-            if reason == "pin-unadmittable":
+            if reason in ("pin-unadmittable", "lanes-unadmittable"):
                 fields.update(refusals=pin_refusals(hold), ends=pin_ends(hold.get("fail_at")))
+            if reason == "task-held":
+                # C-11.10: a command a shell reads as given, the task one argument after `--`.
+                fields["release"] = (task_holds.release_command(sandbox=hold["sandbox"]) if "sandbox" in hold else
+                                     task_holds.release_command(hold.get("task") or "?"))
+                if "sandbox" in hold:
+                    fields["task"] = f"sandbox {hold['sandbox']}"
             lines.append("Held: " + template.format_map({**dict.fromkeys(
                 ("behind", "tier", "max_active_attempts", "kept_for", "live", "error_type", "error",
-                 "conversation_id", "native_session_id", "tries", "class", "lane_id", "lane", "model"), "?"),
+                 "conversation_id", "native_session_id", "tries", "class", "lane_id", "lane", "model",
+                 "task", "until", "note"), "?"),
                 **{k: v for k, v in fields.items() if v is not None}}))
+            if reason == "behind-older-job" and hold.get("key", "").startswith("providers."):
+                lines.append(provider_cap_text(hold))
             if reason == "disk" and hold.get("error"):
                 lines.append("Disk reading failed: " + hold["error"])
             if reason == "disk":
@@ -400,6 +627,9 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
                              + " takes it first)")
         else:
             lines.append(f"Held: no lane admits it ({reason})")
+            if reason == "lanes-unadmittable":
+                lines.append(f"Every candidate lane refuses its retry: {pin_refusals(hold)}; "
+                             f"{pin_ends(hold.get('fail_at'))}; fix: restore a usable lane")
         if hold.get("for_good"):
             # C-11.8, C-6.9: every lane it could use refuses it for a reason no wait ends.
             lines.append("Every lane it could use refuses it for a reason no wait ends ("
@@ -443,7 +673,24 @@ def why(decision: Any) -> str:
             lines.append(line)
         for rejection in evaluation.get("rejections", ()):
             reasons = rejection.get("reasons") or [rejection.get("reason", "unknown")]
-            lines.append(f"  rejected {rejection['lane_id']}: {', '.join(reasons)}")
+            # An operator hold must not escape as a raw closed:<scope>:<end> label.
+            shown = []
+            rendered_holds = set()
+            for reason in reasons:
+                matching = [row for row in evaluation.get("closures", ())
+                            if row.get("lane_id") == rejection["lane_id"]
+                            and reason == f"closed:{row['scope']}:{row['until_at']}"]
+                holds = [row for row in matching if _label(row.get("reason")) == "operator-hold"]
+                if holds:
+                    if reason in rendered_holds:
+                        continue
+                    rendered_holds.add(reason)
+                    shown.extend(closure_text(row) for row in holds)
+                    if len(matching) > len(holds):
+                        shown.append(reason)
+                else:
+                    shown.append(reason)
+            lines.append(f"  rejected {rejection['lane_id']}: {', '.join(shown)}")
         for reading in evaluation.get("readings", ()):
             lines.append(f"  reading {reading['lane_id']}: {reading_text(reading)}")
         for reading in evaluation.get("capacity_readings", ()):

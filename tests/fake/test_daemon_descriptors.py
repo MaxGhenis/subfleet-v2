@@ -505,7 +505,9 @@ def test_a_reader_that_cannot_start_is_answered_busy_and_the_daemon_serves_on(se
     until(lambda: not daemon._connections)
     assert daemon._descriptor_status()["refused"] == 2
     log = (daemon.root / "daemon.log").read_text()
-    assert log.count("no reader thread could start for (can't start new thread)") == 2   # the 1st and the 2nd
+    # The 1st and the 2nd; the exception's own words stay out (ed2100d45, C-25.7).
+    assert log.count("the last a connection no reader thread could start for (") == 2
+    assert "can't start new thread" not in log
 
 
 def test_the_first_shortage_is_logged_in_the_machines_first_minute(monkeypatch, unbound_listener):

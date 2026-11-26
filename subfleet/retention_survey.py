@@ -28,6 +28,7 @@ from . import retention as ret
 from . import retention_archive as rarch
 from . import retention_fs as rfs
 from . import retention_git as rgit
+from . import retention_marks as marks
 from .policy import RETENTION_DEFAULTS
 from .retention_holders import ScanFailed, Watch, lsof_holders
 from .store import Store
@@ -70,29 +71,31 @@ def _walk_sizes(path: Path, omit: dict[str, dict[str, int]] | None) -> dict[str,
     the manifest would spend on the tree's entries (every file as stored)."""
     out = {"bytes": 0, "files": 0, "omittable_upper": 0, "nested_gitfiles": [], "error": None,
            "manifest_bytes": 0}
-    try:
-        fd = rfs.open_dir(path)
-    except FileNotFoundError:
-        return out
-    except OSError as exc:
-        out["error"] = str(exc)
-        return out
-    try:
-        for rel, st, parent, name in rfs.walk(fd):
-            out["manifest_bytes"] += _entry_bytes(rel, st, parent, name, "store")
-            if not rel or stat.S_ISDIR(st.st_mode):
-                continue
-            out["bytes"] += st.st_size
-            out["files"] += 1
-            if stat.S_ISREG(st.st_mode):
-                if omit and rel in omit and st.st_size in omit[rel].values() and st.st_nlink == 1:
-                    out["omittable_upper"] += st.st_size
-                if name.lower() == ".git" and "/" in rel:
-                    out["nested_gitfiles"].append(rel)
-    except rfs.TreeError as exc:
-        out["error"] = str(exc)
-    finally:
-        os.close(fd)
+    with rfs._cleanup([None]) as owner:
+        try:
+            owner.resources[0] = rfs.open_dir(path)
+            fd = owner.resources[0]
+        except FileNotFoundError:
+            return out
+        except OSError as exc:
+            out["error"] = str(exc)
+            return out
+        try:
+            iterator = rfs.walk(fd)
+            with rfs._cleanup((iterator,), close=lambda it: it.close()):
+                for rel, st, parent, name in iterator:
+                    out["manifest_bytes"] += _entry_bytes(rel, st, parent, name, "store")
+                    if not rel or stat.S_ISDIR(st.st_mode):
+                        continue
+                    out["bytes"] += st.st_size
+                    out["files"] += 1
+                    if stat.S_ISREG(st.st_mode):
+                        if omit and rel in omit and st.st_size in omit[rel].values() and st.st_nlink == 1:
+                            out["omittable_upper"] += st.st_size
+                        if name.lower() == ".git" and "/" in rel:
+                            out["nested_gitfiles"].append(rel)
+        except rfs.TreeError as exc:
+            out["error"] = str(exc)
     return out
 
 
@@ -147,16 +150,18 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
     budgets = budgets or {"detached": (int(budget["jobs"]), int(budget["bytes"])),
                           "turn": (int(budget["turn_jobs"]), int(budget["turn_bytes"]))}
     turn_keep_s = float(budget["turn_keep_days"]) * 86400
+    notice_keep_s = float(budget["notice_keep_days"]) * 86400        # C-8.4, as the pass reads it
     report: dict[str, Any] = {"state_root": str(root), "read_only": True,
                               "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                               "budgets": {k: {"max_jobs": v[0], "max_bytes": v[1]} for k, v in budgets.items()},
+                              "notice_keep_days": budget["notice_keep_days"],
                               "notes": ["the conversation service's in-memory pins are not visible offline; "
                                         "turn jobs it needs would also be kept"]}
     store = Store(root / "state.sqlite3", read_only=True)
     try:
         jobs = list(reversed(store.list_jobs()))
         reasons = ret._pin_reasons(store, set(), None, pins=None, turn_keep_s=turn_keep_s,
-                                   hosted=ret.nested_hosts(jobs, root), root=root)
+                                   notice_keep_s=notice_keep_s, hosted=ret.nested_hosts(jobs, root), root=root)
         journals = rarch.journals(root)
         live_trees = [job.get("worktree") for job in jobs] + [
             j.get("worktree") for j in journals.values() if isinstance(j, dict)]
@@ -176,43 +181,14 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
             repositories.append(rarch.known_repositories(jobs, root))
         return repositories[0]
 
+    kept = marks.kept_for_good(root, [job["job_id"] for job in jobs])
     for job in jobs:
         job_id = job["job_id"]
-        info: dict[str, Any] = {"job_id": job_id, "pool": ret._pool(job), "created_at": job["created_at"],
-                                "state": job["state"], "kind": job["kind"], "pin": reasons.get(job_id)}
-        try:
-            worktree = ret._owned_worktree(job, root)
-        except ValueError as exc:
-            info["issue"] = f"worktree path: {exc}"
-            worktree = None
-        info["worktree"] = str(worktree) if worktree else None
-        info["worktree_exists"] = bool(worktree and os.path.isdir(worktree))
-        if job_id in journals:
-            info["journal"] = str(journals[job_id]["state"]) if isinstance(journals[job_id], dict) else "unreadable"
-        if sizes:
-            jobdir = _walk_sizes(root / "jobs" / job_id, None)
-            info["job_dir_bytes"] = jobdir["bytes"]
-            info["bytes"] = jobdir["bytes"]
-            info["manifest_bytes"] = jobdir["manifest_bytes"]
-        if worktree is not None and not info.get("pin"):
-            seen = journals[job_id].get("history_bytes") if isinstance(journals.get(job_id), dict) else None
-            _preflight(info, job, worktree, root, salvage.get(job_id, {}), remotes_cache, remote_less, seen,
-                       lambda h: any(w and os.path.realpath(w) == str(h) for w in live_trees), known)
-        if worktree is not None and info["worktree_exists"] and sizes:
-            wt = _walk_sizes(worktree, info.pop("_omit", None))
-            info.update(worktree_bytes=wt["bytes"], worktree_files=wt["files"],
-                        omittable_upper=wt["omittable_upper"] if not info.get("scratch") else 0)
-            info["bytes"] = info.get("bytes", 0) + wt["bytes"]
-            info["manifest_bytes"] = info.get("manifest_bytes", 0) + wt["manifest_bytes"]
-            if wt["error"]:
-                info.setdefault("issue", f"walk: {wt['error']}")
-            if wt["nested_gitfiles"] and not info.get("issue"):
-                admin = info.get("admin")
-                foreign = [g for g in wt["nested_gitfiles"] if not _into_admin(worktree / g, admin)]
-                if foreign:
-                    info["issue"] = f"nested-linked-worktree: {foreign[0]}"
-        info.pop("_omit", None)
-        rows[job_id] = info
+        rows[job_id] = job_info(job, root, pin=reasons.get(job_id), kept=kept.get(job_id),
+                                journal=journals.get(job_id), salvage_refs=salvage.get(job_id, {}),
+                                cache=remotes_cache, remote_less=remote_less,
+                                live=lambda h: any(w and os.path.realpath(w) == str(h) for w in live_trees),
+                                known=known, sizes=sizes)
     # Budgets, oldest first, as a pass decides them (no batch limit here).
     counts = Counter(r["pool"] for r in rows.values())
     totals = defaultdict(int)
@@ -225,6 +201,11 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
         r = rows[job["job_id"]]
         pool = r["pool"]
         over = counts[pool] > budgets[pool][0] or totals[pool] > budgets[pool][1]
+        if job["job_id"] in kept:
+            # C-8.7: kept for good whatever the budget says, so it reads as
+            # deleted (or being deleted) even in a pool within its budget.
+            r["kept"] = kept[job["job_id"]]
+            continue
         if not over:
             r["kept"] = "within budget"
             continue
@@ -301,15 +282,19 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
         rate = _throughput([Path(r["worktree"]) for r in wt_retiring[:6]])
     reads = omittable + 2 * archived
     passes = max(1, math.ceil(len(retire) / max(1, batch)))
+    # One listing a pass (D-HOLDERS-LSOF1): each pass commits the last pass's
+    # archives and starts the next batch under one listing, so the batches take
+    # one more pass, for the last one's check 2, and one listing each.
+    listings = passes + 1
     per_job_git_s = 3.0
     report["estimate"] = {
         "hash_read_bytes_per_s": round(rate) if rate else None,
         "bytes_read": reads,
         "read_hours": round(reads / rate / 3600, 2) if rate else None,
         "passes": passes, "batch": batch,
-        "listing_seconds_per_pass": (2 * scan_s) if scan_s is not None else None,
+        "listing_seconds_per_pass": scan_s, "listings": listings,
         "git_hours_assumed": round(len(wt_retiring) * per_job_git_s / 3600, 2),
-        "total_hours": round((reads / rate if rate else 0) / 3600 + passes * 2 * (scan_s or 60) / 3600
+        "total_hours": round((reads / rate if rate else 0) / 3600 + listings * (scan_s or 60) / 3600
                              + len(wt_retiring) * per_job_git_s / 3600, 2) if rate else None,
     }
     report["candidates"] = [rows[j] for j in retire]
@@ -317,6 +302,61 @@ def survey(root: Path, *, sizes: bool = True, holders: bool = True, sample_throu
                              and r.get("worktree_exists")]
     report["elapsed_s"] = round(time.monotonic() - started, 1)
     return report
+
+
+def job_info(job: dict[str, Any], root: Path, *, pin: str | None = None, kept: str | None = None,
+             journal: Any = None, salvage_refs: dict[str, str] | None = None, cache: dict[Any, Any] | None = None,
+             remote_less: int | None = None, live: Any = None, known: Any = None,
+             sizes: bool = True) -> dict[str, Any]:
+    """One job's row of the survey, read-only: its pin (`pin`, the reason
+    `_pin_reasons` gave), its sizes, and, for an unpinned job, the preflight of
+    `Retirement.begin` and the walk that finds nested linked worktrees, which
+    set `info["issue"]` when retention would keep the job. `retention_delete`
+    asks this again for one job, with no pin, just before it deletes (C-8.7,
+    gate 6). `kept` is why the delete path keeps the job (`retention_marks`):
+    such a job reads as pinned, and its tree, deleted or being deleted, is not
+    read. `journal` is the job's retention journal (an exception when it could
+    not be read); the other arguments are `_preflight`'s."""
+    job_id = job["job_id"]
+    info: dict[str, Any] = {"job_id": job_id, "pool": ret._pool(job), "created_at": job["created_at"],
+                            "state": job["state"], "kind": job["kind"], "pin": pin}
+    if kept is not None:
+        info["pin"] = pin or kept
+        if kept == marks.DELETED:
+            info["tree_deleted"] = marks.marker(root, job_id)
+    try:
+        worktree = ret._owned_worktree(job, root)
+    except ValueError as exc:
+        info["issue"] = f"worktree path: {exc}"
+        worktree = None
+    info["worktree"] = str(worktree) if worktree else None
+    info["worktree_exists"] = bool(worktree and os.path.isdir(worktree))
+    if journal is not None:
+        info["journal"] = str(journal["state"]) if isinstance(journal, dict) else "unreadable"
+    if sizes:
+        jobdir = _walk_sizes(root / "jobs" / job_id, None)
+        info["job_dir_bytes"] = jobdir["bytes"]
+        info["bytes"] = jobdir["bytes"]
+        info["manifest_bytes"] = jobdir["manifest_bytes"]
+    if worktree is not None and not info.get("pin"):
+        seen = journal.get("history_bytes") if isinstance(journal, dict) else None
+        _preflight(info, job, worktree, root, salvage_refs or {}, cache if cache is not None else {}, remote_less,
+                   seen, live, known)
+    if worktree is not None and info["worktree_exists"] and sizes and kept is None:
+        wt = _walk_sizes(worktree, info.pop("_omit", None))
+        info.update(worktree_bytes=wt["bytes"], worktree_files=wt["files"],
+                    omittable_upper=wt["omittable_upper"] if not info.get("scratch") else 0)
+        info["bytes"] = info.get("bytes", 0) + wt["bytes"]
+        info["manifest_bytes"] = info.get("manifest_bytes", 0) + wt["manifest_bytes"]
+        if wt["error"]:
+            info.setdefault("issue", f"walk: {wt['error']}")
+        if wt["nested_gitfiles"] and not info.get("issue"):
+            admin = info.get("admin")
+            foreign = [g for g in wt["nested_gitfiles"] if not _into_admin(worktree / g, admin)]
+            if foreign:
+                info["issue"] = f"nested-linked-worktree: {foreign[0]}"
+    info.pop("_omit", None)
+    return info
 
 
 def _into_admin(gitfile: Path, admin: str | None) -> bool:
@@ -495,78 +535,80 @@ def _sample_walk_once(path: Path, omit: dict[str, dict[str, int]] | None, ignore
     out: dict[str, Any] = {"bytes": 0, "files": 0, "archived_bytes": 0, "omitted_bytes": 0, "omitted_disk": 0,
                            "regenerable_bytes": 0, "regenerable_disk": 0, "regenerable": [], "hashed_bytes": 0,
                            "omission_exact": True, "regenerable_exact": True, "error": None, "manifest_bytes": 0}
-    try:
-        fd = rfs.open_dir(path)
-    except FileNotFoundError:
-        return out
-    except OSError as exc:
-        out["error"] = str(exc)
-        return out
-    regen = rfs.RegenerableWalk(fd, ignored.clear, denied) if ignored is not None else None
-    try:
-        for rel, st, parent, name in rfs.walk(fd):
-            verdict = regen.classify(rel, st, parent, name) if regen is not None else False
-            if isinstance(verdict, rfs.Verify):
-                # As the archive: a file a RECORD lists goes only if it hashes
-                # as the RECORD says; past the hash budget its size is taken
-                # for a match (an upper bound: `regenerable_exact` False).
-                expected, verdict = verdict.sha256, False
-                if out["hashed_bytes"] + st.st_size <= hash_budget:
-                    try:
-                        handle = os.open(name, rfs.O_FILE, dir_fd=parent)
-                        try:
-                            digest, _ = rfs.read_hashes(handle, st.st_size, None)
-                        finally:
-                            os.close(handle)
-                        out["hashed_bytes"] += st.st_size
-                        verdict = digest == expected
-                    except (OSError, rfs.TreeError):
-                        verdict = False
-                else:
-                    out["regenerable_exact"], verdict = False, True
-                if verdict:
-                    assert regen is not None and name is not None
-                    regen.confirm(rel, st, parent, name)
-                    out["manifest_bytes"] += len(',"sha256":""') + 64
-            if verdict:
-                out["manifest_bytes"] += _entry_bytes(rel, st, parent, name, "regen")
-                if stat.S_ISREG(st.st_mode):
+    with rfs._cleanup([None]) as owner:
+        try:
+            owner.resources[0] = rfs.open_dir(path)
+            fd = owner.resources[0]
+        except FileNotFoundError:
+            return out
+        except OSError as exc:
+            out["error"] = str(exc)
+            return out
+        regen = rfs.RegenerableWalk(fd, ignored.clear, denied) if ignored is not None else None
+        try:
+            iterator = rfs.walk(fd)
+            with rfs._cleanup((iterator,), close=lambda it: it.close()):
+                for rel, st, parent, name in iterator:
+                    verdict = regen.classify(rel, st, parent, name) if regen is not None else False
+                    if isinstance(verdict, rfs.Verify):
+                        # As the archive: a file a RECORD lists goes only if it hashes
+                        # as the RECORD says; past the hash budget its size is taken
+                        # for a match (an upper bound: `regenerable_exact` False).
+                        expected, verdict = verdict.sha256, False
+                        if out["hashed_bytes"] + st.st_size <= hash_budget:
+                            try:
+                                handle = os.open(name, rfs.O_FILE, dir_fd=parent)
+                                try:
+                                    digest, _ = rfs.read_hashes(handle, st.st_size, None)
+                                finally:
+                                    os.close(handle)
+                                out["hashed_bytes"] += st.st_size
+                                verdict = digest == expected
+                            except (OSError, rfs.TreeError):
+                                verdict = False
+                        else:
+                            out["regenerable_exact"], verdict = False, True
+                        if verdict:
+                            assert regen is not None and name is not None
+                            regen.confirm(rel, st, parent, name)
+                            out["manifest_bytes"] += len(',"sha256":""') + 64
+                    if verdict:
+                        out["manifest_bytes"] += _entry_bytes(rel, st, parent, name, "regen")
+                        if stat.S_ISREG(st.st_mode):
+                            out["bytes"] += st.st_size
+                            out["files"] += 1
+                        continue
+                    if not rel or stat.S_ISDIR(st.st_mode):
+                        out["manifest_bytes"] += _entry_bytes(rel, st, parent, name, "dir")
+                        continue
                     out["bytes"] += st.st_size
                     out["files"] += 1
-                continue
-            if not rel or stat.S_ISDIR(st.st_mode):
-                out["manifest_bytes"] += _entry_bytes(rel, st, parent, name, "dir")
-                continue
-            out["bytes"] += st.st_size
-            out["files"] += 1
-            if not stat.S_ISREG(st.st_mode):
-                out["manifest_bytes"] += _entry_bytes(rel, st, parent, name, "store")
-                continue
-            size_ok = bool(omit and rel in omit and st.st_size in omit[rel].values()
-                           and st.st_nlink == 1 and fmt is not None)
-            if size_ok and out["hashed_bytes"] + st.st_size <= hash_budget:
-                try:
-                    handle = os.open(name, rfs.O_FILE, dir_fd=parent)
-                    try:
-                        _, blob = rfs.read_hashes(handle, st.st_size, fmt)
-                    finally:
-                        os.close(handle)
-                    out["hashed_bytes"] += st.st_size
-                    size_ok = blob in omit[rel]
-                except (OSError, rfs.TreeError):
-                    size_ok = False
-            elif size_ok:
-                out["omission_exact"] = False           # past the budget: an upper bound
-            if size_ok:
-                out["omitted_bytes"] += st.st_size
-                out["omitted_disk"] += rfs.private_bytes(parent, name, st)
-            else:
-                out["archived_bytes"] += st.st_size
-            out["manifest_bytes"] += _entry_bytes(rel, st, parent, name, "omit" if size_ok else "store", fmt)
-    except rfs.TreeError as exc:
-        out["error"] = str(exc)
-    finally:
-        os.close(fd)
+                    if not stat.S_ISREG(st.st_mode):
+                        out["manifest_bytes"] += _entry_bytes(rel, st, parent, name, "store")
+                        continue
+                    size_ok = bool(omit and rel in omit and st.st_size in omit[rel].values()
+                                   and st.st_nlink == 1 and fmt is not None)
+                    if size_ok and out["hashed_bytes"] + st.st_size <= hash_budget:
+                        try:
+                            handle = os.open(name, rfs.O_FILE, dir_fd=parent)
+                            try:
+                                _, blob = rfs.read_hashes(handle, st.st_size, fmt)
+                            finally:
+                                os.close(handle)
+                            out["hashed_bytes"] += st.st_size
+                            size_ok = blob in omit[rel]
+                        except (OSError, rfs.TreeError):
+                            size_ok = False
+                    elif size_ok:
+                        out["omission_exact"] = False           # past the budget: an upper bound
+                    if size_ok:
+                        out["omitted_bytes"] += st.st_size
+                        out["omitted_disk"] += rfs.private_bytes(parent, name, st)
+                    else:
+                        out["archived_bytes"] += st.st_size
+                    out["manifest_bytes"] += _entry_bytes(rel, st, parent, name, "omit" if size_ok else "store", fmt)
+        except rfs.TreeError as exc:
+            out["error"] = str(exc)
     records = regen.summary() if regen is not None else []
     out["manifest_bytes"] += sum(rarch.entry_bytes(r) for r in records)
     out["regenerable_bytes"] = sum(r["bytes"] for r in records)
@@ -584,12 +626,16 @@ def sample(root: Path, n: int = 20, *, hash_budget: int = 512 << 20,
     hours on the live tree). `progress(job_report)` is called after each job."""
     root = Path(root).resolve()
     started = time.monotonic()
-    remote_less = int(_budget(root)["remote_less_history_bytes"])
+    budget = _budget(root)
+    remote_less = int(budget["remote_less_history_bytes"])
     store = Store(root / "state.sqlite3", read_only=True)
     try:
         jobs = list(reversed(store.list_jobs()))
-        reasons = ret._pin_reasons(store, set(), None, pins=None, turn_keep_s=0, hosted=ret.nested_hosts(jobs, root),
-                                   root=root)
+        # An unread notice keeps its job as the pass reads it (C-8.4); 0 here
+        # would keep every such job for ever, the rule before D-NOTICE-KEEP1.
+        reasons = ret._pin_reasons(store, set(), None, pins=None, turn_keep_s=0,
+                                   notice_keep_s=float(budget["notice_keep_days"]) * 86400,
+                                   hosted=ret.nested_hosts(jobs, root), root=root)
         salvage: dict[str, dict[str, str]] = defaultdict(dict)
         for row in store.query("SELECT r.path,r.sha256,a.job_id FROM artifacts r JOIN attempts a USING(attempt_id) "
                                "WHERE r.role='salvage' ORDER BY r.artifact_id"):

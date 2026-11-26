@@ -1,0 +1,17 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 19:59:01Z slot B load 
+START retention_dependency_properties-part3 2026-10-30T19:59:04.731251+00:00 load=(54.01123046875, 53.86279296875, 51.34033203125)
+.                                                                        [100%]
+============================ Hypothesis Statistics =============================
+tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement:
+
+  - during generate phase (170.52 seconds):
+    - Typical runtimes: ~ 1152-2612 ms, of which ~ 4-92 ms in data generation
+    - 100 passing, 0 failing, and 2 invalid test cases
+
+  - Stopped because settings.max_examples=100
+
+
+1 passed in 183.82s (0:03:03)

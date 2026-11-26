@@ -1,0 +1,1 @@
+[["quotes-r2", ["tests/unit/test_retention_alternates_review_r2.py"]], ["review-r2-final", ["tests/fake/test_retention_dependency_review_r2.py", "-rx"]], ["review-r2-red", ["tests/fake/test_retention_dependency_review_r2.py", "-k", "changed_alternates or unlinked_open or legacy_incomplete", "--runxfail"]]]

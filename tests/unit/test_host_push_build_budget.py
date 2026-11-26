@@ -91,7 +91,7 @@ def test_finished_build_error_is_classified_before_its_unavailable_pin_hold(worl
             if destination.name == first:
                 if temporary:
                     raise OSError(errno.ENOSPC, "test state volume is full")
-                raise AdapterError("test host push refused", code=7, fix="resubmit the checkout")
+                raise host_push._workspace_refused(host_push.PushError("test host push refused", kind="checkout-missing"))
             destination.mkdir(parents=True)
 
         world.patch.setattr(host_push, "prepare_workspace", prepare)
@@ -114,7 +114,8 @@ def test_finished_build_error_is_classified_before_its_unavailable_pin_hold(worl
         else:
             assert (row["state"], row["rc"]) == ("failed", 7)
             (notice,) = notices(core, first)
-            assert "test host push refused" in notice and "resubmit the checkout" in notice
+            assert "committed Git checkout" in notice and "restore the checkout" in notice
+            assert "test host push refused" not in notice
         core._push_workspaces[second].result(timeout=180)
         core._admit_kind("detached")
         assert placed(core, second)
@@ -184,6 +185,12 @@ class Store:
         yield self
 
     def execute(self, sql, parameters):
+        if sql.startswith("SELECT") and " FROM leases" in sql:
+            return SimpleNamespace(fetchall=lambda: [])
+        if sql.startswith("SELECT kind, task, sandbox FROM jobs"):
+            job = self.jobs.get(parameters[0])
+            row = tuple(job[key] for key in ("kind", "task", "sandbox")) if job is not None else None
+            return SimpleNamespace(fetchone=lambda: row)
         if sql.startswith("SELECT"):
             return SimpleNamespace(fetchone=lambda: self.jobs[parameters[0]])
         if sql.startswith("UPDATE jobs SET worktree="):
@@ -196,6 +203,7 @@ class Store:
 def gate_harness(root: Path, count: int):
     jobs = {str(index): {"job_id": str(index), "push_branch": f"jobs/{index}",
                         "sandbox": "workspace-write", "in_place": False,
+                        "kind": "dispatch", "task": "build",
                         "state": "queued", "wait_reason": None, "worktree": None,
                         "cancel_requested_at": None}
             for index in range(count)}

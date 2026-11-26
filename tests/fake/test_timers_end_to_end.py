@@ -209,13 +209,21 @@ def test_socket_timer_status(daemon):
     thread.start()
     try:
         until(lambda: (daemon.root / 'daemon.sock').exists())
-        time.sleep(.25)
-        with socket.socket(socket.AF_UNIX) as sock:
-            sock.settimeout(2)
-            sock.connect(str(daemon.root / 'daemon.sock'))
-            sock.sendall(b'{"v":1,"id":"timers","op":"daemon.status","args":{}}\n')
-            result = json.loads(sock.recv(200000))
-        assert result['ok'] and result['result']['timers']['probe']['last_run']
+
+        def probe_last_run():
+            try:
+                with socket.socket(socket.AF_UNIX) as sock:
+                    sock.settimeout(2)
+                    sock.connect(str(daemon.root / 'daemon.sock'))
+                    sock.sendall(b'{"v":1,"id":"timers","op":"daemon.status","args":{}}\n')
+                    result = json.loads(sock.recv(200000))
+            except ConnectionRefusedError:
+                return None
+            assert result['ok']
+            return result['result']['timers']['probe']['last_run']
+
+        # Wait for the asynchronous probe cycle to publish its result.
+        until(probe_last_run)
     finally:
         daemon.stopping.set()
         thread.join(3)

@@ -1,0 +1,29 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____________ test_a_duplicate_is_drift_and_install_keeps_the_first _____________
+
+tmp_path = PosixPath('/private/tmp/sf-hor-b1/mutant-7/test_a_duplicate_is_drift_and_0')
+
+    def test_a_duplicate_is_drift_and_install_keeps_the_first(tmp_path):
+        """C-23.25 two equal entries would deliver every notice twice: drift, and
+        install keeps one, at the first one's place."""
+        data = live_shape()
+        data["hooks"]["PreToolUse"].append(ours("PreToolUse"))
+        path = write(tmp_path, data)
+        report = hooks.plan(path, command=CMD, timeout=TIMEOUT)
+        assert report["changed_events"] == ["PreToolUse"]
+        assert report["drift"] == {"PreToolUse": "duplicated"}
+        item = doctor.check_hook_entries(path)
+        assert item["status"] == doctor.FAIL and "PreToolUse (duplicated)" in item["detail"]
+        hooks.apply(path, command=CMD, timeout=TIMEOUT)
+>       assert json.loads(path.read_text())["hooks"]["PreToolUse"] == live_shape()[
+            "hooks"]["PreToolUse"]
+E       AssertionError: assert [{'matcher': ...imeout': 5}]}] == [{'matcher': ...ntials.py'}]}]
+E         
+E         At index 2 diff: {'matcher': '*', 'hooks': [{'type': 'command', 'command': '/home/user/.claude/hooks/mask-credentials.py'}]} != {'matcher': 'Bash', 'hooks': [{'type': 'command', 'command': '/home/user/bin/subfleet hook PreToolUse', 'timeout': 5}]}
+E         Use -v to get more diff
+
+tests/unit/test_hooks_install_equality.py:241: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_hooks_install_equality.py::test_a_duplicate_is_drift_and_install_keeps_the_first
+1 failed in 3.24s

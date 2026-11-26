@@ -147,6 +147,7 @@ func stopAction(for messageID: String, state: String?, outboxEntry: OutboxEntry?
     case .queued: return .cancel(messageID: messageID)
     case .steering: return .cancelSteer(messageID: messageID)
     case .waiting, .starting, .running, .approvalNeeded: return .interrupt(messageID: messageID)
+    case nil where state == "sending": return .withdraw(messageID: messageID)
     default: return .none
     }
 }
@@ -195,11 +196,19 @@ func composerSteerHost(conversation: Conversation, timeline: Timeline?, capabili
 /// DESIGN.md sections 7 to 9): the person's message, not already being steered,
 /// not a slash command or shell input, that a running turn would take.
 func canSteer(messageID: String, conversation: Conversation, timeline: Timeline?, capabilities: Capabilities?) -> Bool {
+    queuedSteerHost(messageID: messageID, conversation: conversation, timeline: timeline,
+                    capabilities: capabilities) != nil
+}
+
+/// The running turn a queued message would be steered into now (`canSteer`), or nil.
+func queuedSteerHost(messageID: String, conversation: Conversation, timeline: Timeline?,
+                     capabilities: Capabilities?) -> SteerHost? {
     guard let timeline, let turn = timeline.turn(messageID), turn.messageState == .queued, !turn.steerRequested,
           turn.origin == "person", steerable(text: turn.personText ?? ""),
-          let host = runningSteerHost(in: timeline, provider: conversation.provider, capabilities: capabilities)
-    else { return false }
-    return steerPermits(turn.settings?.permission, into: host)
+          let host = runningSteerHost(in: timeline, provider: conversation.provider, capabilities: capabilities),
+          steerPermits(turn.settings?.permission, into: host)
+    else { return nil }
+    return host
 }
 
 /// What Esc does while a turn runs (DESIGN.md sections 8 and 9).
@@ -430,9 +439,20 @@ func makeServedChip(for turn: TurnTimeline, provider: String, laneLabels: [Strin
 // MARK: - Notifications
 
 struct NotificationIntent: Identifiable, Equatable {
-    enum Kind: String {
+    enum Kind: String, CaseIterable {
         case completed, failed, approval
         case deliveryUnknown = "delivery-unknown"
+
+        /// How a request identifier of this kind begins: `approval:<seq>`, `complete:<message>`.
+        var idPrefix: String { self == .completed ? "complete" : rawValue }
+
+        /// The kind a request identifier names, for a notification whose
+        /// userInfo does not say (one posted before userInfo carried `kind`).
+        init?(requestID: String) {
+            guard let colon = requestID.firstIndex(of: ":"),
+                  let kind = Kind.allCases.first(where: { $0.idPrefix == requestID[..<colon] }) else { return nil }
+            self = kind
+        }
     }
     var id: String
     var kind: Kind
@@ -440,6 +460,105 @@ struct NotificationIntent: Identifiable, Equatable {
     var messageID: String?
     var title: String
     var body: String
+
+    /// What the posted notification carries so its click finds its way back
+    /// (`NotificationTarget`).
+    var userInfo: [String: String] { ["conversation_id": conversationID, "kind": kind.rawValue] }
+}
+
+extension NotificationIntent {
+    /// One notification per event (an approval by its feed row, a message's
+    /// state by the message), however often the feed repeats it.
+    init(kind: Kind, subject: String, conversationID: String, messageID: String?, title: String, body: String) {
+        self.init(id: "\(kind.idPrefix):\(subject)", kind: kind, conversationID: conversationID, messageID: messageID,
+                  title: title, body: body)
+    }
+}
+
+/// Where a clicked notification takes the person (C-29.9): the main window on
+/// its conversation, and for an approval that conversation's oldest waiting
+/// card (C-27.5).
+struct NotificationTarget: Equatable {
+    var conversationID: String
+    /// Nil when the notification names no kind this build knows.
+    var kind: NotificationIntent.Kind?
+
+    /// Read back from a delivered notification; nil when it names no
+    /// conversation. `kind` comes from the userInfo, or else from the request
+    /// identifier (a notification an earlier build posted carries only
+    /// `conversation_id`).
+    init?(requestID: String, userInfo: [AnyHashable: Any]) {
+        guard let conversationID = userInfo["conversation_id"] as? String, !conversationID.isEmpty else { return nil }
+        self.conversationID = conversationID
+        kind = (userInfo["kind"] as? String).flatMap(NotificationIntent.Kind.init(rawValue:))
+            ?? NotificationIntent.Kind(requestID: requestID)
+    }
+
+    /// An approval's click also brings the conversation's oldest waiting card
+    /// into view (`UIModel.approvalReveal`).
+    var revealsApproval: Bool { kind == .approval }
+
+    /// What the click opens, given the conversation's pending approvals as the
+    /// feed last reported them: a card is revealed only while one waits, since
+    /// a notification outlives the approval it announced.
+    func opening(pendingApprovals: Int) -> NotificationOpening {
+        NotificationOpening(conversationID: conversationID, revealsCard: revealsApproval && pendingApprovals > 0)
+    }
+
+    /// Whether it shows when it arrives while the app is frontmost. It was
+    /// posted because its conversation was not on screen (D-24): another
+    /// conversation, for which the window shows at most a sidebar badge (a
+    /// count of waiting approvals, a turn no longer running), or the focused
+    /// one while the app was inactive, the main window closed, miniaturized,
+    /// covered or not key, or its display asleep. It shows
+    /// as it would with the app in the background, unless its conversation is
+    /// on screen by now (`ConversationStoreState.onScreenConversationID`).
+    func showsWhileFrontmost(onScreenConversationID: String?) -> Bool {
+        conversationID != onScreenConversationID
+    }
+}
+
+/// What a click opens: the conversation to focus, and whether to bring its
+/// oldest waiting card into view.
+struct NotificationOpening: Equatable {
+    var conversationID: String
+    var revealsCard: Bool
+}
+
+/// Clicks in the order they come (C-29.9). One that comes before the app has
+/// its first conversation list and feed baseline is held until then: before
+/// it the daemon may not answer an open, and the baseline, when it lands,
+/// replaces the state, focus included. A held click is dropped if the person
+/// has gone somewhere since it came (`navigation`, which moves with every
+/// navigation, as for an open that answers late) or started a conversation
+/// (`drop`), and a later click replaces it.
+struct NotificationClicks: Equatable {
+    private(set) var held: NotificationTarget?
+    private var heldAt = 0
+
+    /// A click now: what to open, or nil while it is held for the baseline.
+    mutating func click(_ target: NotificationTarget, baselined: Bool, navigation: Int,
+                        pendingApprovals: [String: Int]) -> NotificationOpening? {
+        guard baselined else {
+            held = target
+            heldAt = navigation
+            return nil
+        }
+        held = nil
+        return target.opening(pendingApprovals: pendingApprovals[target.conversationID] ?? 0)
+    }
+
+    /// The person acted in a way `navigation` does not count (started a
+    /// conversation): a held click no longer decides what opens.
+    mutating func drop() { held = nil }
+
+    /// The baseline has landed: the held click to open, if the person has not
+    /// gone elsewhere since it came.
+    mutating func baselineLanded(navigation: Int, pendingApprovals: [String: Int]) -> NotificationOpening? {
+        defer { held = nil }
+        guard let held, heldAt == navigation else { return nil }
+        return held.opening(pendingApprovals: pendingApprovals[held.conversationID] ?? 0)
+    }
 }
 
 // MARK: - State
@@ -453,26 +572,50 @@ struct ConversationStoreState: Equatable {
     /// Policy defaults published by `models.list`, never inferred from catalog order.
     var modelDefaults: [String: String] = [:]
     var focusedConversationID: String?
+    /// Whether the focused conversation is on screen: the app is active, its
+    /// main window is visible (not closed, miniaturized or covered) and holds
+    /// the key window, and the displays are awake. UIModel keeps it from AppKit. The focus stays set while the app is in the
+    /// background or its window is closed, so it alone does not say what the
+    /// person can see (D-24). False until UIModel says otherwise: a conversation
+    /// not known to be on screen notifies.
+    var focusedOnScreen = false
     var timelines: [String: Timeline] = [:]
     /// Pending approvals per conversation: from `conversation.list`, then the watch feed.
     var pendingApprovals: [String: Int] = [:]
+    /// Pending approvals per conversation as the feed last reported them. An
+    /// approval is announced when the feed's count rises over this, never over
+    /// `pendingApprovals`, which `conversation.list` and `approval.list` answers
+    /// also write: one of those landing before the feed's row would hide the
+    /// rise. At the baseline a conversation the feed has not reported starts from
+    /// the count the list gave (`markBaselined`).
+    private(set) var feedPendingApprovals: [String: Int] = [:]
     var watchCursor = 0
     /// Live messages per conversation, from the watch feed (read from seq 0 at launch).
     var liveMessages: [String: Set<String>] = [:]
-    /// The first drain of the watch feed after launch posts nothing.
-    var watchBaselined = false
+    /// The first drain of the watch feed after launch posts nothing (`markBaselined`).
+    private(set) var watchBaselined = false
     var notifications: [NotificationIntent] = []
     private(set) var notified: Set<String> = []
     var searchQuery = ""
     var providerFilter: String?
     var grouping: SidebarGrouping = .recency
     var laneLabels: [String: String] = [:]
+    /// Suggested conversations by id (C-25.7, C-29.14): from `suggestion.list`, then
+    /// the watch feed, which carries each one as it changes.
+    var suggestions: [String: Suggestion] = [:]
+    /// The newest feed sequence each suggestion is known at: its last feed row's, or
+    /// the read of the newest answer that carried it (C-29.14). An answer read
+    /// earlier never drops or rewinds it.
+    var suggestionSeqs: [String: Int] = [:]
 
     /// The Dock badge.
     var pendingApprovalCount: Int { pendingApprovals.values.reduce(0, +) }
 
     var focusedConversation: Conversation? { focusedConversationID.flatMap(conversation) }
     var focusedTimeline: Timeline? { focusedConversationID.flatMap { timelines[$0] } }
+    /// The conversation the person can see now: the focused one while it is on
+    /// screen. Every other conversation notifies (D-24).
+    var onScreenConversationID: String? { focusedOnScreen ? focusedConversationID : nil }
 
     func conversation(_ id: String) -> Conversation? { conversations.first { $0.conversation_id == id } }
 
@@ -482,6 +625,7 @@ struct ConversationStoreState: Equatable {
         conversations = list.conversations.map(withWatchActivity).sorted(by: conversationIsMoreRecent)
         catalog = list.catalog ?? catalog
         for conversation in list.conversations {
+            timelines[conversation.conversation_id]?.setQueueHeld(conversation.blocked_by != nil || conversation.live_elsewhere == true)
             pendingApprovals[conversation.conversation_id] = conversation.pending_approvals
         }
     }
@@ -516,6 +660,7 @@ struct ConversationStoreState: Equatable {
         }
         conversations.sort(by: conversationIsMoreRecent)
         pendingApprovals[conversation.conversation_id] = conversation.pending_approvals
+        timelines[conversation.conversation_id]?.setQueueHeld(conversation.blocked_by != nil || conversation.live_elsewhere == true)
         // A native session that now has a conversation leaves the catalog list.
         if let native = conversation.native_session_id {
             catalog?.items.removeAll { $0.provider == conversation.provider && $0.native_session_id == native }
@@ -528,6 +673,7 @@ struct ConversationStoreState: Equatable {
         upsert(open.conversation)
         let id = open.conversation.conversation_id
         var timeline = timelines[id] ?? Timeline(conversationID: id)
+        timeline.setQueueHeld(open.conversation.blocked_by != nil || open.conversation.live_elsewhere == true)
         timeline.apply(receipts: open.messages)
         if let history = open.history { timeline.apply(history: history, provider: open.conversation.provider) }
         timeline.attach(approvals: open.pending_approvals)
@@ -535,10 +681,35 @@ struct ConversationStoreState: Equatable {
         timelines[id] = timeline
     }
 
+    func knownMessageIDs(in conversationID: String) -> Set<String> {
+        Set(timelines[conversationID]?.turns.values.filter { $0.seq != nil && $0.origin != nil }.map(\.messageID) ?? [])
+    }
+
+    mutating func apply(refresh: ConversationRefresh) {
+        upsert(refresh.conversation)
+        let id = refresh.conversation.conversation_id
+        var timeline = timelines[id] ?? Timeline(conversationID: id)
+        timeline.setQueueHeld(refresh.conversation.blocked_by != nil || refresh.conversation.live_elsewhere == true)
+        timeline.apply(receipts: refresh.receipts)
+        timelines[id] = timeline
+    }
+
+    @discardableResult
+    mutating func apply(update: WatchUpdate) -> WatchResult {
+        if let conversation = update.conversation { upsert(conversation) }
+        let result = apply(watch: update.page)
+        if let conversation = update.conversation {
+            apply(refresh: ConversationRefresh(conversation: conversation, receipts: update.receipts))
+        }
+        return result
+    }
+
     mutating func focus(_ conversationID: String?) {
         focusedConversationID = conversationID
         if let conversationID, timelines[conversationID] == nil {
-            timelines[conversationID] = Timeline(conversationID: conversationID)
+            var timeline = Timeline(conversationID: conversationID)
+            timeline.setQueueHeld(conversation(conversationID)?.blocked_by != nil || conversation(conversationID)?.live_elsewhere == true)
+            timelines[conversationID] = timeline
         }
         // Its events are read again from where they stopped (C-27.5).
         if let conversationID { timelines[conversationID]?.startReading() }
@@ -555,6 +726,13 @@ struct ConversationStoreState: Equatable {
     mutating func apply(history page: HistoryPage, conversationID: String) {
         var timeline = timelines[conversationID] ?? Timeline(conversationID: conversationID)
         timeline.apply(history: page, provider: conversation(conversationID)?.provider ?? "")
+        timelines[conversationID] = timeline
+    }
+
+    mutating func apply(receipts: [Receipt], conversationID: String) {
+        var timeline = timelines[conversationID] ?? Timeline(conversationID: conversationID)
+        timeline.setQueueHeld(conversation(conversationID)?.blocked_by != nil || conversation(conversationID)?.live_elsewhere == true)
+        timeline.apply(receipts: receipts)
         timelines[conversationID] = timeline
     }
 
@@ -642,15 +820,23 @@ struct ConversationStoreState: Equatable {
     }
 
     /// The global change feed (D-24): approval counts, message states, and
-    /// notifications for conversations that are not focused.
+    /// notifications for conversations that are not on screen, once the feed
+    /// has its baseline.
     @discardableResult
     mutating func apply(watch page: WatchPage) -> WatchResult {
         if page.superseded == true { return .superseded }
         var applied = 0
         for change in page.changes.sorted(by: { $0.seq < $1.seq }) where change.seq > watchCursor {
             applied += 1
+            if let suggestion = change.suggestion { upsert(suggestion, seq: change.seq) }
+            if change.suggestion_id != nil && change.conversation_id.isEmpty {
+                // C-25.7: a suggestion with no origin; no conversation changed.
+                watchCursor = max(watchCursor, change.seq)
+                continue
+            }
             let cid = change.conversation_id
-            let before = pendingApprovals[cid] ?? 0
+            let before = feedPendingApprovals[cid] ?? 0
+            feedPendingApprovals[cid] = change.pending_approvals
             pendingApprovals[cid] = change.pending_approvals
             if let mid = change.message_id, let state = change.state.flatMap(MessageState.init(rawValue:)) {
                 if MessageState.live.contains(state) { liveMessages[cid, default: []].insert(mid) }
@@ -680,34 +866,44 @@ struct ConversationStoreState: Equatable {
                                                 state_reason: change.state_reason, steered_into: change.steered_into))
                 timelines[cid] = timeline
             }
-            if watchBaselined && cid != focusedConversationID {
+            if watchBaselined && cid != onScreenConversationID {
                 notify(change, pendingBefore: before)
             }
             watchCursor = max(watchCursor, change.seq)
         }
         watchCursor = max(watchCursor, page.next)
-        if page.changes.isEmpty { watchBaselined = true }
+        if page.changes.isEmpty { markBaselined() }
         return .applied(applied)
+    }
+
+    /// The feed has its baseline: what it reports from now on is news. A
+    /// conversation it has not reported yet starts from the list's count, so its
+    /// first row announces an approval only if the count rose past that.
+    mutating func markBaselined() {
+        guard !watchBaselined else { return }
+        watchBaselined = true
+        for (cid, count) in pendingApprovals where feedPendingApprovals[cid] == nil {
+            feedPendingApprovals[cid] = count
+        }
     }
 
     private mutating func notify(_ change: ConversationChange, pendingBefore: Int) {
         let title = conversation(change.conversation_id).map(conversationTitle) ?? change.conversation_id
         var intent: NotificationIntent?
         if change.pending_approvals > pendingBefore {
-            intent = NotificationIntent(id: "approval:\(change.seq)", kind: .approval, conversationID: change.conversation_id,
+            intent = NotificationIntent(kind: .approval, subject: "\(change.seq)", conversationID: change.conversation_id,
                                         messageID: change.message_id, title: "Approval needed", body: title)
         } else if let mid = change.message_id, let state = change.state.flatMap(MessageState.init(rawValue:)) {
             switch state {
             case .complete:
-                intent = NotificationIntent(id: "complete:\(mid)", kind: .completed, conversationID: change.conversation_id,
+                intent = NotificationIntent(kind: .completed, subject: mid, conversationID: change.conversation_id,
                                             messageID: mid, title: "Turn completed", body: title)
             case .failed:
-                intent = NotificationIntent(id: "failed:\(mid)", kind: .failed, conversationID: change.conversation_id,
+                intent = NotificationIntent(kind: .failed, subject: mid, conversationID: change.conversation_id,
                                             messageID: mid, title: "Turn failed", body: title)
             case .deliveryUnknown:
-                intent = NotificationIntent(id: "delivery-unknown:\(mid)", kind: .deliveryUnknown,
-                                            conversationID: change.conversation_id, messageID: mid,
-                                            title: "Delivery unknown", body: title)
+                intent = NotificationIntent(kind: .deliveryUnknown, subject: mid, conversationID: change.conversation_id,
+                                            messageID: mid, title: "Delivery unknown", body: title)
             default:
                 // A steered message settles inside its host's turn, whose completion
                 // is the one notification (C-24.9): `steering` and `steered` post nothing.
@@ -866,6 +1062,9 @@ final class ConversationEngine {
     var pollWait: Double = 25
     /// Closed outbox entries kept after each pump (their text feeds the timeline).
     var keptClosedEntries = 200
+    /// A dispatcher may be binding a queued message to its own turn job.
+    var dispatchingRetries: [TimeInterval] = [0.1, 0.25, 0.5, 1]
+    var pause: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) }
 
     init(client: DaemonCalling, outbox: Outbox) {
         self.client = client
@@ -873,7 +1072,25 @@ final class ConversationEngine {
         self.sender = OutboxSender(outbox: outbox, client: client)
     }
 
-    func checkAvailability() -> DaemonAvailability { DaemonAvailability.check(client) }
+    // Availability is read on both the outbox and feed threads. Reconnect
+    // handshakes replace this cache; an older ready daemon does not need status.
+    private let capabilityLock = NSLock()
+    private var statusSupported: Bool?
+
+    func checkAvailability() -> DaemonAvailability {
+        let availability = DaemonAvailability.check(client)
+        capabilityLock.lock()
+        statusSupported = availability.capabilities.map { $0.has(conversationStatusCapability) }
+        capabilityLock.unlock()
+        return availability
+    }
+
+    private var supportsConversationStatus: Bool {
+        capabilityLock.lock()
+        let supported = statusSupported
+        capabilityLock.unlock()
+        return supported ?? (checkAvailability().capabilities?.has(conversationStatusCapability) == true)
+    }
 
     func list(query: String? = nil, provider: String? = nil, limit: Int = 200) throws -> ConversationListResult {
         let query = query?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -888,14 +1105,24 @@ final class ConversationEngine {
     /// Open a conversation or continue a native session (`native:{provider,
     /// session_id}` creates its conversation once). Records the conversation's
     /// last person message for the outbox.
-    func open(_ target: SidebarEntry.Target) throws -> ConversationOpenResult {
+    func open(_ target: SidebarEntry.Target, knownMessageIDs: Set<String> = []) throws -> ConversationOpenResult {
         let args: ConversationOpenArgs
         switch target {
         case .conversation(let id): args = .conversation(id)
         case .native(let native): args = .native(provider: native.provider, sessionID: native.session_id, home: native.home)
         }
-        let open = try client.call(Ops.conversationOpen, args)
+        var open = try client.call(Ops.conversationOpen, args)
         let cid = open.conversation.conversation_id
+        if supportsConversationStatus {
+            // The wire snapshot has only the latest 50 receipts. Hydrate older
+            // identities before the UI can publish an incomplete queue count,
+            // even when the launch watch baseline already consumed their changes.
+            let known = knownMessageIDs.union(open.messages.map(\.message_id))
+            let refresh = try refreshConversation(cid, knownMessageIDs: known)
+            open.conversation = refresh.conversation
+            open.messages += refresh.receipts
+            open.messages.sort { ($0.seq ?? Int.max) < ($1.seq ?? Int.max) }
+        }
         if !outbox.pending(in: cid).contains(where: { $0.state == .sending }) {
             try outbox.knowChain(cid, lastPersonMessageID: Outbox.lastPersonMessage(in: open.messages))
         }
@@ -913,6 +1140,60 @@ final class ConversationEngine {
 
     func watch(after: Int, wait: Double? = nil) throws -> WatchPage {
         try client.call(Ops.conversationWatch, ConversationWatchArgs(after: after, wait_s: wait ?? pollWait))
+    }
+
+    /// Refresh the focused conversation before publishing changed message states.
+    /// Watch rows deliberately carry no blocked_by. Read without `open`'s outbox
+    /// chain bookkeeping: this runs on the feed thread, not the outbox queue.
+    func watchUpdate(after: Int, focusedConversationID: String?, knownMessageIDs: Set<String> = [], wait: Double? = nil) throws -> WatchUpdate {
+        let page = try watch(after: after, wait: wait)
+        return try refreshing(page, after: after, focusedConversationID: focusedConversationID, knownMessageIDs: knownMessageIDs)
+    }
+
+    func refreshConversation(_ id: String, knownMessageIDs: Set<String> = [], changed: Set<String> = []) throws -> ConversationRefresh {
+        if supportsConversationStatus {
+            let result = try client.call(Ops.conversationStatus, ConversationStatusArgs(conversation_id: id))
+            let wanted = Set(result.message_ids).subtracting(knownMessageIDs).union(changed)
+            return ConversationRefresh(conversation: result.conversation, receipts: try receipts(for: wanted))
+        }
+        // Compatibility with conversations.v1 daemons predating the cheap read.
+        // This raw re-read does not touch the outbox from the feed thread.
+        let open = try client.call(Ops.conversationOpen, .conversation(id))
+        let outsideSnapshot = changed.subtracting(Set(open.messages.map(\.message_id)))
+        let hydrated = try receipts(for: outsideSnapshot)
+        return ConversationRefresh(conversation: open.conversation, receipts: open.messages + hydrated)
+    }
+
+    /// message.status takes at most 200 ids; large first catch-ups must hydrate
+    /// all of them before advancing the watch cursor.
+    func receipts(for ids: Set<String>) throws -> [Receipt] {
+        let ids = ids.sorted()
+        var receipts: [Receipt] = []
+        for start in stride(from: 0, to: ids.count, by: 200) {
+            receipts += try status(Array(ids[start..<min(start + 200, ids.count)]))
+        }
+        return receipts
+    }
+
+    func refreshing(_ page: WatchPage, after: Int, focusedConversationID: String?, knownMessageIDs: Set<String> = []) throws -> WatchUpdate {
+        if page.superseded != true, let id = focusedConversationID {
+            let changes = page.changes.filter { $0.seq > after && $0.conversation_id == id }
+            if !changes.isEmpty {
+                let refresh = try refreshConversation(id, knownMessageIDs: knownMessageIDs,
+                                                       changed: Set(changes.compactMap(\.message_id)))
+                return WatchUpdate(page: page, conversation: refresh.conversation, receipts: refresh.receipts)
+            }
+        }
+        return WatchUpdate(page: page, conversation: nil, receipts: [])
+    }
+
+    func unknownReceipts(in page: EventsPage, knownMessageIDs: Set<String>) throws -> [Receipt] {
+        guard page.superseded != true else { return [] }
+        var ids = Set(page.events.compactMap(\.message_id))
+        for event in page.events where event.kind == "steer.delivered" || event.kind == "steer.missed" {
+            if let id = event.data["message_id"]?.string { ids.insert(id) }
+        }
+        return try receipts(for: ids.subtracting(knownMessageIDs))
     }
 
     func runs(conversationID: String, limit: Int = 50) throws -> [RunSummary] {
@@ -971,9 +1252,10 @@ final class ConversationEngine {
     /// Journal a steer of a queued message (C-24.9); sending is `pump`. A refusal
     /// leaves the message queued, and the report says why. `into` is the running
     /// turn the person steers into: a steer that reaches the daemon after that
-    /// turn ended is refused (`no-live-turn`), never joined to the next one.
+    /// turn ended is refused (`no-live-turn`), never joined to the next one. The
+    /// app always names it (`UIModel.steer`); every caller passes it explicitly.
     @discardableResult
-    func steer(messageID: String, conversationID: String, into: String? = nil) throws -> OutboxSteer {
+    func steer(messageID: String, conversationID: String, into: String?) throws -> OutboxSteer {
         try outbox.enqueueSteer(conversation: conversationID, messageID: messageID, into: into)
     }
 
@@ -1036,43 +1318,33 @@ final class ConversationEngine {
         }
     }
 
-    /// Stop a message: cancel it while queued, interrupt it once it runs.
+    enum WithdrawResult: Equatable {
+        case withdrawn(Receipt?)
+        case stopped(Receipt?)
+        case inFlight
+    }
+
+    /// Withdraw through the existing outbox path, then act on its current receipt.
+    func withdrawSend(_ messageID: String) throws -> WithdrawResult {
+        switch try withdraw(messageID) {
+        case .withdrawn(let receipt): return .withdrawn(receipt)
+        case .inDaemon(let receipt):
+            let action = stopAction(for: messageID, state: receipt.state, outboxEntry: nil)
+            return .stopped(action == .none ? receipt : try stop(action))
+        case .inFlight: return .inFlight
+        }
+    }
+
+    /// Stop a message: cancel it while queued, interrupt its own turn once it runs.
     func stop(_ action: StopAction) throws -> Receipt? {
         switch action {
         case .none: return nil
         case .withdraw(let messageID):
-            switch try withdraw(messageID) {
-            case .withdrawn(let receipt): return receipt
-            case .inDaemon(let receipt):
-                return try stop(stopAction(for: messageID, state: receipt.state, outboxEntry: nil))
+            switch try withdrawSend(messageID) {
+            case .withdrawn(let receipt), .stopped(let receipt): return receipt
             case .inFlight: return nil
             }
-        case .cancel(let messageID):
-            do {
-                let receipt = try client.call(Ops.messageCancel, MessageCancelArgs(message_id: messageID,
-                                                                                   conversation_id: nil))
-                // Its steer not sent yet would only be refused now (one queue: nothing sends between).
-                try outbox.withdrawSteer(messageID)
-                return receipt
-            } catch DaemonClientError.daemon(let refusal) where refusal.reason == "too-late" {
-                // It left `queued` since the app looked, and the provider may have
-                // it: the daemon's fix is `turn.interrupt` (op_message_cancel). A
-                // message steered meanwhile is in another message's turn, and the
-                // daemon points an interrupt of it at that turn: never interrupt
-                // without knowing (a failed read is thrown, not guessed past), and
-                // interrupt only a message read as its own turn's. One queued again
-                // or settled has no turn to stop, and one queued could be steered by
-                // another client before an interrupt arrived.
-                let now = try status([messageID]).first
-                switch now?.messageState {
-                case .steering, .steered:
-                    throw ConversationEngineError.steerTooLate(messageID)
-                case .waiting, .starting, .running, .approvalNeeded:
-                    return try client.call(Ops.turnInterrupt, TurnInterruptArgs(message_id: messageID))
-                default:
-                    return now
-                }
-            }
+        case .cancel(let messageID): return try cancel(messageID)
         case .cancelSteer(let messageID):
             do {
                 return try client.call(Ops.messageCancel, MessageCancelArgs(message_id: messageID, conversation_id: nil))
@@ -1081,6 +1353,40 @@ final class ConversationEngine {
             }
         case .interrupt(let messageID):
             return try client.call(Ops.turnInterrupt, TurnInterruptArgs(message_id: messageID))
+        }
+    }
+
+    /// Withdraw retries a brief dispatch race. A status read on too-late prevents
+    /// stopping a host turn, and treats a second withdrawal as settled already.
+    func cancel(_ messageID: String) throws -> Receipt? {
+        var waits = dispatchingRetries
+        while true {
+            do {
+                let receipt = try client.call(Ops.messageCancel, MessageCancelArgs(message_id: messageID, conversation_id: nil))
+                try outbox.withdrawSteer(messageID)
+                return receipt
+            } catch DaemonClientError.daemon(let refusal) where refusal.reason == "dispatching" && !waits.isEmpty {
+                pause(waits.removeFirst())
+            } catch DaemonClientError.daemon(let refusal) where refusal.reason == "too-late" {
+                return try stopIfRunning(messageID)
+            }
+        }
+    }
+
+    private func stopIfRunning(_ messageID: String) throws -> Receipt? {
+        guard let receipt = try status([messageID]).first(where: { $0.message_id == messageID }) else {
+            throw DaemonClientError.malformed("message.status left out \(messageID)")
+        }
+        switch receipt.messageState {
+        case .steering, .steered:
+            throw ConversationEngineError.steerTooLate(messageID)
+        case .waiting, .starting, .running, .approvalNeeded:
+            do {
+                return try client.call(Ops.turnInterrupt, TurnInterruptArgs(message_id: messageID))
+            } catch DaemonClientError.daemon(let refusal) where refusal.reason == "not-running" {
+                return try status([messageID]).first { $0.message_id == messageID }
+            }
+        default: return receipt
         }
     }
 
@@ -1145,6 +1451,8 @@ final class ConversationEngine {
         for _ in 0..<maxPages {
             let after = state.timelines[conversationID]?.cursor ?? 0
             let page = try events(conversationID: conversationID, after: after, wait: 0)
+            let receipts = try unknownReceipts(in: page, knownMessageIDs: state.knownMessageIDs(in: conversationID))
+            state.apply(receipts: receipts, conversationID: conversationID)
             switch state.apply(events: page, conversationID: conversationID) {
             case .superseded: return
             case .reset:
@@ -1159,8 +1467,9 @@ final class ConversationEngine {
     /// Drain the watch feed without waiting (the launch baseline, or a catch-up).
     func drainWatch(_ state: inout ConversationStoreState, maxPages: Int = 64) throws {
         for _ in 0..<maxPages {
-            let page = try watch(after: state.watchCursor, wait: 0)
-            guard case .applied(let count) = state.apply(watch: page), count > 0 else { return }
+            let known = state.focusedConversationID.map { state.knownMessageIDs(in: $0) } ?? []
+            let update = try watchUpdate(after: state.watchCursor, focusedConversationID: state.focusedConversationID, knownMessageIDs: known, wait: 0)
+            guard case .applied(let count) = state.apply(update: update), count > 0 else { return }
         }
     }
 }
@@ -1172,16 +1481,31 @@ final class ConversationEngine {
 /// been answered while the daemon was busy or restarting, and nothing else checks
 /// once the feed answers again, so the app kept its banner and stopped sending
 /// (review of the descriptor hotfix, F7).
+/// Internal feed result; it does not change the daemon's watch protocol.
+struct ConversationRefresh {
+    let conversation: Conversation
+    let receipts: [Receipt]
+}
+
+struct WatchUpdate {
+    let page: WatchPage
+    let conversation: Conversation?
+    let receipts: [Receipt]
+}
+
 struct WatchLoop {
     let engine: ConversationEngine
     /// Where to watch from; nil ends the loop.
     var cursor: () -> Int?
-    var deliver: (WatchPage) -> Void
+    var deliver: (WatchUpdate) -> Void
     /// A watch failed.
     var lost: (Error) -> Void
     /// A watch answered after one or more failed.
     var regained: () -> Void
     var pause: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) }
+
+    var focusedConversationID: () -> String? = { nil }
+    var knownMessageIDs: (String) -> Set<String> = { _ in [] }
 
     /// The pause after the `failures`th failure in a row: 2 s more each time, at most 30 s.
     static func backoff(failures: Int) -> TimeInterval { min(30, Double(failures) * 2) }
@@ -1191,7 +1515,12 @@ struct WatchLoop {
         while let after = cursor() {
             do {
                 let page = try engine.watch(after: after)
-                deliver(page)
+                // Focus can change during the long poll. Refresh the conversation
+                // that is focused when it answers, before delivering the page.
+                let focused = focusedConversationID()
+                let known = focused.map(knownMessageIDs) ?? []
+                let update = try engine.refreshing(page, after: after, focusedConversationID: focused, knownMessageIDs: known)
+                deliver(update)
                 if failures > 0 { regained() }
                 failures = 0
             } catch {

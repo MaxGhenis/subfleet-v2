@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T16:31:54.948545+00:00",
+  "args": [
+    "-p",
+    "tests.conftest",
+    "review-r11-data/reader_probes.py"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/reader-differences",
+  "linked": false,
+  "driver_pid": 8456,
+  "lock_process_group": 8536
+}

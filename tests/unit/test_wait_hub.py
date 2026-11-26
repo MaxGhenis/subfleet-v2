@@ -29,14 +29,16 @@ import time
 
 import pytest
 
-from subfleet import protocol
+from subfleet import procs, protocol
 from subfleet.contracts import Credential, Lane, LaneOwner
 from subfleet.daemon import Daemon
 from subfleet.waits import WAIT_POLL_S, WaitHub
 
 
 @pytest.fixture
-def daemon(tmp_path):
+def daemon(tmp_path, monkeypatch):
+    monkeypatch.setattr(procs, "boot_id", lambda: "wait-fixture-boot")
+    monkeypatch.setattr(procs, "proc_start", lambda pid: "wait-fixture-start")
     core = Daemon(tmp_path / "state")
     home = tmp_path / "home"
     core.store.put_lane(Lane("codex-1", "codex", "codex:test", Credential("codex", str(home), "home"),
@@ -209,7 +211,9 @@ def test_the_deadline_still_ends_a_wait(daemon):
     assert daemon.wait_hub.watched == 0
 
 
-def test_a_stopping_daemon_answers_every_waiter(tmp_path):
+def test_a_stopping_daemon_answers_every_waiter(tmp_path, monkeypatch):
+    monkeypatch.setattr(procs, "boot_id", lambda: "wait-fixture-boot")
+    monkeypatch.setattr(procs, "proc_start", lambda pid: "wait-fixture-start")
     core = Daemon(tmp_path / "state")
     home = tmp_path / "home"
     core.store.put_lane(Lane("codex-1", "codex", "codex:test", Credential("codex", str(home), "home"),

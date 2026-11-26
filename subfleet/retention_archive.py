@@ -34,24 +34,32 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import stat
 import threading
 import time
+import unicodedata
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import folders
+from . import dependencies, folders
 from . import retention_fs as rfs
 from . import retention_git as rgit
+from . import retention_notices as rnotices
 from . import retention_qos as rqos
 from .retention_holders import Watch
 
 SCHEMA = 1
 ARCHIVE_TABLES = ("jobs", "attempts", "artifacts", "readings", "notices", "decisions")
 IN_FLIGHT = ("selected", "locking", "locked", "quarantining", "quarantined", "archived", "committing")
+#: When a retirement was quarantined (holder check 1 covers what came before)
+#: and when its archive ended (check 2 does): `Context.stamp` values, in the
+#: journal, so the rule that a listing serves a check only if it started later
+#: holds across restarts (D-HOLDERS-LSOF1).
+STAMPS = ("quarantined_stamp", "archived_stamp")
 COMMITTED = ("committed", "published", "reclaiming")
 #: How long a job waits after a rollback, by reason.
 DEFER_BUSY_S = 3600
@@ -232,22 +240,60 @@ class Context:
     repositories: list[Path] | None = None
     #: repository -> its salvage refs, read once a pass for the same jobs.
     salvage_listings: dict[str, dict[str, str]] = field(default_factory=dict)
+    #: job id -> the places a job queued before submit recorded them needs
+    #: (`dependencies.legacy`), read once a pass before any transaction.
+    legacy: dict[str, list[str]] = field(default_factory=dict)
+    #: Repository discovery must yield to the pass deadline. Archive slices
+    #: still use their own bounds, and verified archives may finish the pass.
+    deadline: float | None = None
+    #: The wall clock stamps read (integer nanoseconds since the epoch).
+    stamp_clock: Callable[[], int] = time.time_ns
+    #: The latest stamp given or seen in a journal; every new one is later.
+    stamp_floor: int = 0
+    #: C-8.4: how long an unread notice keeps its job (0: for ever), named in
+    #: the outcome a retirement writes for a notice still unread.
+    notice_keep_s: float = 0
 
     def check(self) -> None:
         if self.cancel is not None and self.cancel.is_set():
             raise Interrupted("cancelled")
 
+    def stamp(self) -> int:
+        """When something happened, for the holder check's ordering rule
+        (D-HOLDERS-LSOF1): wall-clock nanoseconds, but always later than every
+        stamp given before and every stamp read from a journal (`saw`), so a
+        wall clock stepped back can make no later event look earlier. A
+        listing serves a check only if its stamp is later than the event's."""
+        self.stamp_floor = max(int(self.stamp_clock()), self.stamp_floor + 1)
+        return self.stamp_floor
+
+    def saw(self, journal: dict[str, Any] | None) -> None:
+        """Keep every later stamp after the ones this journal recorded."""
+        for key in STAMPS:
+            value = (journal or {}).get(key)
+            if isinstance(value, int) and not isinstance(value, bool):
+                self.stamp_floor = max(self.stamp_floor, value)
+
     def known_repositories(self) -> list[Path]:
         if self.repositories is None:
-            self.repositories = known_repositories(self.store.list_jobs(), self.root, cancel=self.cancel)
+            _repository_checkpoint(self.cancel, self.deadline, self.clock)
+            self.repositories = known_repositories(self.store.list_jobs(), self.root, cancel=self.cancel,
+                                                   deadline=self.deadline, clock=self.clock)
         return self.repositories
 
     def salvage_refs(self, common: Path) -> dict[str, str]:
         key = str(common)
         if key not in self.salvage_listings:
+            # The listing search over the census answers to the census's bound.
+            _repository_checkpoint(self.cancel, self.deadline, self.clock)
+            timeout = 120 if self.deadline is None else min(120, self.deadline - self.clock())
+            if timeout <= 0:
+                raise Defer("repository discovery deadline", DEFER_CHANGED_S)
             try:
-                self.salvage_listings[key] = rgit.refs_under(common, "refs/subfleet-salvage/", cancel=self.cancel)
+                self.salvage_listings[key] = rgit.refs_under(common, "refs/subfleet-salvage/",
+                                                           timeout=timeout, cancel=self.cancel)
             except (rgit.GitError, OSError):
+                _repository_checkpoint(self.cancel, self.deadline, self.clock)
                 self.salvage_listings[key] = {}
         return self.salvage_listings[key]
 
@@ -514,6 +560,7 @@ class Retirement:
         self.journal = {
             "schema": SCHEMA, "job_id": self.job_id, "state": "selected", "pool": pool,
             "worktree": str(worktree) if worktree else None, "job_dir": str(job_dir),
+            "job_folder": folders.canonical(str(job_dir)),
             "workdir": job.get("workdir"), "baseline": job.get("workdir_head"),
             "admin": str(reg.admin) if reg else (str(remnant) if remnant else None),
             "admin_remnant": remnant is not None, "common": str(common) if common else None,
@@ -623,7 +670,11 @@ class Retirement:
         The cwd can differ from the Git hold, so also read queued/live turn jobs.
         """
         assert self.journal is not None
-        folder = folders.canonical(self.journal["job_dir"])
+        folder = self.journal.get("job_folder") or folders.canonical(self.journal["job_dir"])
+        if "job_folder" not in self.journal:
+            # Upgrade old journals entering quarantine in memory; quarantine saves before its renames.
+            # Leave job_dir unchanged so the rename still refuses a symlink there.
+            self.journal["job_folder"] = folder
         key, holder = folders.exclusive_key(folder), f"retention:{self.job_id}"
         with self.ctx.store.transaction("retention.job_folder", job_id=self.job_id) as conn:
             self.ctx.check()
@@ -633,6 +684,8 @@ class Retirement:
             if folders.turn_holds(read, folder, inside=True) or any(
                     folders.within(row["workdir"], folder) for row in turns):
                 raise Defer("turn-folder", DEFER_PINNED_S, folder)
+            if dependencies.dependents(read, folder, exclude=self.job_id, legacy_places=self.ctx.legacy):
+                raise Defer("job-directory-in-use", DEFER_PINNED_S, folder)
             current = conn.execute("SELECT holder FROM leases WHERE lease_key=?", (key,)).fetchone()
             if current and current[0] != holder:
                 raise Defer("job folder lease", DEFER_CHANGED_S, folder)
@@ -681,7 +734,7 @@ class Retirement:
         changed = self._identity_changed()
         if changed is not None:
             raise Defer("changed", DEFER_CHANGED_S, changed)
-        self.save(state="quarantined")
+        self.save(state="quarantined", quarantined_stamp=self.ctx.stamp())
 
     def _identity_changed(self) -> str | None:
         """Why the tree or its registration is not the one `begin` read, or None.
@@ -828,22 +881,24 @@ class Retirement:
                 raise Defer("changed after archive", DEFER_CHANGED_S, f"{label} appeared")
             entries = {e["p"]: e for e in tree["entries"]}
             seen = 0
-            fd = rfs.open_dir(path)
-            try:
-                for rel, st, parent, name in rfs.walk(fd, self.ctx.check):
-                    entry = entries.get(rel)
-                    if entry is None or not rfs.still_archived(entry, st, parent, name, self.ctx.check):
-                        raise Defer("changed after archive", DEFER_CHANGED_S, f"{label}/{rel}")
-                    # Recovery of an archived journal bypasses the builder;
-                    # its coverage proof must still precede row deletion.
-                    _require_file_bytes(entry, label)
-                    if stat.S_ISLNK(st.st_mode) and os.fsdecode(os.readlink(name, dir_fd=parent)) != entry.get("link"):
-                        raise Defer("changed after archive", DEFER_CHANGED_S, f"{label}/{rel}")
-                    seen += 1
-            except rfs.TreeError as exc:
-                raise Defer("changed after archive", DEFER_CHANGED_S, str(exc)) from exc
-            finally:
-                os.close(fd)
+            with rfs._cleanup([None]) as owner:
+                owner.resources[0] = rfs.open_dir(path)
+                fd = owner.resources[0]
+                try:
+                    iterator = rfs.walk(fd, self.ctx.check)
+                    with rfs._cleanup((iterator,), close=lambda it: it.close()):
+                        for rel, st, parent, name in iterator:
+                            entry = entries.get(rel)
+                            if entry is None or not rfs.still_archived(entry, st, parent, name, self.ctx.check):
+                                raise Defer("changed after archive", DEFER_CHANGED_S, f"{label}/{rel}")
+                            # Recovery of an archived journal bypasses the builder;
+                            # its coverage proof must still precede row deletion.
+                            _require_file_bytes(entry, label)
+                            if stat.S_ISLNK(st.st_mode) and os.fsdecode(os.readlink(name, dir_fd=parent)) != entry.get("link"):
+                                raise Defer("changed after archive", DEFER_CHANGED_S, f"{label}/{rel}")
+                            seen += 1
+                except rfs.TreeError as exc:
+                    raise Defer("changed after archive", DEFER_CHANGED_S, str(exc)) from exc
             if seen != len(entries):
                 raise Defer("changed after archive", DEFER_CHANGED_S, f"{label}: {len(entries) - seen} entries vanished")
         for label in manifest["trees"]:
@@ -880,6 +935,8 @@ class Retirement:
         self.ctx.check()
         j = self.journal
         assert j is not None
+        # Old archived journals have no job_folder; spell their path off the store lock.
+        job_folder = j.get("job_folder") or folders.canonical(j["job_dir"])
         manifest = self.manifest()
         name = self._archive_name()
         for _ in range(3):
@@ -912,6 +969,15 @@ class Retirement:
                     if not reason and j["worktree"] and folders.turn_holds(
                             lambda sql, params: conn.execute(sql, params).fetchall(), j["worktree"], inside=True):
                         reason = "turn-folder"
+                    # And a job that has not ended that needs a place in the tree (its
+                    # folder, review root, `-o` path or git storage), or an export
+                    # pending to a path there (`dependencies`), on the same spelling.
+                    for place, pin in ((j["worktree"], "worktree-in-use"),
+                                       (job_folder, "job-directory-in-use")):
+                        if not reason and place and dependencies.dependents(
+                                lambda sql, params: conn.execute(sql, params).fetchall(), place,
+                                exclude=self.job_id, legacy_places=self.ctx.legacy):
+                            reason = pin
                     # And a `worktree:` lease on a folder inside it, held by a
                     # detached writer in a repository nested there (review of
                     # 31048e67, F3); the tree's own key is checked below.
@@ -929,6 +995,13 @@ class Retirement:
                     elif j["worktree"] and held.get(f"worktree:{j['worktree']}") != f"retention:{self.job_id}":
                         outcome = "worktree lease lost"
                     else:
+                        # C-8.4 (D-NOTICE-KEEP1): a notice still unread goes with the
+                        # rows; its session is told what became of the job instead,
+                        # in this transaction, by a service notice that pins nothing.
+                        outcomes = rnotices.write_outcomes(conn, self.job_id, keep_s=self.ctx.notice_keep_s,
+                                                           archive=str(self.root / "archive" / name), name=name)
+                        if outcomes:
+                            data_event["outcome_notices"] = [o["service_notice_id"] for o in outcomes]
                         attempts = "attempt_id IN (SELECT attempt_id FROM attempts WHERE job_id=?)"
                         conn.execute(f"DELETE FROM artifacts WHERE {attempts}", (self.job_id,))
                         conn.execute(f"DELETE FROM readings WHERE {attempts}", (self.job_id,))
@@ -1125,30 +1198,34 @@ class Retirement:
         entries = {e["p"]: e for e in tree["entries"]}
         changed: list[str] = []
         data: list[bytes] = []
-        fd = rfs.open_dir(admin)
-        try:
-            for rel, st, parent, name in rfs.walk(fd, self.ctx.check):
-                entry = entries.get(rel)
-                if entry is not None and rfs.still_archived(entry, st, parent, name, self.ctx.check):
-                    continue
-                changed.append(rel)
-                if stat.S_ISREG(st.st_mode) and rel != "index" and st.st_size < 64 << 20:
-                    try:
-                        data.append(rfs.read_regular(admin / rel, limit=64 << 20))
-                    except OSError:
-                        pass
-        except rfs.TreeError as exc:
-            changed.append(f"(walk: {exc})")
-        finally:
-            os.close(fd)
+        with rfs._cleanup([None]) as owner:
+            owner.resources[0] = rfs.open_dir(admin)
+            fd = owner.resources[0]
+            try:
+                iterator = rfs.walk(fd, self.ctx.check)
+                with rfs._cleanup((iterator,), close=lambda it: it.close()):
+                    for rel, st, parent, name in iterator:
+                        entry = entries.get(rel)
+                        if entry is not None and rfs.still_archived(entry, st, parent, name, self.ctx.check):
+                            continue
+                        changed.append(rel)
+                        if stat.S_ISREG(st.st_mode) and rel != "index" and st.st_size < 64 << 20:
+                            try:
+                                data.append(rfs.read_regular(admin / rel, limit=64 << 20))
+                            except OSError:
+                                pass
+            except rfs.TreeError as exc:
+                changed.append(f"(walk: {exc})")
         present = set()
-        fd = rfs.open_dir(admin)
-        try:
-            present = {rel for rel, _, _, _ in rfs.walk(fd)}
-        except rfs.TreeError:
-            pass
-        finally:
-            os.close(fd)
+        with rfs._cleanup([None]) as owner:
+            owner.resources[0] = rfs.open_dir(admin)
+            fd = owner.resources[0]
+            try:
+                iterator = rfs.walk(fd)
+                with rfs._cleanup((iterator,), close=lambda it: it.close()):
+                    present = {rel for rel, _, _, _ in iterator}
+            except rfs.TreeError:
+                pass
         vanished = [p for p in entries if p not in present]
         if not changed and not vanished:
             return None
@@ -1223,7 +1300,8 @@ class Retirement:
             conn.execute("DELETE FROM leases WHERE holder=?", (f"retention:{self.job_id}",))
         if keep_cache and os.path.isdir(self.building):
             self.save(state="idle", lock=None, check1=False, reason=reason, idle_since=time.time(),
-                      failures=failures, defer_until=defer_until, rollback_pending=None)
+                      failures=failures, defer_until=defer_until, rollback_pending=None,
+                      **dict.fromkeys(STAMPS))
         else:
             self._drop_journal()
             try:
@@ -1285,34 +1363,117 @@ def accounting(totals: dict[str, Any], added: int = 0) -> dict[str, int]:
             "freed_disk_bytes": int(totals.get("freed_disk_bytes") or 0), "added_bytes": int(added)}
 
 
+def _repository_checkpoint(cancel: threading.Event | None, deadline: float | None,
+                           clock: Callable[[], float]) -> None:
+    if cancel is not None and cancel.is_set():
+        raise Interrupted("cancelled")
+    if deadline is not None and clock() >= deadline:
+        raise Defer("repository discovery deadline", DEFER_CHANGED_S)
+
+
 def known_repositories(jobs: Iterable[dict[str, Any]], root: Path, *,
-                       cancel: threading.Event | None = None) -> list[Path]:
+                       cancel: threading.Event | None = None, deadline: float | None = None,
+                       clock: Callable[[], float] = time.monotonic) -> list[Path]:
     """The common directories of the repositories the jobs' trees and workdirs
     that are still there are in: where a job whose tree and workdir are both
     gone (a lane checkout removed, a folder deleted) may still have its
     registration and its salvage refs (#81's note on #76: 62 of 371 terminal
-    owned jobs on 2026-09-29)."""
+    owned jobs on 2026-09-29). Never return a partial census: at the pass
+    deadline the caller must roll back and defer the job that needed it."""
+    def check() -> None:
+        _repository_checkpoint(cancel, deadline, clock)
+
+    check()
+    ambient_timeout = 60 if deadline is None else min(60, deadline - clock())
+    if ambient_timeout <= 0:
+        raise Defer("repository discovery deadline", DEFER_CHANGED_S)
+    ambient_plain = rgit.ambient_plain(timeout=ambient_timeout, cancel=cancel)
+    check()
+    if not ambient_plain:
+        logging.getLogger(__name__).info("Repository census uses Git for every workdir: ambient config is not plain")
     found: dict[str, Path] = {}
-    jobs = list(jobs)
-    for job in jobs:
+    workdirs: set[str] = set()
+    allocated_root = root / "worktrees"
+    allocated_names = None
+    allocated_sig = None
+    skipped: list[dict[str, Any]] = []
+
+    def allocation_sig() -> tuple[int, int, int, int]:
+        st = os.lstat(allocated_root)
+        if not stat.S_ISDIR(st.st_mode):
+            raise OSError("allocated worktree root is not a directory")
+        return st.st_dev, st.st_ino, st.st_mtime_ns, st.st_ctime_ns
+
+    try:
+        allocated_sig = allocation_sig()
+        # A spelling absent from listdir can still resolve on a filesystem
+        # that ignores case or normalization. Such aliases need the complete
+        # per-path check; only a missing folded name proves a negative here.
+        allocated_names = {unicodedata.normalize("NFC", name).casefold() for name in os.listdir(allocated_root)}
+    except OSError:
+        pass                      # unreadable containers retain per-path checks
+
+    def add_tree(job: dict[str, Any]) -> None:
+        check()
         try:
             tree = owned_worktree(job, root)
         except ValueError:
-            continue
+            return
         if tree is not None and os.path.lexists(tree):
             try:
                 reg, _ = rgit.registration(tree)
             except OSError:
-                continue           # another job's unreadable registration answers nothing here
+                return           # another job's unreadable registration answers nothing here
             if reg is not None:
                 found.setdefault(str(reg.common), reg.common)
-    for workdir in sorted({job["workdir"] for job in jobs if job.get("workdir")}):
-        if cancel is not None and cancel.is_set():
-            raise Interrupted("cancelled")
+
+    for job in jobs:
+        check()
+        if job.get("workdir"):
+            workdirs.add(job["workdir"])
+        if job.get("in_place") or job.get("sandbox") != "workspace-write":
+            continue
+        candidate = os.fspath(job.get("worktree") or os.path.join(allocated_root, job["job_id"]))
+        # An absent direct allocation cannot contribute a registration. Avoid
+        # resolving every ancestor of it twice for every historical job row;
+        # existing and unusually spelled paths still get the full ownership
+        # check below. This shortcut never supplies a repository or ownership.
+        if os.path.dirname(candidate) == str(allocated_root) and os.path.basename(candidate) not in (".", ".."):
+            if allocated_names is not None:
+                if unicodedata.normalize("NFC", os.path.basename(candidate)).casefold() not in allocated_names:
+                    skipped.append(job)
+                    continue
+            elif not os.path.lexists(candidate):
+                continue
+        add_tree(job)
+    check()
+    if skipped:
+        try:
+            unchanged = allocation_sig() == allocated_sig
+        except OSError:
+            unchanged = False
+        if not unchanged:
+            # Allocation can run concurrently with this census. A changed
+            # container invalidates every negative from its directory listing;
+            # replay those rows with the original per-path ownership checks.
+            for job in skipped:
+                add_tree(job)
+    for workdir in sorted(workdirs):
+        check()
         if os.path.isdir(workdir):
-            common = rgit.common_dir(Path(workdir), cancel=cancel)
+            check()
+            timeout = 60 if deadline is None else min(60, deadline - clock())
+            if timeout <= 0:
+                raise Defer("repository discovery deadline", DEFER_CHANGED_S)
+            if ambient_plain:
+                common = rgit.fast_common_dir(Path(workdir), timeout=timeout, cancel=cancel,
+                                              checkpoint=check, deadline=deadline, clock=clock)
+            else:
+                common = rgit.common_dir(Path(workdir), timeout=timeout, cancel=cancel)
+            check()
             if common is not None:
                 found.setdefault(str(common), common)
+    check()
     return list(found.values())
 
 
@@ -1381,6 +1542,11 @@ def source_of_gone_tree(job: dict[str, Any], worktree: Path, known: Callable[[],
             return None, None, f"tree away: {worktree} may still belong to {admin}; read its registration again"
     if wanted:
         for common in candidates:
+            # A repository proved not to hold one of the refs cannot be the job's,
+            # so only the few that might cost a `for-each-ref`: the census holds
+            # about a thousand, and 542 of them held salvage refs on 2026-11-01.
+            if any(rgit.no_refs_under(common, ref) for ref in wanted):
+                continue
             listing = salvage_refs(common)
             if all(ref in listing and salvage_digest(listing[ref]) == digest for ref, digest in wanted.items()):
                 return None, common, None
@@ -1655,7 +1821,8 @@ class _Builder:
         self._drop_unreferenced(trees)
         rfs.sync_path(self.files)
         rfs.sync_path(self.dir)
-        self.r.save(state="archived", manifest_sha256=hashlib.sha256(data).hexdigest())
+        self.r.save(state="archived", manifest_sha256=hashlib.sha256(data).hexdigest(),
+                    archived_stamp=self.ctx.stamp())
         return "done"
 
     def _original(self, label: str) -> str | None:
@@ -1674,52 +1841,54 @@ class _Builder:
         entries: list[dict[str, Any]] = []
         links: dict[tuple[int, int], str] = {}
         admin = self.j.get("admin")
-        try:
-            fd = rfs.open_dir(path)
-        except (FileNotFoundError, NotADirectoryError) as exc:
-            raise Defer("tree vanished", DEFER_CHANGED_S, f"{label}: {exc}") from exc
-        regen = rfs.RegenerableWalk(fd, ignored.clear, denied) if ignored is not None else None
-        try:
-            for rel, st, parent, name in rfs.walk(fd, self._tick):
-                entry: dict[str, Any] = {"p": rel, "sig": rfs.signature(st)}
-                t = entry["sig"]["t"]
-                totals["entries"] += 1
-                verdict = regen.classify(rel, st, parent, name) if regen is not None else False
-                if isinstance(verdict, rfs.Verify):
-                    # A file an installed distribution's RECORD lists: dropped
-                    # only if its bytes are the ones the RECORD names (N3).
-                    digest = self._digest(entry, st, parent, name)
-                    verdict = digest == verdict.sha256
-                    if verdict:
-                        assert regen is not None and name is not None
-                        regen.confirm(rel, st, parent, name)
-                        entry["sha256"] = digest
-                if verdict:
-                    entry["regen"] = True
-                    totals["regenerable_entries"] += 1
-                    if t == "l":
-                        entry["link"] = os.fsdecode(os.readlink(name, dir_fd=parent))
-                    elif t == "f":
-                        entry["size"] = st.st_size
-                        if st.st_nlink > 1 and "sha256" not in entry:
-                            entry["sha256"] = self._digest(entry, st, parent, name)
-                    entries.append(entry)
-                    continue
-                if t == "l":
-                    entry["link"] = os.fsdecode(os.readlink(name, dir_fd=parent))
-                elif t == "f" and rel:
-                    if label == "worktree" and name.lower() == ".git" and "/" in rel:
-                        self._nested_gitfile(parent, name, rel, admin)
-                    self._file(entry, st, parent, name, omit.get(rel), fmt, files_fd, links, totals)
-                elif t == "d" and rel and label == "worktree" and name.lower() == ".git":
-                    pass       # a nested repository: archived byte for byte like everything else
-                entries.append(entry)
-        except rfs.TreeError as exc:
-            seconds = (DEFER_CHANGED_S if exc.reason in ("changed", "swapped", "low-space")
-                       else DEFER_PERMANENT_S)
-            raise Defer(exc.reason, seconds, f"{label}: {exc.detail}") from exc
-        finally:
-            os.close(fd)
+        with rfs._cleanup([None]) as owner:
+            try:
+                owner.resources[0] = rfs.open_dir(path)
+                fd = owner.resources[0]
+            except (FileNotFoundError, NotADirectoryError) as exc:
+                raise Defer("tree vanished", DEFER_CHANGED_S, f"{label}: {exc}") from exc
+            regen = rfs.RegenerableWalk(fd, ignored.clear, denied) if ignored is not None else None
+            try:
+                iterator = rfs.walk(fd, self._tick)
+                with rfs._cleanup((iterator,), close=lambda it: it.close()):
+                    for rel, st, parent, name in iterator:
+                        entry: dict[str, Any] = {"p": rel, "sig": rfs.signature(st)}
+                        t = entry["sig"]["t"]
+                        totals["entries"] += 1
+                        verdict = regen.classify(rel, st, parent, name) if regen is not None else False
+                        if isinstance(verdict, rfs.Verify):
+                            # A file an installed distribution's RECORD lists: dropped
+                            # only if its bytes are the ones the RECORD names (N3).
+                            digest = self._digest(entry, st, parent, name)
+                            verdict = digest == verdict.sha256
+                            if verdict:
+                                assert regen is not None and name is not None
+                                regen.confirm(rel, st, parent, name)
+                                entry["sha256"] = digest
+                        if verdict:
+                            entry["regen"] = True
+                            totals["regenerable_entries"] += 1
+                            if t == "l":
+                                entry["link"] = os.fsdecode(os.readlink(name, dir_fd=parent))
+                            elif t == "f":
+                                entry["size"] = st.st_size
+                                if st.st_nlink > 1 and "sha256" not in entry:
+                                    entry["sha256"] = self._digest(entry, st, parent, name)
+                            entries.append(entry)
+                            continue
+                        if t == "l":
+                            entry["link"] = os.fsdecode(os.readlink(name, dir_fd=parent))
+                        elif t == "f" and rel:
+                            if label == "worktree" and name.lower() == ".git" and "/" in rel:
+                                self._nested_gitfile(parent, name, rel, admin)
+                            self._file(entry, st, parent, name, omit.get(rel), fmt, files_fd, links, totals)
+                        elif t == "d" and rel and label == "worktree" and name.lower() == ".git":
+                            pass       # a nested repository: archived byte for byte like everything else
+                        entries.append(entry)
+            except rfs.TreeError as exc:
+                seconds = (DEFER_CHANGED_S if exc.reason in ("changed", "swapped", "low-space")
+                           else DEFER_PERMANENT_S)
+                raise Defer(exc.reason, seconds, f"{label}: {exc.detail}") from exc
         if regen is None:
             return entries, []
         # A directory under a tool's entry whose every entry was dropped goes too.

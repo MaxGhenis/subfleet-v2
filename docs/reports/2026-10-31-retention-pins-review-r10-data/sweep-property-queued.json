@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T11:21:37.826236+00:00",
+  "args": [
+    "tests/unit/test_retention_sweep_race.py",
+    "-k",
+    "test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r10/real-tmp/sweep-property",
+  "linked": false,
+  "driver_pid": 62706,
+  "lock_process_group": 62778
+}

@@ -86,6 +86,93 @@ In this order: stop v2 admissions; stop the daemon's timers; restore the v1 hook
 
 Stop admission; drain or re-adopt attempts; `VACUUM INTO '<state root>/backups/state-<utc>.sqlite3'`; apply additive migrations; `PRAGMA integrity_check`; resume. A CLI newer than the daemon refuses to write and prints both versions (C-3.5).
 
+## Pruning redundant decision rows (one-off)
+
+`python -m subfleet.prune_decisions` deletes the redundant `decisions` rows of terminal jobs — in practice the ones the admission pass wrote while a job waited for capacity. Nothing in the daemon or the CLI imports it; an operator runs it.
+
+**When it is needed.** Until #16 the admission pass wrote a whole routing decision each time its verdict left a job waiting, once per re-check. #16 stopped the repeats: a wait that reaches the verdict it reached last time adds no row (C-6.10). The rows already written stay, and the dry run measures them: how many, over how many jobs, and how many bytes of `decision_json`. Retention does not reach them: its unit is a whole job (C-8.4), and the bytes it counts are `<state root>/jobs/<id>/` and an owned worktree, not the database file, so however large the `decisions` table grows it exerts no pressure on retention. This pass is the one-off that gives the space back.
+
+**What is kept.** Every row with an `attempt_id` (C-11.5); per job the row `subfleet why` selects (`ORDER BY decision_id DESC LIMIT 1`) and the row offline `runs show` selects (`ORDER BY evaluated_at DESC, decision_id DESC LIMIT 1`), and the same two over the attempt-less rows alone; and every row of a job that is not terminal — a waiting job's history belongs to the daemon. Everything else is deleted. Nothing outside `decisions` is written but the one `events` row per delete batch that C-3.2 requires.
+
+**Reader promises on release/217 (schema 7).**
+
+| Reader | Answer after pruning |
+| --- | --- |
+| Daemon `why` (`daemon.py`, `_why_job`) | Unchanged stored `decision_json` and `evaluated_at` from the greatest `decision_id`; the new jobless prune event does not affect its refusal lookup. |
+| Offline `runs show` (`offline.py`, `show_job`) | Unchanged `decision_json` from the greatest `(evaluated_at, decision_id)`, even when this is a different row from `why`. |
+| Retention archive (`retention_archive.py`, `job_rows`) | Intentionally fewer rows for a pruned job, in the same `decision_id` order, with every surviving row unchanged. An archive made after the prune holds fewer decision rows than one made before. |
+| `Store.list_decisions` (`store.py`) | Intentionally the retained subsequence rather than the original full history. On this line its callers are tests in `test_probe_turn`, `test_routing_end_to_end`, `test_admission_visibility`, and `test_capacity_wait_backoff`; no production caller uses it. |
+
+The unchanged-reader promise covers persisted decision inputs. `why`'s live queue and disk information can change with time and daemon restart.
+
+The full-history readers retain every attempt-linked decision, every row of an unfinished job, both latest-row choices, and both latest attempt-less choices. They do not promise the original row count. Existing archives are untouched and can still be verified, read (`rows.json`), and restored by the retention tools. Retention restore restores files and Git objects; it does not reinsert archived database rows into the live store. The pre-prune whole-store copy and gzip deleted-row backup preserve the original decision history for recovery.
+
+Archives made after a prune contain no pruning marker or record of the original decision count. Their `rows.json` alone cannot establish the original history; keep the prune report and pre-prune backups for that provenance. This pass documents the caveat and does not add an archive marker.
+
+Schema 7 has no foreign key targeting `decisions`. The pass enumerates all application tables from `sqlite_master`, including `job_owned_branches`, `job_pushes`, and `service_notices`; `decisions` and `events` have separate proofs. It holds the same exclusive `flock` on `daemon.lock` as this line's daemon and refuses while the daemon holds it. The audit kind `decisions.pruned` is valid JSON with no job id: generic event readers tolerate arbitrary kinds, while recovery and job-specific readers filter for their own kinds. A writing pass refuses schemas older than this build's schema 7 before `Store` can migrate or initialize them, including schema 0 (an absent or empty version record); newer schemas are also refused by `Store`. It also refuses missing expected tables, and opens the existing writer without applying schema DDL, so neither tables nor indexes are repaired before the baseline or backup.
+
+**The commands.**
+
+```
+python -m subfleet.prune_decisions                       # dry run: the plan, nothing written
+subfleet daemon stop                                     # the daemon is the store's writer (C-3.4)
+launchctl unload ~/Library/LaunchAgents/com.subfleet.daemon.plist   # if installed: KeepAlive restarts it
+python -m subfleet.prune_decisions --apply --i-understand-this-deletes-decisions --vacuum
+launchctl load -w ~/Library/LaunchAgents/com.subfleet.daemon.plist  # or `subfleet daemon start`
+subfleet doctor
+```
+
+The dry run is the default and computes the real keep and delete sets, the exact bytes, and the free-space verdict. A real pass holds `daemon.lock` for its whole length and refuses (exit 7) while a daemon holds it, with too little free space for the backups, or without both `--apply` and `--i-understand-this-deletes-decisions`. `--vacuum` is optional and belongs on the pass that deletes, which is the pass that took the backups: leave it off and the freed pages stay in the file as a freelist, which the report prints; a later pass has nothing to delete and rebuilds nothing. `--backup-dir` puts the backups on another volume. Every pass saves `<state root>/decisions-prune-report-<utc>.json`. A pass that cannot save it — a full volume, say — prints it in full on stderr instead and exits non-zero, still with its own error and fix, which names the copy to restore from once rows have been deleted; keep that printed copy.
+
+**The backups, and restoring from them.** Before the first delete a real pass writes both of these to `<state root>/backups/` (0700, files 0600) and verifies them:
+
+- `state-<utc>.sqlite3` — a whole `VACUUM INTO` copy of the store, checked with `PRAGMA integrity_check` and every table's row count and content digest against the planning snapshot. Canonical row hashing retains column names and tags every cell as NULL, INTEGER, REAL, TEXT, or BLOB. BLOBs use hex bytes; REALs use all IEEE-754 bits, including signed zero and infinities (SQLite stores NaN as NULL); TEXT preserves NULs and surrogate characters. The same encoder is used for planning, backup verification, and the after-proofs, including after VACUUM. The copy must be content-equal to that snapshot before any DELETE; its verified fingerprints are recorded under `backups.copy.fingerprints`. Restore it with the procedure below.
+- `decisions-pruned-<utc>.jsonl.gz` — every deleted row as one JSON object per line with every column, re-read and checked against the row count and digest recorded while writing. Its SHA-256 is in the report (`shasum -a 256` confirms it later). To put rows back without restoring the whole store, `INSERT` them from the file.
+
+After deletion, the proof also hashes the complete event table, including the new prune audit payload bytes. `--vacuum` must preserve that digest as well as the original append-only event history, other tables, retained decisions, and reader answers.
+
+<!-- prune-restore:start -->
+Stop the daemon with `subfleet daemon stop`. If its launchd job is
+installed, unload it with
+`launchctl unload ~/Library/LaunchAgents/com.subfleet.daemon.plist` so KeepAlive
+cannot restart it. Set `state_root` to the store's directory, then run
+`lsof -- "$state_root/state.sqlite3" "$state_root/state.sqlite3-wal" "$state_root/state.sqlite3-shm"`
+and confirm that no process holds any of these files. Missing sidecars are OK;
+resolve any other inspection error before proceeding.
+
+Move `state.sqlite3`, `state.sqlite3-wal` and `state.sqlite3-shm` aside together
+before copying the backup. Run this block in the same shell with `state_root`
+set; replace the backup placeholder with the copy named in the pass report:
+
+```sh
+(
+    set -eu
+    backup='<backup copy>'
+    aside=$(mktemp -d "$state_root/state-before-restore.XXXXXX")
+    for file in state.sqlite3 state.sqlite3-wal state.sqlite3-shm; do
+        if [ -e "$state_root/$file" ]; then
+            mv "$state_root/$file" "$aside/$file"
+        fi
+    done
+    cp "$backup" "$state_root/state.sqlite3"
+    sqlite3 "$state_root/state.sqlite3" 'PRAGMA integrity_check'
+)
+```
+
+Require `integrity_check` to return exactly `ok`. Compare each table's
+`SELECT COUNT(*) FROM "<table>"` with the pre-prune counts in this pass's JSON
+report: `decisions.total` for `decisions`, and
+`fingerprints.before.<table>.rows` for `events` and every other table.
+`fingerprints.before.decisions-kept.rows` is only the retained subset, not the
+backup's decision count. An integrity check alone does not prove that the
+backup's contents were restored. Only after integrity and all counts match,
+restart with `launchctl load -w ~/Library/LaunchAgents/com.subfleet.daemon.plist`
+if installed, or `subfleet daemon start`. Keep the displaced files and backup
+until the restore is verified.
+<!-- prune-restore:end -->
+
+**What the pass proves before it reports success.** Every table other than `decisions` and `events` is counted and digested before and after and must match; the tables are enumerated from `sqlite_master`, so one added later is covered. `events` must hold its existing rows unchanged and gain exactly one `decisions.pruned` row per batch. The surviving `decisions` rows must be byte-identical to the rows the plan kept, `COUNT(DISTINCT job_id)` unchanged, and both latest-row reader queries must return identical stored fields for every job, including jobs without decisions (`why` also reads `evaluated_at`). The archive and store full-history readers intentionally return the unchanged retained subsequence. These proofs are repeated after `--vacuum`. `PRAGMA integrity_check` and `PRAGMA foreign_key_check` must be clean. Any mismatch exits non-zero, saves the report, and names the copy to restore from. A second pass is a no-op: the keep set is everything that is left.
+
 ## Dry run against the real v1 state, 2026-09-05 16:21 EDT
 
 `SUBFLEET_HOME=~/.subfleet-dryrun uv run python -m subfleet.importer --dry-run`, read-only toward v1, 0.7 s. Counts are what a real pass would write.

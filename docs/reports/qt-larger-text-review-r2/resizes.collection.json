@@ -1,0 +1,10 @@
+[
+  "tests/frontend/test_review_pr284_resizes.py::test_base_pin_resize_schedule_exposes_the_landed_race",
+  "tests/frontend/test_review_pr284_resizes.py::test_generated_property_rejects_dropping_the_landed_request",
+  "tests/frontend/test_review_pr284_resizes.py::test_scripted_growth_control_passes_repeatedly",
+  "tests/frontend/test_review_pr284_resizes.py::test_pending_attempt2_capture_needs_geometry_and_keeps_suspension",
+  "tests/frontend/test_review_pr284_resizes.py::test_landed_replay_accepts_each_permitted_reveal_count[1]",
+  "tests/frontend/test_review_pr284_resizes.py::test_landed_replay_accepts_each_permitted_reveal_count[2]",
+  "tests/frontend/test_review_pr284_resizes.py::test_landed_replay_accepts_each_permitted_reveal_count[3]",
+  "tests/frontend/test_review_pr284_resizes.py::test_landed_replay_requires_a_reveal"
+]

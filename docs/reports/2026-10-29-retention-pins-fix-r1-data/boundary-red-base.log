@@ -1,0 +1,402 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 05:31:40Z slot A load 
+ADMITTED 2026-10-29T05:31:41.440044+00:00 LOAD (29.72412109375, 30.25732421875, 29.02685546875)
+FFFFFFFFFFF                                                              [100%]
+=================================== FAILURES ===================================
+_______ test_c8_4_output_in_another_jobs_directory_keeps_that_directory ________
+
+world = World(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/hold-boundary-red-base/pyte...test-of-maxghenis/pytest-0/test_c8_4_output_in_another_jo0/state'), store=<subfleet.store.Store object at 0x10c013b60>)
+
+    def test_c8_4_output_in_another_jobs_directory_keeps_that_directory(world):
+        world.job("owner", worktree=False)
+        folder = world.root / "jobs" / "owner"
+        outside = world.base / "outside"
+        outside.mkdir()
+        output = folder / "result.md"
+        recorded = dependencies.record(str(outside), out_path=str(output))
+        world.store.add_job(job_id="reader", request_id="reader", payload_digest="d", kind="dispatch",
+                            state="queued", workdir=str(outside), out_path=str(output),
+                            prompt_path="/p", sandbox="read-only")
+        world.store.add_event("job.submitted", job_id="reader", data={"depends": recorded})
+        before = snapshot(folder)
+        result = run(world)
+>       assert "owner" not in result["pruned"], result
+E       AssertionError: {'pruned': ['owner'], 'errors': [], 'bytes_before': 15, 'bytes_after': 0, ...}
+E       assert 'owner' not in ['owner']
+
+tests/unit/test_retention_job_dependencies.py:57: AssertionError
+_ test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-review_root] _
+
+world = World(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/hold-boundary-red-base/pyte...test-of-maxghenis/pytest-0/test_c8_4_job_directory_depend0/state'), store=<subfleet.store.Store object at 0x10ca48f50>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10be32d70>
+role = 'review_root', stage = 'census'
+
+    @pytest.mark.parametrize("role", ["review_root", "out_path", "git"])
+    @pytest.mark.parametrize("stage", ["census", "fence", "commit"])
+    def test_c8_4_job_directory_dependencies_are_rechecked_atomically(world, monkeypatch, role, stage):
+        world.job("owner", worktree=False)
+        folder = world.root / "jobs" / "owner"
+        before = snapshot(folder)
+        begun = []
+        original_begin = rarch.Retirement.begin
+        original_final = rarch.Retirement.final_check
+    
+        def begin(self, *a, **k):
+            begun.append(self.job_id)
+            if stage == "fence":
+                need(world, role)
+            return original_begin(self, *a, **k)
+    
+        def final(self):
+            original_final(self)
+            if stage == "commit":
+                need(world, role)
+            # Exercise the commit's own journal-path recheck independently of its pin callback.
+            self.ctx.pinned = lambda *_: None
+    
+        monkeypatch.setattr(rarch.Retirement, "begin", begin)
+        monkeypatch.setattr(rarch.Retirement, "final_check", final)
+        if stage == "census":
+            need(world, role)
+        result = run(world)
+>       assert "owner" not in result["pruned"], result
+E       AssertionError: {'pruned': ['owner'], 'errors': [], 'bytes_before': 15, 'bytes_after': 0, ...}
+E       assert 'owner' not in ['owner']
+
+tests/unit/test_retention_job_dependencies.py:91: AssertionError
+_ test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-out_path] _
+
+world = World(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/hold-boundary-red-base/pyte...test-of-maxghenis/pytest-0/test_c8_4_job_directory_depend1/state'), store=<subfleet.store.Store object at 0x10ca49e50>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c4eb650>
+role = 'out_path', stage = 'census'
+
+    @pytest.mark.parametrize("role", ["review_root", "out_path", "git"])
+    @pytest.mark.parametrize("stage", ["census", "fence", "commit"])
+    def test_c8_4_job_directory_dependencies_are_rechecked_atomically(world, monkeypatch, role, stage):
+        world.job("owner", worktree=False)
+        folder = world.root / "jobs" / "owner"
+        before = snapshot(folder)
+        begun = []
+        original_begin = rarch.Retirement.begin
+        original_final = rarch.Retirement.final_check
+    
+        def begin(self, *a, **k):
+            begun.append(self.job_id)
+            if stage == "fence":
+                need(world, role)
+            return original_begin(self, *a, **k)
+    
+        def final(self):
+            original_final(self)
+            if stage == "commit":
+                need(world, role)
+            # Exercise the commit's own journal-path recheck independently of its pin callback.
+            self.ctx.pinned = lambda *_: None
+    
+        monkeypatch.setattr(rarch.Retirement, "begin", begin)
+        monkeypatch.setattr(rarch.Retirement, "final_check", final)
+        if stage == "census":
+            need(world, role)
+        result = run(world)
+>       assert "owner" not in result["pruned"], result
+E       AssertionError: {'pruned': ['owner'], 'errors': [], 'bytes_before': 15, 'bytes_after': 0, ...}
+E       assert 'owner' not in ['owner']
+
+tests/unit/test_retention_job_dependencies.py:91: AssertionError
+__ test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-git] ___
+
+world = World(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/hold-boundary-red-base/pyte...test-of-maxghenis/pytest-0/test_c8_4_job_directory_depend2/state'), store=<subfleet.store.Store object at 0x10ca21ba0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c50a030>
+role = 'git', stage = 'census'
+
+    @pytest.mark.parametrize("role", ["review_root", "out_path", "git"])
+    @pytest.mark.parametrize("stage", ["census", "fence", "commit"])
+    def test_c8_4_job_directory_dependencies_are_rechecked_atomically(world, monkeypatch, role, stage):
+        world.job("owner", worktree=False)
+        folder = world.root / "jobs" / "owner"
+        before = snapshot(folder)
+        begun = []
+        original_begin = rarch.Retirement.begin
+        original_final = rarch.Retirement.final_check
+    
+        def begin(self, *a, **k):
+            begun.append(self.job_id)
+            if stage == "fence":
+                need(world, role)
+            return original_begin(self, *a, **k)
+    
+        def final(self):
+            original_final(self)
+            if stage == "commit":
+                need(world, role)
+            # Exercise the commit's own journal-path recheck independently of its pin callback.
+            self.ctx.pinned = lambda *_: None
+    
+        monkeypatch.setattr(rarch.Retirement, "begin", begin)
+        monkeypatch.setattr(rarch.Retirement, "final_check", final)
+        if stage == "census":
+            need(world, role)
+        result = run(world)
+>       assert "owner" not in result["pruned"], result
+E       AssertionError: {'pruned': ['owner'], 'errors': [], 'bytes_before': 15, 'bytes_after': 0, ...}
+E       assert 'owner' not in ['owner']
+
+tests/unit/test_retention_job_dependencies.py:91: AssertionError
+_ test_c8_4_job_directory_dependencies_are_rechecked_atomically[fence-review_root] _
+
+world = World(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/hold-boundary-red-base/pyte...test-of-maxghenis/pytest-0/test_c8_4_job_directory_depend3/state'), store=<subfleet.store.Store object at 0x10ca229e0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c50b790>
+role = 'review_root', stage = 'fence'
+
+    @pytest.mark.parametrize("role", ["review_root", "out_path", "git"])
+    @pytest.mark.parametrize("stage", ["census", "fence", "commit"])
+    def test_c8_4_job_directory_dependencies_are_rechecked_atomically(world, monkeypatch, role, stage):
+        world.job("owner", worktree=False)
+        folder = world.root / "jobs" / "owner"
+        before = snapshot(folder)
+        begun = []
+        original_begin = rarch.Retirement.begin
+        original_final = rarch.Retirement.final_check
+    
+        def begin(self, *a, **k):
+            begun.append(self.job_id)
+            if stage == "fence":
+                need(world, role)
+            return original_begin(self, *a, **k)
+    
+        def final(self):
+            original_final(self)
+            if stage == "commit":
+                need(world, role)
+            # Exercise the commit's own journal-path recheck independently of its pin callback.
+            self.ctx.pinned = lambda *_: None
+    
+        monkeypatch.setattr(rarch.Retirement, "begin", begin)
+        monkeypatch.setattr(rarch.Retirement, "final_check", final)
+        if stage == "census":
+            need(world, role)
+        result = run(world)
+>       assert "owner" not in result["pruned"], result
+E       AssertionError: {'pruned': ['owner'], 'errors': [], 'bytes_before': 15, 'bytes_after': 0, ...}
+E       assert 'owner' not in ['owner']
+
+tests/unit/test_retention_job_dependencies.py:91: AssertionError
+_ test_c8_4_job_directory_dependencies_are_rechecked_atomically[fence-out_path] _
+
+world = World(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/hold-boundary-red-base/pyte...test-of-maxghenis/pytest-0/test_c8_4_job_directory_depend4/state'), store=<subfleet.store.Store object at 0x10c4ebbf0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ca1fc50>
+role = 'out_path', stage = 'fence'
+
+    @pytest.mark.parametrize("role", ["review_root", "out_path", "git"])
+    @pytest.mark.parametrize("stage", ["census", "fence", "commit"])
+    def test_c8_4_job_directory_dependencies_are_rechecked_atomically(world, monkeypatch, role, stage):
+        world.job("owner", worktree=False)
+        folder = world.root / "jobs" / "owner"
+        before = snapshot(folder)
+        begun = []
+        original_begin = rarch.Retirement.begin
+        original_final = rarch.Retirement.final_check
+    
+        def begin(self, *a, **k):
+            begun.append(self.job_id)
+            if stage == "fence":
+                need(world, role)
+            return original_begin(self, *a, **k)
+    
+        def final(self):
+            original_final(self)
+            if stage == "commit":
+                need(world, role)
+            # Exercise the commit's own journal-path recheck independently of its pin callback.
+            self.ctx.pinned = lambda *_: None
+    
+        monkeypatch.setattr(rarch.Retirement, "begin", begin)
+        monkeypatch.setattr(rarch.Retirement, "final_check", final)
+        if stage == "census":
+            need(world, role)
+        result = run(world)
+>       assert "owner" not in result["pruned"], result
+E       AssertionError: {'pruned': ['owner'], 'errors': [], 'bytes_before': 15, 'bytes_after': 0, ...}
+E       assert 'owner' not in ['owner']
+
+tests/unit/test_retention_job_dependencies.py:91: AssertionError
+___ test_c8_4_job_directory_dependencies_are_rechecked_atomically[fence-git] ___
+
+world = World(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/hold-boundary-red-base/pyte...test-of-maxghenis/pytest-0/test_c8_4_job_directory_depend5/state'), store=<subfleet.store.Store object at 0x10c509f20>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ca1f550>
+role = 'git', stage = 'fence'
+
+    @pytest.mark.parametrize("role", ["review_root", "out_path", "git"])
+    @pytest.mark.parametrize("stage", ["census", "fence", "commit"])
+    def test_c8_4_job_directory_dependencies_are_rechecked_atomically(world, monkeypatch, role, stage):
+        world.job("owner", worktree=False)
+        folder = world.root / "jobs" / "owner"
+        before = snapshot(folder)
+        begun = []
+        original_begin = rarch.Retirement.begin
+        original_final = rarch.Retirement.final_check
+    
+        def begin(self, *a, **k):
+            begun.append(self.job_id)
+            if stage == "fence":
+                need(world, role)
+            return original_begin(self, *a, **k)
+    
+        def final(self):
+            original_final(self)
+            if stage == "commit":
+                need(world, role)
+            # Exercise the commit's own journal-path recheck independently of its pin callback.
+            self.ctx.pinned = lambda *_: None
+    
+        monkeypatch.setattr(rarch.Retirement, "begin", begin)
+        monkeypatch.setattr(rarch.Retirement, "final_check", final)
+        if stage == "census":
+            need(world, role)
+        result = run(world)
+>       assert "owner" not in result["pruned"], result
+E       AssertionError: {'pruned': ['owner'], 'errors': [], 'bytes_before': 15, 'bytes_after': 0, ...}
+E       assert 'owner' not in ['owner']
+
+tests/unit/test_retention_job_dependencies.py:91: AssertionError
+_ test_c8_4_job_directory_dependencies_are_rechecked_atomically[commit-review_root] _
+
+world = World(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/hold-boundary-red-base/pyte...test-of-maxghenis/pytest-0/test_c8_4_job_directory_depend6/state'), store=<subfleet.store.Store object at 0x10c50bce0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10cab7890>
+role = 'review_root', stage = 'commit'
+
+    @pytest.mark.parametrize("role", ["review_root", "out_path", "git"])
+    @pytest.mark.parametrize("stage", ["census", "fence", "commit"])
+    def test_c8_4_job_directory_dependencies_are_rechecked_atomically(world, monkeypatch, role, stage):
+        world.job("owner", worktree=False)
+        folder = world.root / "jobs" / "owner"
+        before = snapshot(folder)
+        begun = []
+        original_begin = rarch.Retirement.begin
+        original_final = rarch.Retirement.final_check
+    
+        def begin(self, *a, **k):
+            begun.append(self.job_id)
+            if stage == "fence":
+                need(world, role)
+            return original_begin(self, *a, **k)
+    
+        def final(self):
+            original_final(self)
+            if stage == "commit":
+                need(world, role)
+            # Exercise the commit's own journal-path recheck independently of its pin callback.
+            self.ctx.pinned = lambda *_: None
+    
+        monkeypatch.setattr(rarch.Retirement, "begin", begin)
+        monkeypatch.setattr(rarch.Retirement, "final_check", final)
+        if stage == "census":
+            need(world, role)
+        result = run(world)
+>       assert "owner" not in result["pruned"], result
+E       AssertionError: {'pruned': ['owner'], 'errors': [], 'bytes_before': 15, 'bytes_after': 0, ...}
+E       assert 'owner' not in ['owner']
+
+tests/unit/test_retention_job_dependencies.py:91: AssertionError
+_ test_c8_4_job_directory_dependencies_are_rechecked_atomically[commit-out_path] _
+
+world = World(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/hold-boundary-red-base/pyte...test-of-maxghenis/pytest-0/test_c8_4_job_directory_depend7/state'), store=<subfleet.store.Store object at 0x10caa5350>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ca68d70>
+role = 'out_path', stage = 'commit'
+
+    @pytest.mark.parametrize("role", ["review_root", "out_path", "git"])
+    @pytest.mark.parametrize("stage", ["census", "fence", "commit"])
+    def test_c8_4_job_directory_dependencies_are_rechecked_atomically(world, monkeypatch, role, stage):
+        world.job("owner", worktree=False)
+        folder = world.root / "jobs" / "owner"
+        before = snapshot(folder)
+        begun = []
+        original_begin = rarch.Retirement.begin
+        original_final = rarch.Retirement.final_check
+    
+        def begin(self, *a, **k):
+            begun.append(self.job_id)
+            if stage == "fence":
+                need(world, role)
+            return original_begin(self, *a, **k)
+    
+        def final(self):
+            original_final(self)
+            if stage == "commit":
+                need(world, role)
+            # Exercise the commit's own journal-path recheck independently of its pin callback.
+            self.ctx.pinned = lambda *_: None
+    
+        monkeypatch.setattr(rarch.Retirement, "begin", begin)
+        monkeypatch.setattr(rarch.Retirement, "final_check", final)
+        if stage == "census":
+            need(world, role)
+        result = run(world)
+>       assert "owner" not in result["pruned"], result
+E       AssertionError: {'pruned': ['owner'], 'errors': [], 'bytes_before': 15, 'bytes_after': 0, ...}
+E       assert 'owner' not in ['owner']
+
+tests/unit/test_retention_job_dependencies.py:91: AssertionError
+__ test_c8_4_job_directory_dependencies_are_rechecked_atomically[commit-git] ___
+
+world = World(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/hold-boundary-red-base/pyte...test-of-maxghenis/pytest-0/test_c8_4_job_directory_depend8/state'), store=<subfleet.store.Store object at 0x10caa6450>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c547230>
+role = 'git', stage = 'commit'
+
+    @pytest.mark.parametrize("role", ["review_root", "out_path", "git"])
+    @pytest.mark.parametrize("stage", ["census", "fence", "commit"])
+    def test_c8_4_job_directory_dependencies_are_rechecked_atomically(world, monkeypatch, role, stage):
+        world.job("owner", worktree=False)
+        folder = world.root / "jobs" / "owner"
+        before = snapshot(folder)
+        begun = []
+        original_begin = rarch.Retirement.begin
+        original_final = rarch.Retirement.final_check
+    
+        def begin(self, *a, **k):
+            begun.append(self.job_id)
+            if stage == "fence":
+                need(world, role)
+            return original_begin(self, *a, **k)
+    
+        def final(self):
+            original_final(self)
+            if stage == "commit":
+                need(world, role)
+            # Exercise the commit's own journal-path recheck independently of its pin callback.
+            self.ctx.pinned = lambda *_: None
+    
+        monkeypatch.setattr(rarch.Retirement, "begin", begin)
+        monkeypatch.setattr(rarch.Retirement, "final_check", final)
+        if stage == "census":
+            need(world, role)
+        result = run(world)
+>       assert "owner" not in result["pruned"], result
+E       AssertionError: {'pruned': ['owner'], 'errors': [], 'bytes_before': 15, 'bytes_after': 0, ...}
+E       assert 'owner' not in ['owner']
+
+tests/unit/test_retention_job_dependencies.py:91: AssertionError
+__________ test_c8_4_job_directory_pending_export_pins_until_written ___________
+
+world = World(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/hold-boundary-red-base/pyte...test-of-maxghenis/pytest-0/test_c8_4_job_directory_pendin0/state'), store=<subfleet.store.Store object at 0x10ca6b7a0>)
+
+    def test_c8_4_job_directory_pending_export_pins_until_written(world):
+        world.job("owner", worktree=False)
+        need(world, exporting=True)
+>       assert "owner" not in run(world)["pruned"]
+E       AssertionError: assert 'owner' not in ['owner']
+
+tests/unit/test_retention_job_dependencies.py:103: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_job_dependencies.py::test_c8_4_output_in_another_jobs_directory_keeps_that_directory
+FAILED tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-review_root]
+FAILED tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-out_path]
+FAILED tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-git]
+FAILED tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[fence-review_root]
+FAILED tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[fence-out_path]
+FAILED tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[fence-git]
+FAILED tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[commit-review_root]
+FAILED tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[commit-out_path]
+FAILED tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[commit-git]
+FAILED tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_pending_export_pins_until_written
+11 failed in 25.69s

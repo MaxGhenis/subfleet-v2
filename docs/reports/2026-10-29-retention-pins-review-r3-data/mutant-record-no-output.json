@@ -1,0 +1,29 @@
+{
+  "name": "mutant-record-no-output",
+  "start": "2026-10-29T13:47:43.412880+00:00",
+  "load": [
+    23.443359375,
+    21.47412109375,
+    22.65283203125
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[output]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[output]"
+  ],
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+      "mutated_sha256": "b0745aa8cc3a9da6c9a19f858959873a3d485a5b39ee63d5dab99677fff29763"
+    }
+  ],
+  "rc": 1,
+  "seconds": 6.123394082998857,
+  "rss": 125665280
+}

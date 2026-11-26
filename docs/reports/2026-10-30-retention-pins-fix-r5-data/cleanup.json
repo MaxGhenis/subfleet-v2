@@ -1,0 +1,18 @@
+{
+  "roots": [
+    {
+      "path": "/private/tmp/sf-fix272r5",
+      "allocated_bytes": 557338624,
+      "exists_after": false
+    },
+    {
+      "path": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261030-115759-pr272-fix-r5-a1-orv711md/sf-fix272r5-fixtures",
+      "allocated_bytes": 78426112,
+      "exists_after": false
+    }
+  ],
+  "bytes_before": 635764736,
+  "finished_utc": "2026-10-30T18:32:53.414797+00:00",
+  "readonly_fixture_directories_made_writable": 1,
+  "guarded_cleanup_retry": true
+}

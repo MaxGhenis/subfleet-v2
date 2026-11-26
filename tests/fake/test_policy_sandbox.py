@@ -22,7 +22,7 @@ def sandbox_of(daemon, job_id):
 def test_d261_the_task_names_the_sandbox_and_an_explicit_one_wins(state_daemon):
     daemon, harness = state_daemon
     repository(daemon, harness)
-    assert daemon.policy["permissions"] == {"build": "workspace-write", "*": "read-only"}
+    assert daemon.policy["permissions"] == {"build": "workspace-write", "*": "read-only", "review": "worktree-write"}
     policy = protocol.POLICY_SANDBOX
     build = daemon.dispatch("submit", harness.submit_args(sandbox=policy, task="build", tier="standard"))["job_id"]
     research = daemon.dispatch("submit", harness.submit_args(sandbox=policy, task="research", tier="standard"))["job_id"]
@@ -102,7 +102,8 @@ def test_a_writable_job_is_told_its_workspace_and_starts_where_its_caller_stands
     assert (submitted["sandbox"], submitted["worktree"]) == ("workspace-write", str(daemon.root / "worktrees" / job_id))
     manifest = json.loads((jobdir / "manifest.json").read_text())
     worktree = daemon.root / "worktrees" / job_id
-    assert manifest["workspace"] == {"worktree": str(worktree), "prefix": "pkg"}
+    assert manifest["workspace"] == {"worktree": str(worktree), "prefix": "pkg",
+                                     "common_dir": str((workdir / ".git").resolve())}      # C-6.20
     prepared = (jobdir / "prompt.prepared.md").read_text()
     assert f"Your workspace is {worktree}:" in prepared
     assert f"is relative to {worktree / 'pkg'} here" in prepared
@@ -141,7 +142,8 @@ def test_a_directory_the_commit_lacks_starts_the_job_at_the_top_and_says_so(stat
                                                            tier="standard", workdir=str(scratch)))["job_id"]
     jobdir = daemon.root / "jobs" / job_id
     worktree = daemon.root / "worktrees" / job_id
-    assert json.loads((jobdir / "manifest.json").read_text())["workspace"] == {"worktree": str(worktree), "prefix": "."}
+    assert json.loads((jobdir / "manifest.json").read_text())["workspace"] == {
+        "worktree": str(worktree), "prefix": ".", "common_dir": str((workdir / ".git").resolve())}      # C-6.20
     prepared = (jobdir / "prompt.prepared.md").read_text()
     assert "/scratch, which commit" in prepared and "your workspace has no scratch" in prepared
     daemon._admit()
@@ -193,6 +195,65 @@ def test_a_resume_starts_where_its_source_started(state_daemon):
     assert daemon._launch_dir(job, "claude") == str(Path(worktree) / "pkg")
     assert daemon._launch_dir(job, "codex") == job["workdir"]
 
+
+
+def test_a_resume_starts_where_its_source_started_under_a_state_root_typed_in_other_capitals(tmp_path, monkeypatch):
+    """Review B-2 under a state root given in a case its volume does not store (review of
+    c7595627, P3). The source's `jobs.worktree` is spelled from the root as given; the
+    resume's workdir is recorded in its one spelling (`folders.canonical`). `_launch_dir`
+    compared their `realpath`s, which keep case, so it started the resume at the
+    worktree's top instead of `<worktree>/pkg`, where its Claude session was made. It
+    compares the one spellings now. Failed with the `realpath` comparison put back."""
+    import json
+    from subfleet import daemon as daemon_module, folders
+    from subfleet.adapters.registry import register
+    from subfleet.daemon import Daemon
+    from subfleet.procs import Containment
+    from tests.fake.conftest import Harness
+    from tests.fake.test_state_contract import receipt_fixture
+    from tests.fake_adapter import FakeAdapter
+    (tmp_path / "MixedCaseParent").mkdir()
+    parent = tmp_path / "MIXEDCASEPARENT"
+    if not parent.is_dir():
+        pytest.skip("the volume tells case apart")
+    state = parent / "state"
+    state.mkdir()
+    harness = Harness(state)
+    monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "unit-test-boot")
+    monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "unit-test-start")
+    monkeypatch.setattr(daemon_module.procs, "same_process", lambda *args: False)
+    monkeypatch.setattr(daemon_module.procs, "containment", lambda *args, **kwargs: Containment())
+    register("codex", FakeAdapter)
+    daemon = Daemon(harness.root)
+
+    def refuse_real_launch(*args):
+        raise AssertionError("state-only fixtures must never launch a guardian")
+
+    monkeypatch.setattr(daemon, "_launch", refuse_real_launch)
+    try:
+        workdir = committed_package(daemon, harness)
+        source = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write", workdir=str(workdir / "pkg"),
+                                                               no_preamble=True))["job_id"]
+        daemon._admit()
+        attempt, = daemon.store.list_attempts(source)
+        daemon._pending_launches.discard(attempt["attempt_id"])
+        daemon.store.update_attempt(attempt["attempt_id"], native_session_id="source-session")
+        adir = daemon.root / "jobs" / source / "a1"
+        adir.mkdir()
+        daemon._finalize(receipt_fixture(daemon, attempt, adir))
+        worktree = daemon.store.get_job(source)["worktree"]
+        assert "MIXEDCASEPARENT" in worktree        # the root's spelling, as given
+        resumed = daemon.dispatch("submit", harness.submit_args(kind="resume", parent_job_id=source,
+                                                                sandbox="workspace-write"))["job_id"]
+        manifest = json.loads((daemon.root / "jobs" / resumed / "manifest.json").read_text())
+        assert manifest["workspace"] == {"worktree": worktree, "prefix": "pkg"}
+        job = daemon.store.get_job(resumed)
+        assert job["workdir"] == folders.canonical(worktree) != worktree
+        place = daemon._launch_dir(job, "claude")
+        assert folders.canonical(place) == folders.canonical(Path(worktree) / "pkg"), place
+        assert daemon._launch_dir(job, "codex") == job["workdir"]
+    finally:
+        daemon.close()
 
 def test_a_writers_refusal_says_the_policy_made_it_write_and_others_do_not(state_daemon, monkeypatch):
     """Review of d261, finding 5: a policy-made writer refused as a second instance
@@ -276,8 +337,9 @@ def test_the_callers_place_is_named_as_git_spells_it(state_daemon):
         job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write", workdir=str(spelled)))["job_id"]
         jobdir = daemon.root / "jobs" / job_id
         worktree = daemon.root / "worktrees" / job_id
-        assert json.loads((jobdir / "manifest.json").read_text())["workspace"] == {
-            "worktree": str(worktree), "prefix": committed}, spelled
+        workspace = json.loads((jobdir / "manifest.json").read_text())["workspace"]
+        assert Path(workspace.pop("common_dir")).samefile(workdir / ".git"), spelled      # C-6.20
+        assert workspace == {"worktree": str(worktree), "prefix": committed}, spelled
         prepared = (jobdir / "prompt.prepared.md").read_text()
         assert f"is relative to {worktree / committed} here" in prepared and ".." not in prepared.split("worktrees")[1][:80]
         daemon.dispatch("kill", {"job_id": job_id})

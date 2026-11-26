@@ -1,0 +1,65 @@
+{
+  "label": "retention_nested_leases-part2",
+  "start": "2026-10-30T20:15:20.422354+00:00",
+  "loads": [
+    48.63330078125,
+    51.73193359375,
+    51.525390625
+  ],
+  "seconds": 26.9774518750055,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_nested_leases.py::test_no_filesystem_work_inside_a_retention_transaction[census]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.6395536250056466
+    },
+    {
+      "nodeid": "tests/unit/test_retention_nested_leases.py::test_no_filesystem_work_inside_a_retention_transaction[selection]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.9110740420001093
+    },
+    {
+      "nodeid": "tests/unit/test_retention_nested_leases.py::test_no_filesystem_work_inside_a_retention_transaction[commit]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 6.875251457997365
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_nested_leases.py::test_no_filesystem_work_inside_a_retention_transaction[census]",
+    "tests/unit/test_retention_nested_leases.py::test_no_filesystem_work_inside_a_retention_transaction[selection]",
+    "tests/unit/test_retention_nested_leases.py::test_no_filesystem_work_inside_a_retention_transaction[commit]"
+  ],
+  "all_nodes": [
+    "tests/unit/test_retention_nested_leases.py::test_no_filesystem_work_inside_a_retention_transaction[census]",
+    "tests/unit/test_retention_nested_leases.py::test_no_filesystem_work_inside_a_retention_transaction[selection]",
+    "tests/unit/test_retention_nested_leases.py::test_no_filesystem_work_inside_a_retention_transaction[commit]"
+  ],
+  "phases": {
+    "tests/unit/test_retention_nested_leases.py::test_no_filesystem_work_inside_a_retention_transaction[census]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_nested_leases.py::test_no_filesystem_work_inside_a_retention_transaction[selection]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_nested_leases.py::test_no_filesystem_work_inside_a_retention_transaction[commit]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {},
+  "loaded": [],
+  "rss": 122060800
+}

@@ -1,0 +1,42 @@
+import collections,datetime,json
+from pathlib import Path
+s=Path('/private/tmp/sf-r272r6');out=Path('docs/reports/2026-10-30-retention-pins-review-r6-data')
+ledger=[]
+for p in s.glob('*.json'):
+    try:d=json.loads(p.read_text())
+    except Exception:continue
+    if isinstance(d,dict) and 'label' in d and 'phases' in d:ledger.append(d)
+ledger.sort(key=lambda d:d['start'])
+ordinary={name for name,_ in json.loads((s/'ordinary-plan.json').read_text())}
+ordinary.update({'review-r6','review-r6-complete','alternates-controls','pointer-matrix','reader-probes','journal-controls','physical-common-control','matrix-correction','review-r6-healthy','contract-guards','retention_sweep_race-part3-retry','retention_sweep_race-explicit','retention_sweep_race-generated'})
+byfile=collections.defaultdict(lambda:{'passed':set(),'xfailed':set(),'failed':set(),'selected':set(),'starts':[]})
+for d in ledger:
+    if d['label'] not in ordinary:continue
+    for node,phases in d['phases'].items():
+        file=node.split('::')[0]; row=byfile[file]
+        row['selected'].add(node)
+        if phases=={'setup':'passed','call':'passed','teardown':'passed'}:row['passed'].add(node)
+        elif phases.get('call')=='skipped' and any(t.get('nodeid')==node and t.get('wasxfail') for t in d['tests']):row['xfailed'].add(node)
+        elif 'failed' in phases.values():row['failed'].add(node)
+        row['starts'].append((d['start'],d['loads'],d['label']))
+files=[]
+for file,row in byfile.items():
+    first=min(row['starts']);completed=row['passed']|row['xfailed']
+    files.append({'file':file,'passed':len(row['passed']),'xfailed':len(row['xfailed']),'failed':sorted(row['failed']-completed),'first_start':first[0],'loads':first[1],'uncompleted':sorted(row['selected']-completed)})
+files.sort(key=lambda r:r['first_start'])
+mutants=[]
+for d in ledger:
+    if not d['label'].startswith('mutant-'):continue
+    mutants.append({'name':d['label'].removeprefix('mutant-'),'killed':d['exit']==1 and bool(d['loaded']) and all(p=={'setup':'passed','call':'failed','teardown':'passed'} for p in d['phases'].values()),'tests':list(d['phases']),'start':d['start'],'loads':d['loads']})
+required_files = {arg.split("::")[0] for _, args in json.loads((s/"ordinary-plan.json").read_text()) for arg in args if arg.startswith("tests/")}
+prior = json.loads(Path("docs/reports/2026-10-30-retention-pins-fix-r5-data/ledger.json").read_text())
+expected_nodes = {node for entry in prior if entry["exit"] == 0 and not entry["label"].startswith(("red-", "mutant-")) for node, phases in entry["phases"].items() if node.split("::")[0] in required_files and phases == {"setup":"passed", "call":"passed", "teardown":"passed"}}
+actual_nodes = {node for file, row in byfile.items() if file in required_files for node in row["passed"]}
+def selection_complete(args):
+    prefixes = [arg for arg in args if arg.startswith("tests/")]
+    selection = {node for node in expected_nodes if any(node.startswith(arg if "::" in arg else arg+"::") for arg in prefixes)}
+    return bool(selection) and selection <= actual_nodes
+summary={'head':'beabed1f7796f8576e39cdbd0245c4bef209b0b6','job_start_utc':'2026-10-30T18:47:51Z','first_hold':ledger[0]['start'] if ledger else None,'holds':len(ledger),'locked_holds':sum(bool(d['locked']) for d in ledger),'max_seconds':max((d['seconds'] for d in ledger),default=0),'max_rss_MiB':max((d['rss']/2**20 for d in ledger),default=0),'ordinary_passes':sum(r['passed'] for r in files),'ordinary_xfails':sum(r['xfailed'] for r in files),'files':files,'mutants':mutants,'expected_required_nodes':len(expected_nodes),'completed_required_nodes':len(actual_nodes & expected_nodes),'missing_requested_nodes':sorted(expected_nodes-actual_nodes),'unexpected_requested_nodes':sorted(actual_nodes-expected_nodes),'remaining_original_selections':[name for name,args in json.loads((s/'ordinary-plan.json').read_text()) if not selection_complete(args)]}
+(out/'ledger.json').write_text(json.dumps(ledger,indent=2)+'\n');(out/'summary.json').write_text(json.dumps(summary,indent=2)+'\n')
+print(json.dumps({k:v for k,v in summary.items() if k not in ('files','mutants')},indent=2))
+for row in files:print(row['file'],row['passed'],row['xfailed'],row['first_start'],','.join(f'{load:.2f}' for load in row['loads']))

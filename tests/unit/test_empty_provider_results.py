@@ -118,12 +118,15 @@ def test_codex_rc_zero_blank_results_keep_provider_evidence(tmp_path, last, agen
         (tmp_path / "last.md").write_text(last)
     adapter = CodexAdapter(now=lambda: NOW)
     outcome = adapter.classify(tmp_path, launch, _exit(0))
+    if name == "none" and not completed:
+        expected = OutcomeClass.TRANSIENT           # C-9.2: cut off before its turn completed (#195)
     assert outcome.cls is expected
     assert adapter.deliverable(tmp_path, launch, outcome) is None
     assert (outcome.closure is not None) == (expected is OutcomeClass.LIMITED)
     assert outcome.evidence["rc"] == 0
     if name == "none":
-        assert outcome.detail == "Codex exited without a verified deliverable"
+        assert outcome.detail == ("Codex exited without a verified deliverable" if completed
+                                  else "Codex exited before its turn completed")
 
 
 @pytest.mark.parametrize("last", BLANKS, ids=("missing-last", "empty-last", "whitespace-last"))
@@ -152,6 +155,9 @@ def test_codex_rc_zero_blank_last_file_uses_agent_fallback(tmp_path, last, compl
     if last is not None:
         (tmp_path / "last.md").write_text(last)
     outcome = CodexAdapter().classify(tmp_path, launch, _exit(0))
+    if not completed:                               # C-9.2: a deliverable without completion is cut off (#195)
+        assert outcome.cls is OutcomeClass.TRANSIENT
+        return
     assert outcome.cls is OutcomeClass.OK
     assert outcome.detail == "Codex completed with a deliverable"
     assert outcome.evidence["admission"] == "deliverable with exit 0"
@@ -175,6 +181,9 @@ def test_codex_rc_zero_blank_agent_keeps_nonblank_last_file(tmp_path, agent, com
     launch = _events(tmp_path, *codex_rows(agent, completed))
     (tmp_path / "last.md").write_text("Captured deliverable.")
     outcome = CodexAdapter().classify(tmp_path, launch, _exit(0))
+    if not completed:                               # C-9.2: `last.md` alone never proves completion (#195)
+        assert outcome.cls is OutcomeClass.TRANSIENT
+        return
     assert outcome.cls is OutcomeClass.OK
     assert outcome.detail == "Codex completed with a deliverable"
     assert outcome.evidence["admission"] == "deliverable with exit 0"
@@ -199,7 +208,7 @@ def test_codex_rc_zero_last_blank_agent_cannot_accept_earlier_text(tmp_path, las
 def test_codex_keeps_existing_nonempty_utf8_byte_payloads(tmp_path, text, source):
     """C-12.6: Codex's byte check preserves these payloads; it does not normalize text."""
     rows = [{"type": "item.completed", "item": {"type": "agent_message", "text": text}}] if source == "agent-message" else []
-    launch = _events(tmp_path, *rows)
+    launch = _events(tmp_path, *rows, {"type": "turn.completed"})
     if source == "last-file":
         (tmp_path / "last.md").write_bytes(text.encode())
     outcome = CodexAdapter().classify(tmp_path, launch, _exit(0))

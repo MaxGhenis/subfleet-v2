@@ -294,13 +294,15 @@ def test_codex_completed_success_supersedes_cli_failure_text(tmp_path, text, sou
     assert outcome.closure is None
 
 
+@pytest.mark.parametrize("completed", (True, False))
 @pytest.mark.parametrize("text", ("usage limit reached", "out of credits", "invalid_api_key"))
-def test_codex_last_answer_is_not_failure_evidence(tmp_path, text):
-    launch = codex_events(tmp_path)
+def test_codex_last_answer_is_not_failure_evidence(tmp_path, text, completed):
+    launch = codex_events(tmp_path, *([{"type": "turn.completed"}] if completed else []))
     (tmp_path / "last.md").write_text(text)
     for rc in (0, 1):
         outcome = CodexAdapter(now=lambda: NOW).classify(tmp_path, launch, codex_exit(rc))
-        assert outcome.cls is (OutcomeClass.OK if rc == 0 else OutcomeClass.UNKNOWN)
+        # C-9.2 (#195): exit 0 without turn.completed is a cut-off, never `limited` or `auth-dead`.
+        assert outcome.cls is (OutcomeClass.UNKNOWN if rc else OutcomeClass.OK if completed else OutcomeClass.TRANSIENT)
         assert outcome.closure is None
 
 
@@ -330,6 +332,9 @@ def test_codex_exact_model_erasure_only_removes_deliverable_acceptance(text, rc,
                 rows.append({"type": "turn.completed"})
             launch = codex_events(directory, *rows)
             outcomes.append(CodexAdapter(now=lambda: NOW).classify(directory, launch, codex_exit(rc)))
-    assert outcomes[0].cls is (OutcomeClass.OK if rc == 0 and text.encode().strip() else OutcomeClass.UNKNOWN)
-    assert outcomes[1].cls is OutcomeClass.UNKNOWN
+    if rc == 0 and not completed:                   # C-9.2 (#195): cut off, whatever the text
+        assert outcomes[0].cls is outcomes[1].cls is OutcomeClass.TRANSIENT
+    else:
+        assert outcomes[0].cls is (OutcomeClass.OK if rc == 0 and text.encode().strip() else OutcomeClass.UNKNOWN)
+        assert outcomes[1].cls is OutcomeClass.UNKNOWN
     assert outcomes[0].closure is outcomes[1].closure is None

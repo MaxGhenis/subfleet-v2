@@ -207,11 +207,17 @@ def _build(world: World, root: Path) -> tuple[Store, Wham, Model]:
             store.add_reading(Reading(lane.lane_id, "account", "seven_day", .4, until, ReadingLabel.PROVIDER,
                                       "fixture", _iso(START)))
         if kind == "held":
-            # `lanes hold`: its event, and a row only when it ends after the open limit (Store.put_closure).
+            # `lanes hold` with a row (Store.put_closure keeps the hold's row apart from the open limit,
+            # C-9.6), ending after the limit; or a hold ending before it as a store written before D-HOLD1's
+            # fix holds it: its event alone, the limit's row left as it was.
             hold_until = _iso(START + timedelta(days=days + (1 if hold_row else 0), hours=-1 if not hold_row else 0))
-            with store.transaction("lane.held", lane_id=lane.lane_id, data={"until": hold_until}):
-                store.add_closure(Closure(lane.lane_id, "account", hold_until, ClosureReason.OPERATOR_HOLD,
-                                          ClockSource.REPORTED, "operator"))
+            with store.transaction("lane.held", lane_id=lane.lane_id, data={"until": hold_until}) as tx:
+                if hold_row:
+                    store.add_closure(Closure(lane.lane_id, "account", hold_until, ClosureReason.OPERATOR_HOLD,
+                                              ClockSource.REPORTED, "operator"))
+                else:
+                    tx.execute("UPDATE closures SET until_at=until_at WHERE lane_id=? AND released_at IS NULL",
+                               (lane.lane_id,))
         if kind == "auth-dead":
             store.add_closure(Closure(lane.lane_id, ASTRA, until, ClosureReason.AUTH_DEAD, ClockSource.GUESSED,
                                       "attempt"))

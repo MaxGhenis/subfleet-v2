@@ -1,0 +1,42 @@
+{
+  "label": "mutant-r2-terminal-legacy-incomplete-dropped",
+  "start": "2026-10-30T14:22:41.317372+00:00",
+  "loads": [
+    19.61328125,
+    21.0205078125,
+    16.01318359375
+  ],
+  "seconds": 3.273069457995007,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 0.20267612500174437
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]"
+  ],
+  "all_nodes": [
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]"
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original_sha256": "7658a5d4cd07ebc11714727e262d7de521bfe83c39a3dc3dd24afce356dc1be5",
+      "mutated_sha256": "c25871ec0721bdbea718030b4dda694b43b8396393e94b050083d688604176ea"
+    }
+  ],
+  "rss": 119209984
+}

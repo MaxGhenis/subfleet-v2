@@ -1,5 +1,8 @@
 # Job retention by archive
 
+Revision 8, 2026-11-09: section 18, the operator's delete path for the trees
+the pass keeps for good (d2660, C-8.7).
+
 Revision 7, 2026-10-04: explicitly reject a regular file with no archived
 bytes and no verified omission or regenerable proof, at readback and again
 before committing, including an archive resumed after a restart. An accepted salvage
@@ -25,11 +28,12 @@ the first build under Max's d635 ruling ("ship at the archive-sweep bar").
 Revision 1 (ccc85387, 2026-09-28) was the design; its two reviews
 (`~/reviews/retention-2026-09-28/archive-design/review-design-{opus,astra}.md`)
 and the ruling changed it as section 2 lists. The binding clauses are C-8.4,
-C-13.4 and C-17.1 in `docs/acceptance-contract.md`. Code:
+C-13.4 and C-17.1 in `docs/acceptance-contract.md`, and C-8.7 for section 18. Code:
 `subfleet/retention.py` (the pass), `retention_archive.py` (one job's
 journaled retirement, restore), `retention_git.py`, `retention_fs.py`,
 `retention_holders.py`, `retention_qos.py`, `retention_survey.py`,
-`retention_cli.py`.
+`retention_cli.py`, and for section 18 `retention_delete.py` and
+`retention_marks.py`.
 
 ## 1. Decision
 
@@ -324,7 +328,8 @@ the directory), so a crash anywhere is resumed or undone by the next pass.
    back. A gone tree must still be absent, including from a sibling
    quarantine. `git worktree move` refuses a locked tree (the sweep never
    forces); these checks also cover a move already in flight before the lock.
-5. **Holder check 1** (one `lsof` for the whole batch, section 8).
+5. **Holder check 1** (the pass's one listing, after the batch's quarantines,
+   section 8).
 6. **Archive**, within the job's time slice (default 120 s): list, with git,
    the worktree's tracked and untracked-unignored paths (again after the
    walk, section 7); walk the trees
@@ -336,7 +341,10 @@ the directory), so a crash anywhere is resumed or undone by the next pass.
    sha256. A job whose slice runs out is parked in quarantine with its progress
    and continues in the next pass. A slice stops only between files and only
    after it has written new progress, so every pass moves a parked job forward.
-7. **Holder check 2** (one `lsof`, also matching the archived inodes).
+7. **Holder check 2** (the next pass's listing, also matching the archived
+   inodes, section 8). A job archived in a pass waits archived for that
+   listing, which must have started after its archive ended; steps 8 and 9
+   follow it in the same pass. No job takes step 8 without check 2.
 8. **Final check**: walk every tree again; every entry must still be there with
    its archived signature (a file that had other links and whose ctime alone
    moved: with its archived bytes, section 9), and nothing may have been
@@ -563,7 +571,26 @@ about 50. The per-file rules keep the relief the whole-entry rule gave.
 
 ## 8. Holder check
 
-`lsof -n -P -w -F pcftaDin` once per check per pass, for the whole batch. A
+One listing (`lsof -n -P -w -F pcftaDin`) a pass at most, for the whole batch,
+after the pass's quarantines and none when no job needs a check
+(D-HOLDERS-LSOF1). It serves check 1 for the jobs quarantined before it and check
+2 for the jobs archived in an earlier pass; a job archived in this pass waits for
+the next pass's listing. A listing serves a check only if it started after the
+check's event (the quarantine; the end of the archive): each event's stamp is
+saved in the job's journal (`quarantined_stamp`, `archived_stamp`), and the
+listing takes its own stamp before its cwd scan. Stamps are nanoseconds, each
+above every stamp the daemon has seen in a journal (`Context.stamp`), so a clock
+stepped back or a restart cannot order a listing before an event that preceded
+it; a journal written before stamps existed reads as 0, which only says it was
+saved before this pass. The comparison is defence the code's order already
+guarantees, and no test can reach it (review r1, finding 2): every quarantine a
+listing could serve ran before the listing took its stamp, every archive it could
+serve ended in an earlier pass (this pass archives only after its listing), and
+recovery raises the floor above every journal's stamps before the listing stamps,
+so the comparison never refuses a job; replaced by `True`, it survives every test
+(fix round 1's mutant 1). It stays so a future caller that lists earlier, or a
+journal stamped by a clock it never saw, still can't be served by a listing that
+began first. The cwd scan of moved worktrees still runs first. A
 process holds a job if it has its current or root directory, a text or memory
 mapping, any directory descriptor, or a descriptor open for writing, under the
 job's quarantine, its original paths, or its admin directory, or at the second
@@ -571,7 +598,27 @@ check on one of the archived (device, inode) pairs (regenerable ones
 included: a process running from the job's virtualenv holds it). A read-only
 descriptor on a file is not a hold. The check fails closed: `lsof` missing,
 failing or timing out (15 minutes) defers the batch. `lsof` runs under the
-retention clamp (section 12).
+retention clamp (section 12). Check 2 reads each job's manifest for its archived
+inodes, one job at a time: a manifest that can't be read puts back that job
+alone, as an error (`error: manifest: ...`, the error backoff), before the
+listing, which still serves the rest. It neither fails the listing nor sets
+`holder_scan_failed` (review r1, finding 4); the final check treats an
+unreadable manifest the same way.
+
+Every listing a pass takes writes one line to `daemon.log` (D-HOLDERS-LSOF1):
+`retention: holder listing check=<first|second|both> jobs=<n> reader=<name>
+seconds=<s>`, then `ok` (with what the reader asked about, counts only, such as
+`processes=`) or `failed: <reason>`, the reason scrubbed by
+`refusals.scrubbed_line` as the daemon's other retention error lines are (review
+r1, finding 5). A pass's result counts its listings (`listings`) and their wall
+seconds (`listing_s`), with the last listing's stamps (`listing`) and the jobs
+waiting for check 2 (`awaiting_check2`). The read-only survey (`subfleet
+retention survey`, section 13) takes its own listing in the CLI's process and
+writes no such line (review r1, finding 3): it has no `daemon.log`, its report
+already gives the listing's seconds (`holders.scan_seconds`) and any failure
+(`notes`), and the line exists to count the daemon's listings, which the survey's
+is not. Its estimate counts one listing a pass, and one more pass for the last
+batch's check 2.
 
 ## 9. Verified deletion
 
@@ -595,19 +642,25 @@ remainder, so no half-deleted tree is left where retention works. A
 
 ## 10. Pins
 
-A job is kept while any of these holds (C-8.4, unchanged from `release/217`
-except salvage): it is not terminal; it is a gate review; an attempt is live or
-quarantined; an unread notice addressed to a session; it is a parent of any
+A job is kept while any of these holds (C-8.4, `release/217` pins plus
+the dependency places and pending exports below): it is not terminal; it is a
+gate review; an attempt is live or
+quarantined; an unread notice addressed to a session, for `notice_keep_days`
+(default 7; 0: for ever) after the notice was written (D-NOTICE-KEEP1: a
+session that never runs again never reads it, and retiring the job then writes
+that session an outcome notice, which pins nothing; after its queue notice
+expires, `subfleet retention outcomes --session ID [--json]` still reads its
+first line and the unread retirement from the existing archive and retirement
+event, without writing a record or recreating a notice); it is a parent of any
 job; it or an attempt holds a lease; another holder has its worktree lease, or,
 for a job with its own allocated tree, a worktree lease on a folder inside it; a
 resume holds its `retire:` fence; a salvage ref of an in-place job (or one that
 cannot be resolved, or whose commit the verified anchor does not reach); gate
 or merge evidence names it; the conversation service names it (asked again
-inside the commit transaction); a job not yet ended works in its allocated
-tree (`worktree-in-use`, the tree recorded in `jobs.worktree` or, while that
-is NULL, the `worktrees/<job id>` admission allocated, revision 5; the tree
-and a folder inside it each compared without ASCII case, so a job naming the
-tree `jOB` keeps `Job`, decision 2026-10-05-turn-folder-case-alias); a turn job within `turn_keep_days`; an
+inside the commit transaction); a job not yet ended needs a place in its
+allocated tree (`worktree-in-use`, the tree recorded in `jobs.worktree` or,
+while that is NULL, the `worktrees/<job id>` admission allocated, revision 5),
+or an export to a path there is pending (below); a turn job within `turn_keep_days`; an
 explicit reference; another job's worktree is registered in a repository
 inside its tree and that job still has rows (`nested-host: <those jobs>`: which job each
 owned worktree's gitfile names is read once per pass, and a job whose tree is
@@ -615,6 +668,163 @@ gone counts as hosted by the tree its source directory is in; asked again
 inside the commit transaction, so a host already in flight is put back). The
 hosted job then retires first, while its registration is readable, with its
 own anchor and bundle, and the host in a later pass.
+
+`worktree-in-use` (C-8.4, `subfleet/dependencies.py`, 2026-10-06). The places
+a job that has not ended needs are its workdir, worktree, review root (`-I -D`)
+and `-o` path as its row holds them; its folder or write target as submit
+recorded it (or, for a job queued before that, as admission spelled it,
+`job.folder_spelled`); and what submit records as `depends`, spelled once: the
+review root, the `-o` path, and the git storage its folder's checkout uses
+(for each `.git` at or above the folder, the directory it is or names, that
+directory's common directory, its resolved initial objects directory and the
+alternates of its objects, read from the
+files without running git, decoding Git C-style escapes on raw bytes before
+filesystem decoding and resolving relative alternates against the objects
+directory, five levels deep). Discovery also records the physical regular pointer
+files it reads and every physical symlink entry along the paths it resolves.
+It walks components in kernel order, resolving links before a following `..`,
+with a 64-hop bound; missing paths, non-directory components and loops end the
+walk quietly. Link entries keep the canonical spelling of their parent plus
+the entry name, without following the entry again. Each actual git directory,
+common directory, object directory and alternate is scanned once for direct
+symlink entries, whose locations and resolved targets are retained. An unused
+direct link also adds its target even when a commit read does not use it, as
+fix r8's executed converse-bound counterexample shows. Missing storage directories are routine; other scan errors report incomplete evidence.
+Locations already inside a recorded place, or directly inside the job's folder
+or one of its ancestors, add no pin. This does not scan an inferred parent or
+its objects; the hint reads only the storage and alternates already described.
+On a filesystem that holds still, returned strings the kernel can walk use
+one spelling: physical file locations and resolved scan targets take `folders.canonical`,
+including Data-volume, letter-case and Unicode-normalization aliases the volume
+accepts. Physical link entries keep their canonical parent plus their own name.
+A place that fails these equations and that the kernel refuses with `ELOOP`
+is left out: on a filesystem that holds still, `canonical` resolves every
+acyclic chain, so that string holds a live cycle.
+Any other place stays, even when its spelling changed during discovery.
+An alternates line with an embedded NUL makes `record` raise, as at `475f63278`.
+Physical link entries and any incomplete evidence stay. The return list is
+built before the existing alias revalidation of walked targets, identities,
+link chains and pointer contents. The supplied folder is spelled
+before the routine-location comparison with it and its ancestors. This work
+stays outside store transactions. Without checkout metadata, the input walk
+can still record physical symlink entries used to reach the supplied folder.
+Gitfiles require the literal `gitdir: ` prefix;
+their targets and `commondir` targets lose only trailing CR and LF, preserving
+all other pathname bytes, including leading/trailing spaces and tabs.
+If `commondir` is absent or blank after CR/LF removal and a named admin sits
+under `worktrees/<id>`, discovery records both its own objects/alternates and
+the inferred parent's folder, resolved objects and alternates. The parent is
+a hint: discovery does not read its pointers. Both object stores' original
+spellings are resolved and revalidated. Pointer reads keep a 64 KiB bound:
+oversized files and every other nonmissing `OSError` or `ValueError` report incomplete evidence. Only
+`FileNotFoundError` on a path that does not lexically exist, or
+`NotADirectoryError`, counts as missing. A dangling pointer link is incomplete.
+A vanished gitfile target alone remains routine, including when its unused
+parent has an unrelated `commondir` directory. Failures reading the parent's
+alternates can still globally pin trees (D-R7-1 below).
+Alternates files are streamed to their end with
+no whole-file cap and a 1 MiB per-line bound (256 times a 4096-byte PATH_MAX).
+Read errors, overlong lines, invalid quotes and detected changes during discovery
+record incomplete discovery. For each opened alternates descriptor, discovery
+compares device/inode, size, mtime and ctime before and after reading, then
+checks the final identity of the resolved pathname it opened. Discovery
+revalidates the tracked checkout/`.git` aliases, `gitdir:` and `commondir` pointer
+paths/targets, parsed alternate-entry paths, and the initial `<common>/objects`
+spelling, as well as each walked link chain and opened alternates pathname.
+A changed chain is incomplete even if its final target and inode stay the same.
+It records the initial object directory's resolved target beside
+`gitdir` and `common`. A stable link into an allocated tree pins that storage for
+a live borrower. A changed or vanished initial object-directory target records
+incomplete discovery even when its alternates file stays absent or keeps the same
+inode and contents. The global pin then retains every allocated worktree while the
+affected job is live or exporting; a terminal exporter with complete discovery
+keeps only its output paths. An alias swapped away and back within one traversal
+can escape final comparison. A write that preserves size, mtime and ctime within
+one timestamp tick can escape descriptor checks; dependencies introduced after
+discovery also remain outside these observations. The documented swap-back,
+timestamp and later-dependency bounds remain additional limits of the
+observations. Submission and admission still accept the
+job. Recorded failures and legacy failures keep every allocated worktree while
+the job is live or exporting, with a `dependency-incomplete` reason naming the
+job and file. The off-transaction legacy census includes every job holding an
+`out:` lease, terminal jobs included; database rechecks preserve that census's
+incomplete evidence even when the job ends between census and recheck. The pass
+builds that census before `_recover()` can quarantine anything and shares the
+same object with the archive context. If the census cannot be built, the pass
+never enters recovery and moves nothing. Recovery's dependency checks therefore
+see legacy evidence as well as recorded evidence before the first move. A checkout outside
+the tree can keep its
+repository in it (`git -C <tree>/vendor/lib worktree add <outside>`); every git
+command in the checkout then works in the tree, and a worktree writer submitted
+from there registers its worktree there. A job holding `out:<path>` has an
+export pending (it is written after the job ends, C-8.3), and that path is a
+place too, whatever the job's state. The holder's actual `jobs.out_path`
+(joined by the jobs key) and recorded `depends.out_path` count beside the lease
+identity; a terminal legacy exporter needs no recorded `depends` for its actual
+destination to count. A tree is kept while any such place is the
+tree or inside it, comparing places folded (`folders.fold`), so a row's
+workdir typed in another case names the tree. The pass builds this dependency
+census, and
+the selecting and commit transactions read it again for their job, also on
+the fence's spelling, with database reads alone: each job's first
+`job.submitted` by job id (`events_job`) and the `out:` leases by a range of
+their key, joined to the holder's job row. The same census protects `jobs/<id>`
+as `job-directory-in-use`, also for jobs without allocated worktrees. Its
+fence transaction rechecks dependencies before either rename, and its final
+commit rechecks the journal's job-directory path before deleting rows. This
+closes the job-directory boundary already present in release/217, separately
+from review r1's three defects in allocated-worktree pinning.
+
+The self-join compared finished owners with live jobs. Continuation 4b completed one old/new pin-query comparison at 3,000/100 and 6,000/600 jobs/live, with matching pin sets; timings and loads are in `docs/reports/2026-10-27-retention-dependency-pins.md`. A job queued before
+`depends` was recorded has those places read once a pass, before any
+transaction (`dependencies.legacy`). Admission reads retention's fences on each
+place in `depends` before workspace preparation and in its reserving
+transaction, comparing normalized paths with `folders.fold` even when
+quarantine has made a recorded tail unspellable; only retention-held
+`worktree:` keys count, in one indexed lease-key range, nearest first per
+place (C-6.5, C-6.11). A written export keeps
+nothing: retention may archive a tree a finished export wrote into, the file
+with it.
+
+### Listed differences
+
+- **D-R12-1:** A suffix-growing cycle string past `PATH_MAX` stays in the
+  record, unspelled, as at `475f63278`. `ENAMETOOLONG` rejects one spelling
+  without showing that the place is unreadable. Nothing reads through this
+  cycle string; it can add at most an extra pin until the job ends. Executed
+  rows: `tests/unit/test_retention_location_readable.py::test_real_enametoolong_cycle`
+  at fixture bases of 371 and 500 bytes. Baseline `gitfile` records have
+  2 places / 4 incomplete and `commondir` 3 / 3; the ELOOP-only filter
+  removes their shorter ELOOP cycle string, giving 1 / 4 and 2 / 3. The
+  ENAMETOOLONG string and full incomplete evidence are retained.
+  Both ordinary and linked-TMPDIR runs are retained in the
+  [fix-r12 evidence](../reports/2026-10-31-retention-pins-fix-r12.md).
+
+- **D-R8-2:** Auxiliary link discovery can retain an unused target or an
+  input-folder link outside Git; only a recorded path equal to or inside a
+  candidate tree pins it, and complete Git pins end with the job.
+
+- **D-R8-1:** A link deeper than one level inside a storage directory isn't read
+  unless it occurs on another tracked metadata path. Examples include
+  `refs/heads/x`, a loose-object `objects/ab/cd…` path, and a link inside
+  `objects/pack`. Executed input: an ordinary `refs/heads/main` symlink to an
+  external owner's branch file lets Git read the commit; discovery reports
+  complete evidence with no place in that owner, and the same read fails after
+  the owner is removed. Fix round r8 deliberately leaves this reader boundary.
+
+Review r6 executed D-R6-1 through D-R6-4 in older readers outside dependency
+discovery; those readers remain unchanged. Fix round r7 also records D-R7-1
+within discovery.
+
+- **D-R6-1:** Outside discovery, archive and survey retain legacy whitespace parsing: some valid spaced admin/common pointer spellings are missed or select a trimmed twin.
+- **D-R6-2:** Nested gitfile classification still strips target bytes and can treat a whitespace-suffixed external admin as internal.
+- **D-R6-3:** Registration cleanup still strips common-directory output and can act on a whitespace target's trimmed twin.
+- **D-R6-4:** Bundle verification still strips common targets when constructing its alternate; a complete pack can verify without using that alternate.
+- **D-R7-1:** An unused inferred parent's alternates still report read failures.
+  A 1,048,577-byte line exceeds the 1 MiB bound and globally pins trees while
+  the borrower is live, even when Git uses only the named admin's own store.
+  This conservative behavior predates fix r6; the parent's pointers are no
+  longer probed, but its alternates remain part of the storage hint.
 
 ## 11. Accounting
 
@@ -656,7 +866,10 @@ until they expire.
 
 ## 12. Progress
 
-- **Oldest first, a bounded batch** (32 jobs, in-flight ones included).
+- **Oldest first, a bounded batch** (32 jobs, in-flight ones included, except
+  those archived in an earlier pass: they finish under this pass's listing, so
+  each pass commits the last pass's archives and starts the next batch under
+  one listing).
 - **No sizing before acting.** A pool over its job count needs no sizes. Sizes
   are measured lazily, oldest first, cached for six hours, and only until a
   pool's lower bound passes its byte budget. A stale size is a scheduling input
@@ -669,13 +882,15 @@ until they expire.
   finishes. In-flight jobs are sliced least recently sliced first (never
   sliced first, oldest first among those), so jobs that park take turns
   instead of queueing behind the first.
-- **Deadlines.** A started batch finishes committing its verified archives,
-  even past the deadline. Slow pre-selection work still permits the first job
-  and at least one archive slice; subsequent starts and slices remain bounded.
+- **Deadlines.** The jobs whose check 2 the pass's listing passed finish
+  committing, even past the deadline. Slow pre-selection work still permits the
+  first job (unless only jobs archived earlier are in flight) and at least one
+  archive slice; subsequent starts and slices remain bounded.
 - **Deferral.** A busy, changed or failing job is put back and skipped until its
   deferral ends, so the queue never waits on it.
 - **Pacing.** The daemon runs a pass hourly. While a batch reports more waiting
-  (a parked job, a full batch, undecided sizes) and advances, the next runs 5 s
+  (a parked job, a full batch, undecided sizes, a job archived and waiting for
+  its check 2, which also counts as advancement) and advances, the next runs 5 s
   later ("retention catch-up: ..." in the daemon log). A newly cached size,
   archive work, publication, deferral or verified deletion is advancement, even
   before the first prune or while a committed journal has a blocked remnant.
@@ -686,10 +901,20 @@ until they expire.
   precedence, marks `CancelledError` and rearms the hour. A completed or
   non-advancing batch also waits the hour. A failed batch holder scan marks
   `ScanFailed` and waits the hour even after quarantine or rollback, since another
-  batch would need the same unavailable listing. Status is marked before the hour is
+  batch would need the same unavailable listing, unless a job archived in that
+  pass waits for its check 2 (a scan failed for another job, or the listing failed
+  before a parked job archived): then the next pass comes 5 s later, still marked
+  `ScanFailed`, so that job takes the next listing; if that listing fails too, it
+  puts the job back and the hour applies (review r1, finding 1). Status is marked before the hour is
   rearmed; failed bookkeeping leaves retention due. The service-notice prune
   runs first, once per retention call (one bounded batch), and its failure is
-  logged without failing job retention. The worker pool has one more thread for retention.
+  logged without failing job retention. It also withdraws an outcome notice
+  still unread `notice_keep_days` after it was written (C-23.26). This bounds
+  the queue for sessions that never return; an offline
+  `subfleet retention outcomes --session ID [--json]` lookup remains available
+  from the archive's original notices and the retirement event. It reads only
+  that state root, marks nothing and adds no records. Archives remain until a
+  person removes them. The worker pool has one more thread for retention.
 - **Below the operator's apps** (final review of e50716e8, N9). The daemon
   runs at the default QoS, and a thread's QoS reaches no child
   (`docs/reports/2026-09-27-daemon-qos.md`), so every child retention starts
@@ -780,7 +1005,9 @@ Each is tested (section 16).
   trees at their original paths.
 - **I7, quiescence.** No commit while a process holds a cwd, root, directory
   descriptor, writable descriptor or mapping in the job's trees; a failed
-  listing counts as busy.
+  listing counts as busy. No job takes its final check without check 2 from a
+  listing that started after its archive ended, and a pass takes at most one
+  listing (D-HOLDERS-LSOF1).
 - **I8, verified before deletion.** No deletion is authorized by an archive
   whose stored files, bundle or omitted blobs did not read back.
 - **I9, progress.** Every pass retires, parks with new progress, measures, or
@@ -813,6 +1040,27 @@ Each is tested (section 16).
   allocated for a job is retired with that job, recorded in `jobs.worktree` or
   not. A writable git job keeps the expected daemon path while it is absent,
   so its lease and journal still protect a moved or returning allocation.
+- **I16, a needed tree stays** (2026-10-06; extended 2026-10-29, C-8.4). A finished job's tree
+  (allocated worktree or `jobs/<id>` directory) is
+  kept, at the pass, the selection and the commit, while a job that has
+  not ended needs a place in it (its folder, workdir, worktree, review root,
+  `-o` path or git storage, compared folded) or an export to a path in it is
+  pending; spelling a place in another case or Unicode form changes nothing,
+  and a job that has not ended never releases a pin. Admission starts no job
+  while retention holds the fence above any such place. Incomplete alternates
+  discovery keeps all allocated worktrees while the affected job is live or
+  exporting, with the job id and file in the pass's reason. C-quoted paths are
+  decoded on bytes, and pending exports keep their actual destination beside
+  their lease identity. [Fix round r1 evidence](../reports/2026-10-29-retention-pins-fix-r1.md)
+  covers the original cases and the job-directory boundary. Review r2 found
+  file-change detection and terminal legacy incomplete-evidence gaps at
+  `dd0e4ea8d`; [fix round r2 evidence](../reports/2026-10-29-retention-pins-fix-r2.md)
+  records their six red/green inputs and the two named mutants. Detection uses
+  descriptor metadata and resolved pathname identity. Review r3 exposed a lost
+  original repository alias and recovery preceding the census; [fix round r3](../reports/2026-10-29-retention-pins-fix-r3.md)
+  revalidates original aliases after traversal and builds the census before
+  recovery. The observation bounds above include an alias swapped and swapped
+  back during one traversal.
 
 ## 15. Residual risks
 
@@ -913,19 +1161,24 @@ descriptors, and deliberately adversarial same-user tricks):
   (revision 5), with the attributes the clone took.
 
 - *Fences on folders inside a job's tree; why 2.1.11 ships retention dormant*
-  (hub, 2026-10-06). Retention's fences compare a job's own tree exactly:
-  - the `turn-folder` pin and the selecting transaction compare a turn row's
-    folder with the tree;
+  (hub, 2026-10-06). The merged implementation checks the tree and folders
+  inside it:
+  - the `turn-folder` census compares row folders with `within`, and selection
+    and commit read TURN and READER rows on the canonical tree and every
+    folder inside it (`folders.turn_holds(..., inside=True)`);
   - the `worktree-lease` pin joins `worktree:<tree>`.
 
-  So a turn row or a `worktree:` lease on a folder *inside* a finished job's
-  tree, such as a repository nested in it, does not keep the tree.
+  A turn row or a `worktree:` lease on a folder *inside* an owned finished
+  job's tree therefore keeps the tree, including a repository nested in it;
+  selection and commit also read nested exclusive leases
+  (`folders.exclusive_inside`).
   `worktree-in-use` covers such a folder only while the job working there has
   not ended. Reviews of #113 and #134 reported this and related gaps: a turn
   admitted while the fence sits on a folder above its own, and a tree whose
-  name is spelled in another case. Their fixes are the stack on #134 (#137 and
-  the PRs above it). Until it lands, the 2.1.11 installer sets
-  `SUBFLEET_RETENTION_DORMANT=1` in the daemon's launchd plist. A pass then
+  name is spelled in another case. Their fixes from the stack on #134 (#137 and
+  the PRs above it) are merged here, alongside #272's folded dependency
+  pins and fences. Dormant mode remains available through
+  `SUBFLEET_RETENTION_DORMANT=1` in the daemon's environment. A pass then
   selects, archives and deletes nothing (C-8.4).
 
 **Costs, not risks:**
@@ -967,6 +1220,7 @@ finding:
 | B1, salvage a remote holds | `test_salvage_a_network_remote_already_holds_retires[with-registration, without-registration]`, `test_salvage_is_bundled_and_its_ref_kept`, `test_an_anchor_a_network_remote_already_holds_needs_no_bundle` |
 | N12, bundle cache | `test_a_cached_bundle_is_rebuilt_when_remote_tracking_refs_move` |
 | Nothing written after the final check deleted | `test_file_written_after_the_final_check_is_kept_in_conflicts`, `test_new_file_before_commit_rolls_back_the_job`, `test_a_swapped_directory_sends_nothing_outside`, `test_a_file_written_into_regenerable_output_after_the_check_is_kept` |
+| One listing a pass, counted and logged; check 2 from a later listing (D-HOLDERS-LSOF1) | `test_retention_listings.py` (every listing one line; `first`, `both`, `second`; a job archived waits for the next listing; stamps; restart with the clock stepped back; a failed listing makes every job busy; `parse`'s per-process rule), `test_retention_listings_properties.py` (invariants 3 to 5 against a plain model) |
 | Slow or interrupted checks defer, no livelock | `test_a_slow_archive_parks_while_other_jobs_retire_in_the_same_pass`, `test_a_busy_oldest_job_does_not_block_the_queue`, `test_a_failed_process_listing_defers_the_batch`, `test_real_lsof_sees_a_process_whose_cwd_is_in_the_tree`, `test_a_slice_moves_forward_when_one_file_outlasts_it`, `test_a_slice_moves_forward_when_the_cached_rewalk_outlasts_it`, `test_parked_jobs_take_turns_at_the_pass_time` |
 | N2, unmeasurable job; daemon backoff | `test_an_unmeasurable_job_is_decided_and_backs_off`, `test_retention_catch_up_waits_the_hour_only_when_a_pass_changes_nothing` |
 | N10, cache kept on error | `test_a_persistent_error_keeps_the_cache_and_backs_off`, `test_an_archive_that_does_not_read_back_authorizes_nothing` |
@@ -1031,6 +1285,19 @@ A vouched salvage is present in every case. The oracle checks kept trees and
 registrations or imports the verified bundle into an independent repository and
 compares restored entries byte for byte.
 
+I16 tests (2026-10-06): `tests/unit/test_retention_dependency_units.py` states D1 to
+D6. Generated layouts of repositories and linked checkouts check that the git
+directory and common directory git itself uses are among the recorded git
+storage; generated stores check `worktree-in-use` (pass and `only`) and the
+transactions' `dependents` against a direct oracle, under re-spelling and
+under adding or ending a job; `fences` agrees with the folded
+`folders.retiring(..., folded=True)` comparison; the reads' plans use `events_job` and a lease range. `tests/fake/test_retention_dependencies.py`
+runs the four gaps through the daemon's own submit and admission against the
+archive driver's own retirement: a queued job keeps the tree; a job submitted
+under the fence waits, unprepared, named by `why`; the commit keeps the tree for
+a job submitted after selection; a pending export keeps the tree and a written
+one goes into the archive; jobs queued before `depends`, and turns, are covered.
+
 
 ## 17. Follow-up: a reference-counted base bundle (lifts the history limit)
 
@@ -1069,3 +1336,153 @@ the history once per repository:
 With it, `~/chief-of-staff`'s roughly 460 MB of history would be paid once,
 not per job, and `retention.remote_less_history_bytes` could be raised or
 removed.
+
+## 18. The operator's delete path for kept trees (d2660, C-8.7)
+
+The pass keeps two kinds of finished tree for good, because it cannot archive
+them whole: a tree that holds a nested linked worktree of another repository
+(`nested-linked-worktree`, a lasting condition under section 4's rollback),
+and one whose bundle would carry more than `retention.remote_less_history_bytes`
+of history that no network remote holds (`remote-less-history`, section 4,
+step 2; section 17 would lift that limit). On 2026-11-09 Max ruled (d2660)
+that the kept trees of 79 such finished jobs, 25.00 GB private, go, keeping
+their commits, records and outputs, by a reviewed path through the daemon.
+`subfleet/retention_delete.py` is that path, `subfleet/retention_marks.py`
+holds the marker both paths read, and C-8.7 binds them. The report
+`docs/reports/2026-11-09-retention-delete-d2660.md` carries the invariants,
+the mutants and the evidence.
+
+**What it reuses.** The path adds no new way to decide that a tree is free.
+It asks the survey's own detection (`retention_survey.job_info`) whether a tree
+still has its class, after exclusion-aware metadata/configuration preflight,
+and the pass's pin reads (`retention._pin_reasons` and the
+reads `_Pass._start` makes when it selects a job) whether anything needs it,
+and the holder scan (libproc working directories and `lsof_holders`) whether
+a process uses it. It takes the leases a retirement takes, `retire:<job>` and
+the tree's `worktree:` key, under the holder `retention:<job>`, so
+`folders.retiring` fences admission off the tree and every folder inside it
+while it works. It walks trees by descriptor through `retention_fs`, never
+following a link. Its bundle verifier restores the complete history into an
+empty repository; the normal archive retains its existing verification path.
+
+**Where it runs.** The daemon's `retention.delete` op starts a dry run or an
+apply and answers `status` and `stop`. The retention worker steps it: one job
+a step, after any journal a restart left, under `_unrun_lock`, and only in a
+turn no hourly pass claims, so a step never overlaps a pass or the
+unused-tree sweep and never moves the pass's clock. A pass that left
+retention due (a catch-up, a holder-scan failure with a job waiting for its
+check 2, a deadline after progress, a raise) owes the path one step, taken in
+the turn before the next pass (d3085). A dormant daemon
+(`SUBFLEET_RETENTION_DORMANT=1`) starts nothing.
+
+**The gates.** Twelve gates, in order, each read just before the job's turn:
+listed, finished, age, owned path, the excluded repositories at the top
+level, the excluded repositories nested, class, pins, holders, registration
+locks, nothing outside depending on the tree, and free space. Gates 1 to 4
+read only the store and the tree's path; the path reads them again once it
+holds the leases. Exclusion input checks run before reused path helpers;
+the complete exclusion proof runs before classification invokes Git.
+Unresolved legacy dependency discovery keeps the candidate rather than
+dropping a possible pin. Pins come again just before the rename and just
+before the removal. C-8.7 and the module's docstring give each gate's exact test.
+
+**The commit-keeping rule.** Before anything moves, every commit that the
+tree alone holds gets a home outside it:
+
+- a linked worktree of a repository outside the tree: the path reduces the
+  commits its admin files name (HEAD, pseudo-refs, per-worktree refs, the HEAD
+  reflog) to tips with `git merge-base --independent`, writes
+  `refs/subfleet-kept/<job>/<n>/<m>` in that repository for each tip and reads
+  each ref back;
+- a repository inside the tree: the path bundles the complete history reached
+  by every available commit object (including unreachable/dangling commits),
+  its refs (`refs/stash` included), HEAD, every entry of multi-value pseudo-refs,
+  reflogs and registrations into
+  `<state>/jobs/<job>/kept-commits/<attempt>/<n>.bundle`. Each attempt creates
+  its own folder and publishes without replacing existing output files.
+  Verification restores it into an
+  empty repository without alternates, checks the bundle and its heads, then
+  fetches with object checking and reads every restored tip back. Local
+  remote-tracking refs do not prove that a server holds those commits.
+
+Unprovable or unreadable admin/storage metadata keeps the job whole. This
+includes another Git root inside a removable linked admin, or outside object
+storage below that admin; the path does not discard that history as metadata.
+
+A root whose commits the path cannot keep fails the job, and the tree stays
+whole. The journal saves the Git-root census and commits. After the rename,
+before entering the destructive state and before its first unlink, the path
+rejects new or changed roots and commits absent from that census. A resumed
+partial removal permits old roots already removed, but rejects new ones.
+
+**The journal and restarts.** `<state>/retention-delete/<job>/journal.json`
+records each step durably: `gating`, `keeping`, `kept`, `renaming`, `renamed`,
+`checked`, `removing`, `removed`, `admins`, `marking`, `marked`. The path
+renames the tree to `<state>/retention-delete/<job>/tree`, checks that the
+tombstone is the directory it gated (device and inode), that the top-level
+`.git` still has the digest it read, that no process holds it, and that the
+commits match, and only then removes it. Removal opens the journal's expected
+device/inode through the tombstone parent's descriptor and rechecks that name
+throughout traversal, including on resume. A restart before `removing` renames
+the tree back, deletes the refs, bundles and ref folders that attempt made,
+releases the leases and records the job `interrupted`; from `removing` on, the
+restart finishes the deletion. The journal never lives under
+`<state>/retention/`, so `retention_archive.journals` never reads it as a
+retirement.
+
+**Registrations.** After the removal, the path removes a linked-worktree
+registration only when its `gitdir` names a place in the removed tree, no
+other tree names it and nobody locked it. A registration that names a commit
+no written ref holds gets a late ref and stays.
+Git/object stores added inside an admin before its final removal keep that
+admin too.
+
+**What the pass and the survey see.** The path writes
+`<state>/jobs/<job>/tree-deleted.json` and one `retention.tree_deleted` event
+with the same facts: the ruling, the times, the logical and allocated bytes,
+free bytes before and after, the refs, the bundles, and the registrations
+removed and kept. Restart reuses an existing marker/event payload rather than
+recomputing its time/free-space readings. The job's rows and the rest of its folder stay. The pass
+keeps a marked job for good, and leaves a job whose deletion journal exists to
+this path (`retention_marks.kept_for_good`, `journal_ids`). The survey reports
+a marked job as `tree-deleted` and leaves it out of its candidates.
+
+**What it never does.** A dry run takes no lease and writes nothing: no ref,
+bundle, journal, event, record or folder. Apart from resolving each excluded
+path once per job, `Excluder` resolves pointers one component at a time and
+stops before an excluded component. Before classification or any later Git
+command, the delete path admits only checked plain local configuration,
+rejects includes and metadata symlinks, and validates common/object/alternate
+storage paths. Its thread-local command context suppresses ambient config and
+init templates through each subprocess's environment/arguments; it does not
+change the daemon's environment or other retention callers. A check it cannot
+complete refuses the job. Nobody deletes in `~/.subfleet` by
+hand: the operator runs the CLI, and the daemon does the rest.
+Persisted data paths are resolved again on resume and cleanup. The daemon's
+private state directory and request/journal control files remain trusted;
+these checks do not establish integrity against their arbitrary replacement.
+
+**Concurrent-writer bound.** The last Git census is an observation, not an OS
+lock. A non-cooperating process can still introduce history after that check
+and before its directory entry is removed. The leases fence daemon admission;
+they do not prevent arbitrary external writes into the private tombstone.
+
+The original build/test counts in the report describe the pre-review head.
+The November 12 fixes add focused regressions; combined validation and fresh
+independent review remain separate gates before installation.
+
+**Running it.** The operator writes the request (the ruling, the job ids,
+`min_age_days`, `min_free_gb`, and optionally `age_exempt` and
+`exclude_repositories`), then:
+
+```bash
+subfleet retention delete --request request.json --dry-run
+subfleet retention delete --request request.json --apply --limit 1
+subfleet retention delete --request request.json --apply
+subfleet retention delete --status
+```
+
+The dry run names each job's gate and what the apply would keep. The canary
+apply deletes one tree, whose marker, event and refs or bundles the operator
+reads before the full apply. Applying the same request again continues its
+record, and a deleted job stays deleted.

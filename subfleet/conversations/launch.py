@@ -57,11 +57,15 @@ def claude_launch(turn: dict[str, Any], *, attempt_id: str, attempt_dir: Path, l
     spec = spec_from_manifest(turn, lane_email=lane_email(lane), model_ref=model_id)
     read_only = adapter.permission_args(Sandbox.READ_ONLY)
     argv = claude_turn.argv(spec, claude_bin=adapter.claude_bin, read_only_flags=read_only)
+    # D-TMP1: ask/acceptEdits keep their normal approval policy while treating
+    # private scratch as a working directory, including on resumed sessions.
+    if spec.permission != "read-only" and credential_env.get("TMPDIR"):
+        argv += ["--add-dir", credential_env["TMPDIR"]]
     session_id = spec.native_session_id or spec.new_session_id
     env_remove: tuple[str, ...] = ENV_REMOVE
     if spec.permission == "read-only":
         from ..adapters.isolation import claude_env_remove
-        env_remove = (*ENV_REMOVE, *claude_env_remove({**os.environ, **credential_env}))
+        env_remove = (*ENV_REMOVE, *claude_env_remove(os.environ.keys() | credential_env.keys()))
     transcript = adapter.expected_transcript_path(spec.cwd, session_id, credential_env)
     notes = adapter._launch_notes(lane=lane, attempt_id=attempt_id, model_id=model_id, session_id=session_id,
                                   workdir=spec.cwd, transcript=transcript,

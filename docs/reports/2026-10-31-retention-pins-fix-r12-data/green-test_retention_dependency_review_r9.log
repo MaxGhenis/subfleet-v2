@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 20:15:56Z slot A load 
+....                                                                     [100%]
+4 passed in 31.19s
+{"name": "green-test_retention_dependency_review_r9", "start": "2026-10-31T20:16:02.863537+00:00", "load": [83.943359375, 82.39306640625, 82.80712890625], "seconds": 35.77317716700054, "exit": 0}

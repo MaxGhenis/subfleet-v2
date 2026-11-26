@@ -17,6 +17,7 @@ import pytest
 
 from subfleet import cli
 from subfleet.client import Client
+from tests.fake.conftest import process_inspection_available  # noqa: F401 - shared host prerequisite
 
 REPO = str(Path(__file__).resolve().parents[2])
 
@@ -82,7 +83,7 @@ def _write_stub(path: Path, body: str) -> Path:
 
 
 @pytest.fixture
-def stub(root, monkeypatch, tmp_path):
+def stub(root, monkeypatch, tmp_path, process_inspection_available):
     """A `subfleetd` that really listens, torn down however the test ends."""
     path = _write_stub(tmp_path / "stub-subfleetd", STUB)
     monkeypatch.setenv("SUBFLEET_DAEMON_BIN", str(path))
@@ -153,10 +154,18 @@ def test_daemon_status_without_a_daemon_is_69(root, capsys):
     assert "lock        absent" in captured.out
 
 
-def test_daemon_stop_on_a_stale_lock_is_a_no_op(root, capsys):
+def test_daemon_stop_on_a_stale_lock_is_a_no_op(root, capsys, monkeypatch):
     """C-5.8 a lock whose recorded identity is dead is not a daemon to stop."""
     (root / "daemon.lock").write_text(json.dumps(
         {"pid": 999999, "boot_id": "1", "proc_start": "Mon Jan  1 00:00:00 2001"}))
+    from subfleet import client
+
+    def absent(pid):
+        assert pid == 999999
+        return "", ""                  # an inspected, absent pid; None means unknown
+
+    monkeypatch.setattr(client, "proc_status", absent)
+    monkeypatch.setattr(os, "kill", lambda *args: pytest.fail("a stale lock must never be signalled"))
     assert cli.main(["daemon", "stop"]) == 0
     assert "stale lock" in capsys.readouterr().err
 
@@ -189,7 +198,7 @@ def test_daemon_install_dry_run_prints_the_plist(root, monkeypatch, tmp_path, ca
     """C-17.1 `daemon install --dry-run` prints the plist and writes nothing."""
     monkeypatch.setenv("SUBFLEET_DAEMON_BIN", str(tmp_path / "subfleetd"))
     target = tmp_path / "com.subfleet.daemon.plist"
-    monkeypatch.setattr(cli, "PLIST_PATH", str(target))
+    monkeypatch.setenv("SUBFLEET_LAUNCHD_PLIST", str(target))
     assert cli.main(["daemon", "install", "--dry-run"]) == 0
     captured = capsys.readouterr()
     plist = plistlib.loads(captured.out.encode())
@@ -209,15 +218,16 @@ def test_daemon_install_dry_run_prints_the_plist(root, monkeypatch, tmp_path, ca
 
 
 def test_the_state_root_comes_from_subfleet_home(root, monkeypatch):
-    """C-2.1 the state root is $SUBFLEET_HOME, default ~/.subfleet/."""
+    """C-2.1, C-23.28: pytest must explicitly name its isolated state root."""
     from subfleet.client import state_root
     assert state_root() == root
     monkeypatch.delenv("SUBFLEET_HOME")
-    assert state_root() == Path("~/.subfleet").expanduser()
+    with pytest.raises(RuntimeError, match="SUBFLEET_HOME"):
+        state_root()
 
 
 def test_daemon_start_waits_out_a_self_daemonising_subfleetd(root, monkeypatch,
-                                                             tmp_path, capsys):
+                                                             tmp_path, capsys, process_inspection_available):
     """C-17.1 a subfleetd that double-forks exits 0; that is not a failure."""
     forking = tmp_path / "forking-subfleetd"
     forking.write_text(STUB.format(python=sys.executable, repo=REPO).replace(
@@ -347,7 +357,7 @@ def _stopping_stub(root: Path, tmp_path: Path, mode: str):
 
 
 def test_daemon_stop_waits_past_the_stop_bound_for_a_daemon_that_ends_itself(root, tmp_path,
-                                                                             monkeypatch, capsys):
+                                                                             monkeypatch, capsys, process_inspection_available):
     """C-5.8a a daemon ending itself at its bound is reported stopped, not failed,
     and is never sent SIGKILL."""
     monkeypatch.setattr(cli, "DAEMON_STOP_WAIT_S", 8.0)
@@ -359,7 +369,7 @@ def test_daemon_stop_waits_past_the_stop_bound_for_a_daemon_that_ends_itself(roo
 
 
 def test_daemon_stop_kills_a_verified_daemon_whose_bound_never_armed(root, tmp_path,
-                                                                    monkeypatch, capsys):
+                                                                    monkeypatch, capsys, process_inspection_available):
     """C-5.8a, C-5.4 still the signalled identity after the wait: SIGKILL, as
     launchd's ExitTimeOut would, and the stop succeeds."""
     monkeypatch.setattr(cli, "DAEMON_STOP_WAIT_S", 1.0)

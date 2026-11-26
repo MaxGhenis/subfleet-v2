@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T11:03:38.752412+00:00",
+  "args": [
+    "tests/fake/test_turn_retention_quarantine.py"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r10/real-tmp/test_turn_retention_quarantine",
+  "linked": false,
+  "driver_pid": 12618,
+  "lock_process_group": 12667
+}

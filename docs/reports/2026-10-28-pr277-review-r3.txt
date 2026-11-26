@@ -1,0 +1,133 @@
+VERDICT #277: REQUEST_CHANGES
+
+Reviewed e04db472bd65 against release/217 e8ecb42e7 (review r3, Opus 5.5).
+The hub's fix e04db472b is right. One new P1: #277's own migration breaks
+tests/unit/test_reserve_authorization_plumbing.py in CI shard 4/5, which no
+run of #277 has reached yet. This review commits the test-only fix (31bc25d06);
+with it, nothing from this review stays open.
+
+1. The fix (e04db472b): PASS.
+- Executed a scratch diagnostic at 64e5f93d8: each of the 7 bounded status jobs
+  against its raw full row (15 jobs). provider_qos is the only value that
+  differs (None against 'utility'); needs_shell differs in type only (0 against
+  False). At release e8ecb42e7 only the needs_shell type differs.
+- History: the test (3a7d0e07a, 2026-10-10) copied the status read of its day,
+  raw SELECT * FROM jobs. 789504973 (2026-10-15) mapped status jobs through
+  shell_flags; the raw reading kept passing only because Python's 0 == False.
+  #277 (645af257a) maps them through job_flags, whose NULL -> 'utility' fails ==.
+- Status must not give raw rows. C-5.1 says NULL is utility, and every other
+  job reader gives job_flags records: list (daemon.py:3656), show, wait and why
+  (Daemon._job -> store.get_job, store.py:817), offline list/show/status
+  (offline.py:321), and capacity.store_rows (store.list_jobs, capacity.py:640).
+  Raw status rows would make `status --json` say provider_qos null and
+  needs_shell 0 where `runs --json` says "utility" and false for the same job.
+  C-16.2 and C-17.4 ask for "the existing job columns"; job_flags keeps every
+  column and adds none while the column exists.
+- The test still proves its point. job_flags maps each row on its own and keeps
+  every key, so a bounded read that lost a job's value, or any column but
+  provider_qos, still fails the equality; both renderers and the in-flight
+  counts still compare the two readings. One gap (deduced, not mutated):
+  job_flags supplies provider_qos when the key is missing, so with seed_store's
+  all-NULL jobs this test cannot see the bounded read lose that one column.
+  tests/fake/test_launch_qos_review_r2.py::test_status_capacity_rows_normalize_job_requests_only
+  covers it: a `default` job must read `default` from _capacity_rows (passed, h16).
+- Mutant: e04db472b reverted onto head (byte-identical to 64e5f93d8's tree).
+  Killed by tests/fake/test_status_payload.py::test_bounded_operator_rows_preserve_both_status_renderers
+  (1 failed, 1 passed, h05).
+
+2. Raw rows against domain records: one P1, the rest agree.
+- Package: no code compares a raw job row with a domain record. Client-facing
+  readers all give job_flags records (above; status at daemon.py:1611).
+  Raw rows stay where nothing reads provider_qos or the reader normalizes it:
+  route rows (ROUTE_JOBS columns), admission's queued rows (daemon.py:6833) and
+  the launch, where scheduler.requested_qos (scheduler.py:255) reads anything
+  but 'default' as utility; the archive's job_rows (raw by design); conversation
+  turn rows. status.json projects named fields and carries no provider_qos.
+- Tests: 27 files read raw job rows (SELECT * FROM jobs). An AST scan found 44
+  functions that read raw rows and domain records. Those whose comparison sees
+  provider_qos:
+  - tests/fake/test_status_payload.py:62: fixed by e04db472b (h02: 2 passed).
+  - tests/unit/test_reserve_authorization_plumbing.py:66: P1 below.
+  - Intended NULL-against-utility assertions, all passed at head:
+    test_launch_qos_review_r2.py 2, test_launch_provider_qos.py 21,
+    test_store_qos_migration.py 13, test_qos_review_r2.py 5, test_qos_review_r1.py 9.
+  The rest read single fields (state, rc, accepted_attempt_id), count rows, or
+  feed raw rows to route and admission models whose decisions never read
+  provider_qos (test_route_view.py: 8 passed). The 27 retention hits are false
+  positives: their w.job() builds a job and reads no row.
+
+3. CI.
+- Run 40802906550 at 64e5f93d8, cancelled 03:31:11Z when e04db472b's push
+  superseded it. Python 3.12 shard 1/5 success; 3.14 shard 5/5 success; 3.12
+  shard 2/5 failure, test_status_payload.py::test_bounded_operator_rows_preserve_both_status_renderers
+  (1 failed, 4553 passed, 17 skipped, 10 xfailed; outside the known-flake list).
+  The other 7 never ran (3.12 shards 3-5; 3.14 shards 1-4). #277 caused the
+  failure: red at 64e5f93d8 (h01), green on release e8ecb42e7 (h04) and at head (h02).
+- Run 40812593536 at e04db472b, read 04:41:18Z: 3 success (3.12 1/5, 3.14 2/5,
+  which holds the status test, 3.14 5/5), 7 queued (3.12 2/5-5/5; 3.14 1/5,
+  3/5, 4/5); `gh pr checks 277` exits 8. No failure yet. Shard 4/5 holds
+  test_reserve_authorization_plumbing.py on both interpreters and will fail
+  without 31bc25d06 (the P1).
+- Shards from tools/ci_shard_plugin.plan over .github/test-shards.json at head:
+  test_status_payload in 2/5, test_reserve_authorization_plumbing in 4/5.
+
+4. The two release merges: PASS.
+- Redid each merge file by file without writing to git. a5211e4d0 (ad9065d20 +
+  676906f85, base 676a34bf1): 23 branch-only and 5 release-only files hold
+  their side's bytes; subfleet/daemon.py, changed on both sides, equals a clean
+  git merge-file. 64e5f93d8 (a5211e4d0 + e8ecb42e7, base 676906f85): 24
+  branch-only and 29 release-only files hold their side's bytes. No merge adds
+  a change of its own.
+- Contract, the only conflict in both: each merge's lines equal, as a multiset,
+  the base less each side's removals plus each side's additions; nothing goes
+  missing and nothing extra appears. 258 clause definitions, each id once, at
+  every commit. The branch changes C-5.1 and adds its changelog line; release
+  changes C-5.5 (676906f85) and C-27.5 (e8ecb42e7).
+- For all 24 other files the PR's diff against e8ecb42e7 equals the branch's
+  diff against 676a34bf1 hunk for hunk, line numbers aside; the contract's
+  added and removed lines match byte for byte (2 added, 1 removed).
+- Release only, not #277: the changelog bullet "C-20.6, C-23.28 (2026-10-15,
+  D-ST1, PR #198 round 8)" appears twice (lines 195 and 199) at 676a34bf1,
+  676906f85 and e8ecb42e7 alike.
+
+New findings
+P1 tests/unit/test_reserve_authorization_plumbing.py:66 fails at e04db472b and
+   at the PR's pre-merge head ad9065d20; CI shard 4/5 fails on both interpreters.
+   Input: the version-4 store fixture (one job, 'old'), opened with Store(path).
+   Migration 10 adds jobs.provider_qos, get_job('old') returns provider_qos
+   'utility', and set(after) - set(before) gains 'provider_qos' beside the eight
+   keys the test names: "Extra items in the left set: 'provider_qos'".
+   h06 at e04db472b: 1 failed, 4 passed. h08 at ad9065d20: 1 failed, 4 passed.
+   h07 at release e8ecb42e7: 5 passed.
+   Fix (31bc25d06, test only): name provider_qos in the expected set, and
+   assert that the old job's record reads 'utility' while its row keeps NULL
+   (C-5.1). h19 at head with the fix: 5 passed.
+No P2 or P3.
+
+Holds: suite_hold.sh, one pytest each, serial, all on slot B. "Load" is the
+1-minute average when the lock admitted the hold. Counts leave out the scratch
+import probe (1 passed in h01, h04, h05, h07, h08), which shows each archive
+imported its own package.
+  h01 64e5f93d8 04:06:42Z load 18.0 test_status_payload.py            1 failed, 1 passed
+  h02 head      04:09:05Z load  8.0 test_status_payload.py            2 passed
+  h03 64e5f93d8 04:11:07Z load  7.1 scratch field-diff diagnostic     1 passed
+  h04 e8ecb42e7 04:11:27Z load  6.9 test_status_payload.py + diag     3 passed
+  h05 mutant    04:13:04Z load  9.6 test_status_payload.py            1 failed, 1 passed
+  h06 head      04:14:05Z load 17.6 test_reserve_authorization_plumbing.py 1 failed, 4 passed
+  h07 e8ecb42e7 04:15:16Z load 12.0 test_reserve_authorization_plumbing.py 5 passed
+  h08 ad9065d20 04:15:23Z load 12.0 test_reserve_authorization_plumbing.py 1 failed, 4 passed
+  h09 head      04:23:57Z load 11.5 test_store_qos_migration.py       13 passed
+  h10 head      04:24:06Z load 11.0 test_qos_review_r2.py             5 passed
+  h11 head      04:24:14Z load 10.3 test_route_view.py                8 passed
+  h12 head      04:24:24Z load 13.2 test_cli.py                       256 passed
+  h13 head      04:25:12Z load 16.0 test_state_contract.py            37 passed
+  h14 head      04:25:51Z load 11.4 test_test_module_names.py         1 passed
+  h15 head      04:26:03Z load 10.3 test_invariants_index.py          25 passed
+  h16 head      04:26:10Z load 13.1 test_launch_qos_review_r2.py      2 passed
+  h17 head      04:26:16Z load 12.6 test_launch_provider_qos.py       21 passed
+  h18 head      04:26:23Z load 12.4 test_qos_review_r1.py             9 passed
+  h19 head+fix  04:26:48Z load 11.3 test_reserve_authorization_plumbing.py 5 passed
+Didn't run: the hub's eight other job-view files (none compares provider_qos,
+the brief's run list leaves them out, and the hub ran them: 194 passed);
+test_status_payload.py at ad9065d20 (the hub's claim); every other file (CI);
+any mutant beyond the brief's one.

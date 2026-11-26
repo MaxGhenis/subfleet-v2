@@ -1,0 +1,15 @@
+{
+  "queued": "2026-10-31T08:41:10.648329+00:00",
+  "args": [
+    "--mutant",
+    "double-r3-final-path-check-dropped",
+    "-p",
+    "tests.conftest",
+    "--confcutdir=docs/reports/2026-10-31-retention-pins-fix-r7-data",
+    "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[symlink-info-running]"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r9/real-tmp/mutant-double-r3-final-path-check-dropped",
+  "linked": false,
+  "driver_pid": 11471,
+  "lock_process_group": 11478
+}

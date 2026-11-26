@@ -1,0 +1,20 @@
+[
+  [
+    "r10-trial",
+    [
+      "--mutant",
+      "r10-stable-scan-target-trial",
+      "tests/fake/test_retention_dependency_review_r9.py",
+      "tests/fake/test_retention_dependency_review_r10.py",
+      "tests/unit/test_retention_location_spelling.py",
+      "tests/unit/test_retention_locations.py",
+      "--runxfail"
+    ]
+  ],
+  [
+    "r10-green",
+    [
+      "tests/fake/test_retention_dependency_review_r10.py"
+    ]
+  ]
+]

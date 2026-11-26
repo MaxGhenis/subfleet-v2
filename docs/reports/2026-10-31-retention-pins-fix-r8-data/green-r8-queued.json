@@ -1,0 +1,9 @@
+{
+  "queued": "2026-10-31T07:09:04.501107+00:00",
+  "args": [
+    "tests/fake/test_retention_dependency_review_r8.py",
+    "tests/unit/test_retention_dependency_units.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/link-tmp/green-r8",
+  "linked": true
+}

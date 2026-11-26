@@ -1,0 +1,44 @@
+{
+  "mutant": "limit-one",
+  "status": "killed",
+  "seconds": 39.394421292003244,
+  "exit_code": 1,
+  "command": [
+    "/Users/maxghenis/.subfleet/worktrees/20261113-070657-nk-fix-r3/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "notice_keep_r3_phases",
+    "--timeout=90",
+    "--override-ini",
+    "pythonpath=.",
+    "--basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/limit-one-basetemp",
+    "tests/unit/test_retention_outcomes.py::test_outcomes_cli_has_json_and_readable_offline_output"
+  ],
+  "cwd": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/limit-one",
+  "worktree_source_sha256": {
+    "subfleet/retention_notices.py": "9535c1dc52144243fbbfd13f3b4d722b8a9a1a51f9552fe5969345de4755dcb1",
+    "tests/unit/test_retention_outcome_pages.py": "b3b53d84236a38310a90b181638fc4263e00adb716d01f976c80fc41e9bda734",
+    "tests/unit/test_retention_outcomes.py": "7a640aaf7fd1e79e174f531b1fe715f388c59ded4842125d55df28413b19a148"
+  },
+  "worktree_source_unchanged": true,
+  "pristine_sha256": "9535c1dc52144243fbbfd13f3b4d722b8a9a1a51f9552fe5969345de4755dcb1",
+  "mutated_sha256": "c1b8c74135244400aa0a251c2dcba97adf9faaaf74d4af64bc0cbf43a531854e",
+  "restored_sha256": "9535c1dc52144243fbbfd13f3b4d722b8a9a1a51f9552fe5969345de4755dcb1",
+  "restored_pristine_bytes": true,
+  "calls": {
+    "passed": 0,
+    "failed": 1,
+    "skipped": 0
+  },
+  "assertion_failures": 1,
+  "setup_or_teardown_failures": 0,
+  "collection_errors": [],
+  "imported_sources": {
+    "subfleet.store": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/limit-one/subfleet/store.py",
+    "subfleet.retention_notices": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261113-070657-nk-fix-r3-a1-mzq_pia6/sf-nk-f3/sf-nk-f3-mutants-0dgvgi3p/limit-one/subfleet/retention_notices.py"
+  },
+  "log": "/Users/maxghenis/.subfleet/worktrees/20261113-070657-nk-fix-r3/docs/reports/2026-11-05-notice-keep-r3-data/mutants/limit-one.log",
+  "phases": "/Users/maxghenis/.subfleet/worktrees/20261113-070657-nk-fix-r3/docs/reports/2026-11-05-notice-keep-r3-data/mutants/limit-one-phases.json"
+}

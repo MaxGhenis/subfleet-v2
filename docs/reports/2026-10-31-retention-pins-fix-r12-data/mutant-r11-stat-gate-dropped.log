@@ -1,0 +1,19 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 20:31:47Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____ test_return_filter_keeps_readable_store_across_case_rename[alternates] ____
+tests/fake/test_retention_dependency_review_r11.py:105: in test_return_filter_keeps_readable_store_across_case_rename
+    check_case_rename(world, monkeypatch, route, dependencies, record_property)
+tests/fake/test_retention_dependency_review_r11.py:94: in check_case_rename
+    assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)
+E   AssertionError: ({'git': ['/private/tmp/sf-fix272r12/real-tmp/mutant-r11-stat-gate-dropped/pytest-of-maxghenis/pytest-0/test_return_fi...ce/.git/objects
+E     fatal: path 'owner-only.txt' exists on disk, but not in 'c841beaadbd2b0e8595887f3231d42f2f872995d'
+E     ")
+E   assert ('owner' not in ['owner'])
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r11.py::test_return_filter_keeps_readable_store_across_case_rename[alternates]
+1 failed in 18.61s
+{"name": "mutant-r11-stat-gate-dropped", "start": "2026-10-31T20:31:50.830234+00:00", "load": [75.6044921875, 77.86376953125, 79.01171875], "seconds": 20.880918416994973, "exit": 1}

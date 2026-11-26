@@ -1,0 +1,341 @@
+[
+  {
+    "name": "submit-records-nothing",
+    "planned_tests": [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]",
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[output-read-only]"
+    ],
+    "verdict": "KILLED",
+    "observed_killers": [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]"
+    ],
+    "rc": 1,
+    "hold": "c3-mutant-submit-records-nothing"
+  },
+  {
+    "name": "live-ignores-depends",
+    "planned_tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+    ],
+    "verdict": "KILLED",
+    "observed_killers": [
+      "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+    ],
+    "rc": 1,
+    "hold": "c3-mutant-live-ignores-depends"
+  },
+  {
+    "name": "live-ignores-row-places",
+    "planned_tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+    ],
+    "verdict": "KILLED",
+    "observed_killers": [
+      "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+    ],
+    "rc": 1,
+    "hold": "c3-mutant-live-ignores-row-places"
+  },
+  {
+    "name": "live-ignores-recorded-folder",
+    "planned_tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+    ],
+    "verdict": "KILLED",
+    "observed_killers": [
+      "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+    ],
+    "rc": 1,
+    "hold": "c3-mutant-live-ignores-recorded-folder"
+  },
+  {
+    "name": "live-ignores-spelled-folder",
+    "planned_tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+    ],
+    "verdict": "KILLED",
+    "observed_killers": [
+      "tests/unit/test_retention_dependency_units.py::test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends"
+    ],
+    "rc": 1,
+    "hold": "c3-mutant-live-ignores-spelled-folder-red",
+    "original_hold": "c3-mutant-live-ignores-spelled-folder",
+    "original_verdict": "SURVIVED",
+    "original_rc": 0,
+    "green_hold": "c3-killing-tests-green",
+    "added_test": true
+  },
+  {
+    "name": "live-ignores-exports",
+    "planned_tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not"
+    ],
+    "verdict": "KILLED",
+    "observed_killers": [
+      "tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not"
+    ],
+    "rc": 1,
+    "hold": "c3-mutant-live-ignores-exports"
+  },
+  {
+    "name": "exports-only-recorded-path",
+    "planned_tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not",
+      "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+    ],
+    "verdict": "KILLED",
+    "observed_killers": [
+      "tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not"
+    ],
+    "rc": 1,
+    "hold": "c3-mutant-exports-only-recorded-path"
+  },
+  {
+    "name": "no-fold",
+    "planned_tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+    ],
+    "verdict": "KILLED",
+    "observed_killers": [
+      "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+    ],
+    "rc": 1,
+    "hold": "c3-mutant-no-fold"
+  },
+  {
+    "name": "within-not-prefix-boundary",
+    "planned_tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+    ],
+    "verdict": "KILLED",
+    "observed_killers": [
+      "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+    ],
+    "rc": 1,
+    "hold": "c3-mutant-within-not-prefix-boundary"
+  },
+  {
+    "name": "pin-ignores-unrecorded-tree",
+    "planned_tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+    ],
+    "verdict": "KILLED",
+    "observed_killers": [
+      "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+    ],
+    "rc": 1,
+    "hold": "c3-mutant-pin-ignores-unrecorded-tree"
+  },
+  {
+    "name": "pin-counts-own-places",
+    "planned_tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+    ],
+    "verdict": "INTENDED EQUIVALENT",
+    "observed_killers": [],
+    "rc": 0,
+    "hold": "c3-mutant-pin-counts-own-places",
+    "reason": "For a consistent census, own live evidence already protects as active and own pending-export evidence as job-lease; add() preserves that earlier reason. Transactional rechecks are unchanged."
+  },
+  {
+    "name": "selection-no-dependents",
+    "planned_tests": [
+      "tests/unit/test_retention_dependency_units.py::test_the_selecting_transaction_reads_dependents_on_the_fences_spelling"
+    ],
+    "verdict": "KILLED",
+    "observed_killers": [
+      "tests/unit/test_retention_dependency_units.py::test_the_selecting_transaction_reads_dependents_on_the_fences_spelling"
+    ],
+    "rc": 1,
+    "hold": "c3-mutant-selection-no-dependents"
+  },
+  {
+    "name": "commit-no-dependents",
+    "planned_tests": [
+      "tests/unit/test_retention_dependency_units.py::test_the_commit_reads_dependents_on_the_journals_spelling"
+    ],
+    "verdict": "KILLED",
+    "observed_killers": [
+      "tests/unit/test_retention_dependency_units.py::test_the_commit_reads_dependents_on_the_journals_spelling"
+    ],
+    "rc": 1,
+    "hold": "c3-mutant-commit-no-dependents"
+  },
+  {
+    "name": "no-legacy-evidence",
+    "planned_tests": [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[linked]"
+    ],
+    "verdict": "KILLED",
+    "observed_killers": [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[linked]"
+    ],
+    "rc": 1,
+    "hold": "c3-mutant-no-legacy-evidence"
+  },
+  {
+    "name": "legacy-admission-reads-nothing",
+    "planned_tests": [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_legacy_job_submitted_under_the_fence_waits_on_its_git_storage"
+    ],
+    "verdict": "KILLED",
+    "observed_killers": [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_legacy_job_submitted_under_the_fence_waits_on_its_git_storage"
+    ],
+    "rc": 1,
+    "hold": "c3-mutant-legacy-admission-reads-nothing"
+  },
+  {
+    "name": "early-look-folder-only",
+    "planned_tests": [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-read-only]"
+    ],
+    "verdict": "KILLED",
+    "observed_killers": [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-read-only]"
+    ],
+    "rc": 1,
+    "hold": "c3-mutant-early-look-folder-only"
+  },
+  {
+    "name": "transaction-no-needs-blockers",
+    "planned_tests": [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-worktree]"
+    ],
+    "verdict": "KILLED",
+    "observed_killers": [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-worktree]"
+    ],
+    "rc": 1,
+    "hold": "c3-mutant-transaction-no-needs-blockers"
+  },
+  {
+    "name": "transaction-own-not-filtered",
+    "planned_tests": [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_an_in_place_writers_own_folder_that_its_output_is_in_is_named_once"
+    ],
+    "verdict": "UNRUN",
+    "observed_killers": []
+  },
+  {
+    "name": "transaction-hold-names-no-place",
+    "planned_tests": [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[output-read-only]"
+    ],
+    "verdict": "UNRUN",
+    "observed_killers": []
+  },
+  {
+    "name": "git-storage-no-commondir",
+    "planned_tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_a_linked_checkout_outside_names_the_repository_it_lives_in",
+      "tests/unit/test_retention_dependency_units.py::test_d1_git_storage_includes_what_git_uses_for_any_layout"
+    ],
+    "verdict": "UNRUN",
+    "observed_killers": []
+  },
+  {
+    "name": "git-storage-no-worktrees-fallback",
+    "planned_tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_storage_a_gitfile_names_counts_when_it_is_gone"
+    ],
+    "verdict": "UNRUN",
+    "observed_killers": []
+  },
+  {
+    "name": "git-storage-no-alternates",
+    "planned_tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed"
+    ],
+    "verdict": "UNRUN",
+    "observed_killers": []
+  },
+  {
+    "name": "git-storage-alternates-one-level",
+    "planned_tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed"
+    ],
+    "verdict": "UNRUN",
+    "observed_killers": []
+  },
+  {
+    "name": "git-storage-gitfile-relative-to-cwd",
+    "planned_tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_a_separate_git_dir_and_a_relative_gitfile"
+    ],
+    "verdict": "UNRUN",
+    "observed_killers": []
+  },
+  {
+    "name": "git-storage-nearest-ignores-gitfiles",
+    "planned_tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_a_linked_checkout_outside_names_the_repository_it_lives_in"
+    ],
+    "verdict": "UNRUN",
+    "observed_killers": []
+  },
+  {
+    "name": "record-raw-spelling",
+    "planned_tests": [
+      "tests/unit/test_retention_dependency_units.py::test_record_spells_each_place_once"
+    ],
+    "verdict": "UNRUN",
+    "observed_killers": []
+  },
+  {
+    "name": "fences-not-retention-only",
+    "planned_tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place"
+    ],
+    "verdict": "UNRUN",
+    "observed_killers": []
+  },
+  {
+    "name": "render-ignores-needs",
+    "planned_tests": [
+      "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired"
+    ],
+    "verdict": "UNRUN",
+    "observed_killers": []
+  },
+  {
+    "name": "turn-reason-ignores-needs",
+    "planned_tests": [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[READER]"
+    ],
+    "verdict": "UNRUN",
+    "observed_killers": []
+  },
+  {
+    "name": "collate-nocase-restored",
+    "planned_tests": [
+      "tests/unit/test_retention_folded_pin.py::test_a_job_id_typed_with_letters_the_volume_folds_keeps_the_tree"
+    ],
+    "verdict": "UNRUN",
+    "observed_killers": []
+  },
+  {
+    "name": "record-no-output",
+    "planned_tests": [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[output]"
+    ],
+    "verdict": "UNRUN",
+    "observed_killers": []
+  },
+  {
+    "name": "record-no-git",
+    "planned_tests": [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]"
+    ],
+    "verdict": "UNRUN",
+    "observed_killers": []
+  },
+  {
+    "name": "admission-no-needs-role",
+    "planned_tests": [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[output-read-only]"
+    ],
+    "verdict": "UNRUN",
+    "observed_killers": []
+  }
+]

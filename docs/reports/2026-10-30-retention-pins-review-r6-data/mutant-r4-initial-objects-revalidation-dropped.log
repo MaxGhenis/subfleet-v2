@@ -1,0 +1,146 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 19:34:34Z slot B load 
+START mutant-r4-initial-objects-revalidation-dropped 2026-10-30T19:34:42.442774+00:00 load=(52.541015625, 52.72216796875, 50.3916015625)
+F
+=================================== FAILURES ===================================
+_____ test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live] _____
+
+world = World(base=PosixPath('/private/tmp/sf-r272r6/cases-8151/pytest/test_objects_parent_swap_keeps0'), trusted=True, remote...f-r272r6/cases-8151/pytest/test_objects_parent_swap_keeps0/state'), store=<subfleet.store.Store object at 0x10a37e900>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109cb7950>
+state = 'running', entry = 'same-inode'
+
+    @pytest.mark.parametrize("state", ["running", "succeeded"], ids=["live", "exporting"])
+    @pytest.mark.parametrize("entry", ["same-inode", "absent"])
+    def test_objects_parent_swap_keeps_every_allocated_tree(world, monkeypatch, state, entry):
+        trees = [world.job("owner-a"), world.job("owner-b")]
+        world.store.update_job("owner-b", worktree=None)
+        source = repo(trees[0] / "source")
+        (source / "owner-only.txt").write_text("R4 objects parent dependency\n")
+        git(source, "add", "owner-only.txt")
+        git(source, "commit", "--quiet", "-m", "unique owner commit")
+        commit = git(source, "rev-parse", "HEAD")
+        outside = repo(world.base / "outside")
+        assert git(outside, "rev-parse", "HEAD") != commit
+        objects = outside / ".git" / "objects"
+        old = world.base / "old-objects"
+        objects.rename(old)
+        objects.symlink_to(old, target_is_directory=True)
+        alternate = objects / "info" / "alternates"
+        target = source / ".git" / "objects"
+        if entry == "same-inode":
+            alternate.write_bytes(b"# first\n# second\n")
+            os.link(alternate, target / "info" / "alternates")
+            before = alternate.stat()
+        original = dependencies.open_regular
+        changes = []
+    
+        @contextmanager
+        def opening(path, *args, **kwargs):
+            if entry == "absent" and str(path) == str(alternate):
+                try:
+                    with original(path, *args, **kwargs) as stream:
+                        yield stream
+                except FileNotFoundError:
+                    assert not changes
+                    changes.append(True)
+                    objects.unlink()
+                    objects.symlink_to(target, target_is_directory=True)
+                    raise
+                return
+            with original(path, *args, **kwargs) as stream:
+                if str(path) != str(alternate):
+                    yield stream
+                    return
+    
+                class Changing:
+                    def readline(self, size=-1):
+                        value = stream.readline(size)
+                        if not changes:
+                            changes.append(True)
+                            objects.unlink()
+                            objects.symlink_to(target, target_is_directory=True)
+                        return value
+    
+                    def __getattr__(self, name):
+                        return getattr(stream, name)
+    
+                yield Changing()
+    
+        with monkeypatch.context() as patch:
+            patch.setattr(dependencies, "open_regular", opening)
+            recorded = dependencies.record(str(outside))
+        assert changes
+        if entry == "same-inode":
+            after = alternate.stat()
+            for field in ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns"):
+                assert getattr(before, field) == getattr(after, field)
+        else:
+            assert not alternate.exists()
+        assert git(outside, "show", commit + ":owner-only.txt") == "R4 objects parent dependency"
+        reader(world, recorded, state=state)
+        if state == "succeeded":
+            world.store.acquire_lease("out:/outside/result", "borrower")
+        result = maintain(world)
+>       assert not result["pruned"], (recorded, result)
+E       AssertionError: ({'git': ['/private/tmp/sf-r272r6/cases-8151/pytest/test_objects_parent_swap_keeps0/outside/.git', '/private/tmp/sf-r2..._keeps0/old-objects']}, {'pruned': ['owner-a', 'owner-b'], 'errors': [], 'bytes_before': 68685, 'bytes_after': 0, ...})
+E       assert not ['owner-a', 'owner-b']
+
+tests/fake/test_retention_dependency_review_r4.py:85: AssertionError
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 17.86s

@@ -46,7 +46,8 @@ import threading
 from pathlib import Path
 
 from ..salvage import (
-    SalvageError, _git, _git_env, git_head, git_timeout_s, git_toplevel, path_text, snapshot_tree, transient_os_error,
+    SalvageError, _git, _git_env, git_head, git_timeout_s, git_toplevel, os_error_text, path_text, snapshot_tree,
+    transient_os_error,
 )
 from ..sessions.handoff import scrub_secrets
 
@@ -427,7 +428,8 @@ def _bounded(workdir: str | Path, args: tuple[str, ...], limit: int,
                                        stdout=subprocess.PIPE, stderr=errors,
                                        env={**_git_env(None), "GIT_OPTIONAL_LOCKS": "0"})
         except OSError as exc:
-            raise SalvageError(f"git {verb} could not run: {exc}", transient=transient_os_error(exc)) from exc
+            raise SalvageError(f"git {verb} could not run: {exc}", transient=transient_os_error(exc),
+                               public=f"git {verb} could not run: {os_error_text(exc)}") from exc
 
         def expire():
             expired.set()
@@ -450,7 +452,8 @@ def _bounded(workdir: str | Path, args: tuple[str, ...], limit: int,
         if not cut and process.returncode:
             errors.seek(0)
             message = errors.read(2000).decode("utf-8", errors="replace").strip()
-            raise SalvageError(f"git {verb} failed: {message or f'exit {process.returncode}'}")
+            raise SalvageError(f"git {verb} failed: {message or f'exit {process.returncode}'}",
+                               public=f"git {verb} failed (exit {process.returncode})")
     return data[:limit], cut
 
 

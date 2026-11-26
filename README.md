@@ -78,6 +78,14 @@ idle and busy lanes through no-turn sensors; busy reads hold no slot lease.
 The [replay and validation report](docs/reports/2026-10-03-rank-earliest-reset.md)
 explains the defaults and the simulation's limits.
 
+An operator closes a lane with `subfleet lanes hold <lane> --until <iso> --note
+<why>` (the note is optional: one line of at most 160 printable characters, and
+never a credential, which is refused rather than masked).
+`status`, `status.json`, the menu and the alerts call such a lane `held`, with
+its note, and keep `limited` for a provider's limit: a hold raises no per-lane
+alert, and the "no dispatchable lanes" alert counts held, provider-limited and
+other lanes apart ([D-STATUS-SRC1](docs/reports/2026-10-24-status-hold-source.md)).
+
 The native macOS menu bar app reads the daemon's `status.json` from
 `$SUBFLEET_HOME` (default `~/.subfleet`). Build it with the macOS Swift developer
 tools; this creates a local bundle and never installs or launches it:

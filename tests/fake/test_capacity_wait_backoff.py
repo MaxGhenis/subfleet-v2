@@ -359,13 +359,14 @@ def test_c6_11_a_hurried_look_that_ends_at_the_route_still_reports_itself(fleet)
     service._admit()
     assert service._capacity_waits[stuck]["label"] == "no-lanes"
     service.store.update_job(stuck, next_check_at=after(3600))
+    verdict = service._capacity_waits[stuck]["signature"]
     service._prepare_route = lambda job, decision_job, exclusions: (None, service._desktop_identity())
     release_a_lease(service)
     service._admit()                                              # hurried by the release; the clock is an hour off
     hold = service._holds[stuck]
     assert hold["reason"] == "probe-pending" and hold["next_check_at"] == service.store.get_job(stuck)["next_check_at"]
     assert service._capacity_waits[stuck]["label"] == "probe-pending"
-    assert service._capacity_waits[stuck]["signature"].endswith(":False")     # the verdict and its count are untouched
+    assert service._capacity_waits[stuck]["signature"] == verdict                # the verdict and its count are untouched
 
 
 # --- the pure rules -----------------------------------------------------------------------------

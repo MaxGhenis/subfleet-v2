@@ -12,6 +12,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
+from ..launch_env import build_environment
 from ..actions import Actions
 from ..store import utc_now
 from .errors import GateError
@@ -26,7 +27,7 @@ _PR_URL = re.compile(r"^https://github\.com/([^/]+/[^/]+)/pull/(\d+)$")
 def run_command(command: list[str], *, cwd: Path, runner: RunCommand = subprocess.run):
     """C-23.11: one bounded command; never retry a remote submission."""
     return runner(command, cwd=str(cwd), capture_output=True, text=True,
-                  stdin=subprocess.DEVNULL, timeout=30)
+                  stdin=subprocess.DEVNULL, timeout=30, env=build_environment())
 
 
 def capture_pr(target: str, *, cwd: Path, repository: str | None = None,

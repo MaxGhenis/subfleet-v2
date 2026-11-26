@@ -28,6 +28,9 @@ would be a lie about capacity.
 
 from __future__ import annotations
 
+from ..contracts import launch_capability
+from ..review_publish import claude_settings_args, protect_launch
+
 import hashlib
 import json
 import math
@@ -42,9 +45,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
+from ..launch_env import build_environment
+from ..provider_env import ProviderEnvironment
 from ..contracts import (
     GUESSED_CLOSURE_S, HEADLESS_MARKER, IDENTITY_EVIDENCE, READING_TTL_S, Attestation,
     AttestationResult, ClockSource, Closure, ClosureReason, Credential, ExitInfo,
@@ -52,10 +58,10 @@ from ..contracts import (
     ReadingLabel, Sandbox,
 )
 from ..sessions.transcripts import NotRegularFile, open_regular, read_regular
-from .base import Adapter, AdapterError
+from .base import Adapter, AdapterError, open_stream, stream_path
 from .claude_stream import (
-    AUTH_ERROR_KINDS, TRANSIENT_ERROR_KINDS, RateLimitInfo, StreamSummary, message_text,
-    is_synthetic_api_error, model_answered, parse_lines, parse_stream,
+    AUTH_ERROR_KINDS, TRANSIENT_ERROR_KINDS, RateLimitInfo, StreamSummary, cli_placeholder,
+    message_text, is_synthetic_api_error, model_answered, parse_lines, parse_stream,
 )
 
 # --- constants ---------------------------------------------------------------
@@ -123,6 +129,15 @@ MCP_CONFIG_MAX_BYTES = 4 << 20
 #: Removed from the child's environment: a lane bills the subscription through the
 #: pinned OAuth token, never the API meter (C-12.4).
 ENV_REMOVE: tuple[str, ...] = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
+
+#: d1031 (D-WATCHDOG1): the `env` every Claude launch that starts a model turn gets in the
+#: settings it is given on the command line. Under Claude Code's retry watchdog
+#: (`CLAUDE_CODE_RETRY_WATCHDOG=1`) 429 and 529 responses retry without end, so a lane
+#: that reaches its plan's ceiling would wait out the window instead of exiting, and
+#: C-4.5's `limited` failover could not move the job on before the wall. A lane has no
+#: home of its own, so the user's `settings.json` `env` reaches every launch that loads
+#: user settings; this sets the variable back on all of them (C-12.4, C-26.11).
+LANE_SETTINGS_ENV: Mapping[str, str] = MappingProxyType({"CLAUDE_CODE_RETRY_WATCHDOG": "0"})
 
 HEADLESS_BLOCK = f"""{HEADLESS_MARKER}
 ## HEADLESS EXECUTION (binding — read before anything else)
@@ -214,12 +229,43 @@ CLI_TOO_OLD_RE = re.compile(
     re.IGNORECASE,
 )
 
-# An explicit organisation block: the account exists and still cannot serve lanes.
+# Claude Code refusing subscription access: the account cannot serve lanes. The
+# text recorded for it names an organisation setting ("Your organization has
+# disabled Claude subscription access for Claude Code ...", claude-13 and claude-14
+# on 2026-09-23, claude-5 on 2026-09-30), with error kind `oauth_org_not_allowed`.
+# Yet it matched at re-enrolment on 2026-10-01 for five accounts whose
+# subscriptions Max had cancelled and let expire. So the refusal is quoted verbatim,
+# both known causes are named, and nothing here claims to know which applies.
 ORG_BLOCK_RE = re.compile(
     r"organization has disabled Claude subscription access"
     r"|organization has disabled|subscription access for Claude Code"
     r"|does not have access to Claude",
     re.IGNORECASE,
+)
+
+#: The `error` kind Claude Code stamps on that refusal (`claude_stream.ERROR_KINDS`).
+ORG_BLOCK_ERROR_KIND = "oauth_org_not_allowed"
+
+#: Both known causes of the refusal, neither asserted, and what to do after. It
+#: promises no outcome: re-enrolment still has its own checks, such as the
+#: identity one in `Daemon._enroll_lane`.
+ORG_BLOCK_CAUSES = (
+    "Either the account's subscription lapsed or was cancelled, or an org admin "
+    "disabled Claude Code; once the account is subscribed with Claude Code allowed, "
+    "run `subfleet lanes enroll` again."
+)
+
+#: The refusal lines recorded streams show Claude Code printing, verbatim and whole:
+#: the only refusal words the enrolment refusal's public template may quote (C-25.7,
+#: `refusals`, value `claude_refusal`). A line is added only from a recorded stream.
+#: The one so far: the 2026-09-30 claude-5 streams (Claude Code 2.1.284, 37 attempts,
+#: fixture `tests/fixtures/claude/org-block-recorded`, and `org-block-synthetic` built
+#: from their shape) carried it in the placeholder frame stamped
+#: `oauth_org_not_allowed` and in the error result; fixture `org-block` has the same
+#: sentence from the Claude Code 2.1.260 string table.
+SUBSCRIPTION_REFUSAL_LINES = (
+    "Your organization has disabled Claude subscription access for Claude Code · "
+    "Use an Anthropic API key instead, or ask your admin to enable access",
 )
 
 # Credential-shaped signatures. On their own these are NOT enough: C-9.3 requires a
@@ -271,12 +317,70 @@ def _scrub_non_limit(text: str) -> str:
     return text
 
 
+#: The longest line a `detail` quotes whole.
+LINE_EXCERPT_MAX = 300
+
+
 def _first_line_containing(corpus: str, match: re.Match[str]) -> str:
-    """The line the match landed on, trimmed, so a `detail` names its own evidence."""
+    """The line the match landed on, trimmed, so a `detail` names its own evidence.
+
+    A line longer than `LINE_EXCERPT_MAX` is cut to a window that still holds the
+    whole match, and each cut end is marked with an ellipsis: a long line must
+    never lose the very words that classified it.
+    """
     start = corpus.rfind("\n", 0, match.start()) + 1
     end = corpus.find("\n", match.end())
-    line = corpus[start : end if end != -1 else len(corpus)].strip()
-    return line[:300] if line else match.group(0)
+    raw = corpus[start : end if end != -1 else len(corpus)]
+    line = raw.strip()
+    if not line:
+        return match.group(0)
+    if len(line) <= LINE_EXCERPT_MAX:
+        return line
+    offset = start + len(raw) - len(raw.lstrip())
+    found_at, found_end = match.start() - offset, match.end() - offset
+    if found_end <= LINE_EXCERPT_MAX:
+        low = 0
+    else:
+        spare = max(0, LINE_EXCERPT_MAX - (found_end - found_at))
+        low = max(0, min(found_at - spare // 2, len(line) - LINE_EXCERPT_MAX))
+    high = max(low + LINE_EXCERPT_MAX, found_end)
+    return ("…" if low else "") + line[low:high] + ("…" if high < len(line) else "")
+
+
+#: What a `detail` says in place of a quote when every match lay inside text the
+#: scrubber removes: the words that matched are not repeated.
+SCRUBBED_AWAY = "the words that matched lie inside text the scrubber removes"
+
+# Quotes normally need 300 characters; retain safe context without scrubbing a
+# large diagnostic corpus again merely to produce one quote.
+QUOTE_SCRUB_CHARS = 4096
+
+
+def _scrubbed(text: str) -> str:
+    """`text` safely bounded and scrubbed within C-23.14's budget, before a
+    quoted line or excerpt is taken. A raw cut can drop a credential's label
+    (`password="…` far ahead of the words that matched), and a scrub of the cut text
+    then no longer knows the value. `cut_whole` keeps only safe whole lines within
+    a small head/tail budget, never cutting a credential's context, including a
+    quoted value spanning lines. Scrub those whole (#104 review r1, P1), within
+    MAX_SCRUB_CHARS; a match the safe cut drops supplies no quote."""
+    from ..sessions.handoff import MAX_SCRUB_CHARS, cut_whole, scrub_secrets
+    if len(text) > QUOTE_SCRUB_CHARS:
+        # The cut's marker is ours, never words the provider supplied (its count
+        # could even look like a 401 or 503 signature). Keep a line break instead.
+        text = re.sub(r"(?m)^… \[[\d,]+ characters omitted\] …\n", "\n",
+                      cut_whole(text, QUOTE_SCRUB_CHARS))
+    return scrub_secrets(text, whole=len(text) <= MAX_SCRUB_CHARS)[0]
+
+
+def _quoted(text: str, match: re.Match[str]) -> str:
+    """The line a `detail` quotes for `match`, a match of its pattern in `text`: the
+    line holding the pattern's first match in `text` scrubbed within its budget (`_scrubbed`),
+    excerpted (`_first_line_containing`); `SCRUBBED_AWAY` when the scrub removed
+    every match."""
+    clean = _scrubbed(text)
+    found = match.re.search(clean)
+    return _first_line_containing(clean, found) if found else SCRUBBED_AWAY
 
 
 def model_matches_requested(served: str | None, requested: str | None) -> bool:
@@ -323,6 +427,20 @@ def _atomic_write_text(path: Path, text: str) -> None:
         os.fsync(dir_fd)
     finally:
         os.close(dir_fd)
+
+
+def lane_settings(settings: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """`settings` with `LANE_SETTINGS_ENV` merged over its `env` (D-WATCHDOG1): the
+    payload of a launch's one `--settings`. Every other key, and every other
+    variable in `env`, is kept as it was; `settings` itself is not changed."""
+    merged = dict(settings or {})
+    merged["env"] = {**dict(merged.get("env") or {}), **LANE_SETTINGS_ENV}
+    return merged
+
+
+def lane_settings_args(settings: Mapping[str, Any] | None = None) -> list[str]:
+    """`--settings` with `lane_settings(settings)`, as compact JSON."""
+    return ["--settings", json.dumps(lane_settings(settings), separators=(",", ":"))]
 
 
 def apply_headless_block(prompt: str) -> str:
@@ -379,13 +497,28 @@ def keychain_service_for_home(home: str | Path) -> str:
     return KEYCHAIN_HOME_PREFIX + digest
 
 
-def _keychain_blob(service: str, *, security_bin: str = "security") -> str | None:
+def _launch_home(env: dict[str, str]) -> Path:
+    """The launch's HOME, spelled as release/217's `Path.home()` resolved it.
+
+    A launch inherits HOME by name, so it is the daemon's own value, and
+    `Path.home()` keeps its rules for an empty or unexpandable `~` HOME.
+    """
+    home = env.get("HOME")
+    return Path.home() if home is None or home == os.environ.get("HOME") else Path(home)
+
+
+def _keychain_blob(service: str, *, security_bin: str = "security", runner=None) -> str | None:
     """One targeted keychain read of a login blob; None when absent or unreadable.
     The value is returned to the caller and never logged (C-10.5)."""
+    from ..credentials import keychain_command, native_runner
+    execute = runner or subprocess.run
     try:
-        done = subprocess.run([security_bin, "find-generic-password", "-s", service, "-w"],
-                              capture_output=True, text=True, timeout=15)
-    except (OSError, subprocess.SubprocessError):
+        # D-ENV1: the native reader gets the allowlisted environment; a supplied
+        # runner (D-ST1's stand-ins under pytest) builds its own.
+        done = execute(keychain_command(service, security_bin, runner=execute),
+                       capture_output=True, text=True, timeout=15,
+                       **({"env": build_environment()} if native_runner(runner) else {}))
+    except (AdapterError, OSError, subprocess.SubprocessError):
         return None
     if done.returncode != 0:
         return None
@@ -524,7 +657,7 @@ class ClaudeAdapter(Adapter):
         self,
         *,
         claude_bin: str = "claude",
-        runner: Callable[..., Any] = subprocess.run,
+        runner: Callable[..., Any] | None = None,
         now: Callable[[], datetime] | None = None,
         new_session_id: Callable[[], str] | None = None,
         projects_dir: str | Path | None = None,
@@ -534,7 +667,11 @@ class ClaudeAdapter(Adapter):
         usage_opener: Callable[[urllib.request.Request, float], tuple[int, bytes]] | None = None,
     ) -> None:
         self.claude_bin = claude_bin
-        self._runner = runner
+        self.provider_environment = ProviderEnvironment({})
+        self._runner = runner or subprocess.run
+        # D-ENV1: only the native runner is handed the allowlisted environment.
+        from ..credentials import native_runner
+        self._native_runner = native_runner(runner)
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._new_session_id = new_session_id or (lambda: str(uuid.uuid4()))
         self._projects_dir = Path(projects_dir) if projects_dir else None
@@ -559,14 +696,15 @@ class ClaudeAdapter(Adapter):
         from ..credentials import keychain_command
         try:
             done = self._runner(
-                keychain_command(ref, self._security_bin),
-                capture_output=True, text=True, timeout=15,
+                keychain_command(ref, self._security_bin, runner=self._runner),
+                capture_output=True, text=True, timeout=15, **self._runner_environment(),
             )
         except (OSError, subprocess.SubprocessError):
             raise AdapterError(
                 f"claude: could not read the keychain item {ref}",
                 code=5,
                 fix=f"agent-secret get {ref}",
+                reason="claude-keychain-read",
             ) from None
         if getattr(done, "returncode", 1) != 0:
             raise AdapterError(
@@ -576,12 +714,14 @@ class ClaudeAdapter(Adapter):
                     "claude setup-token while signed into the lane account, then store "
                     f"it as the keychain item {ref}"
                 ),
+                reason="claude-keychain-missing",
             )
         payload = (done.stdout or "").strip()
         if not payload:
             raise AdapterError(
                 f"claude: the keychain item {ref} is empty", code=5,
                 fix=f"re-enrol the lane: claude setup-token, then store it as {ref}",
+                reason="claude-keychain-empty",
             )
         # v1 stores Claude Code's own OAuth blob under one item name and a bare
         # setup-token under the per-lane `claude-quota-<email>` item. Accept both.
@@ -601,10 +741,10 @@ class ClaudeAdapter(Adapter):
         from ..credentials import keychain_command
         try:
             done = self._runner(
-                keychain_command(ref, self._security_bin),
-                capture_output=True, text=True, timeout=15,
+                keychain_command(ref, self._security_bin, runner=self._runner),
+                capture_output=True, text=True, timeout=15, **self._runner_environment(),
             )
-        except (OSError, subprocess.SubprocessError):
+        except (AdapterError, OSError, subprocess.SubprocessError):
             return None
         if getattr(done, "returncode", 1) != 0:
             return None
@@ -635,6 +775,7 @@ class ClaudeAdapter(Adapter):
             f"claude: unknown credential kind {credential.kind!r}",
             code=7,
             fix="a Claude lane is either kind 'keychain-token' or kind 'home'",
+            reason="claude-credential-kind",
         )
 
     # --- identity (C-1.4, C-10.6) --------------------------------------------
@@ -822,6 +963,7 @@ class ClaudeAdapter(Adapter):
             "--output-format", "stream-json",
             "--verbose",
             "--max-turns", "1",
+            *lane_settings_args(),            # D-WATCHDOG1: a probe's turn carries it too
         ]
 
     def _run_turn(self, env_add: dict[str, str], model_id: str,
@@ -832,8 +974,7 @@ class ClaudeAdapter(Adapter):
         own session transcript under its config directory, which is the provider's
         state and not ours to place.
         """
-        env = {k: v for k, v in os.environ.items() if k not in ENV_REMOVE}
-        env.update(env_add)
+        env = self.provider_environment.build("claude", env_add, ENV_REMOVE)
         with tempfile.TemporaryDirectory(prefix="subfleet-claude-probe-") as workdir:
             try:
                 done = self._runner(
@@ -863,12 +1004,25 @@ class ClaudeAdapter(Adapter):
             raise AdapterError(
                 f"claude: credential is for provider {credential.provider!r}", code=2,
                 fix="enrol a Claude credential with the Claude adapter",
+                reason="claude-credential-provider",
             )
         env_add = self.credential_env(credential)
         rc, stdout, stderr = self._run_turn(env_add, ENROLL_MODEL)
         summary = parse_stream(stdout)
-        corpus = f"{stderr}\n{chr(10).join(summary.texts())}"
+        # C-9.2, C-9.3: only what the CLI and the provider wrote, as `classify` reads
+        # it (`cli_texts`). A model's own words are never a refusal or an auth phrase.
+        corpus = "\n".join([stderr, *summary.cli_texts()])
 
+        # C-9.3: a refusal of subscription access is auth-dead with or without
+        # `system/init`, and a fresh token cannot answer it. Claude Code's own words
+        # are quoted, and the cause is not guessed (`ORG_BLOCK_CAUSES`).
+        refusal = _subscription_refusal(corpus, summary)
+        if refusal is not None:
+            # C-25.7: the client reads the reason's template, which quotes the line
+            # and names the kind only when they pass their closed checks; this
+            # message, with every word and kind, reaches daemon.log only.
+            raise AdapterError(f"claude: {refusal.statement()}", code=5, fix=ORG_BLOCK_CAUSES,
+                               reason="claude-subscription-refused", details=refusal.details())
         if not summary.has_init:
             detail = _first_auth_phrase(corpus) or f"rc {rc}, no system/init in the stream"
             raise AdapterError(
@@ -878,13 +1032,7 @@ class ClaudeAdapter(Adapter):
                     "claude setup-token while signed into the lane account, then store it "
                     f"as the keychain item {credential.ref}"
                 ),
-            )
-        if ORG_BLOCK_RE.search(corpus):
-            raise AdapterError(
-                "claude: the organisation has disabled Claude Code subscription access "
-                "for this account",
-                code=5,
-                fix="ask the account's admin to enable Claude Code access",
+                reason="claude-authenticate",
             )
 
         home = env_add.get("CLAUDE_CONFIG_DIR")
@@ -896,6 +1044,7 @@ class ClaudeAdapter(Adapter):
                 f"into {observed}",
                 code=7,
                 fix="rebind the lane to the account its credential really holds (C-1.3)",
+                reason="claude-account-mismatch",
             )
         account = account or observed
         if not account:
@@ -906,6 +1055,7 @@ class ClaudeAdapter(Adapter):
                     "name the keychain item claude-quota-<email>, or point the lane at a "
                     "home whose .claude.json carries oauthAccount.emailAddress"
                 ),
+                reason="claude-account-missing",
             )
 
         plan = (
@@ -926,7 +1076,7 @@ class ClaudeAdapter(Adapter):
                     "retry enrolment; if it persists, the credential is not a Claude "
                     "Code OAuth token and cannot be bound to an account (C-10.6)"
                 ),
-            )
+             reason="claude-profile-account")
         if profile.ok:
             # C-1.4: the account key is the identity, and the email is a label.
             identity, label = profile.identity, profile.email
@@ -1207,15 +1357,15 @@ class ClaudeAdapter(Adapter):
     @staticmethod
     def permission_args(
         sandbox: Sandbox | str, *, isolated: bool = False, review_root: str | None = None,
-        mcp_config: str = EMPTY_MCP_CONFIG,
+        mcp_config: str = EMPTY_MCP_CONFIG, tmpdir: str | None = None,
     ) -> tuple[str, ...]:
-        """`PERM_ARGS` as v1 `bin/subfleet-claude` builds them, in v1's order, with
-        one documented change.
+        """Provider permission flags, with fixed MCP and private scratch policy.
 
         `workspace-write` takes the bypass flag and, unlike v1 (C-12.9, d714),
         `--strict-mcp-config --mcp-config <mcp_config>`: no MCP server from any
         settings file, only the ones `mcp_config` names, and it names none unless
-        the job did. `read-only` fails closed even when the operator's own settings
+        the job did. D-TMP1's `tmpdir`, when supplied, is an explicit additional
+        directory. `read-only` fails closed even when the operator's own settings
         default to `bypassPermissions`: plan mode plus a named tool surface, with
         settings sources, Chrome, MCP and slash commands all removed so nothing
         settings-driven can reintroduce a writing tool; `mcp_config` is never read
@@ -1223,7 +1373,8 @@ class ClaudeAdapter(Adapter):
         """
         value = sandbox.value if isinstance(sandbox, Sandbox) else str(sandbox)
         if value == Sandbox.WORKSPACE_WRITE.value:
-            return ("--dangerously-skip-permissions", "--strict-mcp-config", "--mcp-config", mcp_config)
+            return ("--dangerously-skip-permissions", "--strict-mcp-config", "--mcp-config", mcp_config,
+                    *(("--add-dir", tmpdir) if tmpdir else ()))
         tools = READ_ONLY_TOOLS_BASE if isolated else READ_ONLY_TOOLS_WEB
         args = [
             "--permission-mode", "plan",
@@ -1264,6 +1415,7 @@ class ClaudeAdapter(Adapter):
             raise AdapterError(
                 f"the job's MCP config cannot give the servers it names ({', '.join(names)}): {exc}",
                 code=7, fix="submit the job again with --mcp naming servers its workdir offers",
+                reason="claude-mcp-config",
             ) from None
         path = Path(attempt_dir) / ATTEMPT_MCP_CONFIG
         _atomic_write_text(path, json.dumps({"mcpServers": {name: servers[name] for name in names}},
@@ -1281,13 +1433,20 @@ class ClaudeAdapter(Adapter):
             / f"{session_id}.jsonl"
         )
 
+    def _runner_environment(self) -> dict[str, dict[str, str]]:
+        """The native runner's allowlisted environment, read afresh (D-ENV1); a
+        supplied runner builds its own."""
+        return {"env": build_environment()} if self._native_runner else {}
+
     def _config_projects_dir(self, credential_env: dict[str, str] | None = None) -> Path:
         if self._projects_dir is not None:
             return self._projects_dir
-        config = (credential_env or {}).get("CLAUDE_CONFIG_DIR") or os.environ.get(
-            "CLAUDE_CONFIG_DIR"
-        )
-        base = Path(config).expanduser() if config else Path.home() / ".claude"
+        env = self.provider_environment.assemble(credential_env)
+        from ..home_paths import home_path
+        # The launch's own CLAUDE_CONFIG_DIR, else its HOME's .claude (D-ENV1); under
+        # pytest a missing override refuses the person's store (D-ST1).
+        base = Path(home_path("CLAUDE_CONFIG_DIR", lambda: _launch_home(env) / ".claude",
+                              env=env, expand_override=True))
         return base / "projects"
 
     def _write_prompt_sent(self, attempt_dir: Path, prompt_path: Path) -> Path:
@@ -1323,6 +1482,7 @@ class ClaudeAdapter(Adapter):
             "session_id": session_id,
             "workdir": workdir,
             "sandbox": sandbox,
+            "capability": launch_capability("claude", sandbox).value,
             "transcript_path": str(transcript),
             "transcript_offset": offset,
             "projects_dir": str(transcript.parent.parent),
@@ -1340,7 +1500,9 @@ class ClaudeAdapter(Adapter):
 
         `guard_override` is accepted and unused: a Claude launch relies on the global
         never-rules hook in `~/.claude/settings.json`, and `doctor` reports when that
-        hook is missing (C-14.3). There is no per-launch hook injection to make.
+        hook is missing (C-14.3). The one per-launch hook is a writable review's
+        publish rule, merged into the launch's one `--settings` with
+        `LANE_SETTINGS_ENV` (C-12.4, `claude_settings_args`, D-WATCHDOG1).
         """
         attempt_dir = Path(attempt_dir)
         attempt_dir.mkdir(parents=True, exist_ok=True)
@@ -1358,16 +1520,18 @@ class ClaudeAdapter(Adapter):
             argv += ["--effort", effort]
         if job.isolated_review:
             from .isolation import validate_isolated_review
-            validate_isolated_review(sandbox, job.review_root, {**os.environ, **credential_env})
+            validate_isolated_review(sandbox, job.review_root, os.environ.keys() | credential_env.keys())
         argv += list(self.permission_args(sandbox, isolated=job.isolated_review,
                                          review_root=job.review_root,
-                                         mcp_config=self.mcp_config_arg(job, sandbox, attempt_dir)))
+                                         mcp_config=self.mcp_config_arg(job, sandbox, attempt_dir),
+                                         tmpdir=credential_env.get("TMPDIR")))
+        argv += claude_settings_args(job, sandbox, attempt_dir, settings=lane_settings())  # C-12.4, D-WATCHDOG1
         from .isolation import claude_env_remove
-        env_remove = (*ENV_REMOVE, *claude_env_remove({**os.environ, **credential_env})) if sandbox == "read-only" else ENV_REMOVE
+        env_remove = (*ENV_REMOVE, *claude_env_remove(os.environ.keys() | credential_env.keys())) if sandbox == "read-only" else ENV_REMOVE
 
         stdin_path = self._write_prompt_sent(attempt_dir, Path(prompt_path))
         transcript = self.expected_transcript_path(job.workdir, session_id, credential_env)
-        return Launch(
+        return protect_launch(job, Launch(
             argv=tuple(argv),
             env_add=dict(credential_env),
             env_remove=env_remove,
@@ -1382,7 +1546,7 @@ class ClaudeAdapter(Adapter):
                 session_id=session_id, workdir=str(job.workdir), transcript=transcript,
                 sandbox=sandbox,
             ),
-        )
+        ), attempt_dir)
 
     def resume_launch(
         self, job: JobSpec, attempt_id: str, attempt_dir: Path, lane: Lane,
@@ -1407,17 +1571,19 @@ class ClaudeAdapter(Adapter):
         argv += ["--output-format", "stream-json", "--verbose"]
         if job.isolated_review:
             raise AdapterError("isolated review cannot resume a contextual Claude session",
-                               fix="submit a fresh isolated review job")
+                               fix="submit a fresh isolated review job", reason="isolation-resume-claude")
         argv += list(self.permission_args(
-            sandbox, mcp_config=self.mcp_config_arg(job, sandbox, attempt_dir)))
+            sandbox, mcp_config=self.mcp_config_arg(job, sandbox, attempt_dir),
+            tmpdir=credential_env.get("TMPDIR")))
+        argv += claude_settings_args(job, sandbox, attempt_dir, settings=lane_settings())  # C-12.4, D-WATCHDOG1
         from .isolation import claude_env_remove
-        env_remove = (*ENV_REMOVE, *claude_env_remove({**os.environ, **credential_env})) if sandbox == "read-only" else ENV_REMOVE
+        env_remove = (*ENV_REMOVE, *claude_env_remove(os.environ.keys() | credential_env.keys())) if sandbox == "read-only" else ENV_REMOVE
 
         stdin_path = self._write_prompt_sent(attempt_dir, Path(prompt_path))
         transcript = self.expected_transcript_path(
             job.workdir, native_session_id, credential_env
         )
-        return Launch(
+        return protect_launch(job, Launch(
             argv=tuple(argv),
             env_add=dict(credential_env),
             env_remove=env_remove,
@@ -1432,30 +1598,23 @@ class ClaudeAdapter(Adapter):
                 session_id=native_session_id, workdir=str(job.workdir),
                 transcript=transcript, sandbox=sandbox, resumed_from=native_session_id,
             ),
-        )
+        ), attempt_dir)
 
     # --- reading an attempt's artifacts --------------------------------------
 
     def raw_stream_text(self, attempt_dir: Path, launch: Launch | None = None) -> str:
         """The attempt's stream.
 
-        `--output-format stream-json` puts the stream on stdout, so `stream.jsonl` and
-        `stdout` are the same bytes; whichever the daemon actually produced is read,
-        the dedicated stream file first.
+        `--output-format stream-json` puts the stream on stdout. The first existing
+        frozen entry is authoritative, including an empty or non-regular one;
+        only absent frozen entries permit legacy stdout fallback (C-4.3).
         """
         attempt_dir = Path(attempt_dir)
-        candidates: list[Path] = []
-        if launch is not None and launch.raw_stream_path:
-            candidates.append(Path(launch.raw_stream_path))
-        candidates.append(attempt_dir / "stream.jsonl")
-        if launch is not None and launch.stdout_path:
-            candidates.append(Path(launch.stdout_path))
-        candidates.append(attempt_dir / "stdout")
-        for path in candidates:
-            text = self.read_text(path)
-            if text.strip():
-                return text
-        return ""
+        try:
+            with open_stream(stream_path(attempt_dir, launch)) as handle:
+                return handle.read(4_000_000).decode("utf-8", "replace")
+        except (FileNotFoundError, NotRegularFile):
+            return ""
 
     def stream_summary(self, attempt_dir: Path, launch: Launch | None = None) -> StreamSummary:
         """Parse the complete attempt, including a terminal result beyond 4 MB.
@@ -1464,20 +1623,11 @@ class ClaudeAdapter(Adapter):
         stream reader. Never use it to decide whether a long attempt succeeded.
         """
         attempt_dir = Path(attempt_dir)
-        candidates = [Path(launch.raw_stream_path)] if launch and launch.raw_stream_path else []
-        candidates.append(attempt_dir / "stream.jsonl")
-        if launch and launch.stdout_path:
-            candidates.append(Path(launch.stdout_path))
-        candidates.append(attempt_dir / "stdout")
-        for path in dict.fromkeys(candidates):
-            try:
-                with open_regular(path, "r", encoding="utf-8", errors="replace") as handle:
-                    summary = parse_lines(handle)
-            except (FileNotFoundError, NotRegularFile):
-                continue
-            if summary.lines_total:
-                return summary
-        return parse_stream("")
+        try:
+            with open_stream(stream_path(attempt_dir, launch), "r", encoding="utf-8", errors="replace") as handle:
+                return parse_lines(handle)
+        except (FileNotFoundError, NotRegularFile):
+            return parse_stream("")
 
     def stderr_text(self, attempt_dir: Path, launch: Launch | None = None) -> str:
         attempt_dir = Path(attempt_dir)
@@ -1593,19 +1743,23 @@ class ClaudeAdapter(Adapter):
         if match:
             return finish(
                 OutcomeClass.CLI_TOO_OLD,
-                f"cli-too-old: {_first_line_containing(cli_corpus, match)}",
+                f"cli-too-old: {_quoted(cli_corpus, match)}",
                 answered={"cli": "version gate in the provider's own output"},
             )
 
         # 1. Authentication (C-9.3), from what the CLI and the provider wrote only
         #    (`cli_texts`): a model quoting these phrases is not the lane refusing,
         #    and an `auth-dead` job moves on to the next lane, disabling this one (C-4.5).
-        match = None if successful else ORG_BLOCK_RE.search(cli_corpus)
-        if match:
+        #    A refusal of subscription access is quoted as Claude Code said it, with
+        #    the known causes and no guess between them; a verified success has none.
+        refusal = None if successful else _subscription_refusal(cli_corpus, summary)
+        if refusal is not None:
             return finish(
                 OutcomeClass.AUTH_DEAD,
-                f"auth-dead: {_first_line_containing(cli_corpus, match)}",
-                answered={"auth": "explicit organisation block"},
+                f"auth-dead: {refusal.statement()}. {ORG_BLOCK_CAUSES}",
+                answered={"auth": f"subscription access refused ({refusal.source})"},
+                refusal={"verbatim": refusal.line, "source": refusal.source,
+                         "quoted_from": refusal.quoted_from},
             )
         auth_kind = next(
             (kind for kind in summary.error_kinds if kind in AUTH_ERROR_KINDS), None
@@ -1622,7 +1776,7 @@ class ClaudeAdapter(Adapter):
             if not summary.has_init:
                 return finish(
                     OutcomeClass.AUTH_DEAD,
-                    f"auth-dead: {_first_line_containing(cli_corpus, auth_signature)}",
+                    f"auth-dead: {_quoted(cli_corpus, auth_signature)}",
                     answered={"auth": "no system/init and a credential failure signature"},
                 )
             # C-9.3: the credential authenticated. Something else answered 401.
@@ -1663,7 +1817,7 @@ class ClaudeAdapter(Adapter):
         # above is the sole limit verdict that can override that success.
         match = None if successful else CREDITS_RE.search(scrubbed)
         if match:
-            line = _first_line_containing(scrubbed, match)
+            line = _quoted(scrubbed, match)
             until, clock_source = _closure_clock(
                 _clock_from_text(scrubbed, now), now
             )
@@ -1687,7 +1841,7 @@ class ClaudeAdapter(Adapter):
             )
         match = None if successful else LIMIT_RE.search(scrubbed)
         if match:
-            line = _first_line_containing(scrubbed, match)
+            line = _quoted(scrubbed, match)
             until, clock_source = _closure_clock(_clock_from_text(scrubbed, now), now)
             return finish(
                 OutcomeClass.LIMITED,
@@ -1755,7 +1909,7 @@ class ClaudeAdapter(Adapter):
             if transient_kind is not None:
                 parts.append(f"provider error kind {transient_kind}")
             if match is not None:
-                parts.append(_first_line_containing(cli_corpus, match))
+                parts.append(_quoted(cli_corpus, match))
             reason = "; ".join(parts)
             return finish(
                 OutcomeClass.TRANSIENT, f"transient: {reason}",
@@ -1986,8 +2140,129 @@ def _decode(value: Any) -> str:
 
 
 def _first_auth_phrase(corpus: str) -> str | None:
-    match = AUTH_SIGNATURE_RE.search(corpus) or ORG_BLOCK_RE.search(corpus)
-    return _first_line_containing(corpus, match) if match else None
+    """The first credential-failure or refusal line, from `corpus` scrubbed within its budget
+    (`_scrubbed`); None when there is none, or the scrub removed every match."""
+    clean = _scrubbed(corpus)
+    match = AUTH_SIGNATURE_RE.search(clean) or ORG_BLOCK_RE.search(clean)
+    return _first_line_containing(clean, match) if match else None
+
+
+@dataclass(frozen=True)
+class SubscriptionRefusal:
+    """Claude Code refusing subscription access, as its own evidence (C-9.3).
+
+    `line` is Claude Code's words verbatim from its source scrubbed within its budget
+    (`_scrubbed`), `error_kinds` every distinct `error`
+    kind the stream carried, in the parser's order. `source` is what made it a
+    refusal: "error-kind" when Claude Code stamped `oauth_org_not_allowed`, else
+    "text" (ORG_BLOCK_RE alone). `quoted_from` is where `line` came from. None of
+    it names a cause: `ORG_BLOCK_CAUSES` lists the known ones without choosing.
+    """
+
+    line: str | None
+    error_kinds: tuple[str, ...]
+    source: str
+    quoted_from: str | None      # "refusal-frame", "provider-error", "output"
+
+    def statement(self) -> str:
+        evidence = []
+        if self.line:
+            evidence.append(f'verbatim: "{self.line}"')
+        elif self.source == "text":
+            evidence.append(f"no words: {SCRUBBED_AWAY}")
+        else:
+            evidence.append(
+                f"no words: the frame carrying {ORG_BLOCK_ERROR_KIND} has none, "
+                "and neither has the provider's error text"
+            )
+        if self.error_kinds:
+            evidence.append(f"error_kinds: {', '.join(self.error_kinds)}")
+        return (
+            "Claude Code refused subscription access for this account "
+            f"({'; '.join(evidence)})"
+        )
+
+    def details(self) -> dict[str, str | None]:
+        """The enrolment refusal's `details` (C-25.7): the line as quoted, and the
+        kind that made it a refusal (`oauth_org_not_allowed` when stamped, else the
+        first credential kind, else none). `refusals.render` shows each only when it
+        passes its closed check: the line one of `SUBSCRIPTION_REFUSAL_LINES`, the
+        kind one of `AUTH_ERROR_KINDS`."""
+        kind = (ORG_BLOCK_ERROR_KIND if ORG_BLOCK_ERROR_KIND in self.error_kinds
+                else next((k for k in self.error_kinds if k in AUTH_ERROR_KINDS), None))
+        return {"claude_refusal": self.line, "error_kind": kind}
+
+
+def _provider_error_texts(summary: StreamSummary) -> tuple[str, ...]:
+    """The words Claude Code marked as an error: the result's `errors`, an error
+    result's text, and the text of every assistant frame stamped with an `error`
+    kind that is the CLI's own (`cli_placeholder`). Never a model's prose: a frame
+    a model served keeps its words out even when the CLI stamped it with a kind
+    outside `AUTH_ERROR_KINDS` (`max_output_tokens`, say), so every line this
+    returns is also in `StreamSummary.cli_texts` (C-9.2)."""
+    texts: list[str] = []
+    if summary.result is not None:
+        texts.extend(summary.result.errors)
+        if summary.result.is_error and summary.result.text:
+            texts.append(summary.result.text)
+    texts.extend(m.text for m in summary.assistants
+                 if m.error and m.text and cli_placeholder(m.raw))
+    return tuple(dict.fromkeys(t for t in texts if t))
+
+
+def _subscription_refusal(corpus: str, summary: StreamSummary) -> SubscriptionRefusal | None:
+    """The refusal when Claude Code's error kind or its text says so, else None.
+
+    It is a refusal when the stream carries `oauth_org_not_allowed` or the corpus
+    matches ORG_BLOCK_RE. The words quoted are the most specific Claude Code gave,
+    first found wins, so unrelated text that happens to match is never quoted in
+    place of the refusal itself:
+
+    1. the frame stamped `oauth_org_not_allowed`: its line ORG_BLOCK_RE matches,
+       else its first line (a reworded refusal is still quoted, not paraphrased);
+    2. the provider's error text (`_provider_error_texts`): a line it matches;
+    3. the rest of the corpus (stderr, ordinary text): the first line it matches;
+    4. a stamped refusal with no words of its own: the provider's error text's
+       first line, else nothing, and the statement says so.
+
+    Whether it is a refusal is read from the text as written; the words quoted are
+    taken from each source scrubbed within its budget first (`_scrubbed`), so a credential whose
+    label lies outside the excerpt is still masked (#104 review r1, P1). A text
+    refusal whose every match lay inside text the scrubber removes quotes nothing,
+    and the statement says so.
+    """
+    kinds = tuple(dict.fromkeys(summary.error_kinds))
+    stamped = ORG_BLOCK_ERROR_KIND in kinds
+    in_corpus = ORG_BLOCK_RE.search(corpus)
+    if not stamped and in_corpus is None:
+        return None
+    source = "error-kind" if stamped else "text"
+
+    def quote(clean: str, found: re.Match[str], where: str) -> SubscriptionRefusal:
+        return SubscriptionRefusal(_first_line_containing(clean, found), kinds, source, where)
+
+    for message in summary.assistants:
+        if message.error == ORG_BLOCK_ERROR_KIND:
+            clean = _scrubbed(message.text)
+            found = ORG_BLOCK_RE.search(clean) or re.search(r"\S", clean)
+            if found:
+                return quote(clean, found, "refusal-frame")
+    errors = tuple(_scrubbed(text) for text in _provider_error_texts(summary))
+    for clean in errors:
+        found = ORG_BLOCK_RE.search(clean)
+        if found:
+            return quote(clean, found, "provider-error")
+    if in_corpus is not None:
+        clean = _scrubbed(corpus)
+        found = ORG_BLOCK_RE.search(clean)
+        if found:
+            return quote(clean, found, "output")
+    if stamped:
+        for clean in errors:
+            found = re.search(r"\S", clean)
+            if found:
+                return quote(clean, found, "provider-error")
+    return SubscriptionRefusal(None, kinds, source, None)
 
 
 def _closure_clock(
@@ -2070,13 +2345,14 @@ def reconstruct_v1_argv(
         "$CLAUDE_BIN" -p --model "$MODEL" --session-id "$SID" \\
             --output-format json ${PERM_ARGS[@]+"${PERM_ARGS[@]}"}
 
-    v2 differs in exactly three documented places: the output format is `stream-json`
-    (C-12.4, so the `rate_limit_event` is readable), `--verbose` accompanies it, and
+    v2 differs in exactly four documented places: the output format is `stream-json`
+    (C-12.4, so the `rate_limit_event` is readable), `--verbose` accompanies it,
     a writable launch adds `--strict-mcp-config --mcp-config <config>` after v1's
-    bypass flag (C-12.9, d714), so it starts only the MCP servers its job named.
-    Read-only `PERM_ARGS` is reproduced verbatim, in v1's order. The parity test
-    compares this against `ClaudeAdapter.build_launch`, so a drift in either fails
-    loudly.
+    bypass flag (C-12.9, d714), so it starts only the MCP servers its job named, and
+    every launch ends with one `--settings` carrying `LANE_SETTINGS_ENV` (d1031,
+    D-WATCHDOG1), intended to let a lane at its plan's ceiling exit. Read-only `PERM_ARGS` is
+    reproduced verbatim, in v1's order. The parity test compares this against
+    `ClaudeAdapter.build_launch`, so a drift in either fails loudly.
     """
     argv = [claude_bin, "-p", "--model", model, "--session-id", session_id,
             "--output-format", output_format]
@@ -2099,6 +2375,7 @@ def reconstruct_v1_argv(
         ]
         if isolated and review_root:
             argv += ["--add-dir", review_root]
+    argv += lane_settings_args()
     return tuple(argv)
 
 
@@ -2108,6 +2385,7 @@ __all__ = [
     "ENROLL_PROMPT",
     "ENV_REMOVE",
     "KEYCHAIN_PREFIX",
+    "LANE_SETTINGS_ENV",
     "HEADLESS_BLOCK",
     "ADMISSION_WINDOW",
     "SOURCE_RATE_LIMIT_EVENT",
@@ -2122,6 +2400,8 @@ __all__ = [
     "encode_project_dir",
     "iso_from_epoch",
     "iso_utc",
+    "lane_settings",
+    "lane_settings_args",
     "link_raw_stream",
     "model_matches_requested",
     "parse_reset_clock",

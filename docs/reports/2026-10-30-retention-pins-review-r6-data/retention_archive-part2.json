@@ -1,0 +1,149 @@
+{
+  "label": "retention_archive-part2",
+  "start": "2026-10-30T20:08:39.790710+00:00",
+  "loads": [
+    52.662109375,
+    51.98828125,
+    51.2666015625
+  ],
+  "seconds": 63.510702750005294,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_remote_on_this_machine_is_no_network_remote",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0005177919956622645
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_network_url_classification",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0001943749957717955
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[wrong-bytes]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.087035415999708
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[truncated]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 5.00268658400455
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_object_reader_hashes_every_byte",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.06293137499596924
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_anchor_is_deterministic_and_create_is_idempotent",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.435834541989607
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_rollback_after_anchoring_then_next_pass_retires",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 7.344657249996089
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_pinned_at_commit_rolls_back_then_retires_when_unpinned",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 7.5783692080003675
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_every_commit_only_the_admin_directory_names_survives_gc",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 7.916463415996986
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_archive.py::test_a_remote_on_this_machine_is_no_network_remote",
+    "tests/unit/test_retention_archive.py::test_network_url_classification",
+    "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[wrong-bytes]",
+    "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[truncated]",
+    "tests/unit/test_retention_archive.py::test_object_reader_hashes_every_byte",
+    "tests/unit/test_retention_archive.py::test_anchor_is_deterministic_and_create_is_idempotent",
+    "tests/unit/test_retention_archive.py::test_rollback_after_anchoring_then_next_pass_retires",
+    "tests/unit/test_retention_archive.py::test_pinned_at_commit_rolls_back_then_retires_when_unpinned",
+    "tests/unit/test_retention_archive.py::test_every_commit_only_the_admin_directory_names_survives_gc"
+  ],
+  "all_nodes": [
+    "tests/unit/test_retention_archive.py::test_a_remote_on_this_machine_is_no_network_remote",
+    "tests/unit/test_retention_archive.py::test_network_url_classification",
+    "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[wrong-bytes]",
+    "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[truncated]",
+    "tests/unit/test_retention_archive.py::test_object_reader_hashes_every_byte",
+    "tests/unit/test_retention_archive.py::test_anchor_is_deterministic_and_create_is_idempotent",
+    "tests/unit/test_retention_archive.py::test_rollback_after_anchoring_then_next_pass_retires",
+    "tests/unit/test_retention_archive.py::test_pinned_at_commit_rolls_back_then_retires_when_unpinned",
+    "tests/unit/test_retention_archive.py::test_every_commit_only_the_admin_directory_names_survives_gc"
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_a_remote_on_this_machine_is_no_network_remote": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_network_url_classification": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[wrong-bytes]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[truncated]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_object_reader_hashes_every_byte": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_anchor_is_deterministic_and_create_is_idempotent": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_rollback_after_anchoring_then_next_pass_retires": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_pinned_at_commit_rolls_back_then_retires_when_unpinned": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_commit_only_the_admin_directory_names_survives_gc": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {},
+  "loaded": [],
+  "rss": 125616128
+}

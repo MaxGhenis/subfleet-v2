@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T18:12:53.464349+00:00",
+  "args": [
+    "tests/unit/test_retention_pointer_inputs.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r11/real-tmp/green-test_retention_pointer_inputs",
+  "linked": false,
+  "driver_pid": 30558,
+  "lock_process_group": 30627
+}

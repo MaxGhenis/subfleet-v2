@@ -1,0 +1,7 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 13:54:49Z slot B load 
+{"start": "2026-10-29T13:54:50.425687+00:00", "load": [16.474609375, 20.064453125, 21.84130859375], "name": "r3-all-marked"}
+xxx.x.                                                                   [100%]
+2 passed, 4 xfailed in 61.51s (0:01:01)

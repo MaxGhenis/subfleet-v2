@@ -1,0 +1,60 @@
+{
+  "label": "mutant-r3-terminal-census-live-only",
+  "start": "2026-10-31T06:31:21.374521+00:00",
+  "loads": [
+    34.45263671875,
+    33.73876953125,
+    33.591796875
+  ],
+  "seconds": 19.29848999999922,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 5.1717615830002615,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 1.8555286249993515,
+      "properties": [],
+      "failure": "world = World(base=PosixPath('/private/tmp/sf-r272r8/cases-63408/pytest/test_c8_4_legacy_incomplete_ce0'), trusted=True, remot...-r272r8/cases-63408/pytest/test_c8_4_legacy_incomplete_ce0/state'), store=<subfleet.store.Store object at 0x109e663c0>)\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109c9bbb0>\nstage = 'already-exporting'\n\n    @pytest.mark.parametrize(\"stage\", [\"database\", \"full-pass\", \"already-exporting\"])\n    def test_c8_4_legacy_incomplete_census_survives_terminal_export(world, monkeypatch, stage):\n        tree = world.job(\"owner\")\n        borrower = world.base / \"outside\"\n        alternate = borrower / \".git\" / \"objects\" / \"info\" / \"alternates\"\n        alternate.parent.mkdir(parents=True)\n        alternate.write_bytes(b'\"bad\\\\z\"\\n')\n        world.store.add_job(job_id=\"borrower\", request_id=\"borrower\", payload_digest=\"d\",\n                            kind=\"dispatch\", state=\"running\", sandbox=\"read-only\",\n                            workdir=str(borrower), prompt_path=\"/p\", out_path=\"/outside/result\")\n        world.store.add_event(\"job.submitted\", job_id=\"borrower\", data={})\n        original = dependencies.legacy\n    \n        def finish_after_discovery(read):\n            legacy = original(read)\n            assert legacy.incomplete[\"borrower\"][0][\"file\"] == str(alternate)\n            world.store.acquire_lease(\"out:/outside/result\", \"borrower\")\n            world.store.update_job(\"borrower\", state=\"succeeded\")\n            return legacy\n    \n        if stage == \"already-exporting\":\n            world.store.acquire_lease(\"out:/outside/result\", \"borrower\")\n            world.store.update_job(\"borrower\", state=\"succeeded\")\n            result = maintain(world)\n>           assert \"owner\" not in result[\"pruned\"], result\nE           AssertionError: {'pruned': ['owner'], 'errors': [], 'bytes_before': 20026, 'bytes_after': 0, ...}\nE           assert 'owner' not in ['owner']\n\ntests/fake/test_retention_dependency_review_r2.py:135: AssertionError"
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.03682183400087524,
+      "properties": [],
+      "failure": null
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]"
+  ],
+  "all_nodes": [
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]"
+  ],
+  "property_settings": {},
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+      "mutated": "89da19e3dc73a0fd0bd7ed98b5ae249f1fd42144aad777480e3eabacef3ecf2a"
+    }
+  ],
+  "dependency_source": {
+    "file": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/subfleet/dependencies.py",
+    "sha256": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d"
+  },
+  "rss": 123600896
+}

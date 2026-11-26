@@ -1,0 +1,220 @@
+{
+  "name": "test_retention_pointer_whitespace",
+  "start": "2026-10-31T03:36:11.545938+00:00",
+  "load": [
+    38.1767578125,
+    43.3359375,
+    43.91259765625
+  ],
+  "args": [
+    "tests/unit/test_retention_pointer_whitespace.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-spaces]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.022961749999922,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-spaces]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.4391991250004139,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-spaces]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000584500000513799,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-no-space]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.001857374999417516,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-no-space]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.1818425000001298,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-no-space]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005457920005937922,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-empty]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.011226208000152837,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-empty]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.18471945800047251,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-empty]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005204159997447277,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-crlf]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0027153749997523846,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-crlf]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.09487258299941459,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-crlf]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.013492500000211294,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-spaces]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002756500000032247,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-spaces]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.11738837499979127,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-spaces]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005771249998360872,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-only-spaces]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.08198383299986745,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-only-spaces]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.14549858400005178,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-only-spaces]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004908749997412087,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-empty]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.02176737499939918,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-empty]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.07142550000025949,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-empty]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000743292000151996,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-crlf]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003854165999655379,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-crlf]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.22950945799948386,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-crlf]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007118329995137174,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_pathname_whitespace_preserves_the_storage_real_git_reads",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002149042000382906,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_pathname_whitespace_preserves_the_storage_real_git_reads",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 16.08105599999999,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_pathname_whitespace_preserves_the_storage_real_git_reads",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005952080000497517,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-spaces]",
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-no-space]",
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-empty]",
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-crlf]",
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-spaces]",
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-only-spaces]",
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-empty]",
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[commondir-crlf]",
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_pathname_whitespace_preserves_the_storage_real_git_reads"
+  ],
+  "end": "2026-10-31T03:36:43.569111+00:00",
+  "seconds": 32.0223633329997,
+  "peak_rss_mib": 112.921875,
+  "exit": 0
+}

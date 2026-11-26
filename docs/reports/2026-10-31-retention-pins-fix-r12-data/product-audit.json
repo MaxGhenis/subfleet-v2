@@ -1,0 +1,13 @@
+{
+  "executable_change": "Only errno tuple membership becomes equality with ELOOP",
+  "all_other_product_ast_identical": true,
+  "modified_existing_files": [
+    "docs/desktop/retention-archive.md",
+    "docs/reports/2026-10-27-retention-dependency-pins.md",
+    "subfleet/dependencies.py",
+    "tests/fake/test_retention_dependency_review_r12.py",
+    "tests/unit/test_retention_location_readable.py"
+  ],
+  "source_sha256": "3d013f755b9b045e4104c7be192f027125d12991be2c191a3a315e4228c4f728",
+  "committed_trailers_valid": true
+}

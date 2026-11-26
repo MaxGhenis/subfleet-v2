@@ -1,0 +1,52 @@
+hold 21:54:47Z slot A load { 66.60 73.91 80.22 }
+control                fsck=0 read=0 incomplete=0 returned=2 unspelled=[]
+scan                   fsck=0 read=0 incomplete=0 returned=2 unspelled=[]
+alternates-line        fsck=0 read=0 incomplete=2 returned=2 unspelled=[]
+alternates-line-tail   fsck=0 read=0 incomplete=2 returned=2 unspelled=[]
+gitfile                fsck=128 read=128 incomplete=4 returned=0 unspelled=[]
+commondir              fsck=128 read=128 incomplete=3 returned=1 unspelled=[]
+objects+alternates     fsck=0 read=0 incomplete=2 returned=2 unspelled=[]
+control incomplete []
+    109 eq1 True eq2 True link False stat 0 ... r0416cy7m0000gn/T/sf-r272r13/real/routes/sf-r10-l5w0zggo/checkout/.git
+    117 eq1 True eq2 True link False stat 0 ... m0000gn/T/sf-r272r13/real/routes/sf-r10-l5w0zggo/checkout/.git/objects
+scan incomplete []
+    109 eq1 True eq2 True link False stat 0 ... r0416cy7m0000gn/T/sf-r272r13/real/routes/sf-r10-14x8mtqc/checkout/.git
+    117 eq1 True eq2 True link False stat 0 ... m0000gn/T/sf-r272r13/real/routes/sf-r10-14x8mtqc/checkout/.git/objects
+alternates-line incomplete ['/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail', 'tail/tail/tail/tail/tail/tail/tail/info/alternates']
+    109 eq1 True eq2 True link False stat 0 ... r0416cy7m0000gn/T/sf-r272r13/real/routes/sf-r10-r8yg2wba/checkout/.git
+    117 eq1 True eq2 True link False stat 0 ... m0000gn/T/sf-r272r13/real/routes/sf-r10-r8yg2wba/checkout/.git/objects
+alternates-line-tail incomplete ['ail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x', 'il/tail/tail/tail/tail/tail/tail/x/info/alternates']
+    109 eq1 True eq2 True link False stat 0 ... r0416cy7m0000gn/T/sf-r272r13/real/routes/sf-r10-9uba_cmj/checkout/.git
+    117 eq1 True eq2 True link False stat 0 ... m0000gn/T/sf-r272r13/real/routes/sf-r10-9uba_cmj/checkout/.git/objects
+gitfile incomplete ['/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail', 'il/tail/tail/tail/tail/tail/tail/tail/tail/objects', 'l/tail/tail/tail/tail/tail/objects/info/alternates', '/tail/tail/tail/tail/tail/tail/tail/tail/commondir']
+commondir incomplete ['/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail', 'il/tail/tail/tail/tail/tail/tail/tail/tail/objects', 'l/tail/tail/tail/tail/tail/objects/info/alternates']
+    109 eq1 True eq2 True link False stat 0 ... r0416cy7m0000gn/T/sf-r272r13/real/routes/sf-r10-pk8di7p5/checkout/.git
+objects+alternates incomplete ['/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail', 'tail/tail/tail/tail/tail/tail/tail/info/alternates']
+    109 eq1 True eq2 True link False stat 0 ... r0416cy7m0000gn/T/sf-r272r13/real/routes/sf-r10-umkqxul5/checkout/.git
+    101 eq1 True eq2 True link False stat 0 ... x7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/routes/sf-r10-umkqxul5/store
+----
+control                fsck=0 read=0 incomplete=0 returned=2 unspelled=[]
+scan                   fsck=0 read=0 incomplete=0 returned=2 unspelled=[]
+alternates-line        fsck=0 read=0 incomplete=2 returned=2 unspelled=[]
+alternates-line-tail   fsck=0 read=0 incomplete=2 returned=2 unspelled=[]
+gitfile                fsck=128 read=128 incomplete=4 returned=0 unspelled=[]
+commondir              fsck=128 read=128 incomplete=3 returned=1 unspelled=[]
+objects+alternates     fsck=0 read=0 incomplete=2 returned=2 unspelled=[]
+control incomplete []
+    109 eq1 True eq2 True link False stat 0 ... r0416cy7m0000gn/T/sf-r272r13/real/routes/sf-r10-qval4jho/checkout/.git
+    117 eq1 True eq2 True link False stat 0 ... m0000gn/T/sf-r272r13/real/routes/sf-r10-qval4jho/checkout/.git/objects
+scan incomplete []
+    109 eq1 True eq2 True link False stat 0 ... r0416cy7m0000gn/T/sf-r272r13/real/routes/sf-r10-jyy89t_o/checkout/.git
+    117 eq1 True eq2 True link False stat 0 ... m0000gn/T/sf-r272r13/real/routes/sf-r10-jyy89t_o/checkout/.git/objects
+alternates-line incomplete ['/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail', 'tail/tail/tail/tail/tail/tail/tail/info/alternates']
+    109 eq1 True eq2 True link False stat 0 ... r0416cy7m0000gn/T/sf-r272r13/real/routes/sf-r10-ubzn1xm0/checkout/.git
+    117 eq1 True eq2 True link False stat 0 ... m0000gn/T/sf-r272r13/real/routes/sf-r10-ubzn1xm0/checkout/.git/objects
+alternates-line-tail incomplete ['ail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x', 'il/tail/tail/tail/tail/tail/tail/x/info/alternates']
+    109 eq1 True eq2 True link False stat 0 ... r0416cy7m0000gn/T/sf-r272r13/real/routes/sf-r10-5w8zf4hu/checkout/.git
+    117 eq1 True eq2 True link False stat 0 ... m0000gn/T/sf-r272r13/real/routes/sf-r10-5w8zf4hu/checkout/.git/objects
+gitfile incomplete ['/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail', 'il/tail/tail/tail/tail/tail/tail/tail/tail/objects', 'l/tail/tail/tail/tail/tail/objects/info/alternates', '/tail/tail/tail/tail/tail/tail/tail/tail/commondir']
+commondir incomplete ['/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail', 'il/tail/tail/tail/tail/tail/tail/tail/tail/objects', 'l/tail/tail/tail/tail/tail/objects/info/alternates']
+    109 eq1 True eq2 True link False stat 0 ... r0416cy7m0000gn/T/sf-r272r13/real/routes/sf-r10-qpt5gx5e/checkout/.git
+objects+alternates incomplete ['/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail', 'tail/tail/tail/tail/tail/tail/tail/info/alternates']
+    109 eq1 True eq2 True link False stat 0 ... r0416cy7m0000gn/T/sf-r272r13/real/routes/sf-r10-er5wwy1f/checkout/.git
+    101 eq1 True eq2 True link False stat 0 ... x7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/routes/sf-r10-er5wwy1f/store

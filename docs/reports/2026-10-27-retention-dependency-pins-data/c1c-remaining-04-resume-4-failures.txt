@@ -1,0 +1,43 @@
+tests/fake/test_writer_retention_fence.py::test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases
++ Exception Group Traceback (most recent call last):
+  |   File "/Users/maxghenis/.subfleet/worktrees/20261028-000917-rdp217c1b/tests/fake/test_writer_retention_fence.py", line 356, in test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases
+  |     agrees()
+  |     ~~~~~~^^
+  |   File "/Users/maxghenis/.subfleet/worktrees/20261028-000917-rdp217c1b/tests/fake/test_writer_retention_fence.py", line 318, in agrees
+  |     suppress_health_check=[HealthCheck.too_slow])
+  |     
+  |   File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-rdp217c1/recovery-0747/venv/lib/python3.14/site-packages/hypothesis/core.py", line 2295, in wrapped_test
+  |     raise the_error_hypothesis_found
+  | ExceptionGroup: Hypothesis found 2 distinct failures. (2 sub-exceptions)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261028-000917-rdp217c1b/tests/fake/test_writer_retention_fence.py", line 343, in agrees
+    |     assert sorted(hold["leases"]) == sorted(expected), (where, held, hold)
+    | AssertionError: ('nested', [('/', 'retention:a'), ('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-rdp217c1/recovery-0747...ing-04-resume-4/pytest-of-maxghenis/pytest-0/test_c8_4_c6_5_writer_reservat0/state/worktrees/retired/vendor/lib', ...})
+    | assert ['worktree:/'...0/state/work'] == ['worktree:/']
+    |   
+    |   Left contains one more item: 'worktree:/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-rdp217c1/recovery-0747/c1c-remaining-04-resume-4/pytest-of-maxghenis/pytest-0/test_c8_4_c6_5_writer_reservat0/state/work'
+    |   Use -v to get more diff
+    | Failing test case: agrees(
+    |     # The test always failed when commented parts were varied together.
+    |     where='nested',
+    |     held=[(
+    |          '/',  # or any other generated value
+    |          'retention:a',  # or any other generated value
+    |      ),
+    |      ('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-rdp217c1/recovery-0747/c1c-remaining-04-resume-4/pytest-of-maxghenis/pytest-0/test_c8_4_c6_5_writer_reservat0/state/work',
+    |          'retention:a')],
+    | )
+    +---------------- 2 ----------------
+    | Traceback (most recent call last):
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261028-000917-rdp217c1b/tests/fake/test_writer_retention_fence.py", line 347, in agrees
+    |     assert _live(daemon, writer), (where, held, hold)
+    | AssertionError: ('nested', [('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-rdp217c1/recovery-0747/c1c-remaining-04-resu...ning-04-resume-4/pytest-of-maxghenis/pytest-0/test_c8_4_c6_5_writer_reservat0/state/work/.git/worktrees/retired', ...})
+    | assert False
+    |  +  where False = _live(<subfleet.daemon.Daemon object at 0x107f3f8c0>, '20261028-060021-astra')
+    | Failing test case: agrees(
+    |     where='nested',
+    |     held=[('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-rdp217c1/recovery-0747/c1c-remaining-04-resume-4/pytest-of-maxghenis/pytest-0/test_c8_4_c6_5_writer_reservat0/state/work',
+    |          'retention:a')],
+    | )
+    +------------------------------------

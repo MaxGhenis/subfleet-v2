@@ -1,0 +1,76 @@
+[
+  {
+    "file": "tests/unit/test_retention_location_inputs.py",
+    "unchanged": true,
+    "sha256": "85ad31cd7dab3317625cd031cd3436ec139a6bae9173185704c550c92ad10827"
+  },
+  {
+    "file": "tests/unit/test_retention_location_spelling.py",
+    "unchanged": true,
+    "sha256": "2a59463e180a0d323b752d197caa07b8f68d979fb24f384cf88f02816b3ff8e1"
+  },
+  {
+    "file": "tests/unit/test_retention_location_cycles.py",
+    "unchanged": true,
+    "sha256": "7d1a084781c505620bbb96540e3dc23526aed21c0c7b17f9536a29785fd42e42"
+  },
+  {
+    "file": "tests/fake/test_retention_dependency_review_r1.py",
+    "unchanged": true,
+    "sha256": "e1d8cf407e439aff0dcc54aac6a8d934e44ac2bb4d058bca7af1f5587529191c"
+  },
+  {
+    "file": "tests/fake/test_retention_dependency_review_r2.py",
+    "unchanged": true,
+    "sha256": "5208dd74e72b0156881970fef0a7700c0bda0bcfd23a76acec781c9c98eb744c"
+  },
+  {
+    "file": "tests/fake/test_retention_dependency_review_r3.py",
+    "unchanged": true,
+    "sha256": "f53fa8d5e4a6d0e23396c39468f78bcd3ce5ca1e86f74664188d251c1d39aa78"
+  },
+  {
+    "file": "tests/fake/test_retention_dependency_review_r4.py",
+    "unchanged": true,
+    "sha256": "e9e781069d6c4fc25313edc21c3edbb84c0df17aaae94615847b8858bf6d33c9"
+  },
+  {
+    "file": "tests/fake/test_retention_dependency_review_r5.py",
+    "unchanged": true,
+    "sha256": "19d1910954f461b2ec7213889f093801786897eb168dbbc6b82e3d61d4b909aa"
+  },
+  {
+    "file": "tests/fake/test_retention_dependency_review_r6.py",
+    "unchanged": true,
+    "sha256": "6e59bc05a210766105b96aad85aa4f29c18bdd67f226db9d75245b18b0e8c739"
+  },
+  {
+    "file": "tests/fake/test_retention_dependency_review_r7.py",
+    "unchanged": true,
+    "sha256": "7886cfcf070957c8ddef8411ffab89407b6d92c5720a16defb1e5ce2b4b830fc"
+  },
+  {
+    "file": "tests/fake/test_retention_dependency_review_r8.py",
+    "unchanged": true,
+    "sha256": "89ae9abda7c76ad845e927d962730c4d94b842839296acb35071b02a7e03bb05"
+  },
+  {
+    "file": "tests/fake/test_retention_dependency_review_r9.py",
+    "unchanged": true,
+    "sha256": "dd7eb6fb89dc2ab6aea7a95e94b4b1730b507feb2690a111a53a59dbcafb572d"
+  },
+  {
+    "file": "tests/fake/test_retention_dependency_review_r10.py",
+    "unchanged": true,
+    "sha256": "a504135a94bf79c6478b41a8e934a99aeead224ba20b19b21a77c72bc41b88b2"
+  },
+  {
+    "file": "tests/fake/test_retention_dependency_review_r11.py",
+    "unchanged": true,
+    "sha256": "1da8b9139428bf0277072d60e1e9b9b5277686173ad0bd635c016a3f952430ed"
+  },
+  {
+    "file": "tests/fake/test_retention_dependency_review_r12.py",
+    "only_strict_mark_removed": true
+  }
+]

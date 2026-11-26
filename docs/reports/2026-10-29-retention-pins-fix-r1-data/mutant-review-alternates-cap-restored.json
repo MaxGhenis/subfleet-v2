@@ -1,0 +1,27 @@
+{
+  "name": "mutant-review-alternates-cap-restored",
+  "start": "2026-10-29T05:58:15.821379+00:00",
+  "load": [
+    37.76171875,
+    30.39892578125,
+    27.17041015625
+  ],
+  "exitstatus": 1,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-011712-pr272-fix-r1",
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_large_valid_alternates_file_keeps_the_tree_git_reads"
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_large_valid_alternates_file_keeps_the_tree_git_reads": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": "review-alternates-cap-restored",
+  "loaded": [
+    "subfleet.dependencies"
+  ]
+}

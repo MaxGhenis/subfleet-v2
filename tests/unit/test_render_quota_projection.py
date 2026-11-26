@@ -260,6 +260,7 @@ def test_daemon_status_reads_history_but_route_snapshot_does_not(tmp_path, monke
         monkeypatch.setattr(store, "weekly_projection_samples", lambda: history(now=NOW))
         daemon = object.__new__(Daemon)
         daemon.store = store
+        daemon.policy = {}                          # no provider cap: no quarantine rows read (C-6.4a)
         daemon.timers = SimpleNamespace(view_rows=lambda lanes: {})
         assert len(daemon._capacity_rows()["view"]["weekly_samples"]) == 2
         assert "weekly_samples" not in daemon._capacity_rows(route=True)["view"]

@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 15:24:29Z slot A load 
+START test_invariants_index 2026-10-30T15:24:31.560174+00:00 load=(33.61865234375, 29.27734375, 27.66796875)
+.........................                                                [100%]
+25 passed in 2.33s

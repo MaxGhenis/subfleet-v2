@@ -1,0 +1,25 @@
+{
+  "name": "test_retention_shared_folders-21",
+  "start": "2026-10-29T06:31:34.582212+00:00",
+  "load": [
+    26.85498046875,
+    24.39501953125,
+    23.32958984375
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_shared_folders.py::test_a_restart_mid_retirement_keeps_the_canonical_fence"
+  ],
+  "phases": {
+    "tests/unit/test_retention_shared_folders.py::test_a_restart_mid_retirement_keeps_the_canonical_fence": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

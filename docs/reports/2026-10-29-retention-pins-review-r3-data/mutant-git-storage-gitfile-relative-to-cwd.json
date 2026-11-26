@@ -1,0 +1,29 @@
+{
+  "name": "mutant-git-storage-gitfile-relative-to-cwd",
+  "start": "2026-10-29T13:47:00.807975+00:00",
+  "load": [
+    19.95654296875,
+    20.72265625,
+    22.46142578125
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_units.py::test_d1_a_separate_git_dir_and_a_relative_gitfile": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/unit/test_retention_dependency_units.py::test_d1_a_separate_git_dir_and_a_relative_gitfile"
+  ],
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+      "mutated_sha256": "65615429c332f254d9f33e67480a203337487fe278ce6eed2249021cbfe1d275"
+    }
+  ],
+  "rc": 1,
+  "seconds": 2.7681174170138547,
+  "rss": 113836032
+}

@@ -1,0 +1,60 @@
+{
+  "name": "mutant-double-r6-empty-common-initial-objects-not-recorded",
+  "start": "2026-10-31T08:41:53.611659+00:00",
+  "load": [
+    32.384765625,
+    32.46923828125,
+    30.98388671875
+  ],
+  "args": [
+    "--mutant",
+    "double-r6-empty-common-initial-objects-not-recorded",
+    "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-lf]"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-lf]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.44892445799996494,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-lf]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 1.9601627080010076,
+      "failure": "tests/fake/test_retention_dependency_review_r6.py:45: in test_empty_common_target_keeps_the_own_store_git_reads\n    assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)\nE   AssertionError: ({'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-double-r6-empty-common-initial-objects-not-recorded/pytest-of-maxghe...ommon_target_keeps0/outside/.git']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 49095, 'bytes_after': 0, ...})\nE   assert ('owner' not in ['owner'])"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-lf]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.009274208001443185,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+      "mutated": "fee5f0abce798f02da9c0944e3a7182824798aacd04bb14f6355109941716e21"
+    },
+    {
+      "module": "subfleet.dependencies",
+      "original": "fee5f0abce798f02da9c0944e3a7182824798aacd04bb14f6355109941716e21",
+      "mutated": "e9441ada0fc9afb08a0b68be09268263a22737e63e1d46d53400e346af0cd93d"
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-lf]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/subfleet/dependencies.py",
+  "product_sha256": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+  "end": "2026-10-31T08:42:04.979548+00:00",
+  "seconds": 11.367644541998743,
+  "peak_rss_mib": 115.6875,
+  "exit": 1
+}

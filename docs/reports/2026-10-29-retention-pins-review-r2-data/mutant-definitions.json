@@ -1,0 +1,202 @@
+{
+  "git-storage-no-commondir": {
+    "target": "subfleet/dependencies.py",
+    "old": "    if pointer is not None and pointer.strip():\n        common = os.path.realpath(os.path.join(gitdir, pointer.strip()))\n    elif",
+    "new": "    if False:\n        pass\n    elif",
+    "tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_commondir_outside_the_worktrees_layout_is_followed"
+    ],
+    "sha256": "7f85655f4bb5bd0f313dc8a30c7cb7ca2d736ea772c4e330d47c5fab2969c0e8"
+  },
+  "git-storage-no-worktrees-fallback": {
+    "target": "subfleet/dependencies.py",
+    "old": "    elif named and os.path.basename(os.path.dirname(gitdir)) == \"worktrees\":\n        common = os.path.dirname(os.path.dirname(gitdir))\n",
+    "new": "",
+    "tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_storage_a_gitfile_names_counts_when_it_is_gone"
+    ],
+    "sha256": "7f85655f4bb5bd0f313dc8a30c7cb7ca2d736ea772c4e330d47c5fab2969c0e8"
+  },
+  "git-storage-no-alternates": {
+    "target": "subfleet/dependencies.py",
+    "old": "    return list(dict.fromkeys([gitdir, common, *_alternates(os.path.join(common, \"objects\"), incomplete=incomplete)]))",
+    "new": "    return list(dict.fromkeys([gitdir, common]))",
+    "tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed"
+    ],
+    "sha256": "7f85655f4bb5bd0f313dc8a30c7cb7ca2d736ea772c4e330d47c5fab2969c0e8"
+  },
+  "git-storage-alternates-one-level": {
+    "target": "subfleet/dependencies.py",
+    "old": "    for _ in range(_ALTERNATES_DEPTH):",
+    "new": "    for _ in range(1):",
+    "tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed"
+    ],
+    "sha256": "7f85655f4bb5bd0f313dc8a30c7cb7ca2d736ea772c4e330d47c5fab2969c0e8"
+  },
+  "git-storage-gitfile-relative-to-cwd": {
+    "target": "subfleet/dependencies.py",
+    "old": "    return os.path.realpath(os.path.join(folder, named)) if named else None",
+    "new": "    return os.path.realpath(named) if named else None",
+    "tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_a_separate_git_dir_and_a_relative_gitfile"
+    ],
+    "sha256": "7f85655f4bb5bd0f313dc8a30c7cb7ca2d736ea772c4e330d47c5fab2969c0e8"
+  },
+  "git-storage-nearest-ignores-gitfiles": {
+    "target": "subfleet/dependencies.py",
+    "old": "        elif stat.S_ISREG(mode):",
+    "new": "        elif False:",
+    "tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_a_linked_checkout_outside_names_the_repository_it_lives_in"
+    ],
+    "sha256": "7f85655f4bb5bd0f313dc8a30c7cb7ca2d736ea772c4e330d47c5fab2969c0e8"
+  },
+  "record-raw-spelling": {
+    "target": "subfleet/dependencies.py",
+    "old": "        found[\"review_root\"] = folders.canonical(review_root)",
+    "new": "        found[\"review_root\"] = review_root",
+    "tests": [
+      "tests/unit/test_retention_dependency_units.py::test_record_spells_each_place_once"
+    ],
+    "sha256": "7f85655f4bb5bd0f313dc8a30c7cb7ca2d736ea772c4e330d47c5fab2969c0e8"
+  },
+  "fences-not-retention-only": {
+    "target": "subfleet/dependencies.py",
+    "old": "            if str(holder or \"\").startswith(folders.RETENTION)]",
+    "new": "            if holder]",
+    "tests": [
+      "tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place"
+    ],
+    "sha256": "7f85655f4bb5bd0f313dc8a30c7cb7ca2d736ea772c4e330d47c5fab2969c0e8"
+  },
+  "record-no-output": {
+    "target": "subfleet/dependencies.py",
+    "old": "    if out_path:\n        found[\"out_path\"] = folders.canonical(out_path)\n",
+    "new": "",
+    "tests": [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[output]"
+    ],
+    "sha256": "7f85655f4bb5bd0f313dc8a30c7cb7ca2d736ea772c4e330d47c5fab2969c0e8"
+  },
+  "record-no-git": {
+    "target": "subfleet/dependencies.py",
+    "old": "    if git:\n        found[\"git\"] = list(dict.fromkeys(git))\n",
+    "new": "",
+    "tests": [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]"
+    ],
+    "sha256": "7f85655f4bb5bd0f313dc8a30c7cb7ca2d736ea772c4e330d47c5fab2969c0e8"
+  },
+  "review-quoted-decode-removed": {
+    "target": "subfleet/dependencies.py",
+    "old": "            return bytes(decoded), i",
+    "new": "            return line[1:i - 1], i",
+    "tests": [
+      "tests/fake/test_retention_dependency_review_r1.py",
+      "-k",
+      "git_c_quoted"
+    ],
+    "sha256": "7f85655f4bb5bd0f313dc8a30c7cb7ca2d736ea772c4e330d47c5fab2969c0e8"
+  },
+  "review-export-row-removed": {
+    "target": "subfleet/dependencies.py",
+    "old": "        add(row[\"job_id\"], row[\"job_out_path\"])\n",
+    "new": "",
+    "tests": [
+      "tests/fake/test_retention_dependency_review_r1.py",
+      "-k",
+      "pending_export"
+    ],
+    "sha256": "7f85655f4bb5bd0f313dc8a30c7cb7ca2d736ea772c4e330d47c5fab2969c0e8"
+  },
+  "review-alternates-cap-restored": {
+    "target": "subfleet/dependencies.py",
+    "old": "                    opened = True\n                    while",
+    "new": "                    opened = True\n                    if os.fstat(stream.fileno()).st_size > _FILE_LIMIT:\n                        continue\n                    while",
+    "tests": [
+      "tests/fake/test_retention_dependency_review_r1.py",
+      "-k",
+      "large_valid"
+    ],
+    "sha256": "7f85655f4bb5bd0f313dc8a30c7cb7ca2d736ea772c4e330d47c5fab2969c0e8"
+  },
+  "review-job-directory-pin-removed": {
+    "target": "subfleet/retention.py",
+    "old": "            if needs.get(dependencies.key(job_folder), set()) - {row[\"job_id\"]}:\n                add(row[\"job_id\"], \"job-directory-in-use\")\n",
+    "new": "",
+    "tests": [
+      "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-out_path]"
+    ],
+    "sha256": "3d3a3739adfc66dc745dc5f7e6f8ea3518f8c90074a757f93b50ff40b4479ff3"
+  },
+  "r2-c-escape-bell-wrong": {
+    "target": "subfleet/dependencies.py",
+    "old": "(7, 8, 9, 10, 11, 12, 13, 34, 92)",
+    "new": "(88, 8, 9, 10, 11, 12, 13, 34, 92)",
+    "tests": [
+      "tests/unit/test_retention_alternates_review_r2.py",
+      "-k",
+      "extended_git_c_escapes",
+      "-x"
+    ],
+    "sha256": "7f85655f4bb5bd0f313dc8a30c7cb7ca2d736ea772c4e330d47c5fab2969c0e8"
+  },
+  "r2-alternates-file-cap": {
+    "target": "subfleet/dependencies.py",
+    "old": "                    opened = True\n                    while",
+    "new": "                    opened = True\n                    if os.fstat(stream.fileno()).st_size > _ALTERNATE_LINE_LIMIT:\n                        continue\n                    while",
+    "tests": [
+      "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_many_short_valid_lines_use_bounded_input_memory",
+      "-x"
+    ],
+    "sha256": "7f85655f4bb5bd0f313dc8a30c7cb7ca2d736ea772c4e330d47c5fab2969c0e8"
+  },
+  "r2-export-join-request-id": {
+    "target": "subfleet/dependencies.py",
+    "old": "LEFT JOIN jobs ON jobs.job_id = leases.holder",
+    "new": "LEFT JOIN jobs ON jobs.request_id = leases.holder",
+    "tests": [
+      "tests/fake/test_retention_dependency_review_r1.py",
+      "-k",
+      "legacy and pending_export",
+      "-x"
+    ],
+    "sha256": "7f85655f4bb5bd0f313dc8a30c7cb7ca2d736ea772c4e330d47c5fab2969c0e8"
+  },
+  "r2-jobdir-final-check-removed": {
+    "target": "subfleet/retention_archive.py",
+    "old": "((j[\"worktree\"], \"worktree-in-use\"),\n                                       (job_folder, \"job-directory-in-use\"))",
+    "new": "((j[\"worktree\"], \"worktree-in-use\"),)",
+    "tests": [
+      "tests/fake/test_retention_dependency_review_r2.py",
+      "-k",
+      "nested_job_directory_aliases and commit",
+      "-x"
+    ],
+    "sha256": "05d3290acecebd4c9d5720858bc69beec989cf6d314d1f30effcfc8ae2227e49"
+  },
+  "proof-r2-f1": {
+    "target": "subfleet/dependencies.py",
+    "old": "def _alternates(objects: str, *, incomplete: list[dict[str, str]] | None = None) -> list[str]:\n    \"\"\"Stream complete alternates files, at most one bounded byte line at a time.\n\n    The returned paths and traversal frontier grow with distinct dependencies;\n    the input buffer is bounded independently of the size of the file.\n    Failures are recorded separately, never interpreted as an empty file.\n    \"\"\"\n    found: list[str] = []\n    seen = {objects}\n    level = [objects]\n    for _ in range(_ALTERNATES_DEPTH):\n        following: list[str] = []\n        for directory in level:\n            filename = os.path.join(directory, \"info\", \"alternates\")\n            opened = False\n            try:\n                with open_regular(filename) as stream:\n                    opened = True\n                    while line := stream.readline(_ALTERNATE_LINE_LIMIT + 1):\n                        if len(line) > _ALTERNATE_LINE_LIMIT:\n                            raise ValueError(f\"line exceeds {_ALTERNATE_LINE_LIMIT} bytes\")\n                        for path in _alternate_paths(line.removesuffix(b\"\\n\")):\n                            each = os.path.realpath(os.path.join(directory, os.fsdecode(path)))\n                            if each not in seen:\n                                seen.add(each)\n                                found.append(each)\n                                following.append(each)\n            except (OSError, ValueError) as exc:\n                # A missing file is normal, but a dangling link exists and is unreadable.\n                if isinstance(exc, FileNotFoundError) and not opened and not os.path.lexists(filename):\n                    continue\n                if incomplete is not None:\n                    incomplete.append({\"file\": filename, \"reason\": str(exc)})\n        level = following\n    return found\n",
+    "new": "def _alternates(objects: str, *, incomplete: list[dict[str, str]] | None = None) -> list[str]:\n    \"\"\"Stream complete alternates files, at most one bounded byte line at a time.\n\n    The returned paths and traversal frontier grow with distinct dependencies;\n    the input buffer is bounded independently of the size of the file.\n    Failures are recorded separately, never interpreted as an empty file.\n    \"\"\"\n    found: list[str] = []\n    seen = {objects}\n    level = [objects]\n    for _ in range(_ALTERNATES_DEPTH):\n        following: list[str] = []\n        for directory in level:\n            filename = os.path.join(directory, \"info\", \"alternates\")\n            opened = False\n            try:\n                with open_regular(filename) as stream:\n                    opened = True\n                    def signature(st):\n                        return (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)\n                    initial = signature(os.fstat(stream.fileno()))\n                    while line := stream.readline(_ALTERNATE_LINE_LIMIT + 1):\n                        if len(line) > _ALTERNATE_LINE_LIMIT:\n                            raise ValueError(f\"line exceeds {_ALTERNATE_LINE_LIMIT} bytes\")\n                        for path in _alternate_paths(line.removesuffix(b\"\\n\")):\n                            each = os.path.realpath(os.path.join(directory, os.fsdecode(path)))\n                            if each not in seen:\n                                seen.add(each)\n                                found.append(each)\n                                following.append(each)\n                    if (signature(os.fstat(stream.fileno())) != initial\n                            or signature(os.stat(filename)) != initial):\n                        raise ValueError(\"alternates changed during discovery\")\n            except (OSError, ValueError) as exc:\n                # A missing file is normal, but a dangling link exists and is unreadable.\n                if isinstance(exc, FileNotFoundError) and not opened and not os.path.lexists(filename):\n                    continue\n                if incomplete is not None:\n                    incomplete.append({\"file\": filename, \"reason\": str(exc)})\n        level = following\n    return found\n",
+    "tests": [
+      "tests/fake/test_retention_dependency_review_r2.py",
+      "-k",
+      "changed_alternates or unlinked_open",
+      "--runxfail"
+    ]
+  },
+  "proof-r2-f2": {
+    "target": "subfleet/dependencies.py",
+    "old": "def legacy(read: Read) -> Places:\n    \"\"\"job id -> the places a job that has not ended, queued before submit\n    recorded `depends`, needs (`record`, read now). Filesystem work: retention\n    calls it once a pass, outside any transaction, spelling the legacy workdir\n    too: release no longer caches job.folder_spelled between admission looks.\n    No such job is newer than the\n    pass, since no daemon that reads this queues one.\"\"\"\n    found = Places()\n    for row in read(_LIVE, ()):\n        if needed(_loads(row[\"submitted\"])) is not None or not row[\"workdir\"]:\n            continue\n        depends = record(row[\"workdir\"], review_root=row[\"review_root\"], out_path=row[\"out_path\"])\n        if depends.get(\"incomplete\"):\n            found.incomplete[row[\"job_id\"]] = depends[\"incomplete\"]\n        found[row[\"job_id\"]] = [folders.canonical(row[\"workdir\"]),\n                                *(path for _, path in needed({\"depends\": depends}) or ())]\n    return found\n\n\ndef live(read: Read, legacy_places: Mapping[str, Iterable[str]] | None = None) -> Places:\n    \"\"\"job id -> the places (`key`ed) of each job that has not ended: its\n    workdir, worktree, review root and `-o` path as its row holds them, its\n    folder as submit recorded it (or admission spelled it, for an older job), and\n    `depends`; and of each job whose export is pending, its `-o` path. Database\n    reads alone (with `legacy_places`, read before the transaction), so a store\n    transaction may call it.\"\"\"\n    found = Places()\n\n    def add(job_id: str, path: Any) -> None:\n        if isinstance(path, str) and os.path.isabs(path):\n            found.setdefault(job_id, set()).add(key(path))\n\n    def failures(job_id: str, submitted: Mapping[str, Any]) -> None:\n        depends = submitted.get(\"depends\")\n        errors = depends.get(\"incomplete\", ()) if isinstance(depends, dict) else ()\n        errors = [error for error in errors if isinstance(error, dict) and isinstance(error.get(\"file\"), str)]\n        if errors:\n            found.incomplete[job_id] = errors\n\n    for row in read(_LIVE, ()):\n        job_id = row[\"job_id\"]\n        found.setdefault(job_id, set())\n        submitted = _loads(row[\"submitted\"])\n        failures(job_id, submitted)\n        errors = getattr(legacy_places, \"incomplete\", {}).get(job_id)\n        if errors:\n            found.incomplete[job_id] = errors\n        for path in (row[\"workdir\"], row[\"worktree\"], row[\"review_root\"], row[\"out_path\"],\n                     submitted.get(\"folder\"), submitted.get(\"write_target\")):\n            add(job_id, path)\n        for _, path in needed(submitted) or ():\n            add(job_id, path)\n        if not submitted.get(\"folder\") and not submitted.get(\"write_target\"):\n            for event in read(_SPELLED, (job_id,)):\n                add(job_id, _loads(event[\"data_json\"]).get(\"folder\"))\n        for path in (legacy_places or {}).get(job_id) or ():\n            add(job_id, path)\n    for row in read(_EXPORTING, ()):\n        failures(row[\"job_id\"], _loads(row[\"submitted\"]))\n        add(row[\"job_id\"], row[\"job_out_path\"])\n        add(row[\"job_id\"], row[\"out_path\"])\n        add(row[\"job_id\"], (_loads(row[\"submitted\"]).get(\"depends\") or {}).get(\"out_path\"))\n    for job_id in list(found):\n        if not found[job_id]:\n            del found[job_id]\n    return found\n",
+    "new": "def legacy(read: Read) -> Places:\n    \"\"\"job id -> the places a job that has not ended, queued before submit\n    recorded `depends`, needs (`record`, read now). Filesystem work: retention\n    calls it once a pass, outside any transaction, spelling the legacy workdir\n    too: release no longer caches job.folder_spelled between admission looks.\n    No such job is newer than the\n    pass, since no daemon that reads this queues one.\"\"\"\n    found = Places()\n    discovery = _LIVE.replace(f\"WHERE state NOT IN {_TERMINAL}\",\n                              f\"WHERE state NOT IN {_TERMINAL} OR job_id IN \"\n                              \"(SELECT holder FROM leases WHERE lease_key >= 'out:' AND lease_key < 'out;')\")\n    for row in read(discovery, ()):\n        if needed(_loads(row[\"submitted\"])) is not None or not row[\"workdir\"]:\n            continue\n        depends = record(row[\"workdir\"], review_root=row[\"review_root\"], out_path=row[\"out_path\"])\n        if depends.get(\"incomplete\"):\n            found.incomplete[row[\"job_id\"]] = depends[\"incomplete\"]\n        found[row[\"job_id\"]] = [folders.canonical(row[\"workdir\"]),\n                                *(path for _, path in needed({\"depends\": depends}) or ())]\n    return found\n\n\ndef live(read: Read, legacy_places: Mapping[str, Iterable[str]] | None = None) -> Places:\n    \"\"\"job id -> the places (`key`ed) of each job that has not ended: its\n    workdir, worktree, review root and `-o` path as its row holds them, its\n    folder as submit recorded it (or admission spelled it, for an older job), and\n    `depends`; and of each job whose export is pending, its `-o` path. Database\n    reads alone (with `legacy_places`, read before the transaction), so a store\n    transaction may call it.\"\"\"\n    found = Places()\n\n    def add(job_id: str, path: Any) -> None:\n        if isinstance(path, str) and os.path.isabs(path):\n            found.setdefault(job_id, set()).add(key(path))\n\n    def failures(job_id: str, submitted: Mapping[str, Any]) -> None:\n        depends = submitted.get(\"depends\")\n        errors = depends.get(\"incomplete\", ()) if isinstance(depends, dict) else ()\n        errors = [error for error in errors if isinstance(error, dict) and isinstance(error.get(\"file\"), str)]\n        if errors:\n            found.incomplete[job_id] = errors\n\n    for row in read(_LIVE, ()):\n        job_id = row[\"job_id\"]\n        found.setdefault(job_id, set())\n        submitted = _loads(row[\"submitted\"])\n        failures(job_id, submitted)\n        errors = getattr(legacy_places, \"incomplete\", {}).get(job_id)\n        if errors:\n            found.incomplete[job_id] = errors\n        for path in (row[\"workdir\"], row[\"worktree\"], row[\"review_root\"], row[\"out_path\"],\n                     submitted.get(\"folder\"), submitted.get(\"write_target\")):\n            add(job_id, path)\n        for _, path in needed(submitted) or ():\n            add(job_id, path)\n        if not submitted.get(\"folder\") and not submitted.get(\"write_target\"):\n            for event in read(_SPELLED, (job_id,)):\n                add(job_id, _loads(event[\"data_json\"]).get(\"folder\"))\n        for path in (legacy_places or {}).get(job_id) or ():\n            add(job_id, path)\n    for row in read(_EXPORTING, ()):\n        errors = getattr(legacy_places, \"incomplete\", {}).get(row[\"job_id\"])\n        if errors:\n            found.incomplete[row[\"job_id\"]] = errors\n        failures(row[\"job_id\"], _loads(row[\"submitted\"]))\n        add(row[\"job_id\"], row[\"job_out_path\"])\n        add(row[\"job_id\"], row[\"out_path\"])\n        add(row[\"job_id\"], (_loads(row[\"submitted\"]).get(\"depends\") or {}).get(\"out_path\"))\n    for job_id in list(found):\n        if not found[job_id]:\n            del found[job_id]\n    return found\n",
+    "tests": [
+      "tests/fake/test_retention_dependency_review_r2.py",
+      "-k",
+      "legacy_incomplete",
+      "--runxfail"
+    ]
+  }
+}

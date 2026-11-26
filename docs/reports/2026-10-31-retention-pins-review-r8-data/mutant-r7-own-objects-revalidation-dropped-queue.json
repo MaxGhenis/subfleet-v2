@@ -1,0 +1,1 @@
+{"label": "mutant-r7-own-objects-revalidation-dropped", "queued": "2026-10-31T06:37:29.457998+00:00", "args": ["tests/fake/test_retention_dependency_review_r7.py::test_named_own_objects_swap_keeps_actual_storage"], "pid": 13664}

@@ -1,0 +1,11 @@
+{
+  "queued": "2026-10-31T10:12:59.419137+00:00",
+  "args": [
+    "tests/unit/test_retention_dependency_aliases.py",
+    "tests/fake/test_retention_recovery_census.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r9/real-tmp/aliases-census",
+  "linked": false,
+  "driver_pid": 8673,
+  "lock_process_group": 8676
+}

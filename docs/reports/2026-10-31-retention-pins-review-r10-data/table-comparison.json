@@ -1,0 +1,5 @@
+{
+  "class-table.md": "byte-identical to fix r9",
+  "reversion-table.md": "byte-identical to fix r9",
+  "mutant-table.md": "byte-identical to fix r9"
+}

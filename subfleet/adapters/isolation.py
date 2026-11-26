@@ -11,33 +11,38 @@ import time
 
 from .base import AdapterError
 from ..contracts import Sandbox
+from ..launch_env import CODEX_SHELL_CONFIG, build_environment, foreign_credentials
 
 MANAGED_ENV = ("CLAUDE_CODE_MANAGED_SETTINGS_PATH", "CLAUDE_CODE_REMOTE_SETTINGS_PATH",
                "CLAUDE_CODE_MOCK_REMOTE_SETTINGS")
+# Configuration layer sources a refusal may name (`refusals`); any other is not named.
+CODEX_LAYERS = ("system", "project", "mdm", "cloud", "legacyManagedConfigTomlFromFile",
+                "legacyManagedConfigTomlFromMdm")
 MEMORY_ENV = ("CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD", "CLAUDE_MEMORY_STORES",
               "CLAUDE_CODE_REMOTE_MEMORY_DIR")
 CODEX_DISABLED_FEATURES = (
     "apps", "plugins", "remote_plugin", "hooks", "multi_agent", "multi_agent_v2",
     "tool_suggest", "skill_mcp_dependency_install", "computer_use", "browser_use",
     "browser_use_external", "browser_use_full_cdp_access", "in_app_browser",
-    "image_generation", "goals", "memories", "shell_snapshot",
+    "image_generation", "goals", "memories", "shell_snapshot", "shell_snapshot_v2",
 )
-CODEX_CONFIG = (
+# Every key of D-ENV3's `CODEX_SHELL_CONFIG` is here too, once.
+CODEX_CONFIG = tuple(dict.fromkeys((
     "project_doc_max_bytes=0", *(f"features.{name}=false" for name in CODEX_DISABLED_FEATURES),
-    "shell_environment_policy.experimental_use_profile=false", 'history.persistence="none"',
-    'web_search="disabled"',
-)
+    *CODEX_SHELL_CONFIG, 'history.persistence="none"', 'web_search="disabled"',
+)))
 
 
 def validate_isolated_review(sandbox, review_root, env=None):
     """C-6.5, C-23.3: refuse policy overrides rather than discarding them."""
     if Sandbox(sandbox) != Sandbox.READ_ONLY or not review_root:
         raise AdapterError("isolated review requires -s read-only and -D REVIEW_ROOT",
-                           fix="pass -I -s read-only -D REVIEW_ROOT")
+                           fix="pass -I -s read-only -D REVIEW_ROOT", reason="isolation-sandbox")
     for name in MANAGED_ENV:
         if name in (os.environ if env is None else env):
             raise AdapterError(f"isolated review inherits {name}",
-                               fix=f"use an unmanaged review environment without {name}")
+                               fix=f"use an unmanaged review environment without {name}",
+                               reason="isolation-env", details={"variable": name})
 
 
 def claude_env_remove(env=None):
@@ -50,12 +55,16 @@ def _flags():
     return [arg for config in CODEX_CONFIG for arg in ("-c", config)]
 
 
-def inspect_codex(codex_bin, *, home, workdir, env, timeout_s=20):
+def inspect_codex(codex_bin, *, home, workdir, env, timeout_s=20, pass_names=()):
     """Read metadata only: no thread, turn, MCP server or provider request starts."""
     from ..guard.preflight import _stop_probe
 
-    clean_env = {key: value for key, value in env.items()
-                 if key not in ("CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY")}
+    clean_env = build_environment(removals=("CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"),
+                                  environ=env, pass_names=pass_names)
+    # D-ENV3 (review r1 of #270, P2-2): the app-server and the MCP inventory are
+    # Codex processes, so no other vendor's credential reaches them.
+    for name in foreign_credentials("codex", tuple(clean_env)):
+        del clean_env[name]
     clean_env["CODEX_HOME"] = str(Path(home).expanduser().resolve(strict=True))
     messages = [
         {"id": 1, "method": "initialize", "params": {
@@ -108,7 +117,7 @@ def validate_codex_metadata(requirements, configuration, servers):
     """C-23.3: never include configuration values in a refusal or launch record."""
     if requirements["requirements"] is not None:
         raise AdapterError("isolated Codex review has managed requirements",
-                           fix="use a Codex lane without managed requirements")
+                           fix="use a Codex lane without managed requirements", reason="isolation-requirements")
     layers = configuration["layers"]
     if not isinstance(layers, list) or not layers:
         raise ValueError("missing config layers")
@@ -121,7 +130,8 @@ def validate_codex_metadata(requirements, configuration, servers):
         if source in ("system", "project") and not config:
             continue
         raise AdapterError(f"isolated Codex review has an unsupported {source} configuration layer",
-                           fix=f"use a lane with no managed or nonempty {source} configuration layer")
+                           fix=f"use a lane with no managed or nonempty {source} configuration layer",
+                           reason="isolation-layer", details={"layer": source})
     if not isinstance(servers, list):
         raise ValueError("invalid MCP inventory")
     configs, seen = [], set()
@@ -141,15 +151,16 @@ def validate_codex_metadata(requirements, configuration, servers):
     return configs
 
 
-def codex_args(codex_bin, *, home, workdir, env, inspector=None):
+def codex_args(codex_bin, *, home, workdir, env, inspector=None, pass_names=()):
     """C-23.2, C-23.4: inspect this attempt's lane and disable every named server."""
     try:
-        metadata = (inspector or inspect_codex)(codex_bin, home=home, workdir=workdir, env=env)
+        metadata = (inspector(codex_bin, home=home, workdir=workdir, env=env) if inspector else
+                    inspect_codex(codex_bin, home=home, workdir=workdir, env=env, pass_names=pass_names))
         configs = validate_codex_metadata(*metadata)
     except AdapterError:
         raise
     except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.SubprocessError):
         raise AdapterError("cannot safely inspect isolated Codex configuration or MCP inventory",
-                           fix="use a lane whose config layers and MCP inventory can be inspected") from None
+                           fix="use a lane whose config layers and MCP inventory can be inspected", reason="isolation-inspect") from None
     return ["--ephemeral", "--ignore-user-config", "--ignore-rules", *_flags(),
             *(arg for config in configs for arg in ("-c", config))]

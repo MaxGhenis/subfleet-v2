@@ -40,8 +40,8 @@ SCHEDULER_NOW = "2026-09-05T10:33:00Z"
 def place_hold(store, lane_id, reason, until="2026-09-06T12:00:00Z"):
     """An operator hold as `lanes hold` records it (its `lane.held` event and closure), or an auth-dead closure.
 
-    `Store.put_closure` keeps one open closure per lane and scope: a hold that ends
-    before the lane's open account limit leaves no `operator-hold` row, only its event.
+    `Store.put_closure` keeps the hold's row apart from the lane's open account
+    limit (C-9.6, D-HOLD1), whichever ends first.
     """
     if reason == "operator-hold":
         with store.transaction("lane.held", lane_id=lane_id, data={"until": until}):

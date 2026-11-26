@@ -1,0 +1,107 @@
+{
+  "git": "git version 2.55.0",
+  "cases": [
+    {
+      "case": "gitfile-spaces",
+      "git_exit": 0,
+      "git_stdout": "owner-only\n",
+      "git_stderr": "",
+      "discovery": {
+        "git": [
+          "/private/tmp/sf-fix272r5/tmp/git-probe-fz5c6l58/gitfile-spaces/owner.git",
+          "/private/tmp/sf-fix272r5/tmp/git-probe-fz5c6l58/gitfile-spaces/owner.git/objects"
+        ]
+      },
+      "actual_objects": "/private/tmp/sf-fix272r5/tmp/git-probe-fz5c6l58/gitfile-spaces/owner.git/objects"
+    },
+    {
+      "case": "gitfile-no-space",
+      "git_exit": 128,
+      "git_stdout": "",
+      "git_stderr": "fatal: not a git repository: (null)\n",
+      "discovery": {
+        "git": [
+          "/private/tmp/sf-fix272r5/tmp/git-probe-fz5c6l58/gitfile-no-space/checkout/metadata ",
+          "/private/tmp/sf-fix272r5/tmp/git-probe-fz5c6l58/gitfile-no-space/checkout/metadata /objects"
+        ]
+      },
+      "actual_objects": "/private/tmp/sf-fix272r5/tmp/git-probe-fz5c6l58/gitfile-no-space/owner.git/objects"
+    },
+    {
+      "case": "gitfile-empty",
+      "git_exit": 128,
+      "git_stdout": "",
+      "git_stderr": "fatal: no path in gitfile: /private/tmp/sf-fix272r5/tmp/git-probe-fz5c6l58/gitfile-empty/checkout/.git\n",
+      "discovery": {},
+      "actual_objects": "/private/tmp/sf-fix272r5/tmp/git-probe-fz5c6l58/gitfile-empty/owner.git/objects"
+    },
+    {
+      "case": "gitfile-crlf",
+      "git_exit": 0,
+      "git_stdout": "owner-only\n",
+      "git_stderr": "",
+      "discovery": {
+        "git": [
+          "/private/tmp/sf-fix272r5/tmp/git-probe-fz5c6l58/gitfile-crlf/owner.git",
+          "/private/tmp/sf-fix272r5/tmp/git-probe-fz5c6l58/gitfile-crlf/owner.git/objects"
+        ]
+      },
+      "actual_objects": "/private/tmp/sf-fix272r5/tmp/git-probe-fz5c6l58/gitfile-crlf/owner.git/objects"
+    },
+    {
+      "case": "commondir-spaces",
+      "git_exit": 0,
+      "git_stdout": "owner-only\n",
+      "git_stderr": "",
+      "discovery": {
+        "git": [
+          "/private/tmp/sf-fix272r5/tmp/git-probe-fz5c6l58/commondir-spaces/checkout/.git",
+          "/private/tmp/sf-fix272r5/tmp/git-probe-fz5c6l58/commondir-spaces/owner.git",
+          "/private/tmp/sf-fix272r5/tmp/git-probe-fz5c6l58/commondir-spaces/owner.git/objects"
+        ]
+      },
+      "actual_objects": "/private/tmp/sf-fix272r5/tmp/git-probe-fz5c6l58/commondir-spaces/owner.git/objects"
+    },
+    {
+      "case": "commondir-only-spaces",
+      "git_exit": 0,
+      "git_stdout": "owner-only\n",
+      "git_stderr": "",
+      "discovery": {
+        "git": [
+          "/private/tmp/sf-fix272r5/tmp/git-probe-fz5c6l58/commondir-only-spaces/checkout/.git",
+          "/private/tmp/sf-fix272r5/tmp/git-probe-fz5c6l58/commondir-only-spaces/owner.git",
+          "/private/tmp/sf-fix272r5/tmp/git-probe-fz5c6l58/commondir-only-spaces/owner.git/objects"
+        ]
+      },
+      "actual_objects": "/private/tmp/sf-fix272r5/tmp/git-probe-fz5c6l58/commondir-only-spaces/owner.git/objects"
+    },
+    {
+      "case": "commondir-empty",
+      "git_exit": 128,
+      "git_stdout": "",
+      "git_stderr": "fatal: not a git repository (or any of the parent directories): .git\n",
+      "discovery": {
+        "git": [
+          "/private/tmp/sf-fix272r5/tmp/git-probe-fz5c6l58/commondir-empty/checkout/.git",
+          "/private/tmp/sf-fix272r5/tmp/git-probe-fz5c6l58/commondir-empty/checkout/.git/objects"
+        ]
+      },
+      "actual_objects": "/private/tmp/sf-fix272r5/tmp/git-probe-fz5c6l58/commondir-empty/owner.git/objects"
+    },
+    {
+      "case": "commondir-crlf",
+      "git_exit": 0,
+      "git_stdout": "owner-only\n",
+      "git_stderr": "",
+      "discovery": {
+        "git": [
+          "/private/tmp/sf-fix272r5/tmp/git-probe-fz5c6l58/commondir-crlf/checkout/.git",
+          "/private/tmp/sf-fix272r5/tmp/git-probe-fz5c6l58/commondir-crlf/owner.git",
+          "/private/tmp/sf-fix272r5/tmp/git-probe-fz5c6l58/commondir-crlf/owner.git/objects"
+        ]
+      },
+      "actual_objects": "/private/tmp/sf-fix272r5/tmp/git-probe-fz5c6l58/commondir-crlf/owner.git/objects"
+    }
+  ]
+}

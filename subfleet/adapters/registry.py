@@ -27,11 +27,12 @@ def get_adapter(provider: str) -> Adapter:
     if factory is not None:
         return factory()
     if provider not in ("codex", "claude"):
-        raise AdapterError(f"unknown provider {provider!r}", code=2)
+        raise AdapterError(f"unknown provider {provider!r}", code=2, reason="unknown-provider")
     module = importlib.import_module(f"subfleet.adapters.{provider}")
     factory = getattr(module, f"{provider.title()}Adapter", None)
     if factory is None:
         factory = getattr(module, "get_adapter", None)
     if factory is None:
-        raise AdapterError(f"{provider} adapter has no constructor", code=1)
+        raise AdapterError(f"{provider} adapter has no constructor", code=1, reason="adapter-missing",
+                           details={"provider": provider})
     return factory()

@@ -1,0 +1,1 @@
+{"label": "mutant-r4-initial-objects-revalidation-dropped", "queued": "2026-10-31T06:31:43.600688+00:00", "args": ["tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]"], "pid": 72362}

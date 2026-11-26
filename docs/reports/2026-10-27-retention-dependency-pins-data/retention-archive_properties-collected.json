@@ -1,0 +1,1 @@
+["tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_a_trusted_repository", "tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_after_the_scratch_source_is_deleted"]

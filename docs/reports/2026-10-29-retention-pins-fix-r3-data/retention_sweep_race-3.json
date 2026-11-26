@@ -1,0 +1,71 @@
+{
+  "label": "retention_sweep_race-3",
+  "start": "2026-10-29T20:37:24.078958+00:00",
+  "loads": [
+    17.78076171875,
+    28.93408203125,
+    28.58056640625
+  ],
+  "seconds": 20.49401333300011,
+  "exit": 0,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_sweep_race.py::test_a_journal_written_before_the_identity_check_is_read_again",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.0477202080001007
+    },
+    {
+      "nodeid": "tests/unit/test_retention_sweep_race.py::test_a_committed_journal_without_identity_finishes_when_its_registration_is_bundled",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.8082862499995827
+    },
+    {
+      "nodeid": "tests/unit/test_retention_sweep_race.py::test_a_committed_legacy_lookup_race_preserves_its_unbundled_registration_and_tree",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.4804641250002533
+    },
+    {
+      "nodeid": "tests/unit/test_retention_sweep_race.py::test_a_gone_tree_oscillating_during_identity_checks_keeps_its_job",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 5.3478612499998235
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_sweep_race.py::test_a_journal_written_before_the_identity_check_is_read_again",
+    "tests/unit/test_retention_sweep_race.py::test_a_committed_journal_without_identity_finishes_when_its_registration_is_bundled",
+    "tests/unit/test_retention_sweep_race.py::test_a_committed_legacy_lookup_race_preserves_its_unbundled_registration_and_tree",
+    "tests/unit/test_retention_sweep_race.py::test_a_gone_tree_oscillating_during_identity_checks_keeps_its_job"
+  ],
+  "phases": {
+    "tests/unit/test_retention_sweep_race.py::test_a_journal_written_before_the_identity_check_is_read_again": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_sweep_race.py::test_a_committed_journal_without_identity_finishes_when_its_registration_is_bundled": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_sweep_race.py::test_a_committed_legacy_lookup_race_preserves_its_unbundled_registration_and_tree": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_sweep_race.py::test_a_gone_tree_oscillating_during_identity_checks_keeps_its_job": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 114196480
+}

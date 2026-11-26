@@ -1,0 +1,23 @@
+{
+  "name": "test_retention_dependency_units-3",
+  "start": "2026-10-29T13:52:25.084603+00:00",
+  "load": [
+    21.93408203125,
+    22.96337890625,
+    23.052734375
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 18.692281499999808,
+  "rss": 119521280
+}

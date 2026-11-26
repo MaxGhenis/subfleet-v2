@@ -75,23 +75,25 @@ def passed_phases(path: Path) -> dict[str, set[str]]:
     return phases
 
 
-def run_pytest(report: Path, nodes: list[str]) -> int:
+def run_pytest(report: Path, nodes: list[str], selection: tuple[str, ...] = ()) -> int:
     report.unlink(missing_ok=True)
     env = os.environ.copy()
     env[OUTCOMES_ENV] = str(report.resolve())
     plugin_dir = str(Path(__file__).resolve().parent)
     env["PYTHONPATH"] = plugin_dir + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
     return subprocess.run([
-        sys.executable, "-m", "pytest", "-q", "-p", "ci_outcomes_plugin", *nodes,
+        sys.executable, "-m", "pytest", "-q", "-p", "ci_outcomes_plugin", *selection, *nodes,
     ], env=env).returncode
 
 
-def run(allowlist: Path, reports: Path) -> int:
+def run(allowlist: Path, reports: Path, shard: str | None = None) -> int:
     defects = read_allowlist(allowlist)
     reports.mkdir(parents=True, exist_ok=True)
     first_report, retry_report = reports / "first.jsonl", reports / "retry.jsonl"
     retry_report.unlink(missing_ok=True)
-    first = run_pytest(first_report, [])
+    # A shard's first run collects only its own files (tools/ci_shard_plugin.py); the
+    # retry names its node IDs, so the rule below holds per shard.
+    first = run_pytest(first_report, [], ("-p", "ci_shard_plugin", "--ci-shard", shard) if shard else ())
     if first not in (0, 1):
         return first
     outcomes = read_outcomes(first_report)
@@ -131,9 +133,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--allowlist", type=Path, default=Path(".github/known-flaky.txt"))
     parser.add_argument("--reports-dir", type=Path, required=True)
+    parser.add_argument("--shard", metavar="I/N", help="run only shard I of N (tools/ci_shard_plugin.py)")
     args = parser.parse_args()
     try:
-        return run(args.allowlist, args.reports_dir)
+        return run(args.allowlist, args.reports_dir, args.shard)
     except (OSError, ValueError) as error:
         annotation("error", f"Cannot verify known-flake retry: {error}")
         return 1

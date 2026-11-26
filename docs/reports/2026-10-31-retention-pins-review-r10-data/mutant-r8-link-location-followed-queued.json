@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T10:42:47.666738+00:00",
+  "args": [
+    "--mutant",
+    "r8-link-location-followed",
+    "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-target-HEAD]"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r10/real-tmp/mutant-r8-link-location-followed",
+  "linked": false,
+  "driver_pid": 76617,
+  "lock_process_group": 76643
+}

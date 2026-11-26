@@ -15,6 +15,10 @@ from tests.fake.test_turn_wait_reasons import SETTINGS, message_in, reason
 from tests.unit.retention_world import git
 from tests.unit.test_retention_shared_folders import retiring_tree
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
+
 
 @pytest.mark.parametrize("alias", [False, True], ids=["canonical", "case-alias"])
 @pytest.mark.parametrize("after_quarantine", [False, True], ids=["before-move", "after-move"])
@@ -91,8 +95,10 @@ def test_review_readonly_turn_with_external_core_worktree_waits_for_its_cwd_fenc
         assert not any(live and not cwd_exists for live, cwd_exists in seen["moves"]), seen
         assert seen["rows_in_tree"] == []
         assert seen["hold"]["leases"] == [folders.exclusive_key(tree)]
-        expected = typed if after_quarantine else nested
-        assert seen["hold"]["folder"] == expected
+        # Submission spells the cwd while it is present. #141 retains that
+        # canonical spelling when quarantine subsequently makes it absent.
+        assert seen["run_folder"] == nested
+        assert seen["hold"]["folder"] == nested
         assert tree in seen["reason"]
         assert Path(nested).is_dir()
         daemon._admit_turns()

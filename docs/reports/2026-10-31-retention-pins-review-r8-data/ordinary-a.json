@@ -1,0 +1,38 @@
+[
+  {
+    "label": "r6-r7",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r7.py",
+      "tests/fake/test_retention_dependency_review_r6.py",
+      "tests/fake/test_retention_parent_hint.py",
+      "tests/fake/test_retention_pointer_failures.py"
+    ]
+  },
+  {
+    "label": "pointer-inputs",
+    "args": [
+      "tests/unit/test_retention_pointer_inputs.py"
+    ]
+  },
+  {
+    "label": "r5-whitespace",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r5.py",
+      "tests/unit/test_retention_pointer_whitespace.py"
+    ]
+  },
+  {
+    "label": "r4-r3",
+    "args": [
+      "tests/fake/test_retention_dependency_review_r4.py",
+      "tests/fake/test_retention_dependency_review_r3.py"
+    ]
+  },
+  {
+    "label": "aliases-census",
+    "args": [
+      "tests/unit/test_retention_dependency_aliases.py",
+      "tests/fake/test_retention_recovery_census.py"
+    ]
+  }
+]

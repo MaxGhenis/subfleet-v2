@@ -1,0 +1,8 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 00:15:54Z slot B load 
+START retention_sweep_race-examples 2026-10-31T00:16:01.363541+00:00 load=(43.37841796875, 38.7763671875, 40.63134765625)
+............                                                             [100%]
+============================ Hypothesis Statistics =============================
+12 passed, 1 deselected in 71.66s (0:01:11)

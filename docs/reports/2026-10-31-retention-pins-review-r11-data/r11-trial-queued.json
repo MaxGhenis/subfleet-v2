@@ -1,0 +1,16 @@
+{
+  "queued": "2026-10-31T17:02:01.788926+00:00",
+  "args": [
+    "--mutant",
+    "r11-readable-spelling-revalidation-trial",
+    "--runxfail",
+    "tests/fake/test_retention_dependency_review_r11.py",
+    "tests/unit/test_retention_location_cycles.py",
+    "tests/unit/test_retention_locations.py",
+    "tests/unit/test_retention_location_spelling.py"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/r11-trial",
+  "linked": false,
+  "driver_pid": 51910,
+  "lock_process_group": 51923
+}

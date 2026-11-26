@@ -1,0 +1,203 @@
+{
+  "name": "older-differences",
+  "start": "2026-10-31T08:59:08.248030+00:00",
+  "load": [
+    63.22509765625,
+    63.826171875,
+    51.65234375
+  ],
+  "args": [
+    "-p",
+    "tests.conftest",
+    "--confcutdir=review-r9-data",
+    "review-r9-data/readers_probe.py"
+  ],
+  "phases": [
+    {
+      "node": "review-r9-data/readers_probe.py::test_archive_and_survey[admin-space]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.7510665000008885,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/readers_probe.py::test_archive_and_survey[admin-space]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.998441167001147,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/readers_probe.py::test_archive_and_survey[admin-space]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0033275419991696253,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/readers_probe.py::test_archive_and_survey[admin-decoy]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5795368749968475,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/readers_probe.py::test_archive_and_survey[admin-decoy]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.505765625002823,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/readers_probe.py::test_archive_and_survey[admin-decoy]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.003925958000763785,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/readers_probe.py::test_archive_and_survey[common-space]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6158575830013433,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/readers_probe.py::test_archive_and_survey[common-space]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.745248208000703,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/readers_probe.py::test_archive_and_survey[common-space]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.04535583400138421,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/readers_probe.py::test_nested_gitfile_reader[ ]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5176964170022984,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/readers_probe.py::test_nested_gitfile_reader[ ]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.8179799999998068,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/readers_probe.py::test_nested_gitfile_reader[ ]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0037969160002830904,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/readers_probe.py::test_nested_gitfile_reader[\\t]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.0971893329988234,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/readers_probe.py::test_nested_gitfile_reader[\\t]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 6.44617825000023,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/readers_probe.py::test_nested_gitfile_reader[\\t]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002898625003581401,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/readers_probe.py::test_bundle_verifier_uses_stripped_common",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.611697666998225,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/readers_probe.py::test_bundle_verifier_uses_stripped_common",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.4237096249999013,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/readers_probe.py::test_bundle_verifier_uses_stripped_common",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.009033458001795225,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/readers_probe.py::test_registration_discard_uses_stripped_common_output",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.9173337079992052,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/readers_probe.py::test_registration_discard_uses_stripped_common_output",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.50464704100159,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/readers_probe.py::test_registration_discard_uses_stripped_common_output",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.003398207998543512,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/readers_probe.py::test_physical_common_folder_through_archive_and_survey",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.1176582499974757,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/readers_probe.py::test_physical_common_folder_through_archive_and_survey",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 6.112429250002606,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/readers_probe.py::test_physical_common_folder_through_archive_and_survey",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004077458997926442,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "review-r9-data/readers_probe.py::test_archive_and_survey[admin-space]",
+    "review-r9-data/readers_probe.py::test_archive_and_survey[admin-decoy]",
+    "review-r9-data/readers_probe.py::test_archive_and_survey[common-space]",
+    "review-r9-data/readers_probe.py::test_nested_gitfile_reader[ ]",
+    "review-r9-data/readers_probe.py::test_nested_gitfile_reader[\\t]",
+    "review-r9-data/readers_probe.py::test_bundle_verifier_uses_stripped_common",
+    "review-r9-data/readers_probe.py::test_registration_discard_uses_stripped_common_output",
+    "review-r9-data/readers_probe.py::test_physical_common_folder_through_archive_and_survey"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/subfleet/dependencies.py",
+  "product_sha256": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+  "end": "2026-10-31T09:00:06.069165+00:00",
+  "seconds": 57.82072645799781,
+  "peak_rss_mib": 112.75,
+  "exit": 0
+}

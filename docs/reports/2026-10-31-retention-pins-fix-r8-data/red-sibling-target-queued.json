@@ -1,0 +1,8 @@
+{
+  "queued": "2026-10-31T07:25:48.205507+00:00",
+  "args": [
+    "tests/unit/test_retention_locations.py::test_scanned_storage_target_beside_checkout_is_still_recorded"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/link-tmp/red-sibling-target",
+  "linked": true
+}

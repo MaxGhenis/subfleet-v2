@@ -1,0 +1,16 @@
+{
+  "at": "2026-10-31T06:52:47.907037+00:00",
+  "sizes_kib_before_cleanup": {
+    "/private/tmp/sf-r272r8": 90852,
+    "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/sf-r272r8-fixtures": 0
+  },
+  "roots_removed": [
+    "/private/tmp/sf-r272r8",
+    "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/sf-r272r8-fixtures"
+  ],
+  "removed_caches": [],
+  "cache_leftovers": [],
+  "all_review_drivers_completed": true,
+  "head": "382a6c05ce9816b7c65f9d36551fa0949a8924d7",
+  "largest_sampled_scratch_mib_rounded": 203
+}

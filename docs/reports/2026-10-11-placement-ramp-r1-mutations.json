@@ -1,0 +1,150 @@
+{
+  "source_restored": {
+    "subfleet/daemon.py": true,
+    "subfleet/ramp.py": true
+  },
+  "runs": [
+    {
+      "tests": [
+        "tests/fake/test_admission_ramp.py::test_committed_placements_this_pass_fill_window_and_rows_read_once",
+        "tests/fake/test_admission_ramp.py::test_disk_reopening_56_jobs_on_10_lanes"
+      ],
+      "command": [
+        "/usr/bin/lockf",
+        "-k",
+        "/private/tmp/claude-501/subfleet-suites.lock",
+        "uv",
+        "run",
+        "pytest",
+        "-q",
+        "tests/fake/test_admission_ramp.py::test_committed_placements_this_pass_fill_window_and_rows_read_once",
+        "tests/fake/test_admission_ramp.py::test_disk_reopening_56_jobs_on_10_lanes",
+        "--tb=short"
+      ],
+      "exit_code": 1,
+      "summary": "1 failed, 2 passed in 17.56s",
+      "failed": [
+        "tests/fake/test_admission_ramp.py::test_committed_placements_this_pass_fill_window_and_rows_read_once"
+      ],
+      "wall_seconds_including_lock_wait": 254.18,
+      "output": "F..                                                                      [100%]\n=================================== FAILURES ===================================\n______ test_committed_placements_this_pass_fill_window_and_rows_read_once ______\ntests/fake/test_admission_ramp.py:205: in test_committed_placements_this_pass_fill_window_and_rows_read_once\n    service._admit()\nsubfleet/daemon.py:4662: in _admit\n    self._admit_kind(\"detached\")\nsubfleet/daemon.py:4688: in _admit_kind\n    self._admit_pass(holds, tally, kind=kind)\nsubfleet/daemon.py:5687: in _admit_pass\n    self._boundary(\"reserved\", job[\"job_id\"], aid)\ntests/fake/test_admission_ramp.py:200: in counted_commit\n    assert service._ramp.snapshot[\"used\"] == len(placed(service))\nE   AssertionError: assert 0 == 1\nE    +  where 1 = len([{'attempt_id': '20261011-071045-astra/a1', 'job_id': '20261011-071045-astra', 'seq': 1, 'lane_id': 'codex-1', ...}])\nE    +    where [{'attempt_id': '20261011-071045-astra/a1', 'job_id': '20261011-071045-astra', 'seq': 1, 'lane_id': 'codex-1', ...}] = placed(<subfleet.daemon.Daemon object at 0x584ebc5ee90>)\n------------------------------ Captured log setup ------------------------------\nINFO     subfleet.daemon.6068449439376:daemon.py:741 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s\n=========================== short test summary info ============================\nFAILED tests/fake/test_admission_ramp.py::test_committed_placements_this_pass_fill_window_and_rows_read_once\n1 failed, 2 passed in 17.56s\n",
+      "tmpdir_removed": true,
+      "case": "own-pass-count",
+      "edits": [
+        {
+          "file": "subfleet/daemon.py",
+          "original": "                self._ramp.reserve(aid, reserved_at)\n",
+          "mutated": "                pass  # mutation: omit this pass's committed starts\n"
+        }
+      ],
+      "result": "killed"
+    },
+    {
+      "tests": [
+        "tests/fake/test_admission_ramp.py::test_attended_turn_never_reads_waits_on_or_counts_against_ramp"
+      ],
+      "command": [
+        "/usr/bin/lockf",
+        "-k",
+        "/private/tmp/claude-501/subfleet-suites.lock",
+        "uv",
+        "run",
+        "pytest",
+        "-q",
+        "tests/fake/test_admission_ramp.py::test_attended_turn_never_reads_waits_on_or_counts_against_ramp",
+        "--tb=short"
+      ],
+      "exit_code": 1,
+      "summary": "1 failed in 2.37s",
+      "failed": [
+        "tests/fake/test_admission_ramp.py::test_attended_turn_never_reads_waits_on_or_counts_against_ramp"
+      ],
+      "wall_seconds_including_lock_wait": 462.36,
+      "output": "F                                                                        [100%]\n=================================== FAILURES ===================================\n________ test_attended_turn_never_reads_waits_on_or_counts_against_ramp ________\ntests/fake/test_admission_ramp.py:452: in test_attended_turn_never_reads_waits_on_or_counts_against_ramp\n    assert [row[\"job_id\"] for row in placed(service)] == [turn, background]\nE   AssertionError: assert ['20261011-07...nversation-1'] == ['20261011-07...071838-astra']\nE     \nE     Right contains one more item: '20261011-071838-astra'\nE     Use -v to get more diff\n------------------------------ Captured log setup ------------------------------\nINFO     subfleet.daemon.4731874045584:daemon.py:741 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s\n=========================== short test summary info ============================\nFAILED tests/fake/test_admission_ramp.py::test_attended_turn_never_reads_waits_on_or_counts_against_ramp\n1 failed in 2.37s\n",
+      "tmpdir_removed": true,
+      "case": "count-attended",
+      "edits": [
+        {
+          "file": "subfleet/daemon.py",
+          "original": "\"WHERE j.kind NOT IN ('turn','probe') AND a.reserved_at>=?\"",
+          "mutated": "\"WHERE j.kind NOT IN ('probe') AND a.reserved_at>=?\""
+        },
+        {
+          "file": "subfleet/ramp.py",
+          "original": "            if row.get(\"kind\") in (\"turn\", \"probe\"):\n",
+          "mutated": "            if row.get(\"kind\") == \"probe\":\n"
+        }
+      ],
+      "result": "killed"
+    },
+    {
+      "tests": [
+        "tests/fake/test_admission_ramp.py::test_real_restart_counts_completed_attempt_and_retry_until_each_expires"
+      ],
+      "command": [
+        "/usr/bin/lockf",
+        "-k",
+        "/private/tmp/claude-501/subfleet-suites.lock",
+        "uv",
+        "run",
+        "pytest",
+        "-q",
+        "tests/fake/test_admission_ramp.py::test_real_restart_counts_completed_attempt_and_retry_until_each_expires",
+        "--tb=short"
+      ],
+      "exit_code": 1,
+      "summary": "1 failed in 7.41s",
+      "failed": [
+        "tests/fake/test_admission_ramp.py::test_real_restart_counts_completed_attempt_and_retry_until_each_expires"
+      ],
+      "wall_seconds_including_lock_wait": 339.17,
+      "output": "F                                                                        [100%]\n=================================== FAILURES ===================================\n___ test_real_restart_counts_completed_attempt_and_retry_until_each_expires ____\ntests/fake/test_admission_ramp.py:409: in test_real_restart_counts_completed_attempt_and_retry_until_each_expires\n    assert service._holds[waiting][\"reason\"] == \"ramp\"\n           ^^^^^^^^^^^^^^^^^^^^^^^\nE   KeyError: '20261011-072416-astra-1'\n------------------------------ Captured log setup ------------------------------\nINFO     subfleet.daemon.4530215317136:daemon.py:741 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s\n=========================== short test summary info ============================\nFAILED tests/fake/test_admission_ramp.py::test_real_restart_counts_completed_attempt_and_retry_until_each_expires\n1 failed in 7.41s\n",
+      "tmpdir_removed": true,
+      "case": "drop-reconstruction",
+      "edits": [
+        {
+          "file": "subfleet/ramp.py",
+          "original": "        for row in attempts:\n",
+          "mutated": "        for row in ():\n"
+        }
+      ],
+      "result": "killed"
+    },
+    {
+      "tests": [
+        "tests/fake/test_admission_ramp.py::test_real_restart_counts_completed_attempt_and_retry_until_each_expires",
+        "tests/fake/test_admission_ramp.py::test_gate_review_counts_holds_and_reconstructs_completed_start_after_restart"
+      ],
+      "command": [
+        "/usr/bin/lockf",
+        "-k",
+        "/private/tmp/claude-501/subfleet-suites.lock",
+        "uv",
+        "run",
+        "pytest",
+        "-q",
+        "tests/fake/test_admission_ramp.py::test_real_restart_counts_completed_attempt_and_retry_until_each_expires",
+        "tests/fake/test_admission_ramp.py::test_gate_review_counts_holds_and_reconstructs_completed_start_after_restart",
+        "--tb=short"
+      ],
+      "exit_code": 1,
+      "summary": "2 failed in 4.24s",
+      "failed": [
+        "tests/fake/test_admission_ramp.py::test_real_restart_counts_completed_attempt_and_retry_until_each_expires",
+        "tests/fake/test_admission_ramp.py::test_gate_review_counts_holds_and_reconstructs_completed_start_after_restart"
+      ],
+      "wall_seconds_including_lock_wait": 7.75,
+      "output": "FF                                                                       [100%]\n=================================== FAILURES ===================================\n___ test_real_restart_counts_completed_attempt_and_retry_until_each_expires ____\ntests/fake/test_admission_ramp.py:416: in test_real_restart_counts_completed_attempt_and_retry_until_each_expires\n    assert status[\"ramp\"][\"used\"] == 2\nE   assert 0 == 2\n------------------------------ Captured log setup ------------------------------\nINFO     subfleet.daemon.4600176307856:daemon.py:741 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s\n------------------------------ Captured log call -------------------------------\nINFO     subfleet.daemon.4600219371792:daemon.py:741 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s\n_ test_gate_review_counts_holds_and_reconstructs_completed_start_after_restart _\ntests/fake/test_admission_ramp.py:377: in test_gate_review_counts_holds_and_reconstructs_completed_start_after_restart\n    assert restarted.dispatch(\"daemon.status\", {})[\"ramp\"][\"used\"] == 1\nE   assert 0 == 1\n------------------------------ Captured log setup ------------------------------\nINFO     subfleet.daemon.4600219375632:daemon.py:741 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s\n------------------------------ Captured log call -------------------------------\nINFO     subfleet.daemon.4600219374096:daemon.py:741 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s\n=========================== short test summary info ============================\nFAILED tests/fake/test_admission_ramp.py::test_real_restart_counts_completed_attempt_and_retry_until_each_expires\nFAILED tests/fake/test_admission_ramp.py::test_gate_review_counts_holds_and_reconstructs_completed_start_after_restart\n2 failed in 4.24s\n",
+      "tmpdir_removed": true,
+      "case": "process-memory-only",
+      "edits": [
+        {
+          "file": "subfleet/daemon.py",
+          "original": "            self._ramp.begin_pass(self.policy, rows, now)\n",
+          "mutated": "            self._ramp.begin_pass(self.policy, [row for row in rows\n                                                if row[\"attempt_id\"] in self._ramp.reservations], now)\n"
+        }
+      ],
+      "result": "killed"
+    }
+  ]
+}

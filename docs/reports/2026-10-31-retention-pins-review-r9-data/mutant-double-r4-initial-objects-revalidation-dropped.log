@@ -1,0 +1,15 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 08:41:20Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____ test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live] _____
+tests/fake/test_retention_dependency_review_r4.py:85: in test_objects_parent_swap_keeps_every_allocated_tree
+    assert not result["pruned"], (recorded, result)
+E   AssertionError: ({'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-double-r4-initial-objects-revalidation-dropped/pytest-of-maxghenis/p..._keeps0/old-objects']}, {'pruned': ['owner-a', 'owner-b'], 'errors': [], 'bytes_before': 68833, 'bytes_after': 0, ...})
+E   assert not ['owner-a', 'owner-b']
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]
+1 failed in 13.25s
+{"name": "mutant-double-r4-initial-objects-revalidation-dropped", "start": "2026-10-31T08:41:22.016994+00:00", "load": [34.86962890625, 32.9873046875, 31.11279296875], "seconds": 14.819046874999913, "exit": 1}

@@ -1,0 +1,13 @@
+START retention_salvage_properties-part2 2026-10-30T21:11:50.122812+00:00 load=(43.06640625, 46.2236328125, 44.57861328125)
+.                                                                        [100%]
+============================ Hypothesis Statistics =============================
+tests/unit/test_retention_salvage_properties.py::test_every_kind_of_entry_and_a_resume_keep_unarchived_bytes:
+
+  - during generate phase (145.52 seconds):
+    - Typical runtimes: ~ 2515-9614 ms, of which ~ 0-3 ms in data generation
+    - 24 passing, 0 failing, and 0 invalid test cases
+
+  - Stopped because settings.max_examples=24
+
+
+1 passed in 218.91s (0:03:38)

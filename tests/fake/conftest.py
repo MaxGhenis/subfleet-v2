@@ -31,6 +31,9 @@ class Harness:
         # cases describe mechanics the rule sits on top of, so the policy starts with it off.
         policy = json.loads((REPO / "subfleet/default_policy.json").read_text())
         policy.setdefault("reserve", {})["models"] = []
+        # D-SH1: shell-aware routing has its own regressions; these fixtures
+        # keep the no-requirement routing their existing cases describe.
+        policy.pop("requires", None)
         # C-6.14, likewise: every lane here starts never having answered, so the
         # pilot hold would let one attempt at a time onto it until one answered.
         # tests/fake/test_lane_pilot.py covers the hold with it on; these cases
@@ -51,7 +54,8 @@ class Harness:
         }]))
         (root / "home").mkdir()
 
-    def start(self, *options: str, open_files: int | None = None) -> Harness:
+    def start(self, *options: str, open_files: int | None = None, rooted: bool = False,
+              isolated_group: bool = False) -> Harness:
         """Start the fake daemon; `open_files` pins its soft and hard RLIMIT_NOFILE (C-16.6)."""
         log = (self.root / f"harness-{len(self.logs)}.log").open("wb")
         self.logs.append(log)
@@ -60,11 +64,23 @@ class Harness:
         def limit():
             import resource
             resource.setrlimit(resource.RLIMIT_NOFILE, (open_files, open_files))
-        self.process = subprocess.Popen(
-            [sys.executable, "-m", "tests.fake.run_daemon", "--state-root", str(self.root),
-             *options], cwd=REPO, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
-            preexec_fn=limit if open_files is not None else None,
-        )
+        # The daemon stops once this test process is gone, whether or not this harness's
+        # teardown ran (`tests/fake/run_daemon.py`'s `ParentWatch`).
+        command = [sys.executable, "-m", "tests.fake.run_daemon", "--state-root", str(self.root),
+                   "--parent-pid", str(os.getpid()), *options]
+        if rooted:
+            # Model launchd's self-responsible daemon using only our own process.
+            # The shell exec preserves its pid and sends diagnostics to our log.
+            from subfleet import procs
+            assert open_files is None
+            env["SUBFLEET_TEST_DAEMON_LOG"] = str(log.name)
+            self.process = procs.spawn_disclaimed(
+                ["/bin/sh", "-c", 'exec "$@" > "$SUBFLEET_TEST_DAEMON_LOG" 2>&1', "rooted-daemon", *command],
+                cwd=str(REPO), env=env)
+        else:
+            self.process = subprocess.Popen(command, cwd=REPO, env=env, stdin=subprocess.DEVNULL,
+                stdout=log, stderr=log, preexec_fn=limit if open_files is not None else None,
+                start_new_session=isolated_group)
 
         def ready():
             if self.process.poll() is not None:
@@ -74,7 +90,10 @@ class Harness:
             except (OSError, ValueError):
                 return False
 
-        self.until(ready, timeout=5)
+        # Readiness ends as soon as the daemon answers; the limit only bounds a hung
+        # start. 5 s timed out before any test behaviour ran in every real-daemon
+        # case of a hold at load 105-118 (2026-10-23, 21 of 21 failures).
+        self.until(ready, timeout=60)
         return self
 
     def log_text(self) -> str:
@@ -170,12 +189,10 @@ class Harness:
             except subprocess.TimeoutExpired:
                 self.process.kill()
                 self.process.wait(timeout=2)
-        from subfleet.procs import same_process
-        for receipt in (self.root / "jobs").glob("*/a*/start.json"):
-            with suppress(OSError, ValueError, KeyError):
-                start = json.loads(receipt.read_text())
-                if same_process(start["guardian_pid"], start["boot_id"], start["proc_start"]):
-                    os.killpg(start["pgid"], signal.SIGKILL)
+        # Every guardian the store or a `start.json` records that is still alive by its
+        # recorded identity: a starting one (no `start.json`) as well (#250 fix round 2c).
+        from tests.fake.run_daemon import end_attempt_groups
+        end_attempt_groups(self.root)
         marker = self.root / "escaped.pid"
         if marker.exists():
             pid = int(marker.read_text())
@@ -238,16 +255,29 @@ def daemon(request, process_inspection_available):
     # AF_UNIX on macOS has a 104-byte path limit; pytest's default temp path is longer.
     with tempfile.TemporaryDirectory(prefix="sf-", dir="/tmp") as directory:
         harness = Harness(Path(directory))
+        closed = False
         try:
             yield harness
         finally:
-            harness.close()
-            # Keep the state root of a failed test so daemon.log and the store can be read.
-            report = getattr(request.node, "rep_call", None)
-            if report is not None and report.failed:
-                import re, shutil, sys
-                keep = Path("/tmp/sf-failed") / re.sub(r"[^A-Za-z0-9_.-]", "_", request.node.name)
-                shutil.rmtree(keep, ignore_errors=True)
-                shutil.copytree(directory, keep, symlinks=True, ignore_dangling_symlinks=True,
-                                ignore=_sockets)
-                print(f"\n[daemon harness] kept state root at {keep}", file=sys.stderr)
+            try:
+                harness.close()
+                closed = True
+            finally:
+                # Keep the state root of a failed test so daemon.log and the store can be read,
+                # and of a close() that raised (a daemon that would not stop is the run most worth
+                # keeping), as the live app test's dev_daemon does. A failed setup counts as well as
+                # a failed call: a fixture built on this one that raises ends the test before its call.
+                # The copy is taken after close() either way; close()'s error is raised after it, and
+                # a copy that fails never replaces it.
+                from tests.failed_keep import failed_keep_dir, setup_or_call_failed
+                if not closed or setup_or_call_failed(request.node):
+                    import shutil, sys
+                    keep = failed_keep_dir(request.node.name)
+                    try:
+                        shutil.rmtree(keep, ignore_errors=True)
+                        shutil.copytree(directory, keep, symlinks=True, ignore_dangling_symlinks=True,
+                                        ignore=_sockets)
+                    except OSError as error:
+                        print(f"\n[daemon harness] could not keep the state root ({error})", file=sys.stderr)
+                    else:
+                        print(f"\n[daemon harness] kept state root at {keep}", file=sys.stderr)

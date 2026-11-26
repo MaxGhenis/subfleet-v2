@@ -1,0 +1,91 @@
+{
+  "phase": "before",
+  "measured_at": "2026-11-07T13:46:25.040806+00:00",
+  "python": "3.14.7 (main, Sep  1 2026, 14:05:28) [Clang 22.1.3 ]",
+  "samples": 5,
+  "association": {
+    "listing": {
+      "fixture": "2000 unresolved service notices: 1600 pings, 200 pin notices, 200 retirement outcomes; 2 KiB text",
+      "samples": [
+        {
+          "rows": 2000,
+          "total_s": 0.1326944159955019,
+          "write_s": 0,
+          "write_transactions": 0,
+          "read_queries": 10
+        },
+        {
+          "rows": 2000,
+          "total_s": 0.07966166599362623,
+          "write_s": 0,
+          "write_transactions": 0,
+          "read_queries": 10
+        },
+        {
+          "rows": 2000,
+          "total_s": 0.04902833300002385,
+          "write_s": 0,
+          "write_transactions": 0,
+          "read_queries": 10
+        },
+        {
+          "rows": 2000,
+          "total_s": 0.07199408298765775,
+          "write_s": 0,
+          "write_transactions": 0,
+          "read_queries": 10
+        },
+        {
+          "rows": 2000,
+          "total_s": 0.12232937500812113,
+          "write_s": 0,
+          "write_transactions": 0,
+          "read_queries": 10
+        }
+      ],
+      "median_s": 0.07966166599362623
+    },
+    "expiry": {
+      "fixture": "10000 due retirement outcomes; text='outcome'; 68 sessions",
+      "samples": [
+        {
+          "rows": 10000,
+          "total_s": 0.49512374999176245,
+          "write_s": 0.3229879590071505,
+          "write_transactions": 1,
+          "read_queries": 21
+        },
+        {
+          "rows": 10000,
+          "total_s": 0.28924291698785964,
+          "write_s": 0.03696700000728015,
+          "write_transactions": 1,
+          "read_queries": 21
+        },
+        {
+          "rows": 10000,
+          "total_s": 0.31279358301253524,
+          "write_s": 0.04411495800013654,
+          "write_transactions": 1,
+          "read_queries": 21
+        },
+        {
+          "rows": 10000,
+          "total_s": 0.32115166701260023,
+          "write_s": 0.09226554099586792,
+          "write_transactions": 1,
+          "read_queries": 21
+        },
+        {
+          "rows": 10000,
+          "total_s": 0.4024582919955719,
+          "write_s": 0.19987275000312366,
+          "write_transactions": 1,
+          "read_queries": 21
+        }
+      ],
+      "median_s": 0.32115166701260023,
+      "median_write_s": 0.09226554099586792
+    }
+  }
+}

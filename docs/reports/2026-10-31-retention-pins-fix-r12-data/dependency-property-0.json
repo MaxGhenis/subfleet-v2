@@ -1,0 +1,60 @@
+{
+  "name": "dependency-property-0",
+  "start": "2026-10-31T20:48:01.497792+00:00",
+  "load": [
+    46.62548828125,
+    53.01171875,
+    62.4580078125
+  ],
+  "pytest_pid": 72853,
+  "failure_root": "/private/tmp/sf-fix272r12/failed-keep",
+  "args": [
+    "tests/unit/test_retention_dependency_properties.py",
+    "-k",
+    "selection_never"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.31471237500954885,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 148.28618024999741,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005268750101095065,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-161028-pr272-fix-r12/subfleet/dependencies.py",
+  "product_sha256": "3d013f755b9b045e4104c7be192f027125d12991be2c191a3a315e4228c4f728",
+  "example_progress": {
+    "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs": {
+      "passed": 100,
+      "failures": [],
+      "interrupted": 0
+    }
+  },
+  "end": "2026-10-31T20:50:43.833553+00:00",
+  "seconds": 162.3441027920053,
+  "peak_rss_mib": 125.15625,
+  "exit": 0
+}

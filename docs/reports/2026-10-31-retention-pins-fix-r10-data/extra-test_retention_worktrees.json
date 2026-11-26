@@ -1,0 +1,401 @@
+{
+  "name": "extra-test_retention_worktrees",
+  "start": "2026-10-31T15:13:32.919641+00:00",
+  "load": [
+    64.599609375,
+    73.01025390625,
+    71.8232421875
+  ],
+  "pytest_pid": 79454,
+  "failure_root": "/private/tmp/sf-fix272r10/failed-keep",
+  "args": [
+    "tests/unit/test_retention_worktrees.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c8_4_c13_4_retention_counts_archives_and_removes_clean_allocated_worktree",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 15.76585758299916,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c8_4_c13_4_retention_counts_archives_and_removes_clean_allocated_worktree",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 12.994504542002687,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c8_4_c13_4_retention_counts_archives_and_removes_clean_allocated_worktree",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.1741459160039085,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c13_4_retention_never_removes_in_place_workdir",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.8437847499953932,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c13_4_retention_never_removes_in_place_workdir",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.6112486659985734,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c13_4_retention_never_removes_in_place_workdir",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.003805209002166521,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c13_4_retention_rejects_worktree_paths_outside_owned_root[outside]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.0364247920006164,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c13_4_retention_rejects_worktree_paths_outside_owned_root[outside]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.9425218329997733,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c13_4_retention_rejects_worktree_paths_outside_owned_root[outside]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.014471458001935389,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c13_4_retention_rejects_worktree_paths_outside_owned_root[symlink]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.106948166998336,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c13_4_retention_rejects_worktree_paths_outside_owned_root[symlink]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3795602499958477,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c13_4_retention_rejects_worktree_paths_outside_owned_root[symlink]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.041357333000632934,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c13_4_retention_rejects_worktree_paths_outside_owned_root[container-symlink]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7495122920008725,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c13_4_retention_rejects_worktree_paths_outside_owned_root[container-symlink]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.11060708299919497,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c13_4_retention_rejects_worktree_paths_outside_owned_root[container-symlink]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.007901875003881287,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c13_4_dirty_allocated_worktree_without_salvage_is_archived_before_removal",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.9770294999980251,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c13_4_dirty_allocated_worktree_without_salvage_is_archived_before_removal",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 9.050466416003474,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c13_4_dirty_allocated_worktree_without_salvage_is_archived_before_removal",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.05530308299785247,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c13_4_retention_resumes_after_worktree_removed_before_row_commit",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.3281559589959215,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c13_4_retention_resumes_after_worktree_removed_before_row_commit",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 9.506668333000562,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c13_4_retention_resumes_after_worktree_removed_before_row_commit",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.13339591700059827,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c13_4_dirty_allocated_worktree_with_salvage_keeps_the_salvage_ref",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.2572619589991518,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c13_4_dirty_allocated_worktree_with_salvage_keeps_the_salvage_ref",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 11.401809333001438,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c13_4_dirty_allocated_worktree_with_salvage_keeps_the_salvage_ref",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.21381941699655727,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c13_4_a_later_edit_is_archived_and_a_missing_salvage_ref_keeps_the_job[new-edit]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.2935389170015696,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c13_4_a_later_edit_is_archived_and_a_missing_salvage_ref_keeps_the_job[new-edit]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 12.799003415995685,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c13_4_a_later_edit_is_archived_and_a_missing_salvage_ref_keeps_the_job[new-edit]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.07812858300167136,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c13_4_a_later_edit_is_archived_and_a_missing_salvage_ref_keeps_the_job[missing-ref]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.9608985829981975,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c13_4_a_later_edit_is_archived_and_a_missing_salvage_ref_keeps_the_job[missing-ref]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 5.594539040997915,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c13_4_a_later_edit_is_archived_and_a_missing_salvage_ref_keeps_the_job[missing-ref]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.04719575000490295,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c8_4_i5_a_worktree_a_live_turn_works_in_is_never_reclaimed[pins-True]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 8.764106333997915,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c8_4_i5_a_worktree_a_live_turn_works_in_is_never_reclaimed[pins-True]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 7.837437124995631,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c8_4_i5_a_worktree_a_live_turn_works_in_is_never_reclaimed[pins-True]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.2125049999958719,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c8_4_i5_a_worktree_a_live_turn_works_in_is_never_reclaimed[pins-False]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.26462512499711,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c8_4_i5_a_worktree_a_live_turn_works_in_is_never_reclaimed[pins-False]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 6.056338333000895,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c8_4_i5_a_worktree_a_live_turn_works_in_is_never_reclaimed[pins-False]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.18914974999643164,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c8_4_i5_a_worktree_a_live_turn_works_in_is_never_reclaimed[fence-True]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5476677919941721,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c8_4_i5_a_worktree_a_live_turn_works_in_is_never_reclaimed[fence-True]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 7.416611499997089,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c8_4_i5_a_worktree_a_live_turn_works_in_is_never_reclaimed[fence-True]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.20552162500098348,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c8_4_i5_a_worktree_a_live_turn_works_in_is_never_reclaimed[fence-False]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7548819580042618,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c8_4_i5_a_worktree_a_live_turn_works_in_is_never_reclaimed[fence-False]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.108742292002717,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c8_4_i5_a_worktree_a_live_turn_works_in_is_never_reclaimed[fence-False]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.1485605000052601,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c8_4_i5_a_turn_row_on_a_longer_folder_name_protects_nothing_here",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.0927469999951427,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c8_4_i5_a_turn_row_on_a_longer_folder_name_protects_nothing_here",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 20.691386207996402,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_worktrees.py::test_c8_4_i5_a_turn_row_on_a_longer_folder_name_protects_nothing_here",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.15138612499868032,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_worktrees.py::test_c8_4_c13_4_retention_counts_archives_and_removes_clean_allocated_worktree",
+    "tests/unit/test_retention_worktrees.py::test_c13_4_retention_never_removes_in_place_workdir",
+    "tests/unit/test_retention_worktrees.py::test_c13_4_retention_rejects_worktree_paths_outside_owned_root[outside]",
+    "tests/unit/test_retention_worktrees.py::test_c13_4_retention_rejects_worktree_paths_outside_owned_root[symlink]",
+    "tests/unit/test_retention_worktrees.py::test_c13_4_retention_rejects_worktree_paths_outside_owned_root[container-symlink]",
+    "tests/unit/test_retention_worktrees.py::test_c13_4_dirty_allocated_worktree_without_salvage_is_archived_before_removal",
+    "tests/unit/test_retention_worktrees.py::test_c13_4_retention_resumes_after_worktree_removed_before_row_commit",
+    "tests/unit/test_retention_worktrees.py::test_c13_4_dirty_allocated_worktree_with_salvage_keeps_the_salvage_ref",
+    "tests/unit/test_retention_worktrees.py::test_c13_4_a_later_edit_is_archived_and_a_missing_salvage_ref_keeps_the_job[new-edit]",
+    "tests/unit/test_retention_worktrees.py::test_c13_4_a_later_edit_is_archived_and_a_missing_salvage_ref_keeps_the_job[missing-ref]",
+    "tests/unit/test_retention_worktrees.py::test_c8_4_i5_a_worktree_a_live_turn_works_in_is_never_reclaimed[pins-True]",
+    "tests/unit/test_retention_worktrees.py::test_c8_4_i5_a_worktree_a_live_turn_works_in_is_never_reclaimed[pins-False]",
+    "tests/unit/test_retention_worktrees.py::test_c8_4_i5_a_worktree_a_live_turn_works_in_is_never_reclaimed[fence-True]",
+    "tests/unit/test_retention_worktrees.py::test_c8_4_i5_a_worktree_a_live_turn_works_in_is_never_reclaimed[fence-False]",
+    "tests/unit/test_retention_worktrees.py::test_c8_4_i5_a_turn_row_on_a_longer_folder_name_protects_nothing_here"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/subfleet/dependencies.py",
+  "product_sha256": "38f65f4089bee465ce3b8ac9d57cdb91a0dcae53d87542864cdba3720774f8a8",
+  "end": "2026-10-31T15:16:56.474834+00:00",
+  "seconds": 203.5543010420006,
+  "peak_rss_mib": 111.890625,
+  "exit": 0
+}

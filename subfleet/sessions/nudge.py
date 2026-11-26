@@ -45,6 +45,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
+from ..launch_env import build_environment
 from . import registry, transcripts
 from .transcripts import MARKER, MUSTER_MARKER, TurnState
 
@@ -161,7 +162,7 @@ def spawn(session_id: str, *, source: str | None, transcript: str | Path | None,
         command += ["--source", source]
     if transcript:
         command += ["--transcript", str(transcript)]
-    environment = dict(os.environ)
+    environment = build_environment()
     if root:
         environment["SUBFLEET_HOME"] = str(root)
     package = str(Path(__file__).resolve().parents[2])

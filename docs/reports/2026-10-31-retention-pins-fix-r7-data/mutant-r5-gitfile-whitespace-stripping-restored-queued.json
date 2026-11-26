@@ -1,0 +1,8 @@
+{
+  "queued": "2026-10-31T03:09:15.952012+00:00",
+  "args": [
+    "--mutant",
+    "r5-gitfile-whitespace-stripping-restored",
+    "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-gitfile-leading]"
+  ]
+}

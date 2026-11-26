@@ -1,0 +1,14 @@
+{
+  "queued": "2026-10-31T08:54:06.071816+00:00",
+  "args": [
+    "-p",
+    "tests.conftest",
+    "--confcutdir=review-r9-data",
+    "review-r9-data/round_probes.py",
+    "review-r9-data/probes_r9.py"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r9/link-tmp/independent-round",
+  "linked": true,
+  "driver_pid": 87277,
+  "lock_process_group": 87528
+}

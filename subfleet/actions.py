@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
+from . import task_holds
 from .adapters.codex import CodexAdapter
 from .capacity import _iso, _time, build_view, fresh_provider, identity_blocked
 from .contracts import HEADROOM_FLOOR, READING_TTL_S
@@ -38,7 +39,8 @@ CAPACITY, LIMITED, CLOSED, UNUSABLE = "capacity", "limited", "closed", "unusable
 #: clears, which beats a limit it does not, which beats no use at all.
 _RANK = {UNUSABLE: 0, CLOSED: 1, LIMITED: 2, CAPACITY: 3}
 #: Rejections no quota can change: the lane could not take the job anyway.
-UNUSABLE_REASONS = frozenset({"excluded", "desktop", "config-dir", "owner-v1", "disabled", "identity-mismatch"})
+UNUSABLE_REASONS = frozenset({"excluded", "desktop", "config-dir", "owner-v1", "disabled", "identity-mismatch",
+                              "credential-refused"})
 #: Closures a reset credit is for (C-23.17 releases them) and closures it is not.
 LIMIT_CLOSURES = frozenset({"provider-limit", "credits", "cooldown"})
 HOLD_CLOSURES = frozenset({"auth-dead", "operator-hold"})
@@ -156,13 +158,13 @@ def store_holds(store, *, now: str | datetime) -> dict[str, str]:
     """C-23.16 (e): lane id -> the operator or auth hold in force on it at `now`, read from the store.
 
     An open `operator-hold` or `auth-dead` closure of any scope, and an
-    operator hold's own `lane.held` and `lane.released` events:
-    `Store.put_closure` keeps one open closure per lane and scope, so a hold
-    that ends before an open provider limit on the account scope leaves no
-    `operator-hold` row, though it is in force (as `Timers._card_lanes` reads
-    it). Releasing such a hold changes no row and so writes no `lane.released`
-    event; the hold then lasts until its own end, which errs toward spending
-    nothing.
+    operator hold's own `lane.held` and `lane.released` events.
+    `Store.put_closure` now keeps a hold's row apart from any limit (C-9.6,
+    D-HOLD1), but in a store written before that, a hold that ended before an
+    open provider limit on the account scope left no `operator-hold` row,
+    though it is in force (as `Timers._card_lanes` reads it). Releasing such a
+    hold changes no row and so writes no `lane.released` event; the hold then
+    lasts until its own end, which errs toward spending nothing.
     """
     stamp = _iso(_time(now))
     found = {row["lane_id"]: row["reason"] for row in store.query(
@@ -739,6 +741,13 @@ class ResetCredits:
                                            (job_id,)).fetchone()
                 if waiting_row is None or waiting_row[0] != "waiting" or waiting_row[1] != "capacity" or waiting_row[2]:
                     return {**result, "status": "demand-gone", "job_id": job_id}
+                # C-11.10: a task hold committed since demand was read keeps the job, and a
+                # held job is no demand, though admission has not looked at it again yet.
+                held = task_holds.job_held(conn, job_id, moment)
+                if held is not None:
+                    return {**result, "status": "demand-gone", "job_id": job_id,
+                            **({"sandbox_held": held["sandbox"]} if "sandbox" in held else
+                               {"task_held": held["task"]})}
                 if conn.execute("SELECT 1 FROM actions WHERE op_key IN (?,?)",
                                 reset_credit_op_keys(lane.account_key, credit["id"])).fetchone():
                     return {**result, "status": "already-attempted"}
