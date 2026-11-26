@@ -1,0 +1,51 @@
+Schema step commands (all executed in assigned worktree; no tests yet)
+
+sed -n '90,150p' subfleet/store.py
+Result: exit 0, migration definitions read.
+sed -n '210,255p' subfleet/store_schema.sql
+Result: exit 0, notices DDL read.
+cat tests/unit/test_store_qos_migration.py
+Result: exit 0, QoS migration assumptions read.
+sed -n '185,245p' tests/unit/test_store_migration_2.py
+Result: exit 0, additive migration helper read.
+sed -n '320,400p' subfleet/store.py
+Result: exit 0, migration ordering and absent-table handling read.
+sed -n '1,72p' tests/unit/test_store_migration_2.py
+Result: exit 0, historical minimal schema fixture read.
+rg -n 'def transaction|def _update' subfleet/store.py
+Result: exit 0, transaction default and update signatures confirmed.
+rg -n 'SCHEMA_VERSION - 1|== SCHEMA_VERSION ==|PROVIDER_QOS_MIGRATION|version.*10|SCHEMA_VERSION = 10' tests/unit tests/fake
+Result: exit 0, related exact version comparisons checked; QoS comparisons were the ones changed.
+ls -d /private/tmp/sf-wc-b1
+Result: exit 0, existing task scratch confirmed.
+
+apply_patch tool calls:
+1. Updated store migration/constants, latest DDL, migration helper, QoS version comparisons. Success.
+2. Added tests/unit/test_store_notice_wake_migration.py. Success.
+3. Added this command log under the existing task scratch. Success.
+
+sed -n '20,55p' tests/unit/test_prune_217.py
+Result: exit 0, exact schema-table set read.
+rg -n 'sqlite_master|EXPECTED_TABLES|TABLES\b|tables\) ==|tables ==|table_names' tests/unit/test_store* tests/unit/test_prune* tests/fake/test_state_contract.py
+Result: exit 0, found static exact table set in test_prune_217.py:182; other table readers are dynamic.
+apply_patch: Added caller_wake_sessions to test_prune_217.py's expected table set. Success.
+
+python3 /private/tmp/sf-wc-b1/run.py schema-new pytest -q tests/unit/test_store_notice_wake_migration.py
+Result: exit 0, 7 passed in 12.40 s; unique basetemp pytest-schema-new-76bd4147aa; log schema-new.log.
+python3 /private/tmp/sf-wc-b1/run.py schema-qos pytest -q tests/unit/test_store_qos_migration.py
+Result: exit 1, 12 passed / 1 failed in 6.98 s: plural schema.migrated query had no ORDER BY and SQLite returned descending index order.
+apply_patch: Added ORDER BY event_id to the QoS migration event comparison. Success.
+python3 /private/tmp/sf-wc-b1/run.py schema-qos-fixed pytest -q tests/unit/test_store_qos_migration.py
+Result: exit 0, 13 passed in 8.62 s; unique basetemp pytest-schema-qos-fixed-9cf70fed70; log schema-qos-fixed.log.
+python3 /private/tmp/sf-wc-b1/run.py schema-existing pytest -q tests/unit/test_store_migration_2.py
+Result: exit 0, 21 passed in 5.41 s; unique basetemp pytest-schema-existing-637a5d178f; log schema-existing.log.
+The exec sessions for these commands were polled with write_stdin until they exited; no process was left running.
+
+sed -n '40,52p' subfleet/store.py
+sed -n '120,160p' subfleet/store.py
+sed -n '220,260p' subfleet/store_schema.sql
+sed -n '208,232p' tests/unit/test_store_migration_2.py
+sed -n '20,65p' tests/unit/test_store_qos_migration.py
+Result: each exit 0, final owned changes reviewed.
+
+Commits: no git commands run by schema agent. Parent reports index.lock writes prohibited by sandbox; root will report inability to commit.

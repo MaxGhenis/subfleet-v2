@@ -1,0 +1,25 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_________ test_c15_9_delivered_notice_survives_restart_without_replay __________
+
+callers = <tests.fake.test_caller_notice_wakes.Callers object at 0x10958cad0>
+
+    def test_c15_9_delivered_notice_survives_restart_without_replay(callers):
+        callers.register("once")
+        notice = callers.finish("once")
+        callers.pass_once()
+        assert callers.counts()[notice] == 1
+        first = callers.row(notice)
+        callers.restart(reopen=True)
+        callers.now += COOLDOWN_S + 1
+        callers.pass_once()
+>       assert callers.counts()[notice] == 1
+E       assert 2 == 1
+
+tests/fake/test_caller_notice_wakes.py:247: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4466246720:daemon.py:994 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4466246720:daemon.py:1082 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_delivered_notice_survives_restart_without_replay
+1 failed in 7.40s

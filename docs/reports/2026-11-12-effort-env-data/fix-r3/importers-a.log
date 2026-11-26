@@ -1,0 +1,10 @@
+# label: importers-a
+# start: 2026-11-17T14:32:17Z
+# command: uv run --no-sync --with pytest-xdist\>=3.6 pytest --basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T//sf-eff-fix3/pytest-importers-a-143216 -p no:cacheprovider -n 4 -q -rfE tests/fake/test_admission_priority.py tests/fake/test_census_round3_leases.py
+bringing up nodes...
+bringing up nodes...
+
+.........................................                                [100%]
+41 passed in 193.10s (0:03:13)
+# end: 2026-11-17T14:36:17Z
+# exit: 0

@@ -1,0 +1,331 @@
+--- a/subfleet/notice_claims.py
++++ b/subfleet/notice_claims.py
+@@ -10,7 +10,9 @@
+ import fcntl
+ import hashlib
+ import json
++import math
+ import os
++import time
+ from pathlib import Path
+ 
+ from .store import notice_fingerprint
+@@ -55,8 +57,62 @@
+     return value
+ 
+ 
+-def reserve_offline(root: Path, session: str, rows: list[dict]) -> list[dict]:
++
++def activity_path(root: Path, session: str) -> Path:
++    return receipt_path(root, session).with_suffix(".activity.json")
++
++
++def read_activity(root: Path, session: str) -> dict | None:
++    try:
++        value = json.loads(activity_path(root, session).read_text())
++    except FileNotFoundError:
++        return None
++
++    def valid_time(stamp):
++        if not isinstance(stamp, (int, float)) or isinstance(stamp, bool):
++            return False
++        try:
++            return math.isfinite(stamp) and stamp >= 0
++        except OverflowError:
++            return False
++
++    if (not isinstance(value, dict) or set(value) != {"at", "source", "human_at"}
++            or not valid_time(value.get("at"))
++            or not (value.get("source") is None or isinstance(value["source"], str))
++            or not (value.get("human_at") is None or valid_time(value["human_at"]))):
++        raise ValueError("invalid notice activity")
++    return value
++
++
++def record_offline_activity(root: Path, session: str, *, event: str, source: str | None) -> None:
++    """Keep the quiet clock even when this hook has no new notices to print."""
++    if event not in ("SessionStart", "UserPromptSubmit"):
++        raise ValueError("invalid notice activity event")
++    previous = read_activity(root, session) or {}
++    now = time.time()
++    human_at = previous.get("human_at")
++    if event == "UserPromptSubmit":
++        human_at = max(now, human_at or 0)
++    value = {"at": max(now, previous.get("at") or 0),
++             "source": source if event == "SessionStart" and isinstance(source, str) else None,
++             "human_at": human_at}
++    path = activity_path(root, session)
++    temporary = path.with_suffix(".tmp")
++    try:
++        with temporary.open("w") as stream:
++            os.chmod(temporary, 0o600)
++            json.dump(value, stream)
++            stream.flush()
++            os.fsync(stream.fileno())
++        os.replace(temporary, path)
++    finally:
++        temporary.unlink(missing_ok=True)
++
++
++def reserve_offline(root: Path, session: str, rows: list[dict], *,
++                    event: str, source: str | None = None) -> list[dict]:
+     """Called under delivery_lock, before an offline hook prints anything."""
++    record_offline_activity(root, session, event=event, source=source)
+     receipts = read_receipts(root, session)
+     seen = {(item["notice_id"], item["fingerprint"]) for item in receipts}
+     fresh = [row for row in rows if
+@@ -83,9 +139,22 @@
+     """Called under delivery_lock; replay receipts into the daemon's store."""
+     from .protocol import notice_row
+     receipts = read_receipts(daemon.root, session)
+-    if not receipts:
++    activity = read_activity(daemon.root, session)
++    if not receipts and activity is None:
+         return
+     with daemon.store.transaction("notice.offline_surfaced", data={"session_id": session}) as tx:
++        if activity is not None:
++            clock = tx.execute("SELECT last_wake_at FROM caller_wake_sessions WHERE session_id=?",
++                               (session,)).fetchone()
++            last_wake = clock["last_wake_at"] if clock else None
++            human_at = activity["human_at"]
++            reset = human_at is not None and (last_wake is None or human_at >= last_wake)
++            tx.execute("INSERT INTO caller_wake_sessions(session_id,active_at,source) VALUES(?,?,?) "
++                       "ON CONFLICT(session_id) DO UPDATE SET active_at=max(active_at,excluded.active_at),"
++                       "source=CASE WHEN excluded.active_at>=active_at THEN excluded.source ELSE source END,"
++                       "wake_streak=CASE WHEN ? THEN 0 ELSE wake_streak END,"
++                       "last_wake_at=CASE WHEN ? THEN NULL ELSE last_wake_at END",
++                       (session, activity["at"], activity["source"], reset, reset))
+         for item in receipts:
+             table, row_id = notice_row(item["notice_id"])
+             row = tx.execute(f"SELECT text,created_at FROM {table} WHERE notice_id=? AND session_id=?",
+@@ -95,3 +164,4 @@
+                            "WHERE notice_id=? AND session_id=? AND state IN ('pending','offered')",
+                            (row_id, session))
+     receipt_path(daemon.root, session).unlink(missing_ok=True)
++    activity_path(daemon.root, session).unlink(missing_ok=True)
+--- a/subfleet/hooks.py
++++ b/subfleet/hooks.py
+@@ -495,7 +495,8 @@
+         client = Client(root, verify_lock=False, retry_busy=False) if client is None else client
+         result = client.call("notice.pending", {"session_id": session, "surface": event,
+                                                "jobs_only": launched, "source": payload.get("source")})
+-        rows = result.get("notices") or []
++        rows = result.get("notices")
++        rows = [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+     except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
+         from .notice_claims import delivery_lock, reserve_offline
+         rows, marked = [], False
+@@ -505,7 +506,8 @@
+                     pending = _offline_pending(root, session)
+                     if launched:
+                         pending = [row for row in pending if names_a_job(row)]
+-                    rows = reserve_offline(root, session, pending)
++                    rows = reserve_offline(root, session, pending, event=event,
++                                           source=payload.get("source"))
+         except (OSError, ValueError, KeyError):
+             pass  # without a durable claim, printing could race a restart wake
+     if launched:
+--- a/subfleet/caller_wakes.py
++++ b/subfleet/caller_wakes.py
+@@ -143,7 +143,10 @@
+             with notice_claims.delivery_lock(self.daemon.root, session) as held:
+                 if not held:
+                     continue
+-                notice_claims.reconcile(self.daemon, session)
++                try:
++                    notice_claims.reconcile(self.daemon, session)
++                except (OSError, ValueError, KeyError):
++                    continue  # a bad receipt fences only its own caller
+                 # Hooks and other passes may have consumed the candidate read.
+                 rows = [row for row in candidates if self.store.one(
+                     "SELECT 1 FROM notices WHERE notice_id=? AND job_id=? AND session_id=? AND created_at=? AND text=? "
+--- a/tests/unit/test_notice_claims.py
++++ b/tests/unit/test_notice_claims.py
+@@ -2,13 +2,17 @@
+ 
+ from __future__ import annotations
+ 
++from datetime import datetime, timezone
+ import io
+ import json
+ from types import SimpleNamespace
+ 
+ import pytest
+ 
+-from subfleet import caller_wakes, hooks, notice_claims, protocol
++from subfleet import caller_wakes, hooks, notice_claims, notify_push, protocol
++from subfleet.conversations.wakes import COOLDOWN_S, MAX_STREAK
++from subfleet.sessions import nudge, transcripts
++from subfleet.sessions.transcripts import TurnState
+ from subfleet.client import DaemonUnavailable
+ from subfleet.store import Store
+ 
+@@ -49,9 +53,9 @@
+     return -row_id if service else row_id
+ 
+ 
+-def offline_hook(core):
++def offline_hook(core, *, event="UserPromptSubmit", source=None):
+     stream = io.StringIO()
+-    assert hooks.session_event("UserPromptSubmit", {"session_id": SESSION}, core.root,
++    assert hooks.session_event(event, {"session_id": SESSION, "source": source}, core.root,
+                                client=OfflineClient(), stdout=stream, env={}) == 0
+     return stream.getvalue()
+ 
+@@ -152,3 +156,130 @@
+     assert not path.exists()
+     assert not path.with_suffix(".tmp").exists()
+     assert core.store.one("SELECT state FROM notices")["state"] == "pending"
++
++
++def wake_engine(core, monkeypatch, clock):
++    """Real durable decisions with fake transcript/registry/inbox observations."""
++    core.policy = {"sessions": {"notice_wake_quiet_s": 300}}
++    core.sessions = lambda _args: {"sessions": {}}
++    core._conversation_binding = lambda _session: None
++    core._lane_session_ids = lambda: []
++    monkeypatch.setenv(nudge.TICKLE_ENV, "on")
++    monkeypatch.setattr(hooks, "wake_worker", lambda *_args, **_kwargs: None)
++    monkeypatch.setattr(notice_claims.time, "time", lambda: clock[0])
++    monkeypatch.setattr(transcripts, "transcript_path", lambda _session: None)
++    stale = datetime.fromtimestamp(clock[0] - 3600, timezone.utc).isoformat()
++    monkeypatch.setattr(transcripts, "turn_state", lambda *_args, **_kwargs:
++                        TurnState(state="completed", timestamp=stale, last_uuid="stale-turn"))
++    monkeypatch.setattr(notify_push, "find_session", lambda _session:
++                        {"alive": True, "socket_present": True})
++    sent = []
++
++    def push(session, body, **kwargs):
++        sent.append((session, body))
++        return {"delivered": True}
++
++    monkeypatch.setattr(notify_push, "push_to_session", push)
++    return caller_wakes.CallerWakeEngine(core, now=lambda: clock[0]), sent
++
++
++@pytest.mark.parametrize("had_notice", [False, True], ids=["empty", "already-receipted"])
++def test_c15_9_offline_prompt_activity_holds_a_new_notice_until_the_gate(core, monkeypatch, had_notice):
++    """An offline prompt counts even when it prints no newly pending notice."""
++    clock = [1800000000.0]
++    engine, sent = wake_engine(core, monkeypatch, clock)
++    if had_notice:
++        add_notice(core)
++        assert TEXT in offline_hook(core)
++        clock[0] += 100
++    assert offline_hook(core) == ""
++    active_at = clock[0]
++    fresh = add_notice(core, text="newly finished job notice")
++    engine.pass_once()
++    assert sent == []
++    assert core.store.one("SELECT active_at FROM caller_wake_sessions WHERE session_id=?",
++                          (SESSION,))["active_at"] == active_at
++    clock[0] = active_at + 299.999
++    engine.pass_once()
++    assert sent == []
++    clock[0] = active_at + 300
++    engine.pass_once()
++    assert len(sent) == 1
++    assert core.store.one("SELECT wake_state FROM notices WHERE notice_id=?", (fresh,))["wake_state"] == "delivered"
++
++
++@pytest.mark.parametrize("source", ["compact", "clear"])
++def test_c15_9_offline_session_start_source_fences_a_later_notice(core, monkeypatch, source):
++    clock = [1800000000.0]
++    engine, sent = wake_engine(core, monkeypatch, clock)
++    assert offline_hook(core, event="SessionStart", source=source) == ""
++    add_notice(core)
++    clock[0] += 301
++    engine.pass_once()
++    assert sent == []
++    assert core.store.one("SELECT source FROM caller_wake_sessions WHERE session_id=?", (SESSION,)) == {
++        "source": source}
++
++
++def test_c15_9_offline_human_prompt_resets_bounds_even_before_a_later_restart(core, monkeypatch):
++    clock = [1800000000.0]
++    engine, sent = wake_engine(core, monkeypatch, clock)
++    with core.store.transaction() as tx:
++        tx.execute("INSERT INTO caller_wake_sessions(session_id,active_at,source,wake_streak,last_wake_at) "
++                   "VALUES (?,?,'compact',?,?)", (SESSION, clock[0] - 600, MAX_STREAK, clock[0] - 1))
++    assert offline_hook(core) == ""
++    human_at = clock[0]
++    clock[0] += 1
++    assert offline_hook(core, event="SessionStart", source="resume") == ""
++    assert notice_claims.read_activity(core.root, SESSION) == {
++        "at": clock[0], "source": "resume", "human_at": human_at}
++    add_notice(core)
++    clock[0] += 300
++    assert clock[0] - human_at < COOLDOWN_S
++    engine.pass_once()
++    assert len(sent) == 1
++    assert core.store.one("SELECT wake_streak,source FROM caller_wake_sessions WHERE session_id=?", (SESSION,)) == {
++        "wake_streak": 1, "source": "resume"}
++
++
++def test_c15_9_stale_offline_activity_preserves_newer_online_activity_and_bounds(core, monkeypatch):
++    clock = [1800000000.0]
++    wake_engine(core, monkeypatch, clock)
++    assert offline_hook(core) == ""
++    with core.store.transaction() as tx:
++        tx.execute("INSERT INTO caller_wake_sessions(session_id,active_at,source,wake_streak,last_wake_at) "
++                   "VALUES (?,?,'compact',?,?)", (SESSION, clock[0] + 10, MAX_STREAK, clock[0] + 1))
++    with notice_claims.delivery_lock(core.root, SESSION) as held:
++        assert held
++        notice_claims.reconcile(core, SESSION)
++    assert core.store.one("SELECT active_at,source,wake_streak,last_wake_at FROM caller_wake_sessions "
++                          "WHERE session_id=?", (SESSION,)) == {
++        "active_at": clock[0] + 10, "source": "compact", "wake_streak": MAX_STREAK,
++        "last_wake_at": clock[0] + 1}
++
++
++def test_c15_9_a_corrupt_receipt_does_not_starve_another_quiet_caller(core, monkeypatch):
++    clock = [1800000000.0]
++    engine, sent = wake_engine(core, monkeypatch, clock)
++    add_notice(core)
++    path = notice_claims.receipt_path(core.root, SESSION)
++    path.parent.mkdir(parents=True)
++    path.write_text("{}")
++    with core.store.transaction() as tx:
++        tx.execute("INSERT INTO notices(job_id,session_id,text,state,created_at) "
++                   "VALUES ('job-done','other-caller','other notice','pending','2026-11-11T12:00:00Z')")
++    engine.pass_once()
++    assert [session for session, _body in sent] == ["other-caller"]
++    assert core.store.one("SELECT state FROM notices WHERE session_id=?", (SESSION,)) == {"state": "pending"}
++
++
++@pytest.mark.parametrize("invalid_at", [10 ** 1000, float("nan")], ids=["huge-integer", "nonfinite"])
++def test_c15_9_invalid_activity_timestamps_fail_closed_without_blocking_the_hook(core, invalid_at):
++    add_notice(core)
++    path = notice_claims.activity_path(core.root, SESSION)
++    path.parent.mkdir(parents=True)
++    contents = json.dumps({"at": invalid_at, "source": "resume", "human_at": None})
++    path.write_text(contents)
++    assert offline_hook(core) == ""
++    assert path.read_text() == contents
++    assert core.store.one("SELECT state FROM notices")["state"] == "pending"
+--- a/tests/unit/test_hooks.py
++++ b/tests/unit/test_hooks.py
+@@ -1062,3 +1062,23 @@
+     assert hooks._wait_and_deliver(SimpleNamespace(call=call), SESSION, JOB, 1.0,
+                                    stderr=io.StringIO(), now=lambda: clock[0], sleep=sleep) == 0
+     assert clock[0] <= .5 and sum(sleeps) <= .4
++
++
++
++@pytest.mark.parametrize("notices", [None, "malformed", 17, [None, "malformed", 17]],
++                         ids=["none", "string", "integer", "scalar-list"])
++def test_c15_9_hook_ignores_malformed_notice_replies_without_marks(root, notices):
++    """The hook retains its old list-of-dictionaries reply filtering."""
++    called = []
++
++    class ReplyClient:
++        def call(self, op, args=None, **kwargs):
++            called.append(op)
++            assert op == "notice.pending", "an empty hook reply must not mark any notice"
++            return {"notices": notices}
++
++    stdout = io.StringIO()
++    assert hooks.session_event("UserPromptSubmit", payload("UserPromptSubmit"), root,
++                               client=ReplyClient(), stdout=stdout, env={}) == 0
++    assert stdout.getvalue() == ""
++    assert called == ["notice.pending"]

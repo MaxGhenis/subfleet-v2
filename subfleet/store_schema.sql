@@ -244,7 +244,7 @@ CREATE INDEX IF NOT EXISTS notices_job ON notices(job_id, state);
 CREATE INDEX IF NOT EXISTS notices_caller_wake ON notices(created_at, notice_id)
   WHERE job_id IS NOT NULL AND state='pending' AND wake_state IS NULL;
 
--- D-SCHEMA-SLOTS1: #307's caller activity storage, without its wake runtime.
+-- C-15.1: activity and the existing conversation wake bounds for quiet callers.
 CREATE TABLE IF NOT EXISTS caller_wake_sessions (
   session_id TEXT PRIMARY KEY,
   active_at REAL NOT NULL DEFAULT 0,

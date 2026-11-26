@@ -112,7 +112,15 @@ def test_walk_exit_exception_parity(monkeypatch, operation, error):
                 finally:
                     for fd in after - before:
                         os.close(fd)
-        assert answers[0] == answers[1], (operation, kth, error, answers)
+        if operation == "stat" and error == "permission":
+            # D-SURVEY-EACCES1 deliberately changes this one exit from the
+            # frozen pre-fix walk: a refused entry lstat is now unreadable.
+            assert answers[0][:3] == ("PermissionError", None, errno.EACCES)
+            assert answers[1][:3] == ("TreeError", "unreadable", None)
+            assert answers[1][3].startswith("unreadable: ")
+            assert answers[1][3].endswith(": review")
+        else:
+            assert answers[0] == answers[1], (operation, kth, error, answers)
 
 
 @pytest.mark.parametrize("action", ["close", "throw-runtime", "throw-keyboard"])

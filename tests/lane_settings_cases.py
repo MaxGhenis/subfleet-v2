@@ -1,4 +1,4 @@
-"""Every Claude launch argv this tree builds, over its builders' inputs (D-WATCHDOG1, d1031).
+"""Every Claude launch argv this tree builds (D-WATCHDOG1, D-EFFORT-ENV1).
 
 A case names one launch path and its inputs. `build(case, scratch)` runs that path's
 own builder in a scratch folder, the way the daemon, the timers, the gate and the
@@ -32,6 +32,7 @@ from types import SimpleNamespace
 #: The variable d1031 turns off, and the value every launch's settings give it.
 WATCHDOG = "CLAUDE_CODE_RETRY_WATCHDOG"
 OFF = "0"
+EFFORT_ENV = "CLAUDE_CODE_EFFORT_LEVEL"
 
 SESSION = "00000000-0000-4000-8000-00000000d031"
 MODEL = "claude-opus-5-5"
@@ -52,9 +53,9 @@ PATHS = ("job", "resume", "probe", "timer", "gate", "turn", "enroll", "probe-tur
 
 SANDBOXES = ("read-only", "workspace-write")
 TASKS = ("build", "review", None)
-EFFORTS = (None, "high")
+EFFORTS = (None, "high", "medium")
 PERMISSIONS = ("ask", "accept-edits", "bypass", "read-only")
-TURN_EFFORTS = (None, "high", "ultracode")
+TURN_EFFORTS = (None, "high", "ultracode", "medium")
 
 
 def case_id(case: dict) -> str:
@@ -118,6 +119,15 @@ def expected_settings(case: dict) -> dict:
     if case["effort"] == "ultracode" and case["permission"] != "read-only":
         settings["ultracode"] = True
     return settings
+
+
+def expected_env(case: dict) -> dict[str, str]:
+    """The watchdog pin and, only for a named effort, its canonical effort pin."""
+    env = {WATCHDOG: OFF}
+    effort = case.get("effort")
+    if effort:
+        env[EFFORT_ENV] = "xhigh" if effort == "ultracode" else effort
+    return env
 
 
 # --- the builders, as their callers call them --------------------------------
@@ -338,14 +348,17 @@ def settings_payloads(argv) -> list[str]:
 
 
 def without_override(argv) -> list[str]:
-    """`argv` with the override taken back out of its one `--settings`: the variable
-    removed from `env`, `env` dropped once empty, and the flag dropped once its
-    settings are empty. The differential's view of a launch before the change."""
+    """Remove both pins from the one `--settings` for the 676906f85 differential.
+
+    Drop `env` once empty, and the flag once its settings are empty. The fixture
+    predates both the watchdog and named-effort settings overrides.
+    """
     argv = list(argv)
     index = argv.index("--settings")
     settings = json.loads(argv[index + 1])
     env = dict(settings.get("env") or {})
     env.pop(WATCHDOG, None)
+    env.pop(EFFORT_ENV, None)
     if env:
         settings["env"] = env
     else:

@@ -788,3 +788,385 @@ pytest_run optional-adjacent 3 pytest-optional-adjacent-1795646428 \
 ```
 
 **Left for the hub and CI.** Record the fallback tree with the two intended parents and commit this report. The required batches finished with the process-dependent cases listed above deselected. The requested `git grep` found 257 daemon importers. Steps 1–4 covered 31 of those paths, and step 5 covered 12 of the remaining 226, leaving 214 for CI. The #177 process suites and #333's `test_guard_overlay.py`, `test_guard_pin_0169.py`, `test_guard_subfleet_root.py` and `test_publish_rule_round7.py` did not run here.
+
+## Release merge 3
+
+Started at **2026-11-26 11:22:24 UTC**. The new-test cutoff was 13:52:24 UTC and the job deadline was 14:22:24 UTC. The initial checks found `d5e6cb4aead4cdb7fbde5425643cf48a13682547`, a clean tracked worktree, and `f2fa1a6d67d39adf07d3579a265c579467b6bbca` of type `commit`. I read the release merge 2 report, the round 1 selection plugin and exclusions, the PR body through `gh pr view 314 --repo MaxGhenis/subfleet-v2`, and C-3.9 at the PR head.
+
+### Merge
+
+The intended parents are **`d5e6cb4aead4cdb7fbde5425643cf48a13682547`** and **`f2fa1a6d67d39adf07d3579a265c579467b6bbca`**, with merge base `53a7bac93d01afd9165588bcaf789dae75540757`. The chain has 172 commits across 663 paths since the base. The PR side has 12 commits. The local `origin/release/217` was at `a4d21501e`, and the six local and remote-tracking PR tips matched the chain links. I used that object without fetching. It brings in release/217 through #310 and #295, then #313 (`b883a35f3`), #315 (`d6aa5b652`), #321 (`749b70a71`), #307 (`94442d693`), #329 (`4a9253f18`) and #316 (`f2fa1a6d6`). This places #314 seventh. The review-subject clause is now **C-3.9**. #315 owns C-3.8. Earlier report sections and evidence retain their historical references.
+
+`git merge --no-ff --no-commit f2fa1a6d67d39adf07d3579a265c579467b6bbca` failed on a sandbox denial of `ORIG_HEAD.lock`. I copied the chain versions of the 649 chain-only paths into the assigned worktree and used `git merge-file -p` on the three committed versions of each of the 14 shared files. Git denied `index.lock` on each named resolution. The tests ran against the resulting worktree files. The actual `HEAD` still has parent `87d09950a9175562cce9c6684c8962facabd6bc5`. The intended parents above require a hub-recorded merge.
+
+The chain-only paths match the chain’s Git blob hashes and modes, including the 598 chain additions that are untracked in the fallback. The checker found zero chain-only deletions and verified that every difference from the chain is on a PR path. `git diff --check f2fa1a6d6` passed in the worktree.
+
+### Conflict resolutions
+
+| File | Resolution |
+| --- | --- |
+| `subfleet/daemon.py` | Both sides inserted code after the source preamble check. The PR’s effective-task validation runs first and refuses review metadata on a non-review source with `review-fields`. #310 then reads the attempt evidence and computes the model pin with `_resume_pin`. The next `dataclasses.replace` uses #310’s `pinned_model` and the PR’s inherited subject and round. |
+| `subfleet/store.py` | Kept the PR’s version-12 constants and slot-12 tuple, and #307’s `NOTICE_WAKE_PREDATES = "before-migration"` with its C-15.9 comment. Used #307’s C-15.1 slot-11 comment. The full slot-11 SQL tuples match on both parents. Combined the two loop hunks by retaining the PR’s lower bound and presence checks, recording newly added columns in #307’s per-step `added` set, and running the C-15.9 update only when that step adds `notices.wake_state`. Kept the PR’s `step > version` guard for launch capabilities and its atomic schema, version and audit writes. |
+| `subfleet/store_schema.sql` | Used #307’s C-15.1 comment over caller-wake storage, and kept the PR’s version-12 header, review columns and partial index. |
+| `tests/unit/test_prune_217.py` | Used #307’s `_indexes_naming_column` in place of the PR’s inline scan. It checks indexed key columns and the SQL definition, so it finds `notices_caller_wake` even though the index names `wake_state` only in its predicate. The four case and quoting variants cover that lookup. |
+| `tests/unit/test_store_migration_2.py` | Used #307’s generalized historical reconstruction. It drops tables created by `CREATE TABLE IF NOT EXISTS`, including `caller_wake_sessions`, and finds dependent indexes in `sqlite_master`. All three slot-12 statements satisfy its `ALTER TABLE ... ADD COLUMN` assertion. Both parents imported `re` in different locations, so I kept one import in the chain’s location. |
+| `tests/unit/test_store_qos_migration.py` | Used all three chain hunks, including `test_d_qos_booked1_the_column_has_a_numbered_migration` and `PROVIDER_QOS_MIGRATION` for the fixture assertions. Kept the `_migration_adding` import because the slot assertion and historical fixture still use it. Kept the PR’s null review-field assertions. |
+| `docs/acceptance-contract.md` | Used the hub’s script with the two full commit IDs because Git never set `MERGE_HEAD`. It exited 0. |
+
+The seven automatic results match the byte-for-byte union of the two parents’ disjoint changes.
+
+| File | PR hunks | Chain hunks |
+| --- | --- | --- |
+| `README.md` | Review subject and caller-family flags after resume | Review format and accepted-result guidance |
+| `subfleet/cli.py` | Caller/session attribution, review fields, round labels and submission flags | Review result data and `_review_line`, plus #307’s waited-notice offering |
+| `subfleet/protocol.py` | Review capability fields, submission arguments and refusal reason | #307’s `NoticePendingArgs` |
+| `subfleet/refusals.py` | Review metadata errors and rendering | Worktree and #310 resume-pin refusal entries and rendering |
+| `subfleet/retention_archive.py` | Subject and round in the accepted-review retirement event | Bundle deferral and lock cleanup, plus #316 list, check and restore routing |
+| `tests/unit/test_handler_refusals.py` | Subject shape and synthetic sentinel assertions | Resume-pin property and example coverage |
+| `tests/unit/test_retention_archive.py` | Local fetch for the `gh-pages` fixture | Broken worktree registration cleanup test |
+
+### Contract
+
+```text
+$ python3 /Users/maxghenis/reviews/subfleet-hub/host-runs/merge_contract.py d5e6cb4aead4cdb7fbde5425643cf48a13682547 f2fa1a6d67d39adf07d3579a265c579467b6bbca
+merged against 53a7bac93: 264 clauses, none duplicated
+```
+
+The PR entry comes first and #316’s four C-8.8 entries lead the chain additions. The actual chain inputs have 25 changed or added clause lines. The chain’s 20th change-log addition, #295’s D-TREE-THRASH1 entry, sits at position 47 of the chain log. The result preserves that placement. One older duplicate change-log entry is present in all four versions. All 21 new entries occur once. Clause text, line diffs and the file hash matched the checks below. The merge added no change-log entry. C-3.9 describes the contents of slot 11’s DDL, and C-15.9 describes the migration-time stale marking and caller-wake runtime.
+
+```text
+split lines (base/PR/chain/merged): 868 872 895 899
+wc -l (base/PR/chain/merged): 867 871 894 898
+merged bytes: 1111997; SHA-256: 47867ac32e686a89667de493fa766b51ce63061c3548091f7ec316dd3c07f42a
+change-log entries (base/PR/chain/merged): 368 369 388 389
+chain additions' positions within chain change log: 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 47
+change-log order, preservation and single occurrence of all 21 new entries: PASS
+pre-existing repeated entries (base/PR/chain/merged): 1 1 1 1
+script clauses (base/PR/chain/merged): 257 260 261 264
+lettered clauses (base/PR/chain/merged): 260 263 264 267
+titled clauses (base/PR/chain/merged): 262 265 266 269
+duplicate clause IDs: none; C-3.8 and C-3.9: one each
+PR changed clauses: C-3.9, C-6.5, C-6.21, C-6.22, C-17.2
+chain changed clauses (25): C-3.2, C-3.8, C-5.4, C-5.5, C-6.7, C-6.8, C-6.10, C-6.11, C-6.12, C-6.20, C-8.4, C-8.8, C-12.4, C-12.10, C-12.11, C-13.4, C-15.2, C-15.3, C-15.6, C-15.9, C-16.5, C-17.1, C-23.16, C-25.7, C-26.8
+clause text equals its authoring parent or base: PASS
+chain→merged line diff equals base→PR (5 edit groups): PASS
+PR→merged line diff equals base→chain (21 edit groups): PASS
+```
+
+### Schema slots and semantic checks
+
+```text
+SCHEMA_VERSION 12; migration slots 4–12
+slot 11 equals both parents (6 statements); slot 12 equals PR (3 statements)
+SQL version header, caller wake table, both slot indexes, events_notice_retired: PASS
+```
+
+- **#307 and historical stores.** The version-10 fixture gains slot 11’s columns and table plus slot 12’s three columns. Its pending and offered notices become `stale` with `before-migration`. Surfaced and acknowledged notices keep null wake state. The #307 version-11 fixture gains the review columns and their index and preserves all existing wake values. The old #314 version-11 and version-12 fixtures preserve their existing review values and gain the wake objects they lack. The partial version-12 fixture already has `wake_state`, so repairing its remaining columns and table leaves the old notice eligible. Second opens preserve the row, version and audit snapshots, including a newly inserted pending notice that remains eligible. The already-version-12 repairs add no schema version or migration event.
+- **#313 and review metadata.** Read online list/show and the offline ledger paths. List JSON keeps the result alongside `caller_family`, `review_subject` and `review_round`. Online show has the fields and result inside the job and exposes the result at top level. Offline show has the fields and result in its flat row. Readable `runs` puts the round beside the name. Bare `runs show` emits metadata on stdout and the review verdict and counts on stderr. The shared prompt path still writes one review-format preamble, including for reviews with `--no-preamble` and resumed reviews. Review metadata normalization and round assignment leave that prompt path intact.
+- **#310 and resume.** The resume substitution carries the source subject and round and the pin derived from its recorded attempt model ID and alias. The review resume test keeps round 1 and advances the next accepted round to 2. The resume-contract cases exercise alias retention, fallback and launch effort.
+- **#315 and audit names.** A committed `job.submitted` inserts the job during that transaction. A refused round rolls back before inserting a job or emitting the event. Admission still owns `attempt.reserved` and its event IDs. The review code needs no `audit_as` change.
+- **#316 and archives.** The PR writes the accepted subject and round into `retention.pruned` and keeps the job fields in `rows.json`. Offload moves manifest-owned payload files and the bundle. The offload/recall test checks that `rows.json` stays inside while offloaded and that the recalled tree equals the original. Neither operation replaces the SQLite audit event.
+
+The bare merge produced four failures in PR-owned tests. Three historical-store cases still expected null wake state where #307 marks unread notices stale. The CLI case expected list JSON to omit #313’s `review` key. I updated the historical fixture assertions and added the offered, surfaced, acknowledged, partial-repair and new-notice cases. I also checked both an older daemon with null `review` and a daemon returning an accepted result alongside all three review fields. The affected batch passed all 382 cases after these test changes. The sandbox’s `index.lock` denial also prevented a separate commit for the test updates.
+
+### Setup and deviations
+
+- The sandbox denied writes in the Darwin temporary directory and its uv cache. I set `TMPDIR` to the job’s provided temporary directory, copied round 1’s two files to scratch and copied the 52,288 KiB shared cache into scratch. `uv sync --group dev` built the missing worktree `.venv` with Python 3.15.2 and pytest 9.1.1. Tests used xdist 3.8.0 with up to four workers. The shared cache stayed in place.
+- Every pytest import probe resolved `subfleet.__file__` to the assigned worktree. The launcher cleared inherited caller/session variables and the real-Claude opt-in. The round 1 plugin only deselected tests. A scratch-only pytest plugin redirected the suite’s retained-failure directory to the `.failed-roots` sibling of the selection log, so session startup did not prune the shared `/tmp/sf-failed` or probe PIDs from it. Hypothesis storage also went to scratch. The runner used no per-test timeout override.
+- The verified contract preserves the committed chain’s placement of its #295 entry and its 25 clause-line edits, with the expected hash. The merge and test updates are in worktree files because Git metadata is read-only in this job.
+- Two #307 tests in chain-only `tests/unit/test_store_notice_wake_migration.py` fail on obsolete latest-version assumptions. `test_d_wake_caller1_notice_delivery_is_a_numbered_additive_migration` equates slot 11 with `SCHEMA_VERSION` and assumes the latest version list ends at 11. `test_d_wake_caller1_reopening_preserves_retry_delivery_and_activity_records` finds the two correct migration events for slots 11 and 12 and expects one. The fallback preserves that chain file byte for byte. The PR-owned historical-store checks exercise the combined behavior.
+- The eight real-Claude premise cases were skipped by their opt-in marker.
+
+- `test_event_name_properties.py::TestAdmissionPasses::runTest` stopped at daemon construction with `macOS boot identity is unavailable`, before it exercised any event. The other eligible event-name, audit and session cases reached their assertions.
+- The optional archive-path batch exceeded the remaining churn allowance before it started. `df -H /` still showed 71 GB available. I used the remaining allowance for two smaller importer batches.
+
+### Test runs
+
+Each run checked the worktree import, the available space on `/`, and the time budget. The table records elapsed UTC intervals and the original local-time `uptime` readings. Sizes use KiB from the basetemp measured before deletion.
+
+| Batch | UTC start → end | Start → end `uptime` | `df -H /` data row | Passed | Failed | Skipped | Deselected | Basetemp KiB |
+| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
+| `contract` | 11:41:22Z → 11:46:04Z | 12:41  1 user, load averages: 72.75 70.95 72.31<br>12:46  1 user, load averages: 30.00 58.63 67.16 | `/dev/disk3s1s1   3996G     14G     77G    16%    487k  752M    0%   /` | 463 | 0 | 0 | 0 | 21716 |
+| `pr-submit` | 11:46:38Z → 11:51:09Z | 12:46  1 user, load averages: 21.10 53.25 64.85<br>12:51  1 user, load averages: 58.67 48.99 58.93 | `/dev/disk3s1s1   3996G     14G     77G    16%    487k  750M    0%   /` | 61 | 0 | 0 | 0 | 32936 |
+| `pr-cli-store-bare` | 11:51:33Z → 11:53:18Z | 12:51  1 user, load averages: 62.43 50.67 59.25<br>12:53  1 user, load averages: 61.00 54.47 59.80 | `/dev/disk3s1s1   3996G     14G     78G    16%    487k  760M    0%   /` | 376 | 4 | 0 | 0 | 12704 |
+| `pr-prune` | 11:53:37Z → 11:56:56Z | 12:53  1 user, load averages: 64.05 55.51 60.05<br>12:56  1 user, load averages: 29.81 50.10 57.41 | `/dev/disk3s1s1   3996G     14G     77G    16%    487k  758M    0%   /` | 51 | 0 | 0 | 0 | 17144 |
+| `pr-archive` | 11:57:11Z → 12:09:46Z | 12:57  1 user, load averages: 25.45 47.78 56.40<br>13:09  1 user, load averages: 44.94 54.07 55.68 | `/dev/disk3s1s1   3996G     14G     79G    15%    487k  771M    0%   /` | 108 | 0 | 0 | 1 | 79192 |
+| `pr-cli-store` | 12:10:19Z → 12:10:35Z | 13:10  1 user, load averages: 36.76 51.06 54.52<br>13:10  1 user, load averages: 32.29 49.37 53.85 | `/dev/disk3s1s1   3996G     14G     71G    17%    487k  695M    0%   /` | 382 | 0 | 0 | 0 | 12384 |
+| `wake-store` | 12:10:36Z → 12:10:41Z | 13:10  1 user, load averages: 32.29 49.37 53.85<br>13:10  1 user, load averages: 31.55 48.94 53.67 | `/dev/disk3s1s1   3996G     14G     72G    17%    487k  703M    0%   /` | 139 | 2 | 0 | 0 | 16256 |
+| `wake-fake` | 12:10:42Z → 12:10:53Z | 13:10  1 user, load averages: 31.55 48.94 53.67<br>13:10  1 user, load averages: 28.06 47.31 53.01 | `/dev/disk3s1s1   3996G     14G     72G    17%    487k  701M    0%   /` | 83 | 0 | 0 | 2 | 49968 |
+| `review-contract` | 12:10:54Z → 12:11:17Z | 13:10  1 user, load averages: 28.06 47.31 53.01<br>13:11  1 user, load averages: 28.53 45.92 52.34 | `/dev/disk3s1s1   3996G     14G     71G    17%    487k  697M    0%   /` | 822 | 0 | 0 | 0 | 98600 |
+| `resume-model` | 12:11:22Z → 12:11:31Z | 13:11  1 user, load averages: 28.53 45.92 52.34<br>13:11  1 user, load averages: 27.80 45.18 52.01 | `/dev/disk3s1s1   3996G     14G     72G    17%    487k  701M    0%   /` | 41 | 0 | 0 | 0 | 24556 |
+| `effort` | 12:11:33Z → 12:11:39Z | 13:11  1 user, load averages: 27.89 44.91 51.87<br>13:11  1 user, load averages: 27.42 44.53 51.70 | `/dev/disk3s1s1   3996G     14G     72G    17%    487k  701M    0%   /` | 51 | 0 | 8 | 0 | 8876 |
+| `events` | 12:11:41Z → 12:11:47Z | 13:11  1 user, load averages: 27.42 44.53 51.70<br>13:11  1 user, load averages: 29.40 44.40 51.56 | `/dev/disk3s1s1   3996G     14G     72G    17%    487k  700M    0%   /` | 78 | 1 | 0 | 114 | 15004 |
+| `event-sessions` | 12:11:48Z → 12:12:19Z | 13:11  1 user, load averages: 29.40 44.40 51.56<br>13:12  1 user, load averages: 26.28 42.25 50.54 | `/dev/disk3s1s1   3996G     14G     71G    17%    487k  700M    0%   /` | 50 | 0 | 0 | 8 | 12968 |
+| `offload` | 12:12:20Z → 12:15:30Z | 13:12  1 user, load averages: 26.28 42.25 50.54<br>13:15  1 user, load averages: 27.43 34.89 45.68 | `/dev/disk3s1s1   3996G     14G     71G    17%    487k  699M    0%   /` | 43 | 0 | 0 | 0 | 51848 |
+| `offload-recovery` | 12:15:56Z → 12:16:25Z | 13:15  1 user, load averages: 28.38 34.52 45.24<br>13:16  1 user, load averages: 32.25 34.98 45.04 | `/dev/disk3s1s1   3996G     14G     71G    17%    487k  692M    0%   /` | 54 | 0 | 0 | 0 | 16208 |
+| `optional-store` | 12:17:00Z → 12:17:38Z | 13:17  1 user, load averages: 34.32 35.43 44.81<br>13:17  1 user, load averages: 29.59 34.16 43.92 | `/dev/disk3s1s1   3996G     14G     71G    17%    487k  692M    0%   /` | 155 | 0 | 0 | 0 | 21784 |
+| `optional-contention` | 12:17:39Z → 12:17:51Z | 13:17  1 user, load averages: 29.59 34.16 43.92<br>13:17  1 user, load averages: 28.34 33.74 43.66 | `/dev/disk3s1s1   3996G     14G     71G    17%    487k  692M    0%   /` | 212 | 0 | 0 | 0 | 74860 |
+| `optional-readers` | 12:17:53Z → 12:18:03Z | 13:17  1 user, load averages: 27.35 33.45 43.50<br>13:18  1 user, load averages: 26.80 33.12 43.26 | `/dev/disk3s1s1   3996G     14G     71G    17%    487k  692M    0%   /` | 28 | 0 | 0 | 0 | 10960 |
+| `optional-retention` | 12:18:04Z → 12:18:28Z | 13:18  1 user, load averages: 26.80 33.12 43.26<br>13:18  1 user, load averages: 23.78 31.92 42.54 | `/dev/disk3s1s1   3996G     14G     70G    17%    487k  692M    0%   /` | 96 | 0 | 0 | 0 | 31500 |
+| `optional-prune` | 12:18:29Z → 12:18:38Z | 13:18  1 user, load averages: 23.78 31.92 42.54<br>13:18  1 user, load averages: 24.17 31.74 42.35 | `/dev/disk3s1s1   3996G     14G     71G    17%    487k  692M    0%   /` | 48 | 0 | 0 | 0 | 23524 |
+| `optional-operator` | 12:18:39Z → 12:19:09Z | 13:18  1 user, load averages: 24.17 31.74 42.35<br>13:19  1 user, load averages: 29.18 32.21 42.15 | `/dev/disk3s1s1   3996G     14G     70G    17%    487k  692M    0%   /` | 258 | 0 | 0 | 0 | 54336 |
+| `optional-reset` | 12:19:12Z → 12:20:11Z | 13:19  1 user, load averages: 29.18 32.21 42.15<br>13:20  1 user, load averages: 28.61 31.73 41.31 | `/dev/disk3s1s1   3996G     14G     70G    17%    487k  692M    0%   /` | 121 | 0 | 0 | 0 | 67308 |
+| `optional-retention-ops` | 12:20:12Z → 12:20:21Z | 13:20  1 user, load averages: 28.61 31.73 41.31<br>13:20  1 user, load averages: 27.44 31.38 41.07 | `/dev/disk3s1s1   3996G     14G     70G    17%    487k  691M    0%   /` | 135 | 0 | 0 | 0 | 12124 |
+| `optional-timing` | 12:20:22Z → 12:21:11Z | 13:20  1 user, load averages: 27.44 31.38 41.07<br>13:21  1 user, load averages: 19.29 28.67 39.52 | `/dev/disk3s1s1   3996G     14G     70G    17%    487k  691M    0%   /` | 167 | 0 | 0 | 0 | 98772 |
+| `optional-small` | 12:22:11Z → 12:22:15Z | 13:22  1 user, load averages: 20.32 27.26 38.25<br>13:22  1 user, load averages: 20.13 27.11 38.13 | `/dev/disk3s1s1   3996G     14G     71G    17%    487k  692M    0%   /` | 25 | 0 | 0 | 0 | 4040 |
+| `optional-timer-policy` | 12:23:00Z → 12:23:04Z | 13:23  1 user, load averages: 21.19 26.46 37.32<br>13:23  1 user, load averages: 20.30 26.19 37.16 | `/dev/disk3s1s1   3996G     14G     71G    17%    487k  692M    0%   /` | 45 | 0 | 0 | 0 | 7780 |
+
+Across 26 runs, including the bare-merge reproduction, **4,092 passed, 7 failed, 8 skipped and 125 deselected.**
+
+### Test selection
+
+- 14 deselected by `process: starts a production daemon child whose census reads the host process table`.
+- 1 deselected by `node: host processes: native guardian and production control loop reach unstubbed containment census`.
+- 91 deselected by `node: host processes: staged routing_state Claude registry reaches unstubbed procs.snapshot`.
+- 18 deselected by `file: host processes: staged routing_state Claude registry reaches unstubbed procs.snapshot`.
+- 1 deselected by `marker: real_lsof/real_cwd reads host processes`.
+
+The added selectors below include all parametrizations at each named node and all nodes in each named file. They point to the staged Claude registry and unstubbed `procs.snapshot`, except the handoff node, which reaches the native guardian and control-loop census.
+
+```text
+tests/fake/test_admission_route_isolation.py::test_c11_2_a_dry_run_resolves_the_same_way
+tests/fake/test_admission_route_isolation.py::test_c11_2_a_later_roster_change_cannot_make_an_accepted_pin_ambiguous
+tests/fake/test_admission_route_isolation.py::test_c11_2_a_mismatched_lane_is_dropped_only_within_one_provider
+tests/fake/test_admission_route_isolation.py::test_c11_2_a_pin_follows_its_lane_through_a_reenrolment
+tests/fake/test_admission_route_isolation.py::test_c11_2_the_jobs_provider_narrows_a_pin_that_names_two_lanes
+tests/fake/test_admission_route_isolation.py::test_c11_2_the_pin_roster_names_lanes_as_the_view_admission_evaluates
+tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_let_go_is_evaluated_again_when_it_is_next_due
+tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_that_followed_a_reenrolment_counts_the_account_once
+tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_whose_credential_is_latched_goes_to_the_next_candidate
+tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_whose_lane_is_only_full_keeps_its_lane
+tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_whose_lane_refuses_it_for_more_than_a_slot_goes_to_the_next_candidate
+tests/fake/test_admission_route_isolation.py::test_c6_12_a_fleet_held_only_by_route_waits_warns
+tests/fake/test_admission_route_isolation.py::test_c6_12_a_pass_with_nothing_to_look_at_builds_no_capacity_view
+tests/fake/test_admission_route_isolation.py::test_c6_12_a_pin_that_names_two_lanes_is_refused_and_the_pass_goes_on
+tests/fake/test_admission_route_isolation.py::test_c6_12_a_policy_edit_that_moves_a_tier_to_another_provider_waits_and_fails_nothing
+tests/fake/test_admission_route_isolation.py::test_c6_12_a_refused_check_rolls_back_what_the_reservation_wrote
+tests/fake/test_admission_route_isolation.py::test_c6_12_a_refused_writable_job_leaves_no_worktree
+tests/fake/test_admission_route_isolation.py::test_c6_12_a_route_hold_outranks_other_holds_and_no_released_lease_hurries_it
+tests/fake/test_admission_route_isolation.py::test_c6_12_a_transient_retry_on_a_model_id_the_policy_dropped_routes_the_job_itself
+tests/fake/test_admission_route_isolation.py::test_c6_12_a_transient_retry_whose_id_is_retired_to_another_provider_routes_the_job_itself
+tests/fake/test_admission_route_isolation.py::test_c6_12_a_transient_retry_whose_lane_was_disabled_since_routes_the_job_itself
+tests/fake/test_admission_route_isolation.py::test_c6_12_an_authorization_bound_to_a_label_is_refused
+tests/fake/test_admission_route_isolation.py::test_c6_12_an_authorization_the_probe_check_rejects_is_refused_and_the_pass_goes_on
+tests/fake/test_admission_route_isolation.py::test_c6_12_an_empty_task_or_tier_is_none
+tests/fake/test_admission_route_isolation.py::test_c6_12_an_evaluation_error_holds_the_job_visibly_and_holds_nobody_else
+tests/fake/test_admission_route_isolation.py::test_c6_12_an_evaluation_made_again_off_the_lock_is_isolated_too
+tests/fake/test_admission_route_isolation.py::test_c6_12_an_evaluation_that_succeeds_resets_the_route_count
+tests/fake/test_admission_route_isolation.py::test_c6_12_any_evaluation_error_of_one_job_is_that_jobs
+tests/fake/test_admission_route_isolation.py::test_c6_12_route_waits_back_off_and_a_restart_looks_at_them_at_once
+tests/fake/test_admission_route_isolation.py::test_c6_12_route_waits_double_from_5_s_to_a_300_s_ceiling
+tests/fake/test_admission_route_isolation.py::test_c6_12_the_incident_a_job_pinned_by_an_ambiguous_email_does_not_stop_the_pass
+tests/fake/test_admission_route_isolation.py::test_c6_12_the_incident_through_the_worker_pool_logs_no_failure
+tests/fake/test_admission_route_isolation.py::test_c6_12_why_names_a_route_error_it_meets_itself
+tests/fake/test_admission_route_isolation.py::test_c6_3_a_cap_that_fills_before_the_reservation_is_judged_on_every_lane
+tests/fake/test_admission_route_isolation.py::test_c6_3_a_commit_that_changes_nothing_the_decision_rests_on_does_not_send_it_back
+tests/fake/test_admission_route_isolation.py::test_c6_3_a_commit_that_moves_the_decision_is_decided_again_from_the_lanes_it_changed
+tests/fake/test_admission_route_isolation.py::test_c6_3_a_long_wait_for_the_store_lock_does_not_void_the_decision
+tests/fake/test_admission_route_isolation.py::test_c6_3_a_reading_that_ages_out_before_the_reservation_is_judged_again
+tests/fake/test_admission_route_isolation.py::test_c6_3_an_early_evaluation_whose_readings_stay_fresh_is_reserved_on
+tests/fake/test_admission_route_isolation.py::test_c6_3_an_override_that_ends_before_the_reservation_is_judged_again
+tests/fake/test_admission_route_isolation.py::test_c6_3_one_view_decides_an_override_on_one_clock
+tests/fake/test_admission_route_isolation.py::test_c6_3_the_reservation_takes_the_early_evaluation_when_nothing_was_committed
+tests/fake/test_admission_route_isolation.py::test_c6_9_a_due_retry_is_looked_at_as_its_pair_before_it_is_evaluated
+tests/fake/test_admission_route_isolation.py::test_c6_9_a_pinned_retry_competes_only_for_its_own_pair
+tests/fake/test_admission_route_isolation.py::test_c6_9_a_retry_that_lets_its_pin_go_keeps_its_place_behind_older_jobs
+tests/fake/test_admission_route_isolation.py::test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go
+tests/fake/test_capacity_wait_rollback.py
+tests/fake/test_event_names.py::test_c3_8_a_held_lease_records_the_wait
+tests/fake/test_event_names.py::test_c3_8_a_pair_that_changed_after_its_probe_records_the_wait
+tests/fake/test_event_names.py::test_c3_8_a_wait_that_changes_the_job_s_exclusions_records_it
+tests/fake/test_fence_wait_rollback.py
+tests/fake/test_idle_capacity_events.py::test_c23_16_demand_is_identical_between_old_and_long_capacity_looks
+tests/fake/test_idle_capacity_events.py::test_c6_10_a_condition_seen_only_after_the_census_still_brings_waits_forward
+tests/fake/test_idle_capacity_events.py::test_c6_10_a_failed_pass_keeps_capacity_news_for_every_wait_on_retry
+tests/fake/test_idle_capacity_events.py::test_c6_10_capacity_events_bring_every_eligible_wait_forward
+tests/fake/test_idle_capacity_events.py::test_c6_10_known_operator_reset_still_beats_the_long_clock
+tests/fake/test_idle_capacity_events.py::test_c6_10_long_wait_commits_at_most_six_times_per_hour_per_job
+tests/fake/test_idle_capacity_events.py::test_c6_10_no_change_never_brings_waits_forward
+tests/fake/test_idle_capacity_events.py::test_c6_10_reading_or_time_verdicts_keep_the_30_second_ceiling
+tests/fake/test_idle_capacity_events.py::test_c6_10_released_hold_places_the_old_rules_jobs_in_order_no_later
+tests/fake/test_idle_capacity_events.py::test_c6_10_unchanged_operator_wait_reaches_600_seconds
+tests/fake/test_idle_capacity_refresh_bound.py
+tests/fake/test_notice_delivery.py::test_c15_3_state_a_pin_notice_is_a_message_surfaced_once
+tests/fake/test_probe_wait_rollback.py
+tests/fake/test_sessions_end_to_end.py::test_handoff_dispatches_detached_through_the_normal_submit_path
+tests/fake/test_store_contention_meter.py
+```
+
+Round 1’s existing rules also handled the archive test `test_real_lsof_sees_a_process_whose_cwd_is_in_the_tree` and the production-child `process_inspection_available` fixture wherever collected.
+
+### Footprint and cleanup
+
+Scratch was `/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261126-122031-rva2-merge-r3-a1-yt9u2sbq/sf-a2-merge3`.
+Its remaining subdirectories were `__pycache__/`, `hypothesis/`, `logs/`, `plugin/`, `uv-cache/`.
+I removed each basetemp named in the commands below and the scratch tree with guarded `shutil.rmtree`.
+Each deletion asserted that the resolved location was inside `sf-a2-merge3`.
+
+New `sf-test-homes-*` left under the job’s `TMPDIR` after the final run: 0.
+
+Measured churn was about **943,420 KiB** (966 MB), including 877,348 KiB of basetemps, 0 KiB of retained failures, 53,280 KiB of remaining scratch including uv cache, and 12,792 KiB in the ignored worktree `.venv`. The largest accounted scratch footprint at a run boundary was 152,040 KiB.
+
+### Final head and commands
+
+**No commit.** The sandbox denied Git’s metadata locks. The actual existing HEAD is `d5e6cb4aead4cdb7fbde5425643cf48a13682547`.
+
+The commands below expand through this shell function. `scratch` is the path above, with `TMPDIR` set to its parent.
+
+```sh
+run() {
+  label=$1 workers=$2 base=$3
+  shift 3
+  PYTHONPATH="$scratch/plugin" UV_CACHE_DIR="$scratch/uv-cache" \
+    HYPOTHESIS_STORAGE_DIRECTORY="$scratch/hypothesis" \
+    SF_MERGE1_EXCLUDE="$scratch/exclude.tsv" SF_MERGE1_LOG="$scratch/logs/$label.deselected.jsonl" \
+    uv run --no-sync --with 'pytest-xdist>=3.6' python -m pytest -p no:cacheprovider \
+      -p sf_merge1_select -p sf_merge3_artifacts -n "$workers" --basetemp "$scratch/$base" -ra "$@"
+}
+
+# 463 passed, 0 failed
+run contract 4 pytest-contract-1795693282 \
+  tests/fake/test_state_contract.py tests/unit/test_test_module_names.py \
+  tests/unit/test_invariants_index.py tests/unit/test_handler_refusals.py
+
+# 61 passed, 0 failed
+run pr-submit 4 pytest-pr-submit-1795693598 \
+  tests/fake/test_review_subject_resume.py tests/fake/test_review_subject_submission.py \
+  tests/fake/test_review_subject_validation.py tests/unit/test_caller_family_ancestry.py \
+  tests/unit/test_codex_writable_fanout.py tests/unit/test_reserve_authorization_plumbing.py
+
+# 376 passed, 4 failed
+run pr-cli-store-bare 4 pytest-pr-cli-store-bare-1795693893 \
+  tests/unit/test_cli.py tests/unit/test_review_runs_columns.py \
+  tests/unit/test_review_subject_cli.py tests/unit/test_review_subject_normalization.py \
+  tests/unit/test_review_subject_resume_cli.py tests/unit/test_store_migration_2.py \
+  tests/unit/test_store_qos_migration.py tests/unit/test_store_review_subject_migration.py \
+  tests/unit/test_store_upgrade_slots.py
+
+# 51 passed, 0 failed
+run pr-prune 4 pytest-pr-prune-1795694017 \
+  tests/unit/test_prune_217.py tests/unit/test_retention_review_subject.py
+
+# 108 passed, 0 failed
+run pr-archive 3 pytest-pr-archive-1795694231 \
+  tests/unit/test_retention_archive.py
+
+# 382 passed, 0 failed
+run pr-cli-store 4 pytest-pr-cli-store-1795695019 \
+  tests/unit/test_cli.py tests/unit/test_review_runs_columns.py \
+  tests/unit/test_review_subject_cli.py tests/unit/test_review_subject_normalization.py \
+  tests/unit/test_review_subject_resume_cli.py tests/unit/test_store_migration_2.py \
+  tests/unit/test_store_qos_migration.py tests/unit/test_store_review_subject_migration.py \
+  tests/unit/test_store_upgrade_slots.py
+
+# 139 passed, 2 failed
+run wake-store 4 pytest-wake-store-1795695036 \
+  tests/unit/test_store_notice_wake_migration.py tests/unit/test_notice_claims.py \
+  tests/unit/test_notice_rendering.py tests/unit/test_sessions_notice_wake.py
+
+# 83 passed, 0 failed
+run wake-fake 4 pytest-wake-fake-1795695042 \
+  tests/fake/test_caller_notice_wakes.py tests/fake/test_notice_delivery.py
+
+# 822 passed, 0 failed
+run review-contract 4 pytest-review-contract-1795695054 \
+  tests/unit/test_review_contract_prompt.py tests/unit/test_review_result.py \
+  tests/unit/test_review_result_cli.py tests/unit/test_review_result_storage.py
+
+# 41 passed, 0 failed
+run resume-model 4 pytest-resume-model-1795695082 \
+  tests/fake/test_resume_contract.py
+
+# 51 passed, 0 failed
+run effort 4 pytest-effort-1795695093 \
+  tests/unit/test_effort_env.py tests/unit/test_ultracode_effort.py
+
+# 78 passed, 1 failed
+run events 4 pytest-events-1795695101 \
+  tests/unit/test_store_audit.py tests/fake/test_event_names.py \
+  tests/fake/test_event_name_properties.py tests/fake/test_capacity_wait_rollback.py \
+  tests/fake/test_probe_wait_rollback.py tests/fake/test_fence_wait_rollback.py \
+  tests/fake/test_store_contention_meter.py tests/fake/test_admission_route_isolation.py \
+  tests/fake/test_idle_capacity_events.py tests/fake/test_idle_capacity_refresh_bound.py
+
+# 50 passed, 0 failed
+run event-sessions 4 pytest-event-sessions-1795695108 \
+  tests/fake/test_probe_cancel.py tests/fake/test_sessions_end_to_end.py \
+  tests/fake/test_waiting_queue_cost.py
+
+# 43 passed, 0 failed
+run offload 4 pytest-offload-1795695140 \
+  tests/unit/test_retention_offload.py
+
+# 54 passed, 0 failed
+run offload-recovery 4 pytest-offload-recovery-1795695356 \
+  tests/unit/test_retention_offload_r1.py tests/unit/test_retention_offload_r2.py \
+  tests/unit/test_retention_offload_r3.py tests/unit/test_retention_volume_offload_r1.py
+
+# 155 passed, 0 failed
+run optional-store 4 pytest-optional-store-1795695420 \
+  tests/unit/test_admission_store_wakes.py tests/unit/test_batch_submission_queries.py \
+  tests/unit/test_prune_decision_backup_verification.py tests/unit/test_qos_review_r1.py \
+  tests/unit/test_render_quota_projection.py tests/unit/test_store_ids.py \
+  tests/unit/test_store_properties.py tests/unit/test_store_snapshot_plans.py
+
+# 212 passed, 0 failed
+run optional-contention 3 pytest-optional-contention-1795695459 \
+  tests/unit/test_store_contention_queries.py
+
+# 28 passed, 0 failed
+run optional-readers 2 pytest-optional-readers-1795695473 \
+  tests/unit/test_store_readers.py
+
+# 96 passed, 0 failed
+run optional-retention 4 pytest-optional-retention-1795695484 \
+  tests/unit/test_pin_notice_identity.py tests/unit/test_retention_outcome_pages.py \
+  tests/unit/test_retention_outcome_permissions.py tests/unit/test_retention_outcomes.py \
+  tests/unit/test_notice_keep.py
+
+# 48 passed, 0 failed
+run optional-prune 2 pytest-optional-prune-1795695509 \
+  tests/unit/test_prune_decisions.py
+
+# 258 passed, 0 failed
+run optional-operator 4 pytest-optional-operator-1795695519 \
+  tests/unit/test_hold_note.py tests/unit/test_operator_hold_closures.py \
+  tests/unit/test_operator_notices.py tests/unit/test_status_json.py \
+  tests/unit/test_liveness_write_pacing.py
+
+# 121 passed, 0 failed
+run optional-reset 3 pytest-optional-reset-1795695552 \
+  tests/unit/test_reset_credit_claim_timing.py tests/unit/test_reset_credit_properties.py \
+  tests/unit/test_reset_credit_review_r1.py tests/unit/test_reset_credit_review_r2.py \
+  tests/unit/test_reset_credit_review_r3.py tests/unit/test_wall_retry_properties.py
+
+# 135 passed, 0 failed
+run optional-retention-ops 4 pytest-optional-retention-ops-1795695612 \
+  tests/unit/test_retention_delete_daemon.py tests/unit/test_retention_delete_request.py \
+  tests/unit/test_retention_turn_contract.py tests/unit/test_retention_turns.py \
+  tests/unit/test_timers_retention.py
+
+# 167 passed, 0 failed
+run optional-timing 3 pytest-optional-timing-1795695622 \
+  tests/unit/test_daemon_inspection_load.py tests/unit/test_daemon_inspection_properties.py \
+  tests/unit/test_inspection_pacing_properties.py tests/unit/test_kill4_properties.py \
+  tests/unit/test_lockwatch.py tests/unit/test_timers_busy_read.py
+
+# 25 passed, 0 failed
+run optional-small 2 pytest-optional-small-1795695731 \
+  tests/unit/test_attempt_tmpdir_retention.py tests/unit/test_claude_cards_wiring.py \
+  tests/unit/test_timers_daemon.py
+
+# 45 passed, 0 failed
+run optional-timer-policy 2 pytest-optional-timer-policy-1795695780 \
+  tests/unit/test_timers_alerts.py tests/unit/test_timers_keepalive.py \
+  tests/unit/test_policy_support.py
+```
+
+The merged worktree had 118 Store importers, including 4 PR-only importers. Of 114 chain Store importers, steps 1–4 collected 9 and the optional runs collected 44 more. 61 remain outside this run.
+
+**Left for the hub and CI.** Record the merged worktree with the intended parents and commit the test updates and report. The two chain-only #307 assertions need to account for slot 12. Recheck the event property where macOS boot identity is available. The process-dependent deselections, real-Claude opt-in cases and remaining optional importers are outside this run.
+
+### Hub collection
+
+The hub recorded the merge in the lane with the intended parents (`76c8ac29a`), copying the seven resolved files from the job's worktree. The contract matched the SHA-256 above, and every other path matched the job's files. The PR-owned test updates went in a separate commit (`82f52185b`). The two #307 tests in `tests/unit/test_store_notice_wake_migration.py` now allow a later slot (`273ab7a87`): slot 11 must be at or below `SCHEMA_VERSION`, and the first open of a version-10 store records one version row and one `schema.migrated` event for each step from 11 to the latest. On `273ab7a87`, the four contract files, the PR's changed test files and `tests/unit/test_store_*.py` passed 1,319 tests with `-n 4`.

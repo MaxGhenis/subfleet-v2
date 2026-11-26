@@ -149,10 +149,11 @@ def test_c15_3_state_acknowledged_is_terminal_for_service_notices(state_daemon, 
 def test_c15_3_state_a_stale_offer_never_puts_a_surfaced_notice_back(state_daemon, no_wake):
     """C-15.3 an offer read before a hook surfaced the notice cannot make the next hook print it again.
 
-    `notify_push.offer` and the PostToolUse hook mark `offered` from a
-    `notice.pending` read; a session hook can surface the same rows between
-    that read and the mark. `offered` is below `surfaced` on the ladder, so the
-    mark leaves the row where the hook put it.
+    `notify_push.offer` marks `offered` from a `notice.pending` read (as the
+    PostToolUse hook did until C-15.9's claim, review r2 of #307); a session
+    hook can surface the same rows between that read and the mark. `offered` is
+    below `surfaced` on the ladder, so the mark leaves the row where the hook
+    put it.
     """
     daemon, harness = state_daemon
     job_id, notice_id = job_notice(daemon, harness, "raced")
@@ -169,12 +170,13 @@ def test_c15_3_state_a_stale_offer_never_puts_a_surfaced_notice_back(state_daemo
 def test_c15_3_state_an_offered_notice_is_never_pending_again(state_daemon, no_wake):
     """C-15.3: no `notice.mark` returns a notice to `pending`, and an offer never lowers a surfaced one.
 
-    The offer here is the PostToolUse hook's (`hooks._deliver`: `offered`,
-    transport `hook:PostToolUse`). `pending` is not a mark state, a repeated
+    The offer here has the PostToolUse hook's transport (`hook:PostToolUse`, as
+    its claim leaves a notice). `pending` is not a mark state, a repeated
     offer changes nothing, the next session hook prints each notice once, and an
     offer read before that hook leaves it `surfaced`. The socket push (C-15.7)
-    moves rows with its own SQL, not `notice.mark`, so its give-back of an
-    unwritten push is that clause's to test.
+    and the PostToolUse claim (C-15.9) move rows with their own SQL, not
+    `notice.mark`, so their give-backs of an unwritten push or an unprinted claim
+    are those clauses' to test.
     """
     daemon, harness = state_daemon
     job_id, notice_id = job_notice(daemon, harness, "offered-to")

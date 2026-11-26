@@ -7,10 +7,10 @@ it moved — and the same code must produce an identical shape on a fresh store.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 import json
 from pathlib import Path
-import re
 
 import pytest
 

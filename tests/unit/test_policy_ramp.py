@@ -17,9 +17,10 @@ from subfleet.ramp import PlacementRamp
 def test_shipped_policy_preserves_raw_hash_and_disabled_ramp_defaults():
     # A daemon without policy.json copies these bytes, whose hash enters every
     # admission decision even when the ramp is absent or disabled (C-6.18 R6).
-    # D-REVIEW-FAMILY1 updates the shipped reviewer choices.
-    # Loading ramp defaults still changes no bytes.
-    before = "ac7ef8579cf9792803e2c649ef6850be7fc342311e4ddf05c21a999c22b264ab"
+    # D-PROBE-DEADLINE1 adds the admission deadline to the shipped bytes,
+    # D-WAKE-CALLER1 adds three session keys and D-REVIEW-FAMILY1 updates the
+    # shipped reviewer choices; loading ramp defaults still changes no bytes.
+    before = "435f7bf6dafbe51514ccb298cd617a3b46c1f97283ebeacd29c832d7f0b27e8f"
     assert "ramp" not in json.loads(DEFAULT_POLICY_PATH.read_bytes())["admission"]
     assert policy_hash(DEFAULT_POLICY_PATH) == before
     loaded = load_policy(DEFAULT_POLICY_PATH)

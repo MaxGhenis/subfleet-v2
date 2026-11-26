@@ -1,0 +1,40 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.15.2, pytest-9.1.1, pluggy-1.6.0 -- /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpQzvsu7/bin/python
+cachedir: .pytest_cache
+hypothesis profile 'default'
+rootdir: /Users/maxghenis/.subfleet/worktrees/20261117-114947-ao-fix-r2
+configfile: pyproject.toml
+plugins: xdist-3.8.0, timeout-2.4.0, hypothesis-6.168.1
+created: 4/4 workers
+4 workers [109 items]
+
+scheduling tests via LoadScheduling
+
+tests/unit/test_retention_archive.py::test_local_path_remote_is_not_a_remote 
+tests/unit/test_retention_archive.py::test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit 
+tests/unit/test_retention_archive.py::test_file_written_after_the_final_check_is_kept_in_conflicts 
+tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[truncated] 
+[gw3] [  0%] PASSED tests/unit/test_retention_archive.py::test_local_path_remote_is_not_a_remote 
+tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[alternates] 
+[gw2] [  1%] FAILED tests/unit/test_retention_archive.py::test_file_written_after_the_final_check_is_kept_in_conflicts 
+tests/unit/test_retention_archive.py::test_new_file_before_commit_rolls_back_the_job 
+[gw3] [  2%] PASSED tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[alternates] 
+tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[shallow] 
+[gw1] [  3%] FAILED tests/unit/test_retention_archive.py::test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit 
+tests/unit/test_retention_archive.py::test_bundle_alone_restores_the_commits_in_a_fresh_clone 
+[gw3] [  4%] PASSED tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[shallow] 
+tests/unit/test_retention_archive.py::test_a_remote_on_this_machine_is_no_network_remote 
+[gw3] [  5%] PASSED tests/unit/test_retention_archive.py::test_a_remote_on_this_machine_is_no_network_remote 
+tests/unit/test_retention_archive.py::test_network_url_classification 
+[gw3] [  6%] PASSED tests/unit/test_retention_archive.py::test_network_url_classification 
+tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[wrong-bytes] 
+[gw0] [  7%] FAILED tests/unit/test_retention_archive.py::test_corrupted_loose_object_is_not_trusted_for_omission[truncated] 
+tests/unit/test_retention_archive.py::test_object_reader_hashes_every_byte 
+[gw0] [  8%] PASSED tests/unit/test_retention_archive.py::test_object_reader_hashes_every_byte 
+tests/unit/test_retention_archive.py::test_anchor_is_deterministic_and_create_is_idempotent 
+[gw2] [  9%] PASSED tests/unit/test_retention_archive.py::test_new_file_before_commit_rolls_back_the_job 
+tests/unit/test_retention_archive.py::test_parked_jobs_take_turns_at_the_pass_time 
+[gw0] [ 10%] PASSED tests/unit/test_retention_archive.py::test_anchor_is_deterministic_and_create_is_idempotent 
+tests/unit/test_retention_archive.py::test_rollback_after_anchoring_then_next_pass_retires 
+[gw1] [ 11%] PASSED tests/unit/test_retention_archive.py::test_bundle_alone_restores_the_commits_in_a_fresh_clone 
+tests/unit/test_retention_archive.py::test_scratch_source_clone_deleted_after_retirement_is_still_restorable 

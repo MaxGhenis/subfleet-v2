@@ -47,6 +47,8 @@ NOTICE_WAKE_MIGRATION = 11
 REVIEW_SUBJECT_MIGRATION = 12
 REVIEW_FAMILY_MIGRATION = 13
 SCHEMA_VERSION = REVIEW_FAMILY_MIGRATION
+#: C-15.9: `wake_reason` of a notice already unread when the store migrated.
+NOTICE_WAKE_PREDATES = "before-migration"
 #: C-12.4: jobs whose attempts in the last 24 h had no shell or no writes. A
 #: range on `reserved_at`, which `attempts_reserved` indexes, in the stored
 #: spelling (`restricted_window`): `julianday(reserved_at)` could use no index and
@@ -99,6 +101,8 @@ CLOSE_WAIT_S = 5.0
 #: disk. SQLite's automatic checkpoints are PASSIVE: they never wait for a
 #: reader, only stop short of the oldest snapshot still open.
 WAL_SIZE_LIMIT = 64 * 1024 * 1024
+#: C-3.8: the event columns besides its kind and data that `Store.audit_as` may set.
+AUDIT_IDS = frozenset({"job_id", "attempt_id", "lane_id"})
 
 #: C-3.1: migrations are additive and numbered. Each entry is the statements that
 #: carry a database from `n - 1` to `n`; `store_schema.sql` always describes the
@@ -132,7 +136,9 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         "ALTER TABLE jobs ADD COLUMN provider_qos TEXT "
         "CHECK (provider_qos IS NULL OR provider_qos IN ('utility','default'))",
     ),
-    # D-SCHEMA-SLOTS1: #307's exact storage schema, without its wake runtime.
+    # C-15.1, D-WAKE-CALLER1: keep delivery claims and retry clocks beside the
+    # notice, and the caller's activity and wake bounds across daemon restarts.
+    # `_migrate` then records every notice still unread as `stale` (C-15.9).
     NOTICE_WAKE_MIGRATION: (
         "ALTER TABLE notices ADD COLUMN wake_state TEXT "
         "CHECK (wake_state IS NULL OR wake_state IN ('claimed','delivered','undeliverable','stale'))",
@@ -410,14 +416,19 @@ class Store:
         # held it, for how long, and what they were doing.
         self._lock = WatchedLock("store")
         self._depth = 0
-        # C-3.2: each open transaction's audit event, innermost last (`audit_as`).
-        self._audits: list[list] = []
+        # C-3.2, C-3.8: each open transaction's audit event, innermost last (`audit_as`):
+        # its kind, data and ids, which the event is written with when it commits.
+        self._audits: list[dict[str, Any]] = []
+        # C-3.8: per open transaction, innermost last, the changes its nested transactions
+        # (at any depth) made and then rolled back, which `total_changes` still counts.
+        self._undone: list[int] = []
         # D-ADMIT-IDLE1: connection-local mutation notices, published only after
         # the outer transaction commits. No persistent schema or polling read.
         self._admission_watch: Callable[[str], None] | None = None
         self._admission_pending: set[str] = set()
-        # Bumped by every committed top-level transaction that changed a row.
-        # A reader compares it without taking `_lock` (an int read is atomic)
+        # Bumped by every committed top-level transaction that kept a change (C-3.8: net
+        # of what nested transactions rolled back, whatever its event's name, None
+        # included). A reader compares it without taking `_lock` (an int read is atomic)
         # to learn whether anything it derived from the store can have changed.
         self.generation = 0
         if not self.read_only and initialize:
@@ -511,6 +522,7 @@ class Store:
         # Recheck slots 11 onward by presence even when the version already
         # says 12 or 13 (D-SCHEMA-SLOTS1).
         for step in range(min(version + 1, NOTICE_WAKE_MIGRATION), SCHEMA_VERSION + 1):
+            added = set()
             for statement in MIGRATIONS.get(step, ()):
                 if statement.startswith("ALTER TABLE "):
                     _alter, _table_kw, table, _add, _column_kw, column, *_rest = statement.split()
@@ -519,7 +531,15 @@ class Store:
                     # The schema file creates any table absent from an old store.
                     if not present or column in present:
                         continue
+                    added.add((table, column))
                 self.connection.execute(statement)
+            if ("notices", "wake_state") in added:
+                # C-15.9 (review r1 of #307, finding 3): a notice from before this
+                # feature is never a reason to wake its caller; the hooks still show
+                # it. Keyed to the step that adds the column, wherever it is numbered.
+                self.connection.execute(
+                    "UPDATE notices SET wake_state='stale',wake_reason=? "
+                    "WHERE wake_state IS NULL AND state IN ('pending','offered')", (NOTICE_WAKE_PREDATES,))
             if step > version and step == LAUNCH_CAPABILITY_MIGRATION and self.connection.execute(
                     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='attempts'").fetchone():
                 self.connection.execute(
@@ -588,16 +608,28 @@ class Store:
             self.connection.execute("BEGIN IMMEDIATE" if depth == 0 else f"SAVEPOINT {savepoint}")
             self._depth += 1
             before = self.connection.total_changes
-            audit = [kind, data]
+            audit = {"kind": kind, "data": data, "job_id": job_id, "attempt_id": attempt_id, "lane_id": lane_id}
             self._audits.append(audit)
+            self._undone.append(0)
             try:
                 yield self.connection
-                if self.connection.total_changes != before and audit[0] is not None:
+                # C-3.8: what this transaction kept, net of what its nested transactions rolled
+                # back. It decides the event (unless the name is None) and, at the top level,
+                # the generation (whatever the name: a repeated wait still moved a clock).
+                kept = self.connection.total_changes - before != self._undone[-1]
+                if kept and audit["kind"] is not None:
+                    # C-3.8: the ids too are the entry's, which `audit_as` may have set.
                     self.connection.execute(
                         "INSERT INTO events(ts,kind,job_id,attempt_id,lane_id,data_json) VALUES (?,?,?,?,?,?)",
-                        (utc_now(), audit[0], job_id, attempt_id, lane_id, _json(audit[1] or {})))
+                        (utc_now(), audit["kind"], audit["job_id"], audit["attempt_id"], audit["lane_id"],
+                         _json(audit["data"] or {})))
                 self.connection.execute("COMMIT" if depth == 0 else f"RELEASE SAVEPOINT {savepoint}")
-                if depth == 0 and self.connection.total_changes != before:
+                if depth:
+                    # The parent's count includes all this one counted, so also what this
+                    # one's children rolled back: hand that on, or a grandchild's undone
+                    # write would make the parent record an event.
+                    self._undone[-2] += self._undone[-1]
+                elif kept:
                     self.generation += 1
                 if depth == 0:
                     notices = tuple(sorted(self._admission_pending))
@@ -610,25 +642,35 @@ class Store:
                 else:
                     self.connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
                     self.connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+                    self._undone[-2] += self.connection.total_changes - before
                 raise
             finally:
                 self._audits.pop()
+                self._undone.pop()
                 self._depth -= 1
         if self._admission_watch is not None:
             for category in notices:
                 self._admission_watch(category)
 
-    def audit_as(self, kind: str | None, data: Mapping[str, Any] | None = None) -> None:
+    def audit_as(self, kind: str | None, data: Mapping[str, Any] | None = None, **ids: str | None) -> None:
         """C-3.2: the audit event of the innermost transaction open on this thread is `kind`
         with `data`, for a transaction that learns inside itself what it did; with `kind`
         None it writes none, its block having recorded its own events. C-11.10 (review r3
         of #260, R3-1): an admission write that finds the task held becomes that hold's take,
         so it records `job.task_held`, and an episode that opens behind a hold records its
-        own `job.pin_unadmittable` before the take that pauses it."""
+        own `job.pin_unadmittable` before the take that pauses it.
+
+        C-3.8: `ids` may also set the event's `job_id`, `attempt_id` and `lane_id`, which
+        otherwise stay as the transaction opened with them: admission learns the attempt and
+        lane only when it reserves one (`attempt.reserved`). Any other field is refused
+        (`ValueError`); `kind` and `data` are replaced whole, as before."""
+        stray = set(ids) - AUDIT_IDS
+        if stray:
+            raise ValueError(f"audit_as: an event has no field {', '.join(sorted(stray))}")
         with self._lock:
             if not self._audits:
                 raise RuntimeError("audit_as: no transaction is open on this thread")
-            self._audits[-1][:] = [kind, data]
+            self._audits[-1].update(kind=kind, data=data, **ids)
 
     def query(self, sql: str, params: Sequence[Any] = ()) -> list[Row]:
         if self._reads_elsewhere():
