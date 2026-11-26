@@ -1,0 +1,6 @@
+tests/unit/test_approval_resolution.py
+tests/fake/test_mcp_job_contract.py
+tests/unit/test_conversation_stream_assertion.py
+tests/fake/test_finalization_replay.py
+tests/unit/test_lane_settings_review_r1.py
+tests/fake/test_turn_relay_exit.py

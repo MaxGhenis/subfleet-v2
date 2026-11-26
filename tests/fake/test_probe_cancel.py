@@ -20,7 +20,7 @@ import pytest
 from subfleet import daemon as module, scheduler
 from subfleet.adapters import registry
 from subfleet.contracts import Outcome, OutcomeClass
-from subfleet.daemon import Daemon, TERMINAL
+from subfleet.daemon import ADMISSION_EVENT, RESERVATION_EVENT, Daemon, TERMINAL
 from subfleet.store import Store
 from tests.fake.conftest import Harness
 from tests.fake_adapter import FakeAdapter
@@ -34,6 +34,9 @@ class AdmissionHistory:
         self.job_id = self.routed = self.holder = None
         self.cancel_at = None
         self.gates, self.reservations, self.guardians = [], [], []
+        # C-3.8: admission transactions entered, so a cancel that waits at that boundary
+        # can be shown to have reached it (a rename would leave it unfired, and silent).
+        self.admissions = 0
         self.defer_probe = True
         self.real_candidate = Daemon._probe_candidate
         self.real_route = Daemon._route
@@ -96,13 +99,20 @@ class AdmissionHistory:
         with self.real_transaction(store, kind, **kwargs) as tx:
             row = store.get_job(kwargs["job_id"]) if kwargs.get("job_id") else None
             blocked = bool(row and (row["cancel_requested_at"] or row["state"] in TERMINAL))
-            if kind in ("probe.reserved", "attempt.reserved"):
+            if kind == ADMISSION_EVENT:
+                self.admissions += 1
+            if kind in ("probe.reserved", ADMISSION_EVENT):
                 before = (self.reserved_holders(store), {a["attempt_id"] for a in store.list_attempts()})
             yield tx
-            if kind in ("probe.reserved", "attempt.reserved"):
+            if kind in ("probe.reserved", ADMISSION_EVENT):
                 after = (self.reserved_holders(store), {a["attempt_id"] for a in store.list_attempts()})
                 added = (after[0] - before[0]) | (after[1] - before[1])
-                self.reservations.append((kind, blocked, added))
+                # C-3.8: admission's transaction is recorded by what it did: the name it ends
+                # under, which is the reservation's exactly when it inserted an attempt.
+                name = store._audits[-1]["kind"] if kind == ADMISSION_EVENT else kind
+                if kind == ADMISSION_EVENT:
+                    assert (name == RESERVATION_EVENT) == bool(after[1] - before[1]), (name, added)
+                self.reservations.append((name, blocked, added))
                 assert not (blocked and added), "reserved after cancellation at transaction entry"
 
     def reserve_probe(self, cancel_at=None):
@@ -176,9 +186,14 @@ class AdmissionHistory:
 
     def reserve_attempt(self, cancel_at=None):
         self.cancel_at = cancel_at
+        current = self.service.store.get_job(self.job_id) if self.job_id else None
+        queued = bool(current and current["state"] == "queued" and not current["cancel_requested_at"])
         with pytest.MonkeyPatch.context() as patch:
             patch.setattr(self.service, "_needs_probe", lambda *a: False)
             self.service._admit()
+        if queued and cancel_at == ADMISSION_EVENT:
+            # C-3.8: a queued job's pass crossed the admission boundary, so the cancel fired.
+            assert self.cancel_at is None, f"admission never opened as {ADMISSION_EVENT!r}"
         self.cancel_at = None
 
     def close(self):
@@ -330,8 +345,11 @@ def test_shared_attempt_reservation_rechecks_cancel(history, kind):
         manifest = json.loads(path.read_text())
         manifest["resume"] = {"native_session_id": "cancel-test-session"}
         path.write_text(json.dumps(manifest))
-    history.reserve_attempt("attempt.reserved")
-    assert history.reservations == [("attempt.reserved", True, set())]
+    history.reserve_attempt(ADMISSION_EVENT)
+    # C-3.8: the boundary was crossed under admission's opening name, and the cancelled
+    # job's transaction ended under it too: it reserved nothing.
+    assert history.admissions == 1
+    assert history.reservations == [(ADMISSION_EVENT, True, set())]
     assert history.service.store.list_attempts() == []
 
 
@@ -393,7 +411,7 @@ class ProbeCancelMachine(RuleBasedStateMachine):
         self.history.restart()
 
     @precondition(lambda self: self.history.routed is not None and self.history.holder is None)
-    @rule(cancel_at=st.sampled_from([None, "attempt.reserved"]))
+    @rule(cancel_at=st.sampled_from([None, ADMISSION_EVENT]))
     def reserve_attempt(self, cancel_at):
         event("operation=reserve_attempt")
         self.history.reserve_attempt(cancel_at)

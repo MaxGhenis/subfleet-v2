@@ -1,0 +1,27 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____ test_c15_9_one_path_conversation_bound_session_is_left_to_wake_engine _____
+
+callers = <tests.fake.test_caller_notice_wakes.Callers object at 0x107fd0590>
+
+    def test_c15_9_one_path_conversation_bound_session_is_left_to_wake_engine(callers):
+        """Invariant 6 One path: a conversation's caller never gets this second wake."""
+        callers.register("conversation")
+        notice = callers.finish("conversation")
+        conversation, _ = callers.daemon.conversations.store.create_conversation(
+            provider="claude", workspace=str(callers.harness.workdir), workspace_kind="in-place",
+            settings={"model": "opus", "permission": "ask"},
+            origin="native", native_session_id="conversation")
+        assert callers.daemon._conversation_binding("conversation") == (
+            "conversation " + conversation["conversation_id"])
+        callers.pass_once()
+>       assert callers.counts()[notice] == 0
+E       assert 1 == 0
+
+tests/fake/test_caller_notice_wakes.py:388: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4442982112:daemon.py:994 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4442982112:daemon.py:1082 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_one_path_conversation_bound_session_is_left_to_wake_engine
+1 failed in 0.26s

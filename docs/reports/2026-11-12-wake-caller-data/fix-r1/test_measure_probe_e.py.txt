@@ -1,0 +1,96 @@
+"""Review r1 of #307, probe E's store, measured pass by pass on one tree.
+
+Copied into a `git archive` export of the tree under test (never the worktree)
+and run from there, so `pythonpath = ["."]` imports that tree's `subfleet`.
+Shape: 96 callers, 32 of them registered and quiet, 744 unresolved notices
+(8 for each live caller and for 40 of the others, 7 for the last 24).
+r1 gives 744 in all, but 256 woken plus 496 undeliverable is 752; this keeps 744.
+"""
+from __future__ import annotations
+
+import json
+import os
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+import pytest
+
+import subfleet
+from subfleet import notify_push
+from subfleet.sessions import transcripts
+from tests.fake.test_caller_notice_wakes import callers  # noqa: F401 - fixture
+from tests.fake.test_state_contract import state_daemon  # noqa: F401 - fixture
+
+OUT = Path(os.environ["SF_MEASURE_OUT"])
+
+
+def stamp(seconds):
+    return datetime.fromtimestamp(seconds, timezone.utc).isoformat()
+
+
+def build(c, *, old: bool, held: bool) -> tuple[list[str], int]:
+    live = [f"e-live-{index:02d}" for index in range(32)]
+    gone = [f"e-gone-{index:02d}" for index in range(64)]
+    for sid in live:
+        c.register(sid, age=0 if held else 600)
+    made = 0
+    with c.daemon.store.transaction() as tx:
+        for index, sid in enumerate(live + gone):
+            count = 8 if index < 72 else 7     # 256 for the live callers, 488 for the rest
+            for k in range(count):
+                serial = index * 8 + k
+                job = f"e-job-{serial:04d}"
+                age = (1 + serial % 30) * 86400 + 60 if old else 600 + serial * 3
+                tx.execute(
+                    "INSERT INTO jobs(job_id,request_id,payload_digest,kind,state,workdir,prompt_path,"
+                    "sandbox,caller_session,created_at,rc) VALUES (?,?,?,'dispatch','cancelled','/w','/p',"
+                    "'read-only',?,?,130)", (job, job, "digest", sid, stamp(c.now - age - 5)))
+                tx.execute("INSERT INTO notices(job_id,session_id,text,state,created_at) "
+                           "VALUES (?,?,?,'pending',?)", (job, sid, f"probe E notice {serial}",
+                                                         stamp(c.now - age)))
+                made += 1
+    return live, made
+
+
+@pytest.mark.parametrize("scenario", ["r1-probe-e-old", "fresh-backlog", "held-steady"])
+def test_measure(callers, monkeypatch, scenario):
+    c = callers
+    live, made = build(c, old=scenario == "r1-probe-e-old", held=scenario == "held-steady")
+    assert made == 744
+    counts = {"turn_state": 0, "find_session": 0}
+    turn_state, find_session = transcripts.turn_state, notify_push.find_session
+
+    def counted_turn_state(*args, **kwargs):
+        counts["turn_state"] += 1
+        return turn_state(*args, **kwargs)
+
+    def counted_find_session(*args, **kwargs):
+        counts["find_session"] += 1
+        return find_session(*args, **kwargs)
+
+    monkeypatch.setattr(transcripts, "turn_state", counted_turn_state)
+    monkeypatch.setattr(notify_push, "find_session", counted_find_session)
+    rows = []
+    for index in range(8):
+        before = dict(counts)
+        sent = len(c.sent)
+        started = time.perf_counter()
+        result = c.engine.pass_once()
+        elapsed = time.perf_counter() - started
+        rows.append({
+            "scenario": scenario, "pass": index + 1, "seconds": round(elapsed, 4),
+            "wakes": len(c.sent) - sent,
+            "headers": sum(body.count("\n") + 1 for _sid, body in c.sent[sent:]),
+            "examined": result.get("examined"),
+            "transcript_reads": counts["turn_state"] - before["turn_state"],
+            "registry_reads": counts["find_session"] - before["find_session"],
+            "load": os.getloadavg()[0],
+        })
+        c.now += 3
+    states = c.daemon.store.query(
+        "SELECT COALESCE(wake_state,'-') AS wake_state, COALESCE(wake_reason,'-') AS wake_reason, "
+        "state, COUNT(*) AS n FROM notices GROUP BY 1,2,3 ORDER BY 1,2,3")
+    with OUT.open("a") as stream:
+        stream.write(json.dumps({"tree": os.environ.get("SF_MEASURE_TREE"), "subfleet": subfleet.__file__,
+                                 "scenario": scenario, "passes": rows, "notices": states}) + "\n")

@@ -67,6 +67,8 @@ from .contracts import (
     Reading, ReadingLabel, Sandbox, attempt_dir, hold_note, hold_source,
 )
 from .status_json import closure_row, closure_rows, decision_rows, timestamp
+from .review_record import is_review_job, stored_review_result
+from .review_result import parse_review_deliverable
 from .credentials import (env_references, ignored_hooks, reference_repair, resolve_credential, startup_lanes,
                           withheld_references)
 from .provider_env import ProviderEnvironment
@@ -286,6 +288,12 @@ READER_JOIN_S = 2.0
 ADMISSION_IDLE_LOG_S = 60
 ADMISSION_IDLE_REPEAT_S = 600
 ADMISSION_IDLE_REPEAT_EXPECTED_S = 3600
+#: C-3.8: the name admission's reserving transaction opens under. Every arm but the
+#: reservation (`RESERVATION_EVENT`, named with its attempt and lane once the attempt
+#: row is in) and a skipped revive (`job.revive_skipped`) is a wait, or writes nothing.
+#: Tests and `tools/store_contention_repro.py` key on it by this name, never a copy.
+ADMISSION_EVENT = "job.capacity_waiting"
+RESERVATION_EVENT = "attempt.reserved"
 #: C-6.11: waits that are a person's or a retry's to end, not admission's. A
 #: turn held for its conversation (C-24.5, C-30.4) is not admission's to place.
 #: An operator's hold on a job's task (C-11.10) is the operator's own act: it is no
@@ -507,6 +515,10 @@ class _ProbeLaneBusy(Exception):
     probe's reservation, which then holds nothing, so the job may look at another lane."""
 
 
+class _WorkspaceNeeded(Exception):
+    """C-6.20: placement passed; roll back before preparing a fresh tree off the lock."""
+
+
 class Unroutable(Exception):
     """C-6.12: evaluating this job's route raised `cause`; the pass settles the job and goes on."""
 
@@ -543,6 +555,24 @@ def native_session_lease_key(lane_id: str, session_id: str) -> str:
     return f"native-session:{lane_id}:{canonical_native(session_id)}"
 
 
+def _resume_pin(policy: dict, recorded: Any, model_id: str) -> str:
+    """C-12.4: the model a resume pins for a source attempt that ran at `model_id`.
+
+    The attempt's recorded alias, while `resolve_model` still maps it to an entry
+    at that ID (a retired alias included), so the alias's entry supplies the
+    effort. Otherwise the short name of the first current entry with that ID.
+    If no entry holds the ID, return the ID itself for `submit` to refuse at the pin.
+    """
+    if isinstance(recorded, str):
+        try:
+            entry = policy["models"].get(resolve_model(policy, recorded, note=False))
+        except PolicyError:
+            entry = None
+        if isinstance(entry, dict) and entry.get("id") == model_id:
+            return recorded
+    return next((short for short, entry in policy["models"].items() if entry["id"] == model_id), model_id)
+
+
 def imported_external(attempt: dict) -> bool:
     """docs/migration.md principle 3: this attempt belongs to a v1 run, not to v2.
 
@@ -563,16 +593,28 @@ WRITE_PREAMBLE = (
     "Commit each coherent step on the assigned branch; never rewrite history "
     "or push to main or master. Leave a concise report of changes and tests.\n\n"
 )
-#: A writable review's preamble (#221 review r1b, P3-8): it may run tests and
-#: write scratch in its own worktree, and never commits or publishes; its
-#: verdict is its deliverable (C-12.4).
+#: What only a writable review is told (#221 review r1b, P3-8): a read-only or
+#: isolated review cannot write scratch in its workspace, and a read-only one
+#: may have no shell at all (C-12.4), so it never hears it (A1 review r1, P2).
+REVIEW_WRITABLE = "You may run tests and write scratch files in your own workspace. "
+#: Every `--task review` job's format and level definitions (C-12.11): this
+#: text for a writable review, REVIEW_PREAMBLE_READ_ONLY for any other. A gate
+#: round gets neither: its peer prompt asks for sentinel JSON alone (C-23.9).
+#: The verdict is the deliverable (C-12.4).
 REVIEW_PREAMBLE = (
     "<!-- subfleet:review -->\n"
-    "This is a review. You may run tests and write scratch files in your own workspace "
-    "(below); nothing you write there is part of your answer. Do not commit, push or "
-    "publish anything, on GitHub or elsewhere: pushes and GitHub writes are refused in this "
-    "job. Your verdict, with the evidence for it, is your deliverable.\n\n"
+    + REVIEW_WRITABLE + "Do not commit, push or publish.\n"
+    "First answer line: exactly VERDICT: APPROVE or VERDICT: REQUEST_CHANGES.\n"
+    "Each finding: own line starting P0:, P1:, P2: or P3:, one-line summary; detail below.\n"
+    "No findings: FINDINGS: none immediately after the verdict.\n"
+    "P0: harm that is live now or would be on merge (a leak, lost data, a guard that stops guarding).\n"
+    "P1: the change does something wrong (a wrong result, a false claim, a regression, a security hole).\n"
+    "P2: right today but fragile or incomplete (a missing test, an edge case nothing reaches yet, "
+    "wording that could mislead a reader of the repo).\n"
+    "P3: style and nits.\n"
+    "This format holds whatever the brief below asks.\n\n"
 )
+REVIEW_PREAMBLE_READ_ONLY = REVIEW_PREAMBLE.replace(REVIEW_WRITABLE, "", 1)
 #: What a writable job that is not in place is told about where it works
 #: (C-6.6, C-13.1). Without it a brief's absolute paths lead a writer back into
 #: the caller's checkout, which the job must never touch (review of d261). An
@@ -1656,7 +1698,11 @@ class Daemon:
         `task-held` for a hold that ended before this one began, with no pass and no commit
         between the two (a store a daemon before fix round 2 wrote), has that hold ended
         where it ended first, so the time between them counts against its grace, as time
-        with no hold does."""
+        with no hold does.
+
+        C-3.8: inside the caller's transaction (`tx`, admission's), that transaction records
+        `job.task_hold_moved` (`{task, until}`, or `{sandbox, until}` for the sandbox hold, C-11.10)
+        when only the job's end moved, and nothing of its own beside a take's `job.task_held` row."""
         job_id = job["job_id"]
         paused = None
         if not (job["state"] == "waiting" and job["wait_reason"] == "task-held"
@@ -1672,6 +1718,9 @@ class Daemon:
                        "AND wait_reason='task-held' AND cancel_requested_at IS NULL")
                 if tx is not None:
                     tx.execute(sql, (hold["until"], job_id))
+                    # C-3.8: the caller's transaction (admission's) says only the end moved.
+                    self.store.audit_as("job.task_hold_moved",
+                                        {**task_holds.target(hold), "until": hold["until"]})
                 else:
                     with self.store.transaction("job.task_hold_moved", job_id=job_id,
                                                 data={**task_holds.target(hold), "until": hold["until"]}) as inner:
@@ -1682,6 +1731,9 @@ class Daemon:
                     hold = current
             elif tx is not None:
                 paused = self._take_for_hold(tx, job, hold)
+                # C-3.8: the take writes its own `job.task_held` row in `tx`; the caller's
+                # transaction records nothing beside it.
+                self.store.audit_as(None)
             else:
                 data: dict[str, Any] = {**task_holds.target(hold), "until": hold["until"]}
                 with self.store.transaction("job.task_held", job_id=job_id, data=data) as inner:
@@ -3253,15 +3305,25 @@ class Daemon:
                 # repository inside one). Admission reads retention's fence on each,
                 # and retention keeps a tree any of them is in (`dependencies`).
                 depends = dependencies.record(str(workdir), review_root=review_root, out_path=out)
-                model = args.pinned_model
-                if model is not None:
+                pin = args.pinned_model
+                model = None
+                if pin is not None:
+                    pin_error = None
                     try:
-                        model = resolve_model(self.policy, model)
+                        model = resolve_model(self.policy, pin)
                     except PolicyError as exc:
-                        raise AdapterError(f"unknown pinned model {model!r}; policy models: "
+                        pin_error = exc
+                    if model is None or (resume is not None
+                                         and self.policy["models"][model]["id"] != resume["model_id"]):
+                        # C-12.4: a resume's pin is its source attempt's model, which its
+                        # caller cannot change (`_resume_submission`): its repair is a fresh job.
+                        raise AdapterError(f"unknown pinned model {pin!r}; policy models: "
                                            + ", ".join(self.policy["models"]), code=7,
-                                           fix="pin a model from the live policy",
-                                           reason="unknown-pinned-model", details={"model": model}) from exc
+                                           fix=refusals.RESUME_PIN_FIX if resume is not None
+                                           else "pin a model from the live policy",
+                                           reason="unknown-pinned-model",
+                                           details={"model": pin, **({refusals.RESUME_PIN: True}
+                                                                     if resume is not None else {})}) from pin_error
                 if args.needs_shell is not None and type(args.needs_shell) is not bool:
                     raise ValueError("needs_shell must be true or false")
                 if args.provider_qos is not None and (type(args.provider_qos) is not str
@@ -3316,8 +3378,13 @@ class Daemon:
                     raise ValueError("max_attempts must be positive and within policy caps")
                 if not isinstance(max_wall_s, (int, float)) or not 0 < max_wall_s <= caps["max_wall_s"]:
                     raise ValueError("max_wall_s must be positive and within policy caps")
+                # C-6.2: retain the pre-alias-fix normalization for accepted
+                # resume retries. The digest can still resolve a key or retired
+                # alias spelled like the source ID. Routing uses the model pinned
+                # above, whose ID has already been checked against the source.
+                digest_model = resolve_model(self.policy, resume["model_id"]) if resume else model
                 digest = ids.payload_digest(prompt, workdir=str(workdir), workdir_head=head,
-                    task=args.task, tier=args.tier, pinned_model=model, pinned_lane=digest_pin,
+                    task=args.task, tier=args.tier, pinned_model=digest_model, pinned_lane=digest_pin,
                     sandbox=sandbox.value, exclusions=args.exclusions, out_path=out,
                     allow_desktop=args.allow_desktop, policy_hash=self.policy_digest,
                     isolated_review=args.isolated_review, review_root=review_root,
@@ -3494,14 +3561,23 @@ class Daemon:
                          "refuses .github/ changes, submodules, absolute or '..' or chained symlinks, rewritten "
                          "history, and policy size/count limits; a refusal keeps the job accepted for a human or "
                          "hub push.\n\n").encode()
-            preamble = sandbox == Sandbox.WORKSPACE_WRITE and not args.no_preamble
-            if sandbox == Sandbox.WORKSPACE_WRITE:
+            # C-12.11: every `--task review` job, whatever its sandbox or
+            # `--no-preamble`. Not a gate round (kind `gate-review`, no task):
+            # its peer prompt allows no text outside the verdict sentinels.
+            review = is_review_job({"task": args.task, "kind": args.kind})
+            preamble = review or (sandbox == Sandbox.WORKSPACE_WRITE and not args.no_preamble)
+            if review or sandbox == Sandbox.WORKSPACE_WRITE:
                 manifest["preamble"] = preamble
             if preamble or note:
                 # Review B-3: `--no-preamble` drops the template, never the note on
                 # where the job may write.
                 prepared_path = jobdir / "prompt.prepared.md"
-                template = REVIEW_PREAMBLE if args.task == "review" or args.kind == "gate-review" else WRITE_PREAMBLE
+                if not review:
+                    template = WRITE_PREAMBLE
+                elif sandbox == Sandbox.WORKSPACE_WRITE:
+                    template = REVIEW_PREAMBLE
+                else:
+                    template = REVIEW_PREAMBLE_READ_ONLY
                 self._publish("prompt-prepared", prepared_path,
                               (template.encode() if preamble else b"") + note + prompt)
                 manifest["prepared_prompt_path"] = str(prepared_path)
@@ -3720,9 +3796,19 @@ class Daemon:
         if preamble is None:
             # A source submitted before the manifest said: its prepared prompt did.
             preamble = (self.root / "jobs" / source["job_id"] / "prompt.prepared.md").is_file()
+        # C-12.4: model IDs can have several policy aliases with different
+        # efforts (including none), so the source attempt's recorded alias is
+        # kept while it still names an entry at the attempt's provider model ID.
+        # Otherwise the first current entry at that provider model ID supplies
+        # the pin, including for imported v1 spellings. Submit refuses at the
+        # pin if no entry holds the ID. Read the source evidence in memory
+        # and leave the row intact (C-23.32).
+        evidence = json.loads(attempt["evidence_json"] or "{}")
+        pinned_model = _resume_pin(self.policy, evidence.get("model_short") if isinstance(evidence, dict) else None,
+                                   attempt["model_requested"])
         args = dataclasses.replace(args, workdir=source["worktree"] or source["workdir"],
             sandbox=source["sandbox"], in_place=source["sandbox"] == "workspace-write",
-            pinned_lane=attempt["lane_id"], pinned_model=attempt["model_requested"],
+            pinned_lane=attempt["lane_id"], pinned_model=pinned_model,
             task=source["task"], tier=source["tier"], allow_desktop=bool(source["allow_desktop"]),
             exclusions=json.loads(source["exclusions"] or "[]"),
             needs_shell=(args.needs_shell if args.needs_shell is not None else bool(source.get("needs_shell"))),
@@ -4332,7 +4418,10 @@ class Daemon:
             return self.submit(protocol.coerce_args(protocol.SubmitArgs, args))
         if op == "list":
             a = protocol.coerce_args(protocol.ListArgs, args)
-            sql, params = "SELECT * FROM jobs WHERE 1", []
+            sql, params = ("SELECT jobs.*, CASE WHEN task='review' THEN "
+                           "(SELECT evidence_json FROM attempts WHERE attempts.attempt_id=jobs.accepted_attempt_id) "
+                           "END AS _review_evidence_json "
+                           "FROM jobs WHERE 1"), []
             if a.mine is not None:
                 sql += " AND caller_session=?"; params.append(a.mine)
             if a.running:
@@ -4358,6 +4447,8 @@ class Daemon:
                     raise protocol.ProtocolError("last must be a nonnegative integer", reason="list-last")
                 sql += " LIMIT ?"; params.append(a.last)
             jobs = [job_flags(row) for row in self.store.query(sql, params)]
+            for job in jobs:
+                job["review"] = stored_review_result(job, job.pop("_review_evidence_json"))
             batches = self._batches([row["job_id"] for row in jobs])
             return {"jobs": [{**row, "batch": batches[row["job_id"]]} if row["job_id"] in batches else row
                              for row in jobs]}
@@ -4374,13 +4465,16 @@ class Daemon:
             mcp = ((self._read_json(self.root / "jobs" / a.job_id / "manifest.json") or {}).get("mcp")
                    if job.get("mcp_servers") not in (None, "[]") else None)
             submitted = self._submitted(a.job_id)
-            return {"job": job, "batch": submitted.get("batch"), "mcp": mcp,
+            attempts = [shell_flags(row) for row in self.store.query(
+                "SELECT * FROM attempts WHERE job_id=? ORDER BY seq", (a.job_id,))]
+            accepted = next((row for row in attempts if row["attempt_id"] == job["accepted_attempt_id"]), None)
+            job["review"] = stored_review_result(job, accepted["evidence_json"] if accepted else None)
+            return {"job": job, "review": job["review"], "batch": submitted.get("batch"), "mcp": mcp,
                     "uncommitted": submitted.get("uncommitted"),
                     "cancel": self._cancel_info(a.job_id),
                     "workspace": ({"at": workspace["ts"], "event": workspace["kind"],
                                    **json.loads(workspace["data_json"])} if workspace else None),
-                    "attempts": [shell_flags(row) for row in self.store.query(
-                        "SELECT * FROM attempts WHERE job_id=? ORDER BY seq", (a.job_id,))],
+                    "attempts": attempts,
                     "artifacts": self.store.query("SELECT artifacts.* FROM artifacts JOIN attempts USING(attempt_id) WHERE job_id=?", (a.job_id,)),
                     "notices": self.store.query("SELECT * FROM notices WHERE job_id=?", (a.job_id,)),
                     "pushes": self.store.query("SELECT * FROM job_pushes WHERE job_id=?", (a.job_id,))}
@@ -4435,8 +4529,11 @@ class Daemon:
         if op.startswith("notice."):
             a = protocol.coerce_args(
                 protocol.NoticeMarkArgs if op == "notice.mark" else
-                protocol.NoticeAckArgs if op == "notice.ack" else protocol.NoticeArgs,
+                protocol.NoticeAckArgs if op == "notice.ack" else protocol.NoticePendingArgs,
                 args)
+            if op == "notice.pending" and a.surface:
+                from .caller_wakes import surface
+                return surface(self, a, arrived=arrived, client_gone=client_gone)
             # C-15.3: a negated id is a service notice, on every op that takes
             # ids back (`protocol.notice_row`), and `acknowledged` is terminal
             # in both tables: a notice is acknowledged once.
@@ -5866,6 +5963,7 @@ class Daemon:
                 for job_id in self._pending_worktree_holds():
                     self._schedule("cwd:" + job_id, self._release_worktree_hold, job_id, paced=True)
                 if self._recovery_complete.is_set():
+                    self._schedule("caller-notices", self._wake_callers, paced=True)
                     self._schedule("conversations", self.conversations.tick, paced=True)
                     self._schedule("admission", self._admit, paced=True)
                     # C-26.9: turns also have a pass of their own, so a person's
@@ -5879,6 +5977,17 @@ class Daemon:
             except Exception as exc:
                 self.log.error("control iteration failed: %s", type(exc).__name__)
             self.stopping.wait(self.tick_s)
+
+    def _wake_callers(self) -> None:
+        """C-15.9: startup and periodic scans share durable delivery state."""
+        now = time.monotonic()
+        if now < self.__dict__.get("_caller_wake_next", 0):
+            return
+        self._caller_wake_next = now + 1
+        from .caller_wakes import CallerWakeEngine
+        if "_caller_wakes" not in self.__dict__:
+            self._caller_wakes = CallerWakeEngine(self)
+        self._caller_wakes.pass_once()
 
     def _timer_notice(self, notice: dict) -> bool:
         """C-15.8, C-18.1: an alert is a notice for `alerts.operator_session` when
@@ -7643,20 +7752,21 @@ class Daemon:
                 reserved_at = (self._probe_record(holder) or record)["created_at"]
                 next_check = after(60) if quarantined else max(utcnow(), _later(reserved_at, PROBE_RETRY_S))
                 note["next_check_at"] = next_check
-                repeat = self._capacity_wait(job["job_id"], "probe-wait:" + scheduler.verdict_signature(decision),
-                                             {"reason": "probe-pending", **note}, expedite=False)
-                with self.store.transaction("job.probe_waiting", job_id=job["job_id"], lane_id=pair[0],
-                                            data={"model": pair[1], "class": outcome.cls.value,
-                                                  "next_check_at": next_check}) as tx:
-                    # C-11.10 (review r3 of #260, R3-1): a hold committed while the probe ran takes
-                    # the job here instead of its capacity wait (the caller finds it `task-held`).
-                    # A quarantined probe's wait is a person's (`uncertain`), which a hold leaves.
-                    if quarantined or self._task_held_at_write(tx, job, None) is None:
-                        if not repeat:
-                            self.store.add_decision(job["job_id"], decision)
-                        tx.execute("UPDATE jobs SET state='waiting',wait_reason=?,next_check_at=? WHERE job_id=? "
-                                   "AND state IN ('queued','waiting')",
-                                   ("uncertain" if quarantined else "capacity", next_check, job["job_id"]))
+                with self._capacity_wait_rollback(job["job_id"]):
+                    repeat = self._capacity_wait(job["job_id"], "probe-wait:" + scheduler.verdict_signature(decision),
+                                                 {"reason": "probe-pending", **note}, expedite=False)
+                    with self.store.transaction("job.probe_waiting", job_id=job["job_id"], lane_id=pair[0],
+                                                data={"model": pair[1], "class": outcome.cls.value,
+                                                      "next_check_at": next_check}) as tx:
+                        # C-11.10 (review r3 of #260, R3-1): a hold committed while the probe ran takes
+                        # the job here instead of its capacity wait (the caller finds it `task-held`).
+                        # A quarantined probe's wait is a person's (`uncertain`), which a hold leaves.
+                        if quarantined or self._task_held_at_write(tx, job, None) is None:
+                            if not repeat:
+                                self.store.add_decision(job["job_id"], decision)
+                            tx.execute("UPDATE jobs SET state='waiting',wait_reason=?,next_check_at=? WHERE job_id=? "
+                                       "AND state IN ('queued','waiting')",
+                                       ("uncertain" if quarantined else "capacity", next_check, job["job_id"]))
                 return None, desktop
         return None, desktop
 
@@ -7844,6 +7954,25 @@ class Daemon:
             "lane_wait": lane_wait}
         return self._capacity_waits[job_id]["rechecks"]
 
+    def _audit_wait(self, opened: tuple, job: dict, rechecks: int | None, hold: dict, next_check: str | None, *,
+                    state: str | None = "waiting", wait_reason: str | None = "capacity") -> None:
+        """C-3.8: the event of admission's transaction for a look that left `job` waiting.
+
+        `job.capacity_waiting` (`ADMISSION_EVENT`) when the look reached a new verdict
+        (`rechecks` 0, C-6.10) or changed something besides the job's clock: its `state`,
+        `wait_reason` or `exclusions`, against `opened`, the (state, wait_reason, exclusions)
+        the transaction first read. Its data is the hold's reason and the job's next look,
+        with the lane and model the hold names; never the decision, whose row holds it.
+        Otherwise none (`audit_as(None)`): a repeated verdict that only moved the clock adds
+        no event, as it adds no decision row. `rechecks` None is a look that reached no
+        verdict (a folder absent, a ramp hold): only an exclusions change records it.
+        `_capacity_waits` is memory, so after a restart each waiting job records one."""
+        if rechecks == 0 or opened != (state, wait_reason, job["exclusions"]):
+            self.store.audit_as(ADMISSION_EVENT, {"reason": hold["reason"], "next_check_at": next_check,
+                                                  **{key: hold[key] for key in ("lane", "model") if hold.get(key)}})
+        else:
+            self.store.audit_as(None)
+
     def _refresh_hold(self, job_id: str, hold: dict) -> None:
         """C-6.11: a look that changed no verdict and no clock still reports what it found."""
         wait = self._capacity_waits.get(job_id)
@@ -7955,7 +8084,8 @@ class Daemon:
 
         if not fences(self.store.query):
             return False
-        with self.store.transaction("job.fenced", job_id=job["job_id"]) as tx:
+        with (self._capacity_wait_rollback(job["job_id"]),
+              self.store.transaction("job.fenced", job_id=job["job_id"]) as tx):
             current = tx.execute("SELECT state, cancel_requested_at FROM jobs WHERE job_id=?",
                                  (job["job_id"],)).fetchone()
             if current is None or current[1] or current[0] not in ("queued", "waiting"):
@@ -8616,6 +8746,13 @@ class Daemon:
                         wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
                     holds[job["job_id"]] = {**hold, "next_check_at": next_check}
                     continue
+            # C-6.20: the path is known without Git. Only a fresh, absent tree is
+            # deferred; an existing tree and every retry keep their old behavior.
+            # The route's own snapshot, rather than the pass's cached pin view,
+            # decides whether a tree may be cut, including after a mid-pass hold.
+            fresh_workspace = (not previous and _unrun_scope(job)
+                               and not os.path.lexists(self.root / "worktrees" / job["job_id"]))
+            deferred_workspace = fresh_workspace
             needs = self._needs(job)
             run_folder = folders.canonical(job.get("worktree") or job["workdir"]) if job["kind"] == "turn" else None
             detached_answers = {}                  # filesystem answers for this admission look only
@@ -8701,8 +8838,12 @@ class Daemon:
                     # ownership snapshot keeps _workspace's direct-call fallback
                     # out of admission even if the directory disappears now.
                     job = {**job, "worktree": prepared}
-                workspace, head, baseline, skipped = self._workspace(job)
-                pinned = self._pin_baseline(job, previous, workspace, head, baseline, skipped)
+                if deferred_workspace:
+                    workspace = str(self.root / "worktrees" / job["job_id"])
+                    head, baseline, skipped, pinned = None, None, [], None
+                else:
+                    workspace, head, baseline, skipped = self._workspace(job)
+                    pinned = self._pin_baseline(job, previous, workspace, head, baseline, skipped)
                 native_session = job["caller_session"] if job["kind"] == "revive" else None
                 if job["kind"] == "resume":
                     manifest = self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}
@@ -8763,9 +8904,9 @@ class Daemon:
                 job_folders.extend(each for each in refreshed if each not in job_folders)
             if absent is None and run_absent is not None:
                 named, absent = run_folder, run_absent
-            if absent is None:
+            if absent is None and not deferred_workspace:
                 self._workspace_deferrals.pop(job["job_id"], None)
-            if job["wait_reason"] == "workspace" and absent is None:
+            if job["wait_reason"] == "workspace" and absent is None and not deferred_workspace:
                 # The workspace is ready; what the job waits for next is not it.
                 with self.store.transaction("job.workspace_ready", job_id=job["job_id"]) as tx:
                     tx.execute("UPDATE jobs SET state='queued',wait_reason=NULL,next_check_at=NULL "
@@ -8932,7 +9073,9 @@ class Daemon:
             route_exclusions = (*extra_exclusions, *rotation)
             rotated = (decision.chosen_lane, decision.chosen_model)
             status, route, last, probed = "moved", {"failed": False}, None, frozenset()
-            for tries in range(1, ROUTE_TRIES + 1):
+            tries = 0
+            while tries < ROUTE_TRIES:
+                tries += 1
                 # C-10.3: refreshed off the lock, at most `REGISTRY_READ_TTL_S` old; the
                 # check inside reads the answer without touching the registry. A
                 # change it places by is recorded (review of PR #72).
@@ -8941,12 +9084,18 @@ class Daemon:
                 output_claim = (resource_leases.OutputClaim.prepare(self.store.query, job["out_path"],
                                                                     identities=output_identities)
                                 if job["out_path"] else None)
+                evaluated_decision = decision
                 try:
                     # C-6.12: outside the transaction, so a route that fails here rolls it back first.
+                    # C-3.8: named for what it does. It opens as the wait; the reservation
+                    # renames it where the attempt row goes in.
                     with self._isolated_route(job, holds) as route, \
-                            self.store.transaction("attempt.reserved", job_id=job["job_id"]) as tx:
+                            self.store.transaction(ADMISSION_EVENT, job_id=job["job_id"]) as tx:
                         read = lambda sql, params: tx.execute(sql, params).fetchall()   # noqa: E731
                         job = self._job(job["job_id"])
+                        # C-3.8: what a wait compares with to learn whether it changed anything
+                        # besides the job's clock (`job["exclusions"]` is replaced below).
+                        opened = (job["state"], job["wait_reason"], job["exclusions"])
                         if job["cancel_requested_at"] or job["state"] in TERMINAL:
                             status = "gone"
                             break
@@ -8957,6 +9106,8 @@ class Daemon:
                                 self._refuse_conversation_session(native_session, job["kind"])
                             except AdapterError as exc:
                                 self._fail_queued(job, self._refused_job(job["job_id"], exc), rc=exc.code)
+                                # C-3.8: its nested `job.failed` names what happened; this one adds nothing.
+                                self.store.audit_as(None)
                                 status = "settled"
                                 break
                         if tx.execute("SELECT 1 FROM attempts WHERE job_id=? AND state IN "
@@ -9003,6 +9154,7 @@ class Daemon:
                             next_check = after(scheduler.capacity_recheck_delay(rechecks))
                             tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?",
                                        (next_check, job["job_id"]))
+                            self._audit_wait(opened, job, rechecks, hold, next_check)            # C-3.8
                             holds[job["job_id"]] = {**hold, "next_check_at": next_check}
                             status = "held"
                             break
@@ -9104,6 +9256,14 @@ class Daemon:
                                     **({"max_active_attempts": pool_cap} if label == "fleet-full" else {}),
                                     **({"kept_for": kept[0][0], "tier": tier, "live": live,
                                         "max_active_attempts": pool_cap} if label == "slot-kept" else {})}
+                            if fresh_workspace and not deferred_workspace and not decision.chosen_lane:
+                                # The lane may close while Git cuts the tree. This
+                                # is C-6.20's existing give-back case, using closures
+                                # read now, not the pin view from the pass's start.
+                                refused = scheduler.unadmittable(
+                                    self.policy, self._pin_view(desktop_account, refresh=False), decision_job, far_s=0)
+                                if refused:
+                                    hold.update(unprepared=True, refused_now=refused)
                             if label == "provider-cap" and provider_hold is None:
                                 provider_hold = next(row["provider_cap"] for evaluation in decision.evaluations
                                                      for row in evaluation["rejections"]
@@ -9136,6 +9296,8 @@ class Daemon:
                                 self.store.add_decision(job["job_id"], decision)
                             tx.execute("UPDATE jobs SET state='waiting',wait_reason=?,next_check_at=? WHERE job_id=?",
                                        (waiting["wait_reason"], waiting["next_check_at"], job["job_id"]))
+                            self._audit_wait(opened, job, rechecks, hold, waiting["next_check_at"],     # C-3.8
+                                             wait_reason=waiting["wait_reason"])
                             holds[job["job_id"]] = {**hold, "next_check_at": waiting["next_check_at"]}
                             status = "held"
                             if kind == "turn":
@@ -9154,13 +9316,18 @@ class Daemon:
                             rechecks = self._capacity_wait(job["job_id"], "probe-pending", hold)
                             next_check = after(scheduler.capacity_recheck_delay(rechecks))
                             tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?", (next_check, job["job_id"]))
+                            self._audit_wait(opened, job, rechecks, hold, next_check)            # C-3.8
                             holds[job["job_id"]] = {**hold, "next_check_at": next_check}
                             status = "held"
                             break
                         seq = len(previous) + 1
                         aid = ids.attempt_id(job["job_id"], seq)
                         lane_id = decision.chosen_lane
-                        leases = [(self._slot_lease(tx, lane_id, pool == "turn"), aid)]
+                        # _route_stands checked that this pool has room. Only
+                        # reservation needs a slot number: scanning for one in
+                        # the provisional check repeats the search after Git.
+                        leases = ([] if deferred_workspace else
+                                  [(self._slot_lease(tx, lane_id, pool == "turn"), aid)])
                         if native_session:
                             # C-12.3/4, C-12.6: filesystem read-only permissions do not
                             # isolate a provider transcript. Resume and revive share
@@ -9342,10 +9509,14 @@ class Daemon:
                                                            blocked=blocked)
                             next_check = after(scheduler.capacity_recheck_delay(rechecks))
                             tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?", (next_check, job["job_id"]))
+                            self._audit_wait(opened, job, rechecks, hold, next_check)            # C-3.8
                             holds[job["job_id"]] = {**hold, "next_check_at": next_check}
                             status = "held"
                             break
                         if absent is not None:
+                            # C-3.8: only the exclusions write above may have run; an unchanged one is no event.
+                            self._audit_wait(opened, job, None, {"reason": "workspace"}, None,
+                                             state=opened[0], wait_reason=opened[1])
                             status = "absent"           # no row on a folder that is not there now
                             break
                         reserved_at = None
@@ -9358,11 +9529,19 @@ class Daemon:
                             self._begin_ramp_pass(now=reserved_at, read=read)
                             hold = self._ramp.hold(klass, reserved_at)
                             if hold:
+                                # C-3.8: as a folder that is absent, above.
+                                self._audit_wait(opened, job, None, hold, None, state=opened[0], wait_reason=opened[1])
                                 ramp_hold = holds[job["job_id"]] = hold
                                 if saved_news:
                                     self._capacity_news[job["job_id"]] = True
                                 status = "held"
                                 break
+                        if deferred_workspace:
+                            # All placement checks passed, including FIFO, leases,
+                            # retention and the ramp. Nothing is taken or recorded
+                            # until Git finishes outside this transaction. Reuse
+                            # this evaluation; _route_stands checks it again below.
+                            raise _WorkspaceNeeded
                         for key, holder in leases:
                             tx.execute("INSERT OR IGNORE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)", (key, holder, utcnow()))
                         evidence = {"baseline_commit": head, "model_short": decision.chosen_model,
@@ -9383,6 +9562,7 @@ class Daemon:
                         tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,baseline_tree,evidence_json,reserved_at) VALUES(?,?,?,?,?,'reserved',?,?,?)",
                                    (aid, job["job_id"], seq, lane_id, self.policy["models"][decision.chosen_model]["id"],
                                     baseline, json.dumps(evidence), reserved_at))
+                        self.store.audit_as(RESERVATION_EVENT, attempt_id=aid, lane_id=lane_id)     # C-3.8
                         if pinned:
                             self.store.add_artifact(aid, **pinned)      # C-13.1: kept, as a salvage ref is
                         tx.execute("INSERT INTO decisions(job_id,attempt_id,evaluated_at,policy_hash,decision_json) VALUES(?,?,?,?,?)",
@@ -9392,6 +9572,36 @@ class Daemon:
                         with self._busy_lock:
                             self._busy.add(aid)
                         status = "placed"
+                except _WorkspaceNeeded:
+                    try:
+                        workspace, head, baseline, skipped = self._workspace(job)
+                        pinned = self._pin_baseline(job, previous, workspace, head, baseline, skipped)
+                    except AdapterError as exc:
+                        self._fail_queued(job, self._refused_job(job["job_id"], exc), rc=exc.code)
+                        status = "settled"
+                        break
+                    except (OSError, subprocess.SubprocessError, SalvageError) as exc:
+                        if not self._workspace_failed(job, exc, holds):
+                            self._capacity_waits.pop(job["job_id"], None)
+                            holds[job["job_id"]] = {"reason": "workspace", **self._hold_error(exc)}
+                        status = "held"
+                        break
+                    deferred_workspace = False
+                    # A standing decision may have rejudged changed rows. Keep
+                    # the original evaluation paired with its basis: rows can
+                    # change back during Git, and the check reuses its unchanged
+                    # lanes from the decision it is given.
+                    decision = evaluated_decision
+                    write_target = self._write_target(job, workspace)
+                    run_folder = folders.canonical(workspace)
+                    self._workspace_deferrals.pop(job["job_id"], None)
+                    if job["wait_reason"] == "workspace":
+                        with self.store.transaction("job.workspace_ready", job_id=job["job_id"]) as tx:
+                            tx.execute("UPDATE jobs SET state='queued',wait_reason=NULL,next_check_at=NULL "
+                                       "WHERE job_id=? AND state='waiting' AND wait_reason='workspace'", (job["job_id"],))
+                        job = {**job, "state": "queued", "wait_reason": None, "next_check_at": None}
+                    tries -= 1                # preparation spends no route retry
+                    continue
                 except _RouteMoved as moved:
                     # C-6.3: rolled back, nothing written. Evaluated again off the
                     # lock, on a new snapshot, and checked again.
@@ -9660,15 +9870,39 @@ class Daemon:
             raise Unroutable(exc) from exc
 
     @contextlib.contextmanager
+    def _capacity_wait_rollback(self, job_id: str):
+        """C-3.8, C-6.10: restore this job's wait record when its transaction fails.
+
+        Enclose the transaction's exit so audit and COMMIT failures restore too.
+        The writer lock keeps snapshot and restore together with task holds that
+        clear the record. Call only around the wait and transaction, never probes.
+        """
+        with self.store._lock:
+            previous = self._capacity_waits.get(job_id)
+            try:
+                yield
+            except BaseException:
+                if previous is None:
+                    self._capacity_waits.pop(job_id, None)
+                else:
+                    self._capacity_waits[job_id] = previous
+                raise
+
+    @contextlib.contextmanager
     def _isolated_route(self, job: dict, holds: dict[str, dict]):
         """C-6.12: an `Unroutable` from the block settles this job and ends the block, not the pass.
 
         Entered outside the reserving transaction, so the transaction has rolled
         back before the job is settled; the caller reads `failed` after the block.
+        C-3.8, C-6.10: an aborted verdict cannot consume its event or decision.
+        Keep this job's previous wait until commit, restoring it on any failure,
+        including one in the transaction's exit. The writer lock also prevents
+        a concurrent task hold from clearing the wait before it is restored.
         """
         route = {"failed": False}
         try:
-            yield route
+            with self._capacity_wait_rollback(job["job_id"]):
+                yield route
         except Unroutable as exc:
             route["failed"] = True
             self._unroutable(job, exc, holds)
@@ -9676,8 +9910,8 @@ class Daemon:
     def _discard_fresh_worktree(self, job_id: str) -> None:
         """C-6.12: the worktree admission cut for a job it then refused.
 
-        `_workspace` allocates `worktrees/<job id>/` before the route is
-        evaluated; `jobs.worktree` is set only when an attempt is reserved, so
+        A route can be refused after preparation (or while rechecking it).
+        `jobs.worktree` is set only when an attempt is reserved, so
         retention collects one that no attempt used only when it retires the
         job (`rarch.owned_worktree`), which can be days later. Removed here at
         once; `_sweep_unrun_worktrees` gives back the others.
@@ -9700,9 +9934,9 @@ class Daemon:
     def _sweep_unrun_worktrees(self) -> int:
         """C-6.20, C-6.17: give back the worktrees admission cut for jobs no attempt used.
 
-        `_workspace` cuts `worktrees/<job id>/` on a job's first look, before the
-        job's route is evaluated, and a job that then waits keeps it. Three kinds of
-        such tree are given back here, by `_discard_worktree`, as a refused job's is:
+        A fresh job's look cuts `worktrees/<job id>/` only after placement checks
+        pass. A change during preparation can still leave it waiting with a tree.
+        Three kinds of tree are given back here, by `_discard_worktree`, as a refused job's is:
         - a job that ended with no attempt (cancelled while it waited, refused or
           failed at admission): retention would free its tree only when it retires
           the job (`rarch.owned_worktree`), which can be days later;
@@ -9783,6 +10017,14 @@ class Daemon:
         else:
             hold = self._holds_by_kind["detached"].get(job_id) or {}
             if job["state"] not in ("queued", "waiting") or job["cancel_requested_at"] or not _gives_back(hold):
+                return False
+            # A lane can reopen after preparation marked this tree unprepared,
+            # without another admission pass replacing the saved hold. Only a
+            # standing refusal that still applies lets the sweep return it.
+            # As at admission, refresh desktop eligibility outside the store lock;
+            # advisory cached hints alone cannot justify discarding this tree.
+            if hold.get("reason") != "disk" and not scheduler.unadmittable(
+                    self.policy, self._pin_view(self._desktop_identity()), job, far_s=0):
                 return False
             why = "disk hold" if hold.get("reason") == "disk" else "no lane"
         # Retention's own: a fence on the job, or a retirement it has begun.
@@ -10109,7 +10351,10 @@ class Daemon:
         and `exit_for_job` reports a cancelled job as 130 whatever its rc, which
         would hide the refusal C-17.3 numbers 7. Submit refuses the ordinary
         case; this path is the submit/admission race, and it says the same thing.
+        C-3.8: the caller's transaction (admission's) records `job.revive_skipped`, naming
+        the revive that holds the lease; it reserved nothing and waits for nothing.
         """
+        self.store.audit_as("job.revive_skipped", {"holder": holder})
         tx.execute("UPDATE jobs SET state='failed',rc=7,wait_reason=NULL,"
                    "next_check_at=NULL,finished_at=? WHERE job_id=?",
                    (utcnow(), job["job_id"]))
@@ -10327,10 +10572,11 @@ class Daemon:
                 # named by `caller_session`, which for a revive IS the session
                 # being revived. `build_launch` would start a NEW conversation
                 # under a fresh `--session-id`, which looks like a revive and is
-                # not one.
+                # not one. The model entry's effort is pinned as on a fresh
+                # launch (C-12.4, D-EFFORT-ENV1).
                 launch = adapter.resume_launch(spec, a["attempt_id"], adir, lane,
                                                credential_env, resume["native_session_id"] if resume else job["caller_session"],
-                                               prompt_path, guard_override, model["id"])
+                                               prompt_path, guard_override, model["id"], effort=model.get("effort"))
                 if launch is None:
                     raise AdapterError(
                         f"{lane.provider} cannot resume a session in place", code=7,
@@ -12432,6 +12678,14 @@ class Daemon:
             salvage_artifacts, checkpoint, salvage_evidence = self._salvage(job, a)
         artifacts.extend(salvage_artifacts)
         wall_exited = self._wall_exited_descendants(a["job_id"]) if actual.get("killed_by") == "max_wall_s" else set()
+        review_result = None
+        if (is_review_job(job) and not lost and outcome.cls == OutcomeClass.OK and nonblank_deliverable
+                and (rc == 0 or job["kind"] == "turn")):
+            # D-REVIEW-CONTRACT1 (A1 review r1, P2): parse before the store's
+            # write transaction, never inside it, and at most MAX_REVIEW_BYTES.
+            # The transaction keeps it only if it accepts this attempt; it can
+            # only veto an `ok` it would have accepted here, never make one.
+            review_result = parse_review_deliverable(payload)
         with self.store.transaction("attempt.accepted", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
             job = self._job(a["job_id"])
             current = tx.execute("SELECT MAX(seq) FROM attempts WHERE job_id=?", (job["job_id"],)).fetchone()[0]
@@ -12491,8 +12745,15 @@ class Daemon:
                       (outcome.cls == OutcomeClass.TRANSIENT and not (job["pinned_lane"] and previous_transient)))))
             attempt_state = "interrupted" if cancel else "lost" if lost else "succeeded" if ok else "failed"
             job_state = "cancelled" if cancel else "waiting" if retry else "lost" if lost else "succeeded" if ok else "failed"
+            accepted = a["attempt_id"] if ok and not cancel else None
             evidence = json.loads(actual["evidence_json"] or "{}")
             evidence.update(classification=outcome.evidence, checkpoint=checkpoint, **salvage_evidence)
+            if accepted and review_result is not None:
+                # D-REVIEW-CONTRACT1: the captured accepted deliverable decides;
+                # format and severity never change acceptance or retry policy.
+                evidence["review"] = review_result
+                tx.execute("INSERT INTO events(ts,kind,job_id,attempt_id,data_json) VALUES(?,?,?,?,?)",
+                           (utcnow(), "job.review_result", job["job_id"], accepted, json.dumps(evidence["review"])))
             if census.cwd_pids:
                 evidence['cwd_holders'] = census.to_dict()['cwd_holders']
             if trees is not None:
@@ -12555,7 +12816,6 @@ class Daemon:
             if not cancel and not retry and not lost:
                 job_rc = {OutcomeClass.LIMITED: 4,  # C-17.3: a final limited attempt reports 4, pinned or not
                           OutcomeClass.AUTH_DEAD: 5, OutcomeClass.CLI_TOO_OLD: 6}.get(outcome.cls, rc)
-            accepted = a["attempt_id"] if ok and not cancel else None
             tx.execute("UPDATE jobs SET state=?,rc=?,accepted_attempt_id=?,finished_at=?,wait_reason=?,next_check_at=? WHERE job_id=?",
                        (job_state, job_rc, accepted, None if retry else utcnow(), "capacity" if retry else None, next_check, job["job_id"]))
             self._cascade_final_wall(a, wall_exited)
@@ -12971,7 +13231,7 @@ class Daemon:
         # ordinary read/cancel operations stay responsive.
         pool = (self.workers if req.op == "submit" or req.op.startswith("gate.") else
                 self.waiters if req.op == "wait" else
-                self.lookups if req.op in LOOKUP_OPS else self.requests)
+                self.lookups if req.op in LOOKUP_OPS and descriptors.read_only(req.op, req.args) else self.requests)
         return pool.submit(self._run_worker, self._respond, conn, write_lock, req, arrived,
                            **({"peer": peer} if req.op == "kill" else {}))
 

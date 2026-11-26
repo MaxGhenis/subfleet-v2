@@ -461,6 +461,11 @@ FALLBACK: tuple[str, None] = ("operation: request was refused", None)
 BY_POLICY = "by_policy"
 _BY_POLICY_FIX = "pass -s read-only"
 
+#: `details` key an `unknown-pinned-model` refusal of a resume carries (C-12.4): the pin
+#: is its source attempt's, which the caller cannot change, so the repair is a fresh job.
+RESUME_PIN = "resume_pin"
+RESUME_PIN_FIX = "submit a fresh job: a resume always runs on its source's model"
+
 _SHAPES = {
     "job_id": re.compile(r"[0-9]{8}-[0-9]{6}-[a-z0-9-]{1," + str(JOB_ID_SLUG_MAX) + r"}\Z"),
     "lane_id": re.compile(r"(?:codex|claude)-[1-9][0-9]{0,8}\Z"),
@@ -609,6 +614,8 @@ def render(reason: Any, details: Any = None) -> tuple[str, str | None]:
             message += "; verify hook SHA-256, TRUST and the pinned Codex version"
         # The renderer never raises: a kind admitted without a repair gets the generic one.
         fix = GUARD_REPAIRS.get(kind, HANDLER_MESSAGES["guard-preflight"][1])
+    if reason == "unknown-pinned-model" and details.get(RESUME_PIN) is True:
+        fix = RESUME_PIN_FIX
     if details.get(BY_POLICY) is True:
         # d261: a writer's refusal of a job its caller did not ask to write.
         task = details.get("task") if checked("task", details.get("task")) else "these"

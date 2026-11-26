@@ -1,0 +1,18 @@
+[
+  "python3",
+  "/private/tmp/sf-wc-b1/run.py",
+  "baseline-clusters",
+  "pytest",
+  "-q",
+  "-o",
+  "pythonpath=/private/tmp/sf-wc-b1/baseline",
+  "-p",
+  "sf_baseline_verify",
+  "tests/fake/test_sessions_end_to_end.py::test_a_revive_records_the_requested_model_substitution",
+  "tests/process/test_provider_shell_environment.py::test_codex_exec_and_resume_commands_see_neither_dummy",
+  "tests/fake/test_canonical_identity.py::test_two_legacy_alias_holders_oldest_exports_and_releases",
+  "tests/unit/test_importer.py::test_terminal_messages_become_history_of_one_legacy_conversation",
+  "tests/unit/test_publish_rule_round7.py::test_each_spelling_is_refused_in_each_providers_real_shell[codex-zsh -c]",
+  "tests/unit/test_legacy_hold.py::test_a_message_the_hold_withheld_can_still_be_withdrawn[turn.interrupt]",
+  "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[alternates]"
+]

@@ -1,0 +1,95 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.15.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5
+configfile: pyproject.toml
+plugins: xdist-3.8.0, timeout-2.4.0, hypothesis-6.168.1
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+created: 4/4 workers
+4 workers [346 items]
+
+........................................................................ [ 20%]
+........................................................................ [ 41%]
+........................................................................ [ 62%]
+........................................................................ [ 83%]
+.........................................................F               [100%]
+=================================== FAILURES ===================================
+________ test_the_property_draws_the_same_environments_in_every_process ________
+[gw2] darwin -- Python 3.15.2 /Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wcall-fix-r5-a1-7x65682i/sf-wcall-fix5/pytest-live-store-guards/popen-gw2/test_the_property_draws_the_sa0')
+
+    def test_the_property_draws_the_same_environments_in_every_process(tmp_path):
+        """C-20.6 (D-ST3, invariant 5, review r1's P1): the same draws under PYTHONHASHSEED 0, 4 and 7, in this
+        session's environment and in a minimal one.
+    
+        The draws had followed set order, which the per-process string hash decides,
+        so a derandomized run replayed different environments in each process.
+        """
+        (tmp_path / "home").mkdir()
+>       digests = {(seed, minimal): draws_digest(tmp_path, seed, minimal=minimal)
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                   for seed in (0, 4, 7) for minimal in (False, True)}
+
+tests/unit/test_live_store_guard_st3_children.py:399: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_live_store_guard_st3_children.py:383: in draws_digest
+    done = subprocess.run([sys.executable, "-c", DRAWS, "ordered"], env=env, cwd=tmp_path, capture_output=True,
+../../../.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/subprocess.py:671: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/subprocess.py:1395: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/subprocess.py:2412: in _communicate
+    new_offset, completed = _communicate_io_posix(
+../../../.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/subprocess.py:291: in _communicate_io_posix
+    ready = selector.select(remaining)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <selectors.PollSelector object at 0x10b0dbcb0>, timeout = 300000
+
+    def select(self, timeout=None):
+        # This is shared between poll() and epoll().
+        # epoll() has a different signature and handling of timeout parameter.
+        if timeout is None:
+            timeout = None
+        elif timeout <= 0:
+            timeout = 0
+        else:
+            # poll() has a resolution of 1 millisecond, round away from
+            # zero to wait *at least* timeout seconds.
+            timeout = math.ceil(timeout * 1e3)
+        ready = []
+        try:
+>           fd_event_list = self._selector.poll(timeout)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: Timeout (>300.0s) from pytest-timeout.
+
+../../../.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/selectors.py:398: Failed
+----------------------------- Captured stdout call -----------------------------
+~~~~~~~~~~~~~~~~~~~~~~~ Stack of <unknown> (6141390848) ~~~~~~~~~~~~~~~~~~~~~~~~
+  File "/Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5/.venv/lib/python3.15/site-packages/execnet/gateway_base.py", line 411, in _perform_spawn
+    reply.run()
+  File "/Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5/.venv/lib/python3.15/site-packages/execnet/gateway_base.py", line 341, in run
+    self._result = func(*args, **kwargs)
+  File "/Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5/.venv/lib/python3.15/site-packages/execnet/gateway_base.py", line 1160, in _thread_receiver
+    msg = Message.from_io(io)
+  File "/Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5/.venv/lib/python3.15/site-packages/execnet/gateway_base.py", line 567, in from_io
+    header = io.read(9)  # type 1, channel 4, payload 4
+  File "/Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5/.venv/lib/python3.15/site-packages/execnet/gateway_base.py", line 534, in read
+    data = self._read(numbytes - len(buf))
+============================= slowest 8 durations ==============================
+300.26s call     tests/unit/test_live_store_guard_st3_children.py::test_the_property_draws_the_same_environments_in_every_process
+26.89s call     tests/unit/test_live_store_guard.py::test_registry_covers_every_production_guard
+14.77s call     tests/unit/test_live_store_guard_st3_children.py::test_the_daemon_without_subfleet_home[pytest-loaded]
+13.91s call     tests/unit/test_live_store_guard_st3_children.py::test_importing_every_subfleet_module_loads_no_pytest
+13.19s call     tests/unit/test_live_store_guard_st3_children.py::test_production_resolves_as_release_217
+12.23s call     tests/unit/test_live_store_guard_st3_children.py::test_the_daemon_without_subfleet_home[bare-marker]
+12.17s call     tests/unit/test_live_store_guard_st3_children.py::test_the_installed_subfleetd_without_subfleet_home[plain-daemon-start]
+11.85s call     tests/unit/test_live_store_guard_st3_children.py::test_the_daemon_without_subfleet_home[plain]
+=========================== short test summary info ============================
+FAILED tests/unit/test_live_store_guard_st3_children.py::test_the_property_draws_the_same_environments_in_every_process
+================== 1 failed, 345 passed in 424.72s (0:07:04) ===================

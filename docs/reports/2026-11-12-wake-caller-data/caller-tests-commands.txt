@@ -1,0 +1,19 @@
+Read-only inspection: pwd; rg --files AGENTS.md/nudge/notice/conftest/store/wakes/state-contract; cat existing notice delivery, fake fixture, new nudge and migration tests; sed/rg daemon notice/session handlers, store notice fields, notify_push registry and push APIs, render.notice_header, transcripts.TurnState; read shared scratch run.py. All succeeded except expected missing subfleet/caller_wakes.py and missing worktree .venv (shared scratch venv exists).
+/private/tmp/sf-wc-b1/venv/bin/python -m py_compile tests/fake/test_caller_notice_wakes.py -> exit 0.
+python3 run.py caller-wake-new pytest -q tests/fake/test_caller_notice_wakes.py -> 21 passed, 3 failed; test helper matched sequential job ID prefixes; fixed with exact token regex.
+python3 run.py caller-wake-fixed pytest -q tests/fake/test_caller_notice_wakes.py -> 24 passed.
+python3 run.py caller-wake-complete pytest -q tests/fake/test_caller_notice_wakes.py -> 27 passed.
+python3 run.py caller-wake-conversation-binding pytest -q tests/fake/test_caller_notice_wakes.py -k one_path -> 1 failed due test setup missing valid settings; corrected.
+python3 run.py caller-wake-conversation-binding-fixed pytest -q tests/fake/test_caller_notice_wakes.py -k one_path -> 1 failed due test origin enum; corrected to native.
+python3 run.py caller-wake-conversation-bound pytest -q tests/fake/test_caller_notice_wakes.py -k "one_path or scrubbed" -> 2 passed.
+python3 run.py caller-wake-final pytest -q tests/fake/test_caller_notice_wakes.py -> 29 passed in 36.68 s (full final file, including added edge tests).
+python3 -m py_compile /private/tmp/sf-wc-b1/run_mutants.py -> exit 0.
+python3 /private/tmp/sf-wc-b1/run_mutants.py -> exit0, all6 individually killed by named assertion tests rc1; each pristine restoration verified by SHA256; exact patches+hashes+commands/results in mutants/results.json.
+Independent final mutation restore verification -> six killed records and both production source files byte-identical to pristine copies.
+Read regression-failures.json and affected-n4.log; grouped 108 failures into seven files; wrote baseline-clusters-summary.json.
+python3 baseline_clusters.py first attempt -> rc3: scratch verifier caught worktree import before tests; eager baseline package import corrected path.
+python3 baseline_clusters.py second attempt -> rc1, 7 representative failures reproduced on pristine baseline; source path recorded in baseline-import.txt.
+Prepared run_mutants_final.py by copying original driver and assigning mutants-final artifacts/labels; py_compile ->exit0.
+python3 /private/tmp/sf-wc-b1/run_mutants_final.py ->exit0; six latest-source mutants separately killed by assertion failures rc1 and restored independently; exact patches+SHA256+results in mutants-final/results.json.
+Independent latest-source restore check ->exit0; caller_wakes.py310ad801fc6fe8275e29f0ca67332b91fa427c616832b8988bd53a7a991571c2 and nudge.pyaf4f0b1e1683d7befcf1fbaeeeb52064fb48b26ff501bc0d95cb009a8c7c70f9 match pristine bytes.
+Baseline proof ->exit0: baseline daemon source matches git show b51f08f961e1b1dcfb93347eb080f9ddd9a9260d:subfleet/daemon.py byte-for-byte; copied baseline proof, aggregate failures, final mutant artifacts+logs+commands and this ledger into docs/reports/2026-11-12-wake-caller-data.

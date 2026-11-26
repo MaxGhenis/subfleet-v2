@@ -1,0 +1,31 @@
+F
+=================================== FAILURES ===================================
+__________ test_property_job_effort_pins_settings_and_preserves_argv ___________
+tests/unit/test_effort_env.py:114: in test_property_job_effort_pins_settings_and_preserves_argv
+    @example(case=dict(path="job", sandbox="workspace-write", task="review", isolated=False,
+                   ^^^^^^^^^^^
+/private/tmp/sf-eff-b1/venv/lib/python3.14t/site-packages/hypothesis/core.py:1691: in _raise_to_user
+    raise the_error_hypothesis_found
+tests/unit/test_effort_env.py:141: in test_property_job_effort_pins_settings_and_preserves_argv
+    assert launch.env_add == expected_env  # the effort pin belongs only in settings
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   assert {'CLAUDE_CODE...COL': '', ...} == {'CLAUDE_CODE...'never'", ...}
+E     
+E     Omitting 6 identical items, use -vv to show
+E     Left contains 1 more item:
+E     {'CLAUDE_CODE_EFFORT_LEVEL': 'high'}
+E     Use -v to get more diff
+E   Failing explicit example: test_property_job_effort_pins_settings_and_preserves_argv(
+E       tmp_path=PosixPath('/private/tmp/sf-eff-b1/mutant-3-job-process-env/test_property_job_effort_pins_0'),
+E       case={'path': 'job',
+E        'sandbox': 'workspace-write',
+E        'task': 'review',
+E        'isolated': False,
+E        'effort': 'high',
+E        'tmp': True,
+E        'mcp': True},
+E   )
+=========================== short test summary info ============================
+FAILED tests/unit/test_effort_env.py::test_property_job_effort_pins_settings_and_preserves_argv
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 5.75s

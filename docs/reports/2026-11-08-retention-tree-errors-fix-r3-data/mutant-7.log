@@ -1,0 +1,55 @@
+Python 3.15.2
+Mutant 7 loaded in memory: stale = True
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____ test_a_bundle_lock_under_ten_minutes_old_defers_and_changes_nothing ______
+
+world = World(base=PosixPath('/Users/maxghenis/.subfleet/worktrees/20261125-222604-rte-fix-r3/.sf-rte-fix3/pytest-mutant-7/tes...f-rte-fix3/pytest-mutant-7/test_a_bundle_lock_under_ten_m0/state'), store=<subfleet.store.Store object at 0x10bad1a90>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ba52b10>
+caplog = <_pytest.logging.LogCaptureFixture object at 0x10bad23c0>
+
+    @pytest.mark.retention_catch_up
+    def test_a_bundle_lock_under_ten_minutes_old_defers_and_changes_nothing(world, monkeypatch, caplog):
+        """The hub's ruling on D-RET-STALE-LOCK1, both sides of the line on a fixed
+        clock: a lock 599 s old may still be a running git's (one a hard-killed
+        daemon left keeps writing it, so its time stays fresh). The pass defers
+        with a reason that names the lock and its age, and the lock and the
+        temporary bundle keep their bytes, mode and time; size and age are
+        logged. One second later the lock is 600 s old and goes; the job retires.
+        The age mutant's witness."""
+        w = world
+        w.job("job-y")
+        real_create = rgit.create_bundle
+        wall = [WALL]
+        monkeypatch.setattr(rarch, "_wall_now", lambda: wall[0])
+        monkeypatch.setattr(rgit, "create_bundle", killed_bundle("both", 599))
+        state, clock = retention.RetentionState(), Clock()
+        first = run(w, state=state, clock=clock)
+        assert first["deferred"]["job-y"].startswith("error"), first["deferred"]
+        archive = w.root / "retention" / "job-y" / "archive"
+        before = leftovers(archive)
+        assert sorted(before) == ["commits.bundle.tmp", "commits.bundle.tmp.lock"]
+        notes = []
+        real_note = rarch._Builder._note
+        monkeypatch.setattr(rarch._Builder, "_note", lambda self, record: (notes.append(record), real_note(self, record)))
+        monkeypatch.setattr(rgit, "create_bundle", real_create)
+        clock.advance(2 * rarch.DEFER_ERROR_S)
+        with caplog.at_level(logging.WARNING, logger=rarch.__name__):
+            young = run(w, state=state, clock=clock)
+>       assert young["pruned"] == [], young
+E       AssertionError: {'pruned': ['job-y'], 'errors': [], 'bytes_before': 0, 'bytes_after': 0, ...}
+E       assert ['job-y'] == []
+E         
+E         Left contains one more item: 'job-y'
+E         Use -v to get more diff
+
+tests/unit/test_rte_walk_bundle.py:333: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  subfleet.retention_archive:retention_archive.py:2204 Retention removes the bundle lock of job-y: 254 bytes, 599 s old (removed at 600 s)
+============================= slowest 5 durations ==============================
+6.64s call     tests/unit/test_rte_walk_bundle.py::test_a_bundle_lock_under_ten_minutes_old_defers_and_changes_nothing
+4.57s setup    tests/unit/test_rte_walk_bundle.py::test_a_bundle_lock_under_ten_minutes_old_defers_and_changes_nothing
+0.02s teardown tests/unit/test_rte_walk_bundle.py::test_a_bundle_lock_under_ten_minutes_old_defers_and_changes_nothing
+=========================== short test summary info ============================
+FAILED tests/unit/test_rte_walk_bundle.py::test_a_bundle_lock_under_ten_minutes_old_defers_and_changes_nothing
+1 failed in 18.07s

@@ -1,0 +1,19 @@
+{
+  "outside_scratch": [
+    {
+      "path": "/Users/maxghenis/.subfleet/worktrees/20261115-224656-wcall-fix-r3/subfleet/__pycache__",
+      "pyc_files": 26
+    },
+    {
+      "path": "/Users/maxghenis/.subfleet/worktrees/20261115-224656-wcall-fix-r3/subfleet/adapters/__pycache__",
+      "pyc_files": 2
+    },
+    {
+      "path": "/Users/maxghenis/.subfleet/worktrees/20261115-224656-wcall-fix-r3/subfleet/sessions/__pycache__",
+      "pyc_files": 11
+    }
+  ],
+  "scratch": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-224656-wcall-fix-r3-a1-7lyc6v5g/sf-wcall-fix3",
+  "removed_outside": true,
+  "scratch_removed": true
+}

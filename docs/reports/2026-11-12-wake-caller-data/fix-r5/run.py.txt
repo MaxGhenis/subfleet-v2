@@ -1,0 +1,59 @@
+"""Run the fix-round selections with isolated state and save their evidence."""
+from datetime import datetime, timezone
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+scratch = Path(__file__).resolve().parent
+workspace = Path.cwd()
+assert scratch.name == 'sf-wcall-fix5'
+assert workspace.name == '20261125-221914-wcall-fix-r5'
+name, *selection = sys.argv[1:]
+assert name and '/' not in name
+basetemp = scratch / f'pytest-{name}'
+assert not basetemp.exists()
+disk = subprocess.check_output(['df', '-H', '/'], text=True)
+print(disk.strip(), flush=True)
+if shutil.disk_usage('/').free < 60_000_000_000:
+    sys.exit('Less than 60 GB free')
+if datetime.now(timezone.utc) >= datetime(2026, 11, 25, 23, 50, 32, tzinfo=timezone.utc):
+    sys.exit('Test run cutoff reached')
+
+environment = os.environ.copy()
+for key in ('SUBFLEET_HOME', 'SUBFLEET_ROOT', 'SUBFLEET_JOB', 'SUBFLEET_ATTEMPT',
+            'CLAUDE_CODE_SESSION_ID', 'PYTHONPATH'):
+    environment.pop(key, None)
+environment.update(
+    TMPDIR=str(scratch / 'tmp'), UV_CACHE_DIR=str(scratch / 'uv-cache'),
+    HYPOTHESIS_STORAGE_DIRECTORY=str(scratch / 'hypothesis'),
+    PYTHONDONTWRITEBYTECODE='1',
+    PYTHONPATH=os.pathsep.join([str(scratch / 'plugins'), str(workspace)]),
+    FIX5_FIXTURE_ROOTS="/private/tmp/sf-wcall-fix5-221914/sf-wcall-fix5",
+    GIT_CONFIG_GLOBAL='/dev/null', GIT_CONFIG_NOSYSTEM='1',
+)
+if name.startswith('live-store-guards'):
+    command = ['.venv/bin/python', '-m', 'pytest']
+else:
+    command = ['uv', 'run', '--no-sync', '--with', 'pytest-xdist>=3.6']
+    if name.startswith('repeat20'):
+        command += ['--with', 'pytest-repeat>=0.9']
+    command += ['pytest']
+command += ['-p', 'r4_isolation', '-p', 'no:cacheprovider', '-n', '4',
+            '--timeout=300', f'--basetemp={basetemp}', '-ra', '--durations=8', *selection]
+if name == 'after' or name.startswith('repeat20'):
+    command.append('-v')
+log = scratch / 'logs' / f'{name}.log'
+assert not log.exists()
+start = datetime.now(timezone.utc).isoformat()
+with log.open('w') as stream:
+    result = subprocess.run(command, env=environment, stdout=stream, stderr=subprocess.STDOUT)
+record = dict(name=name, command=command, exit_code=result.returncode, start=start,
+              end=datetime.now(timezone.utc).isoformat(), disk=disk.splitlines()[-1])
+with (scratch / 'logs' / 'runs.jsonl').open('a') as stream:
+    stream.write(json.dumps(record) + '\n')
+print(json.dumps(record))
+print('\n'.join(log.read_text().splitlines()[-26:]))
+sys.exit(result.returncode)

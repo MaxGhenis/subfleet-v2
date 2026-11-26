@@ -1,0 +1,206 @@
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! KeyboardInterrupt !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+/Users/maxghenis/.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/contextlib.py:145: KeyboardInterrupt
+(to show a full traceback on KeyboardInterrupt use --full-trace)
+Traceback (most recent call last):
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/conversations/store.py", line 447, in close
+    with self._writes, self._lock:
+                       ^^^^^^^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/lockwatch.py", line 139, in __exit__
+    self.release()
+    ~~~~~~~~~~~~^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/lockwatch.py", line 131, in release
+    watch.released(self, held, seconds, sys._getframe(1))
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/lockwatch.py", line 228, in released
+    self._emit(lock.name, "released", seconds, lambda: (
+    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        f"{lock.name} lock released after {seconds:.1f} s by {thread_name(ident)}"
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        + ("" if sampled or frame is None else ". Where it was held:\n"
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+           + format_stack(frame))))
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/lockwatch.py", line 277, in _emit
+    self.report(text)
+    ~~~~~~~~~~~^^^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/daemon.py", line 1071, in <lambda>
+    self.lock_watch = LockWatch(lambda text: self.log.warning("%s", text))
+                                             ~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/logging/__init__.py", line 1532, in warning
+    self._log(WARNING, msg, args, **kwargs)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/logging/__init__.py", line 1665, in _log
+    self.handle(record)
+    ~~~~~~~~~~~^^^^^^^^
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/logging/__init__.py", line 1681, in handle
+    self.callHandlers(record)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/logging/__init__.py", line 1741, in callHandlers
+    hdlr.handle(record)
+    ~~~~~~~~~~~^^^^^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/daemon_log.py", line 325, in handle
+    text = self.format(record)          # `ScrubbingFormatter.format` never raises
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/logging/__init__.py", line 999, in format
+    return fmt.format(record)
+           ~~~~~~~~~~^^^^^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/daemon_log.py", line 270, in format
+    return neutralised(self._scrubbed(record))
+                       ~~~~~~~~~~~~~~^^^^^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/daemon_log.py", line 277, in _scrubbed
+    if self.usesTime():
+       ~~~~~~~~~~~~~^^
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/logging/__init__.py", line 677, in usesTime
+    def usesTime(self):
+    
+KeyboardInterrupt
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/bin/pytest", line 10, in <module>
+    sys.exit(_console_main())
+             ~~~~~~~~~~~~~^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/config/__init__.py", line 253, in _console_main
+    code = _main(prog=_get_prog_name(sys.argv))
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/config/__init__.py", line 229, in _main
+    ret: ExitCode | int = config.hook.pytest_cmdline_main(config=config)
+                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+           ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_callers.py", line 167, in _multicall
+    raise exception
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/main.py", line 377, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/main.py", line 365, in wrap_session
+    config.hook.pytest_sessionfinish(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        session=session, exitstatus=session.exitstatus
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+           ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_callers.py", line 167, in _multicall
+    raise exception
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_callers.py", line 139, in _multicall
+    teardown.throw(exception)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/logging.py", line 888, in pytest_sessionfinish
+    return (yield)
+            ^^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_callers.py", line 139, in _multicall
+    teardown.throw(exception)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/terminal.py", line 961, in pytest_sessionfinish
+    result = yield
+             ^^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_callers.py", line 139, in _multicall
+    teardown.throw(exception)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/warnings.py", line 119, in pytest_sessionfinish
+    return (yield)
+            ^^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/runner.py", line 112, in pytest_sessionfinish
+    session._setupstate.teardown_exact(None)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/runner.py", line 568, in teardown_exact
+    fin()
+    ~~~^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/fixtures.py", line 1166, in finish
+    raise exceptions[0]
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/fixtures.py", line 1156, in finish
+    fin()
+    ~~~^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/.venv/lib/python3.14/site-packages/_pytest/fixtures.py", line 1014, in _teardown_yield_fixture
+    next(it)
+    ~~~~^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/tests/fake/test_state_contract.py", line 59, in state_daemon
+    daemon.close()
+    ~~~~~~~~~~~~^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/daemon.py", line 12905, in close
+    self.conversations.close()
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/conversations/service.py", line 262, in close
+    self.store.close()
+    ~~~~~~~~~~~~~~~~^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/conversations/store.py", line 447, in close
+    with self._writes, self._lock:
+         ^^^^^^^^^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/lockwatch.py", line 139, in __exit__
+    self.release()
+    ~~~~~~~~~~~~^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/lockwatch.py", line 131, in release
+    watch.released(self, held, seconds, sys._getframe(1))
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/lockwatch.py", line 228, in released
+    self._emit(lock.name, "released", seconds, lambda: (
+    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        f"{lock.name} lock released after {seconds:.1f} s by {thread_name(ident)}"
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        + ("" if sampled or frame is None else ". Where it was held:\n"
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+           + format_stack(frame))))
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/lockwatch.py", line 277, in _emit
+    self.report(text)
+    ~~~~~~~~~~~^^^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/daemon.py", line 1071, in <lambda>
+    self.lock_watch = LockWatch(lambda text: self.log.warning("%s", text))
+                                             ~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/logging/__init__.py", line 1532, in warning
+    self._log(WARNING, msg, args, **kwargs)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/logging/__init__.py", line 1665, in _log
+    self.handle(record)
+    ~~~~~~~~~~~^^^^^^^^
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/logging/__init__.py", line 1681, in handle
+    self.callHandlers(record)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/logging/__init__.py", line 1741, in callHandlers
+    hdlr.handle(record)
+    ~~~~~~~~~~~^^^^^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/daemon_log.py", line 325, in handle
+    text = self.format(record)          # `ScrubbingFormatter.format` never raises
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/logging/__init__.py", line 999, in format
+    return fmt.format(record)
+           ~~~~~~~~~~^^^^^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/daemon_log.py", line 270, in format
+    return neutralised(self._scrubbed(record))
+                       ~~~~~~~~~~~~~~^^^^^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/daemon_log.py", line 292, in _scrubbed
+    text = scrubbed_block(line, group=groups[0])
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/daemon_log.py", line 150, in scrubbed_block
+    _block_form(_head_scrub_secrets, text, group, keep_lines))
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/daemon_log.py", line 156, in _block_form
+    block = plain(text)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/daemon_log.py", line 163, in _plain_block
+    clean, _ = scrub(text, strip_reminders=True, whole=True)
+               ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/sessions/handoff.py", line 744, in _head_scrub_secrets
+    return _scrub(text, strip_reminders, multiline=whole)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/sessions/handoff.py", line 2327, in _scrub
+    return _scrub_rules(text, strip_reminders, multiline=multiline)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/sessions/handoff.py", line 2350, in _scrub_rules
+    text = _apply_rules(text, (rule,), tally)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/sessions/handoff.py", line 1721, in _apply_rules
+    text = _linear_sub(pattern, replace, text)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/sessions/handoff.py", line 309, in _linear_sub
+    for match in matches():
+                 ~~~~~~~^^
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/sessions/handoff.py", line 289, in matches
+    start = _URL_START_RE.search(text, token.start(), token.end())
+                                       ~~~~~~~~~~~^^
+KeyboardInterrupt

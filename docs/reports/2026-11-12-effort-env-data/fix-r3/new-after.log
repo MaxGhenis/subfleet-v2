@@ -1,0 +1,10 @@
+# label: new-after
+# start: 2026-11-17T14:14:43Z
+# command: uv run --no-sync --with pytest-xdist\>=3.6 pytest --basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T//sf-eff-fix3/pytest-new-after-141443 -p no:cacheprovider -n 4 -q -rfE tests/fake/test_resume_contract.py tests/unit/test_handler_refusals.py -k imported_resume_runs\ or\ after_a_policy_change\ or\ unknown_pinned_model_when\ or\ aliases_share\ or\ resume_refused_for_its_source\ or\ most_specific_checked_form
+bringing up nodes...
+bringing up nodes...
+
+........................                                                 [100%]
+24 passed in 77.20s (0:01:17)
+# end: 2026-11-17T14:16:25Z
+# exit: 0

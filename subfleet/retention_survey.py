@@ -355,6 +355,11 @@ def job_info(job: dict[str, Any], root: Path, *, pin: str | None = None, kept: s
             foreign = [g for g in wt["nested_gitfiles"] if not _into_admin(worktree / g, admin)]
             if foreign:
                 info["issue"] = f"nested-linked-worktree: {foreign[0]}"
+    if sizes and jobdir["error"]:
+        # Retirement walks the job directory too and defers on the same
+        # refusal (D-SURVEY-EACCES1): the job is listed, kept. Last, so that
+        # the class `retention_delete` asks for (gate 7) still reads first.
+        info.setdefault("issue", f"walk: job: {jobdir['error']}")
     info.pop("_omit", None)
     return info
 
@@ -677,6 +682,10 @@ def sample(root: Path, n: int = 20, *, hash_budget: int = 512 << 20,
         wt = _sample_walk(worktree, None if info.get("scratch") else omit, ignored, fmt, hash_budget)
         jd = _sample_walk(root / "jobs" / job["job_id"], None, None, None, 0)
         admin = _sample_walk(Path(info["admin"]), None, None, None, 0) if info.get("admin") else None
+        for label, walked in (("worktree", wt), ("job", jd), ("admin", admin)):
+            if walked is not None and walked["error"]:
+                # A tree retirement would defer on is no retirable sample (D-SURVEY-EACCES1).
+                info.setdefault("issue", f"walk: {label}: {walked['error']}")
         info.update(worktree_walk=wt, job_dir_bytes=jd["bytes"], seconds=round(time.monotonic() - t0, 1))
         info["freed_bytes"] = wt["omitted_bytes"] + wt["regenerable_bytes"]
         info["freed_disk_bytes"] = wt["omitted_disk"] + wt["regenerable_disk"]

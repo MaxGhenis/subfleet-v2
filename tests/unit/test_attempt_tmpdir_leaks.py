@@ -793,7 +793,7 @@ def test_t6_removal_ends_the_same_way_under_either_rename_rule(children, top_mod
     outcome, said, where, _, _, pinned = ended[HOST]
     assert (outcome, where) == (("removed", "absent") if not pinned else (None, "present")), ended[HOST]
     if outcome is None:
-        assert said == ["TMPDIR removal deferred for job/a1: PermissionError"], said
+        assert said == ["TMPDIR removal deferred for job/a1: PermissionError(EPERM)"], said
 
 
 # --- T4: bounded descriptors, and the same depth bound as size() ----------------------------------
