@@ -7,8 +7,9 @@ import sqlite3
 
 import pytest
 
-from subfleet.store import (MIGRATIONS, NOTICE_WAKE_MIGRATION, REVIEW_FAMILY_MIGRATION,
-                            REVIEW_SUBJECT_MIGRATION, SCHEMA_VERSION, Store, job_flags)
+from subfleet.store import (MIGRATIONS, NOTICE_WAKE_MIGRATION, NOTICE_WAKE_PREDATES,
+                            REVIEW_FAMILY_MIGRATION, REVIEW_SUBJECT_MIGRATION, SCHEMA_VERSION,
+                            Store, job_flags)
 
 from test_store_review_subject_migration import FIELDS, rows, version_10_store
 
@@ -35,8 +36,9 @@ def schema(path):
 
 
 def apply_pr307_migration_11(path):
-    # #307's own code also marks unread notices stale; this head never does
-    # (D-SCHEMA-SLOTS1: slot 11 is storage only), so the history it left stays.
+    # #307's own code marks the notices still unread at migration stale. Since
+    # #307 merged, this head does the same on the step that adds wake_state
+    # (C-15.9), so both paths leave the same marks.
     with sqlite3.connect(path) as conn:
         for statement in PR307_MIGRATION_11:
             conn.execute(statement)
@@ -75,15 +77,18 @@ def test_i6_schema_10_and_actual_pr307_11_reach_identical_schema_and_keep_existi
         assert after["caller_wake_sessions"] == []
         assert after["jobs"] == [{**job, **dict.fromkeys(FIELDS), "allow_same_family": 0}
                                  for job in before["jobs"]]
-        # Notice history is kept exactly: the direct path gains empty wake
-        # columns, and #307's own stale marks survive the upgrade unchanged.
+        # Notice history is kept exactly. On the direct path, slot 11 adds the
+        # wake columns and marks the notices still unread then stale (C-15.9);
+        # #307's own marks survive the upgrade unchanged.
         reference = before["notices"] if path == direct else after_307["notices"]
         for old, new in zip(reference, after["notices"], strict=True):
             assert {key: new[key] for key in old} == old
             if path == direct:
+                unread = old["state"] in ("pending", "offered")
                 assert {key: new[key] for key in WAKE_FIELDS} == {
-                    "wake_state": None, "wake_attempts": 0, "wake_next_at": None,
-                    "wake_at": None, "wake_reason": None}
+                    "wake_state": "stale" if unread else None, "wake_attempts": 0,
+                    "wake_next_at": None, "wake_at": None,
+                    "wake_reason": NOTICE_WAKE_PREDATES if unread else None}
         for table in before.keys() - {"jobs", "notices", "schema_version", "events"}:
             assert after[table] == before[table], table
         assert after["events"][:len(before["events"])] == before["events"]
@@ -93,6 +98,7 @@ def test_i6_schema_10_and_actual_pr307_11_reach_identical_schema_and_keep_existi
             pass
         assert rows(path) == after
         migrated_rows.append(after)
+    assert migrated_rows[0]["notices"] == migrated_rows[1]["notices"]
     assert schema(direct) == schema(through_11)
 
 
