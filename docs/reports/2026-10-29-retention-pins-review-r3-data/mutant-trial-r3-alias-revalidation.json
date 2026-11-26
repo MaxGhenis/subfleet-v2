@@ -1,0 +1,35 @@
+{
+  "name": "mutant-trial-r3-alias-revalidation",
+  "start": "2026-10-29T13:46:21.050187+00:00",
+  "load": [
+    21.2548828125,
+    20.89892578125,
+    22.5986328125
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[exporting]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]",
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[exporting]"
+  ],
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+      "mutated_sha256": "c8a37a335ef5340f9ad65bb1803858889a2d82227bae82ed2b29413ed341f6de"
+    }
+  ],
+  "rc": 0,
+  "seconds": 9.068084958009422,
+  "rss": 118046720
+}

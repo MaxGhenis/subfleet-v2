@@ -1,0 +1,33 @@
+{
+  "label": "shared-property-3",
+  "start": "2026-10-30T03:20:28.231934+00:00",
+  "loads": [
+    20.595703125,
+    23.8203125,
+    24.94384765625
+  ],
+  "seconds": 77.45151654199799,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 72.6195775419983
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn"
+  ],
+  "phases": {
+    "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 119668736
+}

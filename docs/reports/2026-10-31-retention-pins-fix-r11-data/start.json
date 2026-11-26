@@ -1,0 +1,13 @@
+{
+  "start": "2026-10-31T18:02:38Z",
+  "cutoff": "2026-10-31T22:02:38Z",
+  "base": "ced02912bea6f7ada1626f817bb847a90ae90470",
+  "scratch": "/private/tmp/sf-fix272r11",
+  "scratch_fallback": "DARWIN_USER_TEMP_DIR denied",
+  "git_metadata": "Shared refs denied; isolated .git-local with read-only object alternate for bundle delivery",
+  "load": [
+    67.16845703125,
+    55.95068359375,
+    51.703125
+  ]
+}

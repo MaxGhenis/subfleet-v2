@@ -28,6 +28,7 @@ from tests.frontend.daemon_harness import (
 )
 
 pytestmark = needs_swift
+pytest_plugins = ["pytester"]
 
 # The read states of a steered message, in Claude Code's words (DESIGN.md section 8).
 UNREAD = "Unread until Claude's next step."
@@ -49,20 +50,77 @@ REFUSED_WORDS = {
 }
 
 
+# Each root holds about 256 KiB; teardown removes it, also after a failed test (#265 review r1).
 @pytest.fixture
 def harness():
-    harness = ServiceHarness(Path(tempfile.mkdtemp(prefix="sf-steer-", dir="/tmp")))
-    yield harness
-    harness.close()
+    with tempfile.TemporaryDirectory(prefix="sf-steer-", dir="/tmp") as root:
+        harness = ServiceHarness(Path(root))
+        try:
+            yield harness
+        finally:
+            harness.close()
 
 
 @pytest.fixture
 def daemon():
-    harness = ServiceHarness(Path(tempfile.mkdtemp(prefix="sf-steer-ob-", dir="/tmp")))
-    server = ServiceServer(harness)
-    yield harness, server
-    server.close()
-    harness.close()
+    with tempfile.TemporaryDirectory(prefix="sf-steer-ob-", dir="/tmp") as root:
+        harness = ServiceHarness(Path(root))
+        try:
+            server = ServiceServer(harness)
+            try:
+                yield harness, server
+            finally:
+                server.close()
+        finally:
+            harness.close()
+
+
+#: The two fixtures above, run in a scratch pytest session of their own: each test records
+#: nothing itself; the roots are what `tempfile.mkdtemp` made meanwhile.
+ROOTS_CONFTEST = """
+from tests.frontend.test_core_steer import daemon, harness  # noqa: F401  the fixtures under test
+"""
+ROOTS_TESTS = """
+import pytest
+
+CASES = pytest.mark.parametrize("raises", [False, True], ids=["passes", "raises"])
+
+
+@CASES
+def test_harness(harness, raises):
+    assert harness.root.is_dir()
+    if raises:
+        raise RuntimeError("the test body raises")
+
+
+@CASES
+def test_daemon(daemon, raises):
+    harness, server = daemon
+    assert harness.root.is_dir() and server.path.exists()
+    if raises:
+        raise RuntimeError("the test body raises")
+"""
+
+
+def test_the_steer_fixtures_leave_no_root_after_teardown(pytester, monkeypatch):
+    """#265 review r1 (P3): every root the `harness` and `daemon` fixtures make (about
+    256 KiB each) is gone after teardown, also when the test body raises; so is the
+    socket server's own folder."""
+    made: list[Path] = []
+    real = tempfile.mkdtemp
+
+    def mkdtemp(*args, **kwargs):
+        path = real(*args, **kwargs)
+        if Path(path).name.startswith("sf-"):
+            made.append(Path(path))
+        return path
+    monkeypatch.setattr(tempfile, "mkdtemp", mkdtemp)
+    pytester.makeconftest(ROOTS_CONFTEST)
+    pytester.makepyfile(test_steer_roots=ROOTS_TESTS)
+    run = pytester.inline_run("-p", "no:cacheprovider", "-q")
+    run.assertoutcome(passed=2, failed=2)
+    assert len([path for path in made if path.name.startswith("sf-steer-")]) == 4, made
+    assert [path for path in made if path.exists()] == []
 
 
 # --- helpers -----------------------------------------------------------------------
@@ -488,7 +546,7 @@ def test_c24_9_a_steer_that_missed_is_drawn_in_its_own_place_and_runs_next(core_
     for snapshot in (queued, ran):
         assert person_ids(snapshot["items"]) == [f"person:{host}", f"person:{steered}"]
         assert snapshot["placed_steers"] == []
-    assert queued["turns"][steered]["status_text"] == MISSED
+    assert queued["turns"][steered]["status_text"] == "Queued for the next turn"
     ids = [i["id"] for i in ran["items"]]
     assert ids[ids.index(f"person:{steered}") + 1:] and ran["items"][-1]["text"] == "The lexer is fine."
     assert ran["turns"][steered]["status_text"] == "Completed"
@@ -977,6 +1035,11 @@ def test_c24_9_journaled_steers_restore_after_a_restart(core_probe, tmp_path, ha
     ])
     assert out["statuses"][pending] == UNREAD
     assert out["statuses"][refused] == REFUSED_WORDS["not-next"]
+    # Restoring a steer preserves its sent bubble, including a refused steer.
+    rows = {row["id"]: row for row in out["layouts"][cid]["tray"]}
+    for mid in (pending, refused):
+        assert mid not in rows
+        assert out["items"][cid].count(f"person:{mid}") == 1
     assert out["steer_offers"][pending] is False                    # already on its way
     # A journaled steer of a message that runs by now (the daemon dispatched it
     # first) does not make it read as unread: it is past steering.
@@ -1105,7 +1168,7 @@ def test_c24_9_a_missed_steer_steered_again_reads_unread_in_its_new_turn(core_pr
         {"page": {"events": [], "next": 0, "reset": True}}, {"page": page(harness, cid), "snapshot": True},
     ])
     words = [snapshot["turns"][steered]["status_text"] for snapshot in out["snapshots"]]
-    assert words == [MISSED, MISSED, UNREAD, UNREAD]
+    assert words == [MISSED, "Queued for the next turn", UNREAD, UNREAD]
 
 
 def test_c24_9_words_esc_takes_back_are_kept_in_the_draft(core_probe, tmp_path):

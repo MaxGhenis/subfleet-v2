@@ -1,0 +1,55 @@
+{
+  "name": "mutant-r3-post-traversal-alias-check-dropped",
+  "start": "2026-10-31T09:08:28.354864+00:00",
+  "load": [
+    34.9765625,
+    48.5810546875,
+    50.02099609375
+  ],
+  "args": [
+    "--mutant",
+    "r3-post-traversal-alias-check-dropped",
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.872668625001097,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 4.428929624999,
+      "failure": "tests/fake/test_retention_dependency_review_r3.py:66: in test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree\n    assert \"owner\" not in result[\"pruned\"], (recorded, result)\nE   AssertionError: ({'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-r3-post-traversal-alias-check-dropped/pytest-of-maxghenis/pytest-0/t...rent_symlink_s0/old/.git/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48706, 'bytes_after': 0, ...})\nE   assert 'owner' not in ['owner']"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.008955082997999853,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+      "mutated": "e0fa46ee07c28beddd0faae5b02a65cf7f83db5d9c49c07b9afe55086bfb23a4"
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/subfleet/dependencies.py",
+  "product_sha256": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+  "end": "2026-10-31T09:08:47.210610+00:00",
+  "seconds": 18.855074290997436,
+  "peak_rss_mib": 114.75,
+  "exit": 1
+}

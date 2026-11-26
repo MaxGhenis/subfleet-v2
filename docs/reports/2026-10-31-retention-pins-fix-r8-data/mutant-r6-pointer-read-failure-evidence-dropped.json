@@ -1,0 +1,55 @@
+{
+  "name": "mutant-r6-pointer-read-failure-evidence-dropped",
+  "start": "2026-10-31T07:28:36.668948+00:00",
+  "load": [
+    33.080078125,
+    34.29638671875,
+    34.0908203125
+  ],
+  "args": [
+    "--mutant",
+    "r6-pointer-read-failure-evidence-dropped",
+    "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5978729579983337,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 2.366252332998556,
+      "failure": "tests/fake/test_retention_dependency_review_r6.py:76: in test_crlf_padded_pointer_keeps_the_storage_real_git_reads\n    assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)\nE   AssertionError: ({}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 49078, 'bytes_after': 0, ...})\nE   assert ('owner' not in ['owner'])"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002489458001946332,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "1ed48486e59e3857dd906e46104e798bc1d3e963359fd636ea08a45acfae82ac",
+      "mutated": "7892f9321205eb02ac110933f6187b91382c9c8e21b8152f4f82719bcb2bd516"
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-030606-pr272-fix-r8/subfleet/dependencies.py",
+  "product_sha256": "1ed48486e59e3857dd906e46104e798bc1d3e963359fd636ea08a45acfae82ac",
+  "end": "2026-10-31T07:28:44.665874+00:00",
+  "seconds": 7.996601541002747,
+  "peak_rss_mib": 118.0625,
+  "exit": 1
+}

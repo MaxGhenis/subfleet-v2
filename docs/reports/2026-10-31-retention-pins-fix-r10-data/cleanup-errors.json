@@ -1,0 +1,147 @@
+[
+  {
+    "function": "unlink",
+    "path": "/private/tmp/sf-fix272r10/real-tmp/archive-2/pytest-of-maxghenis/pytest-0/test_interrupted_removal_resum0/back/worktree/ro/f18",
+    "error": "PermissionError(13, 'Permission denied')"
+  },
+  {
+    "function": "unlink",
+    "path": "/private/tmp/sf-fix272r10/real-tmp/archive-2/pytest-of-maxghenis/pytest-0/test_interrupted_removal_resum0/back/worktree/ro/f11",
+    "error": "PermissionError(13, 'Permission denied')"
+  },
+  {
+    "function": "unlink",
+    "path": "/private/tmp/sf-fix272r10/real-tmp/archive-2/pytest-of-maxghenis/pytest-0/test_interrupted_removal_resum0/back/worktree/ro/f16",
+    "error": "PermissionError(13, 'Permission denied')"
+  },
+  {
+    "function": "unlink",
+    "path": "/private/tmp/sf-fix272r10/real-tmp/archive-2/pytest-of-maxghenis/pytest-0/test_interrupted_removal_resum0/back/worktree/ro/f17",
+    "error": "PermissionError(13, 'Permission denied')"
+  },
+  {
+    "function": "unlink",
+    "path": "/private/tmp/sf-fix272r10/real-tmp/archive-2/pytest-of-maxghenis/pytest-0/test_interrupted_removal_resum0/back/worktree/ro/f10",
+    "error": "PermissionError(13, 'Permission denied')"
+  },
+  {
+    "function": "unlink",
+    "path": "/private/tmp/sf-fix272r10/real-tmp/archive-2/pytest-of-maxghenis/pytest-0/test_interrupted_removal_resum0/back/worktree/ro/f19",
+    "error": "PermissionError(13, 'Permission denied')"
+  },
+  {
+    "function": "unlink",
+    "path": "/private/tmp/sf-fix272r10/real-tmp/archive-2/pytest-of-maxghenis/pytest-0/test_interrupted_removal_resum0/back/worktree/ro/f4",
+    "error": "PermissionError(13, 'Permission denied')"
+  },
+  {
+    "function": "unlink",
+    "path": "/private/tmp/sf-fix272r10/real-tmp/archive-2/pytest-of-maxghenis/pytest-0/test_interrupted_removal_resum0/back/worktree/ro/f3",
+    "error": "PermissionError(13, 'Permission denied')"
+  },
+  {
+    "function": "unlink",
+    "path": "/private/tmp/sf-fix272r10/real-tmp/archive-2/pytest-of-maxghenis/pytest-0/test_interrupted_removal_resum0/back/worktree/ro/f2",
+    "error": "PermissionError(13, 'Permission denied')"
+  },
+  {
+    "function": "unlink",
+    "path": "/private/tmp/sf-fix272r10/real-tmp/archive-2/pytest-of-maxghenis/pytest-0/test_interrupted_removal_resum0/back/worktree/ro/f5",
+    "error": "PermissionError(13, 'Permission denied')"
+  },
+  {
+    "function": "unlink",
+    "path": "/private/tmp/sf-fix272r10/real-tmp/archive-2/pytest-of-maxghenis/pytest-0/test_interrupted_removal_resum0/back/worktree/ro/f15",
+    "error": "PermissionError(13, 'Permission denied')"
+  },
+  {
+    "function": "unlink",
+    "path": "/private/tmp/sf-fix272r10/real-tmp/archive-2/pytest-of-maxghenis/pytest-0/test_interrupted_removal_resum0/back/worktree/ro/f12",
+    "error": "PermissionError(13, 'Permission denied')"
+  },
+  {
+    "function": "unlink",
+    "path": "/private/tmp/sf-fix272r10/real-tmp/archive-2/pytest-of-maxghenis/pytest-0/test_interrupted_removal_resum0/back/worktree/ro/f13",
+    "error": "PermissionError(13, 'Permission denied')"
+  },
+  {
+    "function": "unlink",
+    "path": "/private/tmp/sf-fix272r10/real-tmp/archive-2/pytest-of-maxghenis/pytest-0/test_interrupted_removal_resum0/back/worktree/ro/f14",
+    "error": "PermissionError(13, 'Permission denied')"
+  },
+  {
+    "function": "unlink",
+    "path": "/private/tmp/sf-fix272r10/real-tmp/archive-2/pytest-of-maxghenis/pytest-0/test_interrupted_removal_resum0/back/worktree/ro/f9",
+    "error": "PermissionError(13, 'Permission denied')"
+  },
+  {
+    "function": "unlink",
+    "path": "/private/tmp/sf-fix272r10/real-tmp/archive-2/pytest-of-maxghenis/pytest-0/test_interrupted_removal_resum0/back/worktree/ro/f0",
+    "error": "PermissionError(13, 'Permission denied')"
+  },
+  {
+    "function": "unlink",
+    "path": "/private/tmp/sf-fix272r10/real-tmp/archive-2/pytest-of-maxghenis/pytest-0/test_interrupted_removal_resum0/back/worktree/ro/f7",
+    "error": "PermissionError(13, 'Permission denied')"
+  },
+  {
+    "function": "unlink",
+    "path": "/private/tmp/sf-fix272r10/real-tmp/archive-2/pytest-of-maxghenis/pytest-0/test_interrupted_removal_resum0/back/worktree/ro/f6",
+    "error": "PermissionError(13, 'Permission denied')"
+  },
+  {
+    "function": "unlink",
+    "path": "/private/tmp/sf-fix272r10/real-tmp/archive-2/pytest-of-maxghenis/pytest-0/test_interrupted_removal_resum0/back/worktree/ro/f1",
+    "error": "PermissionError(13, 'Permission denied')"
+  },
+  {
+    "function": "unlink",
+    "path": "/private/tmp/sf-fix272r10/real-tmp/archive-2/pytest-of-maxghenis/pytest-0/test_interrupted_removal_resum0/back/worktree/ro/f8",
+    "error": "PermissionError(13, 'Permission denied')"
+  },
+  {
+    "function": "rmdir",
+    "path": "/private/tmp/sf-fix272r10/real-tmp/archive-2/pytest-of-maxghenis/pytest-0/test_interrupted_removal_resum0/back/worktree/ro",
+    "error": "OSError(66, 'Directory not empty')"
+  },
+  {
+    "function": "rmdir",
+    "path": "/private/tmp/sf-fix272r10/real-tmp/archive-2/pytest-of-maxghenis/pytest-0/test_interrupted_removal_resum0/back/worktree",
+    "error": "OSError(66, 'Directory not empty')"
+  },
+  {
+    "function": "rmdir",
+    "path": "/private/tmp/sf-fix272r10/real-tmp/archive-2/pytest-of-maxghenis/pytest-0/test_interrupted_removal_resum0/back",
+    "error": "OSError(66, 'Directory not empty')"
+  },
+  {
+    "function": "rmdir",
+    "path": "/private/tmp/sf-fix272r10/real-tmp/archive-2/pytest-of-maxghenis/pytest-0/test_interrupted_removal_resum0",
+    "error": "OSError(66, 'Directory not empty')"
+  },
+  {
+    "function": "rmdir",
+    "path": "/private/tmp/sf-fix272r10/real-tmp/archive-2/pytest-of-maxghenis/pytest-0",
+    "error": "OSError(66, 'Directory not empty')"
+  },
+  {
+    "function": "rmdir",
+    "path": "/private/tmp/sf-fix272r10/real-tmp/archive-2/pytest-of-maxghenis",
+    "error": "OSError(66, 'Directory not empty')"
+  },
+  {
+    "function": "rmdir",
+    "path": "/private/tmp/sf-fix272r10/real-tmp/archive-2",
+    "error": "OSError(66, 'Directory not empty')"
+  },
+  {
+    "function": "rmdir",
+    "path": "/private/tmp/sf-fix272r10/real-tmp",
+    "error": "OSError(66, 'Directory not empty')"
+  },
+  {
+    "function": "rmdir",
+    "path": "/private/tmp/sf-fix272r10",
+    "error": "OSError(66, 'Directory not empty')"
+  }
+]

@@ -1,0 +1,17 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 20:25:22Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___ test_required_locations_survive_two_relative_links[gitfile-target-HEAD] ____
+tests/unit/test_retention_locations.py:20: in test_required_locations_survive_two_relative_links
+    observation = check_location_input(tmp_path, dict(position=position, chain=2, relative=True,
+tests/unit/test_retention_location_inputs.py:151: in check_location_input
+    assert held, recorded
+E   AssertionError: {'git': ['/private/tmp/sf-fix272r12/real-tmp/mutant-r8-link-location-followed/pytest-of-maxghenis/pytest-0/test_requir...8-link-location-followed/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/stable/container/admin/objects']}
+E   assert False
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-target-HEAD]
+1 failed in 13.51s
+{"name": "mutant-r8-link-location-followed", "start": "2026-10-31T20:25:26.074509+00:00", "load": [73.7294921875, 76.3359375, 79.3388671875], "seconds": 16.604062874997908, "exit": 1}

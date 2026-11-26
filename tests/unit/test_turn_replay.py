@@ -28,7 +28,10 @@ import pytest
 from subfleet.conversations import runner as runner_module
 from subfleet.conversations.launch import TURN_MANIFEST_KEY, spec_from_manifest
 from subfleet.conversations.service import ConversationService
+from subfleet.conversations.store import ConversationError, ConversationStore
 from subfleet.relay import RelayError, RelayServer, read_log
+from tests.unit.test_approval_resolution import (cancel_line, request_line, resolved_events, rid, runner_for,
+                                                  running_message)
 from tests.unit.test_conversation_service import (ASK, INIT_OK, SETTINGS, Clock, FakeDaemon, conversation, submit,
                                                   turn_attempt)
 
@@ -36,6 +39,13 @@ RECEIPT = json.dumps({"type": "control_response", "response": {"subtype": "succe
                                                                "request_id": "subfleet-interrupt", "response": {}}})
 ABORTED = json.dumps({"type": "result", "subtype": "error_during_execution", "is_error": True, "result": "",
                       "errors": []})
+
+
+def daemon_crash(message: str) -> ConversationError:
+    """A daemon crash as its runner meets it: the store refusing (`store-closed`), which a
+    runner ending on an exception leaves to a later daemon. Any other exception now settles
+    the turn as an unproved loss (#271 fix r3, `TurnRunner._settle_failed`)."""
+    return ConversationError("store-closed", message, code=1)
 
 
 def until(pred, what, timeout=60):
@@ -128,6 +138,62 @@ def world(tmp_path):
     shutil.rmtree(short, ignore_errors=True)
 
 
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+def test_a_written_answer_survives_cancel_and_restart_without_a_second_reply(tmp_path, provider):
+    """A real relay wrote the answer, then the provider cancelled. Reopen the
+    durable store and replay both lines in one read: the card still says answered,
+    with one decision event, and the pipe receives no second answer."""
+    with tempfile.TemporaryDirectory(prefix="sfar-", dir="/tmp") as short:
+        store = ConversationStore(tmp_path / "state")
+        cid, mid = running_message(store, provider)
+        socket = str(Path(short) / "r.sock")
+        first = runner_for(store, tmp_path, provider, cid, mid, control_socket=socket)
+        server = RelayServer(socket, first.adir / "stdin.jsonl")
+        server.bind()
+        pipe_r, pipe_w = os.pipe()
+        os.set_blocking(pipe_r, False)
+        server.serve(pipe_w)
+        again = None
+        try:
+            stdout = first.adir / "stdout"
+            stdout.write_text(request_line(provider) + "\n")
+            assert first._read_stdout()
+            [approval] = store.approvals(conversation_id=cid)
+            assert store.answer_approval(approval["approval_id"], {"decision": "allow"})
+            first.respond(rid(provider), "allow")
+            assert first._drain_commands()
+            sent_reply = os.read(pipe_r, 65536)
+            assert len(sent_reply.splitlines()) == 1
+            stdout.write_text(request_line(provider) + "\n" + cancel_line(provider) + "\n")
+            assert first._read_stdout()
+            first._flush()
+            before = (first.adir / "stdin.jsonl").read_bytes()
+            events, changes = store.events_after(cid, 0)["events"], store.changes_after(0)["next"]
+            first.relay.close()
+            store.close()
+            store = ConversationStore(tmp_path / "state")
+            again = runner_for(store, tmp_path, provider, cid, mid, control_socket=socket)
+            assert again._handshake()
+            assert again._read_stdout()
+            again._drain_commands()
+            again._flush()
+            assert store.approval(approval["approval_id"])["state"] == "answered"
+            assert resolved_events(store, cid) == [(rid(provider), "allow")]
+            assert store.events_after(cid, 0)["events"] == events
+            assert store.changes_after(changes)["changes"] == []
+            assert (again.adir / "stdin.jsonl").read_bytes() == before
+            assert [row["tag"] for row in read_log(again.adir / "stdin.jsonl")] == [f"approval:{rid(provider)}"]
+            with pytest.raises(BlockingIOError):
+                os.read(pipe_r, 65536)
+        finally:
+            first.relay.close()
+            if again is not None:
+                again.relay.close()
+            server.stop()
+            os.close(pipe_r)
+            store.close()
+
+
 @pytest.mark.parametrize("result", [False, True], ids=["eof", "aborted-result"])
 @pytest.mark.parametrize("restart", [False, True], ids=["same-daemon", "restart"])
 def test_a_stop_whose_interrupt_was_written_settles_stopped_across_a_restart(world, restart, result):
@@ -218,7 +284,7 @@ def test_a_saved_no_send_outcome_keeps_a_live_relay_from_sending_after_the_hold_
 
     def crash_after_outcome(self):
         write_outcome(self)
-        raise RuntimeError("simulated daemon crash before the relay close")
+        raise daemon_crash("simulated daemon crash before the relay close")
 
     monkeypatch.setattr(runner_module.TurnRunner, "_write_outcome", crash_after_outcome)
     first = world.runner()
@@ -260,7 +326,7 @@ def test_a_recorded_model_mismatch_still_sends_its_interrupt_on_replay(world, mo
 
     def crash_after_outcome(self):
         write_outcome(self)
-        raise RuntimeError("simulated daemon crash before the interrupt was sent")
+        raise daemon_crash("simulated daemon crash before the interrupt was sent")
 
     monkeypatch.setattr(runner_module.TurnRunner, "_write_outcome", crash_after_outcome)
     world.say(WRONG_MODEL)
@@ -302,7 +368,7 @@ def test_a_recorded_terminal_turn_never_replays_a_persons_answer(world, monkeypa
 
     def crash_after_outcome(self):
         write_outcome(self)
-        raise RuntimeError("simulated daemon crash before the relay close")
+        raise daemon_crash("simulated daemon crash before the relay close")
 
     monkeypatch.setattr(runner_module.TurnRunner, "_write_outcome", crash_after_outcome)
     world.say(ABORTED)
@@ -636,9 +702,11 @@ def test_a_settlement_cut_short_leaves_the_message_live_for_the_replay(ended, mo
                                                  for a in world.svc.daemon.submits)
 
 
-def test_an_ended_attempt_is_replayed_once(ended, monkeypatch):
-    """A replay that cannot settle its message (here its runner fails at once) is not
-    started again on every tick; a later daemon tries again."""
+@pytest.mark.parametrize("failure", ["defect", "crash"])
+def test_an_ended_attempt_is_replayed_once(ended, monkeypatch, failure):
+    """A replay whose runner fails is not started again on every tick. A runner defect
+    settles the message there, as an unproved loss, from what it read (#271 fix r3):
+    here nothing, so its delivery is unknown. After a crash a later daemon tries again."""
     world = ended([INIT_OK, LIFECYCLE])
     world.end_attempt("lost")
     built = []
@@ -646,15 +714,21 @@ def test_an_ended_attempt_is_replayed_once(ended, monkeypatch):
 
     def failing(self):
         built.append(self.attempt_id)
-        raise RuntimeError("a runner defect")          # logged; the runner ends without its report
+        if failure == "crash":
+            raise daemon_crash("simulated daemon crash during the replay")
+        raise RuntimeError("a runner defect")          # logged; the runner settles its turn
 
     monkeypatch.setattr(runner_module.TurnRunner, "_read_stdout", failing)
     world.ticks(3)
     assert built == [world.aid]
+    settled = world.message()
     monkeypatch.setattr(runner_module.TurnRunner, "_read_stdout", real)
     world.restart()
     world.ticks(1)
-    assert world.message() == ("failed", "ended-without-result")
+    if failure == "crash":
+        assert world.message() == ("failed", "ended-without-result")
+    else:
+        assert settled[0] == "delivery-unknown" and world.message() == settled
 
 
 @pytest.mark.parametrize("path", ["same-daemon", "restart-live", "restart-ended",

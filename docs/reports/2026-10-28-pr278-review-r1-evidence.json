@@ -1,0 +1,1158 @@
+{
+  "head": "bac73458cbf51ec2640d67bce085f68b7f934e50",
+  "runs": {
+    "red": {
+      "hold": "red",
+      "queued": "2026-10-29T02:00:02.876211+00:00",
+      "held": "hold 02:00:08Z slot B load ",
+      "end": "2026-10-29T02:01:03.506955+00:00",
+      "rc": 1,
+      "counts": {
+        "tests.unit.test_lane_settings": {
+          "passed": 103,
+          "failed": 768,
+          "skipped": 0,
+          "errors": 0
+        }
+      },
+      "sample": {
+        "time": "02:00:08Z",
+        "load": [
+          18.81640625
+        ],
+        "timing": "load sampled at queue entry; sysctl denied"
+      },
+      "pytest_summary": [
+        "768 failed, 103 passed in 51.94s"
+      ]
+    },
+    "green": {
+      "hold": "green",
+      "queued": "2026-10-29T02:01:54.265034+00:00",
+      "held": "hold 02:01:54Z slot B load ",
+      "end": "2026-10-29T02:02:33.334397+00:00",
+      "rc": 0,
+      "counts": {
+        "tests.unit.test_lane_settings": {
+          "passed": 871,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        }
+      },
+      "sample": {
+        "time": "02:01:54Z",
+        "load": [
+          14.70556640625
+        ],
+        "timing": "load sampled at queue entry; sysctl denied"
+      },
+      "pytest_summary": [
+        "871 passed in 35.23s"
+      ]
+    },
+    "B1": {
+      "hold": "B1",
+      "queued": "2026-10-29T02:03:17.994633+00:00",
+      "held": "hold 02:03:18Z slot B load ",
+      "held_sample": "held-sample {\"time\": \"2026-10-29T02:03:19.209812+00:00\", \"load\": [25.560546875, 23.744140625, 25.3466796875], \"pid\": 15790}",
+      "end": "2026-10-29T02:03:53.446560+00:00",
+      "rc": 0,
+      "counts": {
+        "tests.unit.test_claude_adapter": {
+          "passed": 172,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.unit.test_claude_attest": {
+          "passed": 19,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.unit.test_claude_cards": {
+          "passed": 96,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.unit.test_claude_cards_wiring": {
+          "passed": 15,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.unit.test_claude_conversation_mcp_scope": {
+          "passed": 8,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.unit.test_claude_identity": {
+          "passed": 30,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.unit.test_claude_large_stream": {
+          "passed": 30,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.process.test_claude_isolation": {
+          "passed": 15,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        }
+      },
+      "sample": {
+        "time": "2026-10-29T02:03:19.209812+00:00",
+        "load": [
+          25.560546875,
+          23.744140625,
+          25.3466796875
+        ],
+        "pid": 15790
+      },
+      "pytest_summary": [
+        "385 passed in 29.58s"
+      ]
+    },
+    "B2": {
+      "hold": "B2",
+      "queued": "2026-10-29T02:04:28.327794+00:00",
+      "held": "hold 02:04:28Z slot B load ",
+      "held_sample": "held-sample {\"time\": \"2026-10-29T02:04:28.516435+00:00\", \"load\": [22.4306640625, 23.51025390625, 25.15185546875], \"pid\": 29155}",
+      "end": "2026-10-29T02:06:59.100439+00:00",
+      "rc": 1,
+      "counts": {
+        "tests.unit.test_claude_mcp": {
+          "passed": 32,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.unit.test_claude_mcp_launch": {
+          "passed": 11,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.unit.test_claude_stream": {
+          "passed": 60,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.unit.test_claude_synthetic_error": {
+          "passed": 63,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.unit.test_claude_turn": {
+          "passed": 69,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.unit.test_claude_usage": {
+          "passed": 28,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.unit.test_claude_v1_parity": {
+          "passed": 6,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.unit.test_ultracode_effort": {
+          "passed": 39,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.unit.test_publish_rule_round7": {
+          "passed": 230,
+          "failed": 6,
+          "skipped": 0,
+          "errors": 0
+        }
+      },
+      "sample": {
+        "time": "2026-10-29T02:04:28.516435+00:00",
+        "load": [
+          22.4306640625,
+          23.51025390625,
+          25.15185546875
+        ],
+        "pid": 29155
+      },
+      "pytest_summary": [
+        "6 failed, 538 passed in 142.70s (0:02:22)"
+      ]
+    },
+    "C": {
+      "hold": "C",
+      "queued": "2026-10-29T02:04:28.330358+00:00",
+      "held": "hold 02:04:38Z slot A load ",
+      "held_sample": "held-sample {\"time\": \"2026-10-29T02:04:38.760878+00:00\", \"load\": [23.15185546875, 23.62548828125, 25.17333984375], \"pid\": 31446}",
+      "end": "2026-10-29T02:08:38.641142+00:00",
+      "rc": 0,
+      "counts": {
+        "tests.unit.test_review_publish_guard": {
+          "passed": 135,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.unit.test_review_publish_env_round8": {
+          "passed": 17,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.unit.test_launch_env_allowlist": {
+          "passed": 27,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.unit.test_launch_env_helpers": {
+          "passed": 20,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.unit.test_launch_env_mutations": {
+          "passed": 70,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.unit.test_launch_env_policy": {
+          "passed": 26,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.unit.test_launch_env_round2": {
+          "passed": 67,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.unit.test_launch_env_round3": {
+          "passed": 70,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.unit.test_launch_env_round4": {
+          "passed": 40,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.unit.test_launch_env_round5": {
+          "passed": 39,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.unit.test_launch_env_round6": {
+          "passed": 43,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.unit.test_launch_env_round7": {
+          "passed": 28,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.unit.test_launch_env_round8": {
+          "passed": 35,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.unit.test_launch_env_vendor_shell": {
+          "passed": 105,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        }
+      },
+      "sample": {
+        "time": "2026-10-29T02:04:38.760878+00:00",
+        "load": [
+          23.15185546875,
+          23.62548828125,
+          25.17333984375
+        ],
+        "pid": 31446
+      },
+      "pytest_summary": [
+        "722 passed in 233.06s (0:03:53)"
+      ]
+    },
+    "D1": {
+      "hold": "D1",
+      "queued": "2026-10-29T02:07:54.035697+00:00",
+      "held": "hold 02:08:20Z slot B load ",
+      "held_sample": "held-sample {\"time\": \"2026-10-29T02:08:20.165706+00:00\", \"load\": [40.7958984375, 34.52685546875, 29.57080078125], \"pid\": 80527}",
+      "end": "2026-10-29T02:11:24.263161+00:00",
+      "rc": 0,
+      "counts": {
+        "tests.fake.test_probe_turn": {
+          "passed": 61,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.fake.test_review_launch_permissions": {
+          "passed": 34,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.fake.test_conversation_pools": {
+          "passed": 2,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        }
+      },
+      "sample": {
+        "time": "2026-10-29T02:08:20.165706+00:00",
+        "load": [
+          40.7958984375,
+          34.52685546875,
+          29.57080078125
+        ],
+        "pid": 80527
+      },
+      "pytest_summary": [
+        "97 passed in 180.81s (0:03:00)"
+      ]
+    },
+    "D2": {
+      "hold": "D2",
+      "queued": "2026-10-29T02:10:25.268906+00:00",
+      "held": "hold 02:14:55Z slot B load ",
+      "held_sample": "held-sample {\"time\": \"2026-10-29T02:14:56.298374+00:00\", \"load\": [34.9169921875, 31.6318359375, 29.95361328125], \"pid\": 78665}",
+      "end": "2026-10-29T02:15:12.505810+00:00",
+      "rc": 0,
+      "counts": {
+        "tests.e2e.test_review_publish_e2e": {
+          "passed": 0,
+          "failed": 0,
+          "skipped": 4,
+          "errors": 0
+        },
+        "tests.e2e.test_guard_and_isolation": {
+          "passed": 0,
+          "failed": 0,
+          "skipped": 5,
+          "errors": 0
+        }
+      },
+      "sample": {
+        "time": "2026-10-29T02:14:56.298374+00:00",
+        "load": [
+          34.9169921875,
+          31.6318359375,
+          29.95361328125
+        ],
+        "pid": 78665
+      },
+      "pytest_summary": [
+        "9 skipped in 6.00s"
+      ]
+    },
+    "D3a": {
+      "hold": "D3a",
+      "queued": "2026-10-29T02:12:47.770659+00:00",
+      "held": "hold 02:17:52Z slot B load ",
+      "held_sample": "held-sample {\"time\": \"2026-10-29T02:17:52.935163+00:00\", \"load\": [36.8271484375, 35.00390625, 31.7421875], \"pid\": 33605}",
+      "end": "2026-10-29T02:18:00.709573+00:00",
+      "rc": 0,
+      "counts": {
+        "tests.e2e.test_conversations": {
+          "passed": 0,
+          "failed": 0,
+          "skipped": 23,
+          "errors": 0
+        }
+      },
+      "sample": {
+        "time": "2026-10-29T02:17:52.935163+00:00",
+        "load": [
+          36.8271484375,
+          35.00390625,
+          31.7421875
+        ],
+        "pid": 33605
+      },
+      "pytest_summary": [
+        "23 skipped, 21 deselected in 2.18s"
+      ]
+    },
+    "D3b": {
+      "hold": "D3b",
+      "queued": "2026-10-29T02:18:10.973910+00:00",
+      "held": "hold 02:18:54Z slot A load ",
+      "held_sample": "held-sample {\"time\": \"2026-10-29T02:18:55.187562+00:00\", \"load\": [38.22412109375, 36.048828125, 32.3857421875], \"pid\": 49246}",
+      "end": "2026-10-29T02:19:15.434993+00:00",
+      "rc": 0,
+      "counts": {
+        "tests.e2e.test_conversations": {
+          "passed": 0,
+          "failed": 0,
+          "skipped": 21,
+          "errors": 0
+        }
+      },
+      "sample": {
+        "time": "2026-10-29T02:18:55.187562+00:00",
+        "load": [
+          38.22412109375,
+          36.048828125,
+          32.3857421875
+        ],
+        "pid": 49246
+      },
+      "pytest_summary": [
+        "21 skipped, 23 deselected in 9.53s"
+      ]
+    },
+    "guards": {
+      "hold": "guards",
+      "queued": "2026-10-29T02:16:28.084876+00:00",
+      "held": "hold 02:17:01Z slot B load ",
+      "held_sample": "held-sample {\"time\": \"2026-10-29T02:17:01.604323+00:00\", \"load\": [38.80859375, 34.67333984375, 31.42138671875], \"pid\": 8216}",
+      "end": "2026-10-29T02:17:51.978668+00:00",
+      "rc": 0,
+      "counts": {
+        "tests.fake.test_state_contract": {
+          "passed": 37,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.unit.test_test_module_names": {
+          "passed": 1,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        },
+        "tests.unit.test_invariants_index": {
+          "passed": 25,
+          "failed": 0,
+          "skipped": 0,
+          "errors": 0
+        }
+      },
+      "sample": {
+        "time": "2026-10-29T02:17:01.604323+00:00",
+        "load": [
+          38.80859375,
+          34.67333984375,
+          31.42138671875
+        ],
+        "pid": 8216
+      },
+      "pytest_summary": [
+        "63 passed in 44.92s"
+      ]
+    },
+    "review-tests": {
+      "hold": "review-tests",
+      "queued": "2026-10-29T02:03:49.568519+00:00",
+      "held": "hold 02:03:49Z slot A load ",
+      "held_sample": "held-sample {\"time\": \"2026-10-29T02:03:49.900923+00:00\", \"load\": [27.5615234375, 24.46044921875, 25.54345703125], \"pid\": 20710}",
+      "end": "2026-10-29T02:03:57.227081+00:00",
+      "rc": 0,
+      "counts": {
+        "tests.unit.test_lane_settings_review_r1": {
+          "passed": 4,
+          "failed": 0,
+          "skipped": 3,
+          "errors": 0
+        }
+      },
+      "sample": {
+        "time": "2026-10-29T02:03:49.900923+00:00",
+        "load": [
+          27.5615234375,
+          24.46044921875,
+          25.54345703125
+        ],
+        "pid": 20710
+      },
+      "pytest_summary": [
+        "4 passed, 3 xfailed in 3.86s"
+      ]
+    },
+    "B2-base": {
+      "hold": "B2-base",
+      "queued": "2026-10-29T02:08:59.343733+00:00",
+      "held": "hold 02:11:26Z slot B load ",
+      "held_sample": "held-sample {\"time\": \"2026-10-29T02:11:26.799374+00:00\", \"load\": [35.2763671875, 35.4697265625, 30.9306640625], \"pid\": 15811}",
+      "end": "2026-10-29T02:11:52.910215+00:00",
+      "rc": 1,
+      "counts": {
+        "tests.unit.test_publish_rule_round7": {
+          "passed": 0,
+          "failed": 6,
+          "skipped": 0,
+          "errors": 0
+        }
+      },
+      "sample": {
+        "time": "2026-10-29T02:11:26.799374+00:00",
+        "load": [
+          35.2763671875,
+          35.4697265625,
+          30.9306640625
+        ],
+        "pid": 15811
+      },
+      "pytest_summary": [
+        "6 failed, 230 deselected in 23.06s"
+      ]
+    },
+    "mutant-heal-without-override": {
+      "hold": "mutant-heal-without-override",
+      "queued": "2026-10-29T02:16:15.554884+00:00",
+      "held": "hold 02:18:10Z slot A load ",
+      "held_sample": "held-sample {\"time\": \"2026-10-29T02:18:10.387884+00:00\", \"load\": [33.443359375, 34.3408203125, 31.5791015625], \"pid\": 38010}",
+      "end": "2026-10-29T02:18:19.920146+00:00",
+      "rc": 0,
+      "counts": {},
+      "sample": {
+        "time": "2026-10-29T02:18:10.387884+00:00",
+        "load": [
+          33.443359375,
+          34.3408203125,
+          31.5791015625
+        ],
+        "pid": 38010
+      },
+      "pytest_summary": []
+    },
+    "mutant-read-only-fast-turn-second-settings": {
+      "hold": "mutant-read-only-fast-turn-second-settings",
+      "queued": "2026-10-29T02:18:20.119241+00:00",
+      "held": "hold 02:18:20Z slot A load ",
+      "held_sample": "held-sample {\"time\": \"2026-10-29T02:18:20.413449+00:00\", \"load\": [45.01123046875, 36.78369140625, 32.4775390625], \"pid\": 40740}",
+      "end": "2026-10-29T02:18:31.676838+00:00",
+      "rc": 0,
+      "counts": {},
+      "sample": {
+        "time": "2026-10-29T02:18:20.413449+00:00",
+        "load": [
+          45.01123046875,
+          36.78369140625,
+          32.4775390625
+        ],
+        "pid": 40740
+      },
+      "pytest_summary": []
+    },
+    "mutant-value-one": {
+      "hold": "mutant-value-one",
+      "queued": "2026-10-29T02:18:31.901673+00:00",
+      "held": "hold 02:18:32Z slot A load ",
+      "held_sample": "held-sample {\"time\": \"2026-10-29T02:18:32.200932+00:00\", \"load\": [43.85595703125, 36.81982421875, 32.54150390625], \"pid\": 44517}",
+      "end": "2026-10-29T02:18:55.040813+00:00",
+      "rc": 0,
+      "counts": {},
+      "sample": {
+        "time": "2026-10-29T02:18:32.200932+00:00",
+        "load": [
+          43.85595703125,
+          36.81982421875,
+          32.54150390625
+        ],
+        "pid": 44517
+      },
+      "pytest_summary": []
+    },
+    "mutant-override-drops-other-keys": {
+      "hold": "mutant-override-drops-other-keys",
+      "queued": "2026-10-29T02:18:55.393524+00:00",
+      "held": "hold 02:19:17Z slot A load ",
+      "held_sample": "held-sample {\"time\": \"2026-10-29T02:19:18.070473+00:00\", \"load\": [37.708984375, 36.06298828125, 32.474609375], \"pid\": 55409}",
+      "end": "2026-10-29T02:19:42.296632+00:00",
+      "rc": 0,
+      "counts": {},
+      "sample": {
+        "time": "2026-10-29T02:19:18.070473+00:00",
+        "load": [
+          37.708984375,
+          36.06298828125,
+          32.474609375
+        ],
+        "pid": 55409
+      },
+      "pytest_summary": []
+    },
+    "mutant-read-only-jobs-skipped": {
+      "hold": "mutant-read-only-jobs-skipped",
+      "queued": "2026-10-29T02:19:43.596750+00:00",
+      "held": "hold 02:25:53Z slot A load ",
+      "held_sample": "held-sample {\"time\": \"2026-10-29T02:25:54.295845+00:00\", \"load\": [48.48974609375, 52.84228515625, 42.40478515625], \"pid\": 71944}",
+      "end": "2026-10-29T02:26:25.380002+00:00",
+      "rc": 0,
+      "counts": {},
+      "sample": {
+        "time": "2026-10-29T02:25:54.295845+00:00",
+        "load": [
+          48.48974609375,
+          52.84228515625,
+          42.40478515625
+        ],
+        "pid": 71944
+      },
+      "pytest_summary": []
+    },
+    "mutant-review-second-settings": {
+      "hold": "mutant-review-second-settings",
+      "queued": "2026-10-29T02:26:26.630675+00:00",
+      "held": "hold 02:26:26Z slot A load ",
+      "held_sample": "held-sample {\"time\": \"2026-10-29T02:26:27.082805+00:00\", \"load\": [36.8388671875, 49.33203125, 41.5390625], \"pid\": 82665}",
+      "end": "2026-10-29T02:26:47.629378+00:00",
+      "rc": 0,
+      "counts": {},
+      "sample": {
+        "time": "2026-10-29T02:26:27.082805+00:00",
+        "load": [
+          36.8388671875,
+          49.33203125,
+          41.5390625
+        ],
+        "pid": 82665
+      },
+      "pytest_summary": []
+    },
+    "mutant-override-before-review-user-source": {
+      "hold": "mutant-override-before-review-user-source",
+      "queued": "2026-10-29T02:26:48.335014+00:00",
+      "held": "hold 02:33:05Z slot B load ",
+      "held_sample": "held-sample {\"time\": \"2026-10-29T02:33:06.257191+00:00\", \"load\": [32.81494140625, 33.431640625, 36.58837890625], \"pid\": 43381}",
+      "end": "2026-10-29T02:33:26.915266+00:00",
+      "rc": 0,
+      "counts": {},
+      "sample": {
+        "time": "2026-10-29T02:33:06.257191+00:00",
+        "load": [
+          32.81494140625,
+          33.431640625,
+          36.58837890625
+        ],
+        "pid": 43381
+      },
+      "pytest_summary": []
+    },
+    "mutant-new-builder-in-pieces": {
+      "hold": "mutant-new-builder-in-pieces",
+      "queued": "2026-10-29T02:33:27.178138+00:00",
+      "held": "hold 02:33:27Z slot B load ",
+      "held_sample": "held-sample {\"time\": \"2026-10-29T02:33:28.239559+00:00\", \"load\": [34.75732421875, 33.826171875, 36.6552734375], \"pid\": 50171}",
+      "end": "2026-10-29T02:33:45.655958+00:00",
+      "rc": 0,
+      "counts": {},
+      "sample": {
+        "time": "2026-10-29T02:33:28.239559+00:00",
+        "load": [
+          34.75732421875,
+          33.826171875,
+          36.6552734375
+        ],
+        "pid": 50171
+      },
+      "pytest_summary": [
+        "1 passed in 12.16s"
+      ]
+    },
+    "mutant-lane-home-file-read": {
+      "hold": "mutant-lane-home-file-read",
+      "queued": "2026-10-29T02:32:21.073282+00:00",
+      "held": "hold 02:32:38Z slot B load ",
+      "held_sample": "held-sample {\"time\": \"2026-10-29T02:32:38.673626+00:00\", \"load\": [28.8505859375, 32.90234375, 36.52587890625], \"pid\": 32300}",
+      "end": "2026-10-29T02:33:05.535159+00:00",
+      "rc": 0,
+      "counts": {},
+      "sample": {
+        "time": "2026-10-29T02:32:38.673626+00:00",
+        "load": [
+          28.8505859375,
+          32.90234375,
+          36.52587890625
+        ],
+        "pid": 32300
+      },
+      "pytest_summary": [
+        "1 failed in 17.99s"
+      ]
+    }
+  },
+  "per_file_counts": {
+    "red": {
+      "tests/unit/test_lane_settings.py": {
+        "passed": 103,
+        "failed": 768
+      }
+    },
+    "green": {
+      "tests/unit/test_lane_settings.py": {
+        "passed": 871
+      }
+    },
+    "B1": {
+      "tests/unit/test_claude_adapter.py": {
+        "passed": 172
+      },
+      "tests/unit/test_claude_attest.py": {
+        "passed": 19
+      },
+      "tests/unit/test_claude_cards.py": {
+        "passed": 96
+      },
+      "tests/unit/test_claude_cards_wiring.py": {
+        "passed": 15
+      },
+      "tests/unit/test_claude_conversation_mcp_scope.py": {
+        "passed": 8
+      },
+      "tests/unit/test_claude_identity.py": {
+        "passed": 30
+      },
+      "tests/unit/test_claude_large_stream.py": {
+        "passed": 30
+      },
+      "tests/process/test_claude_isolation.py": {
+        "passed": 15
+      }
+    },
+    "B2": {
+      "tests/unit/test_claude_mcp.py": {
+        "passed": 32
+      },
+      "tests/unit/test_claude_mcp_launch.py": {
+        "passed": 11
+      },
+      "tests/unit/test_claude_stream.py": {
+        "passed": 60
+      },
+      "tests/unit/test_claude_synthetic_error.py": {
+        "passed": 63
+      },
+      "tests/unit/test_claude_turn.py": {
+        "passed": 69
+      },
+      "tests/unit/test_claude_usage.py": {
+        "passed": 28
+      },
+      "tests/unit/test_claude_v1_parity.py": {
+        "passed": 6
+      },
+      "tests/unit/test_ultracode_effort.py": {
+        "passed": 39
+      },
+      "tests/unit/test_publish_rule_round7.py": {
+        "passed": 230,
+        "failed": 6
+      }
+    },
+    "C": {
+      "tests/unit/test_review_publish_guard.py": {
+        "passed": 135
+      },
+      "tests/unit/test_review_publish_env_round8.py": {
+        "passed": 17
+      },
+      "tests/unit/test_launch_env_allowlist.py": {
+        "passed": 27
+      },
+      "tests/unit/test_launch_env_helpers.py": {
+        "passed": 20
+      },
+      "tests/unit/test_launch_env_mutations.py": {
+        "passed": 70
+      },
+      "tests/unit/test_launch_env_policy.py": {
+        "passed": 26
+      },
+      "tests/unit/test_launch_env_round2.py": {
+        "passed": 67
+      },
+      "tests/unit/test_launch_env_round3.py": {
+        "passed": 70
+      },
+      "tests/unit/test_launch_env_round4.py": {
+        "passed": 40
+      },
+      "tests/unit/test_launch_env_round5.py": {
+        "passed": 39
+      },
+      "tests/unit/test_launch_env_round6.py": {
+        "passed": 43
+      },
+      "tests/unit/test_launch_env_round7.py": {
+        "passed": 28
+      },
+      "tests/unit/test_launch_env_round8.py": {
+        "passed": 35
+      },
+      "tests/unit/test_launch_env_vendor_shell.py": {
+        "passed": 105
+      }
+    },
+    "D1": {
+      "tests/fake/test_probe_turn.py": {
+        "passed": 61
+      },
+      "tests/fake/test_review_launch_permissions.py": {
+        "passed": 34
+      },
+      "tests/fake/test_conversation_pools.py": {
+        "passed": 2
+      }
+    },
+    "D2": {
+      "tests/e2e/test_review_publish_e2e.py": {
+        "skipped": 4
+      },
+      "tests/e2e/test_guard_and_isolation.py": {
+        "skipped": 5
+      }
+    },
+    "D3a": {
+      "tests/e2e/test_conversations.py": {
+        "skipped": 23
+      }
+    },
+    "D3b": {
+      "tests/e2e/test_conversations.py": {
+        "skipped": 21
+      }
+    },
+    "guards": {
+      "tests/fake/test_state_contract.py": {
+        "passed": 37
+      },
+      "tests/unit/test_test_module_names.py": {
+        "passed": 1
+      },
+      "tests/unit/test_invariants_index.py": {
+        "passed": 25
+      }
+    },
+    "review-tests": {
+      "tests/unit/test_lane_settings_review_r1.py": {
+        "passed": 4,
+        "xfailed": 3
+      }
+    },
+    "B2-base": {
+      "tests/unit/test_publish_rule_round7.py": {
+        "failed": 6
+      }
+    }
+  },
+  "mutants": [
+    {
+      "name": "heal-without-override",
+      "test": "I1: heal",
+      "cases": 1,
+      "failed": 1,
+      "errors": 0,
+      "result": "KILLED",
+      "hold": {
+        "hold": "mutant-heal-without-override",
+        "queued": "2026-10-29T02:16:15.554884+00:00",
+        "held": "hold 02:18:10Z slot A load ",
+        "held_sample": "held-sample {\"time\": \"2026-10-29T02:18:10.387884+00:00\", \"load\": [33.443359375, 34.3408203125, 31.5791015625], \"pid\": 38010}",
+        "end": "2026-10-29T02:18:19.920146+00:00",
+        "rc": 0,
+        "counts": {},
+        "sample": {
+          "time": "2026-10-29T02:18:10.387884+00:00",
+          "load": [
+            33.443359375,
+            34.3408203125,
+            31.5791015625
+          ],
+          "pid": 38010
+        },
+        "pytest_summary": []
+      }
+    },
+    {
+      "name": "read-only-fast-turn-second-settings",
+      "test": "I1: read-only fast turns",
+      "cases": 12,
+      "failed": 12,
+      "errors": 0,
+      "result": "KILLED",
+      "hold": {
+        "hold": "mutant-read-only-fast-turn-second-settings",
+        "queued": "2026-10-29T02:18:20.119241+00:00",
+        "held": "hold 02:18:20Z slot A load ",
+        "held_sample": "held-sample {\"time\": \"2026-10-29T02:18:20.413449+00:00\", \"load\": [45.01123046875, 36.78369140625, 32.4775390625], \"pid\": 40740}",
+        "end": "2026-10-29T02:18:31.676838+00:00",
+        "rc": 0,
+        "counts": {},
+        "sample": {
+          "time": "2026-10-29T02:18:20.413449+00:00",
+          "load": [
+            45.01123046875,
+            36.78369140625,
+            32.4775390625
+          ],
+          "pid": 40740
+        },
+        "pytest_summary": []
+      }
+    },
+    {
+      "name": "value-one",
+      "test": "I1: all paths",
+      "cases": 237,
+      "failed": 237,
+      "errors": 0,
+      "result": "KILLED",
+      "hold": {
+        "hold": "mutant-value-one",
+        "queued": "2026-10-29T02:18:31.901673+00:00",
+        "held": "hold 02:18:32Z slot A load ",
+        "held_sample": "held-sample {\"time\": \"2026-10-29T02:18:32.200932+00:00\", \"load\": [43.85595703125, 36.81982421875, 32.54150390625], \"pid\": 44517}",
+        "end": "2026-10-29T02:18:55.040813+00:00",
+        "rc": 0,
+        "counts": {},
+        "sample": {
+          "time": "2026-10-29T02:18:32.200932+00:00",
+          "load": [
+            43.85595703125,
+            36.81982421875,
+            32.54150390625
+          ],
+          "pid": 44517
+        },
+        "pytest_summary": []
+      }
+    },
+    {
+      "name": "override-drops-other-keys",
+      "test": "I2: writable turns",
+      "cases": 72,
+      "failed": 72,
+      "errors": 0,
+      "result": "KILLED",
+      "hold": {
+        "hold": "mutant-override-drops-other-keys",
+        "queued": "2026-10-29T02:18:55.393524+00:00",
+        "held": "hold 02:19:17Z slot A load ",
+        "held_sample": "held-sample {\"time\": \"2026-10-29T02:19:18.070473+00:00\", \"load\": [37.708984375, 36.06298828125, 32.474609375], \"pid\": 55409}",
+        "end": "2026-10-29T02:19:42.296632+00:00",
+        "rc": 0,
+        "counts": {},
+        "sample": {
+          "time": "2026-10-29T02:19:18.070473+00:00",
+          "load": [
+            37.708984375,
+            36.06298828125,
+            32.474609375
+          ],
+          "pid": 55409
+        },
+        "pytest_summary": []
+      }
+    },
+    {
+      "name": "read-only-jobs-skipped",
+      "test": "I1: read-only jobs/resumes/probes/timers/gates",
+      "cases": 88,
+      "failed": 88,
+      "errors": 0,
+      "result": "KILLED",
+      "hold": {
+        "hold": "mutant-read-only-jobs-skipped",
+        "queued": "2026-10-29T02:19:43.596750+00:00",
+        "held": "hold 02:25:53Z slot A load ",
+        "held_sample": "held-sample {\"time\": \"2026-10-29T02:25:54.295845+00:00\", \"load\": [48.48974609375, 52.84228515625, 42.40478515625], \"pid\": 71944}",
+        "end": "2026-10-29T02:26:25.380002+00:00",
+        "rc": 0,
+        "counts": {},
+        "sample": {
+          "time": "2026-10-29T02:25:54.295845+00:00",
+          "load": [
+            48.48974609375,
+            52.84228515625,
+            42.40478515625
+          ],
+          "pid": 71944
+        },
+        "pytest_summary": []
+      }
+    },
+    {
+      "name": "review-second-settings",
+      "test": "I1: writable review job/resume",
+      "cases": 16,
+      "failed": 16,
+      "errors": 0,
+      "result": "KILLED",
+      "hold": {
+        "hold": "mutant-review-second-settings",
+        "queued": "2026-10-29T02:26:26.630675+00:00",
+        "held": "hold 02:26:26Z slot A load ",
+        "held_sample": "held-sample {\"time\": \"2026-10-29T02:26:27.082805+00:00\", \"load\": [36.8388671875, 49.33203125, 41.5390625], \"pid\": 82665}",
+        "end": "2026-10-29T02:26:47.629378+00:00",
+        "rc": 0,
+        "counts": {},
+        "sample": {
+          "time": "2026-10-29T02:26:27.082805+00:00",
+          "load": [
+            36.8388671875,
+            49.33203125,
+            41.5390625
+          ],
+          "pid": 82665
+        },
+        "pytest_summary": []
+      }
+    },
+    {
+      "name": "override-before-review-user-source",
+      "test": "I2: writable review job/resume",
+      "cases": 16,
+      "failed": 16,
+      "errors": 0,
+      "result": "KILLED",
+      "hold": {
+        "hold": "mutant-override-before-review-user-source",
+        "queued": "2026-10-29T02:26:48.335014+00:00",
+        "held": "hold 02:33:05Z slot B load ",
+        "held_sample": "held-sample {\"time\": \"2026-10-29T02:33:06.257191+00:00\", \"load\": [32.81494140625, 33.431640625, 36.58837890625], \"pid\": 43381}",
+        "end": "2026-10-29T02:33:26.915266+00:00",
+        "rc": 0,
+        "counts": {},
+        "sample": {
+          "time": "2026-10-29T02:33:06.257191+00:00",
+          "load": [
+            32.81494140625,
+            33.431640625,
+            36.58837890625
+          ],
+          "pid": 43381
+        },
+        "pytest_summary": []
+      }
+    },
+    {
+      "name": "new-builder-in-pieces",
+      "test": "Original syntax-tree coverage guard",
+      "cases": 1,
+      "failed": 0,
+      "errors": 0,
+      "result": "SURVIVED",
+      "hold": {
+        "hold": "mutant-new-builder-in-pieces",
+        "queued": "2026-10-29T02:33:27.178138+00:00",
+        "held": "hold 02:33:27Z slot B load ",
+        "held_sample": "held-sample {\"time\": \"2026-10-29T02:33:28.239559+00:00\", \"load\": [34.75732421875, 33.826171875, 36.6552734375], \"pid\": 50171}",
+        "end": "2026-10-29T02:33:45.655958+00:00",
+        "rc": 0,
+        "counts": {},
+        "sample": {
+          "time": "2026-10-29T02:33:28.239559+00:00",
+          "load": [
+            34.75732421875,
+            33.826171875,
+            36.6552734375
+          ],
+          "pid": 50171
+        },
+        "pytest_summary": [
+          "1 passed in 12.16s"
+        ]
+      }
+    },
+    {
+      "name": "lane-home-file-read",
+      "test": "New lane-home I3 test",
+      "cases": 1,
+      "failed": 1,
+      "errors": 0,
+      "result": "KILLED",
+      "hold": {
+        "hold": "mutant-lane-home-file-read",
+        "queued": "2026-10-29T02:32:21.073282+00:00",
+        "held": "hold 02:32:38Z slot B load ",
+        "held_sample": "held-sample {\"time\": \"2026-10-29T02:32:38.673626+00:00\", \"load\": [28.8505859375, 32.90234375, 36.52587890625], \"pid\": 32300}",
+        "end": "2026-10-29T02:33:05.535159+00:00",
+        "rc": 0,
+        "counts": {},
+        "sample": {
+          "time": "2026-10-29T02:32:38.673626+00:00",
+          "load": [
+            28.8505859375,
+            32.90234375,
+            36.52587890625
+          ],
+          "pid": 32300
+        },
+        "pytest_summary": [
+          "1 failed in 17.99s"
+        ]
+      }
+    }
+  ],
+  "baseline_failure_signatures_match": true,
+  "failure_signatures": {
+    "test_each_spelling_is_refused_in_each_providers_real_shell[codex-zsh -c]": "AssertionError: ('zsh -c', 'taskpolicy')",
+    "test_each_spelling_is_refused_in_each_providers_real_shell[codex-zsh -lc]": "AssertionError: ('zsh -lc', 'taskpolicy')",
+    "test_each_spelling_is_refused_in_each_providers_real_shell[claude-zsh -c]": "AssertionError: ('zsh -c', 'taskpolicy')",
+    "test_each_spelling_is_refused_in_each_providers_real_shell[claude-zsh -lc]": "AssertionError: ('zsh -lc', 'taskpolicy')",
+    "test_each_spelling_is_refused_in_each_providers_real_shell[claude-claude snapshot]": "AssertionError: ('claude snapshot', 'taskpolicy')",
+    "test_real_codex_sandbox_keeps_the_git_denial_under_inherit_core": "AssertionError: the harness reproduces review r2: the policy dropped the denial"
+  },
+  "pr_body_sha256": "a9cdb980f43b32d396d6b0fae7331b525dcbbb71254a73b1a048e1bb3640401c",
+  "hypothesis": {
+    "builders": {
+      "passing": 200,
+      "failing": 0,
+      "invalid": 5
+    },
+    "merge": {
+      "passing": 300,
+      "failing": 0,
+      "invalid": 30
+    }
+  },
+  "source_integrity": {
+    "red_base_blobs": 117,
+    "restored_mutant_head_blobs": 117,
+    "restored_i3_mutant_head_blobs": 117,
+    "workspace_head_blobs": 117
+  },
+  "cleanup": {
+    "workspace_generated_directories_removed": [
+      "subfleet/__pycache__"
+    ],
+    "scratch_guarded_cleanup": "removed and verified absent",
+    "observed_scratch_kib_before_cleanup": 388280,
+    "all_test_and_mutant_runs_completed": true,
+    "completed_at": "2026-10-29T02:39:39.415566+00:00"
+  }
+}

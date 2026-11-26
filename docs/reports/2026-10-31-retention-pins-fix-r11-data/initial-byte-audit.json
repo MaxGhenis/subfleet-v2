@@ -1,0 +1,14 @@
+{
+  "tests/unit/test_retention_location_inputs.py": {
+    "sha256": "85ad31cd7dab3317625cd031cd3436ec139a6bae9173185704c550c92ad10827",
+    "unchanged": true
+  },
+  "tests/unit/test_retention_location_spelling.py": {
+    "sha256": "2a59463e180a0d323b752d197caa07b8f68d979fb24f384cf88f02816b3ff8e1",
+    "unchanged": true
+  },
+  "tests/unit/test_retention_pointer_inputs.py": {
+    "sha256": "f870ebc0d10b4f8493296445cd4d7b34161fae2f0e79abd872da7c52f82e689a",
+    "unchanged": true
+  }
+}

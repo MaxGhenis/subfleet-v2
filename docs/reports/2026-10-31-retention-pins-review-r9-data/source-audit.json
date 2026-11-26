@@ -1,0 +1,38 @@
+{
+  "subfleet/daemon.py": {
+    "unchanged": true,
+    "sha256": "6e3e2dc4fbc5c83e96227bbe09c3f99e200d6948e3ea6b7461c5f65f241fa90a"
+  },
+  "subfleet/retention.py": {
+    "unchanged": true,
+    "sha256": "e08ffd693d85249fedef40e2ee493137a2b588dcfe801cfb376784f85e438de2"
+  },
+  "subfleet/retention_archive.py": {
+    "unchanged": true,
+    "sha256": "40a2a4712a1dbd9b5a4e0a6ac28c7e87a8762a646a5d26a546151723802fcf26"
+  },
+  "subfleet/render.py": {
+    "unchanged": true,
+    "sha256": "1b2fdf0d6093876b4842d9b6f8b2f4b035e0836253d4aef63722a9bda50e0ef8"
+  },
+  "subfleet/conversations/service.py": {
+    "unchanged": true,
+    "sha256": "7424d7ab03d13ef2de937d88020691e92e985a8db2df41e02e74366872ccccd0"
+  },
+  "tests/unit/test_retention_dependency_units.py": {
+    "unchanged": true,
+    "sha256": "958bc7bed3a5d4b597e0e1c8856952d39bbbad6adb18e57ea5ece53850efc575"
+  },
+  "docs/acceptance-contract.md": {
+    "unchanged": true,
+    "sha256": "e4f236bcb51f20d20c59d825fc80da64ca03c02c35dc98daddfae5779faf35f7"
+  },
+  "r8_only_mark_removed": true,
+  "needed": true,
+  "fenced": true,
+  "fences": true,
+  "legacy": true,
+  "live": true,
+  "users": true,
+  "dependents": true
+}

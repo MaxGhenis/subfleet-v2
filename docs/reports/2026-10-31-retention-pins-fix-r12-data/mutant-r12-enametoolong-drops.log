@@ -1,0 +1,22 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 20:32:34Z slot B load 
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_________ test_filter_keeps_readable_normalization_length[alternates] __________
+tests/fake/test_retention_dependency_review_r12.py:118: in test_filter_keeps_readable_normalization_length
+    check_normalization_length(world, monkeypatch, route, dependencies, record_property)
+tests/fake/test_retention_dependency_review_r12.py:107: in check_normalization_length
+    assert "owner" not in result["pruned"] and tree.is_dir(), observation
+E   AssertionError: {'route': 'alternates', 'raw': '/private/tmp/sf-fix272r12/real-tmp/mutant-r12-enametoolong-drops/pytest-of-maxghenis/p...éééééééééééééééééé7/ééééééééééééééééééééééééééééééééééé8/source/.git/objects', 'raw_bytes': 815, ...}
+E   assert ('owner' not in ['owner'])
+__________________ test_filter_stat_table[found-ENAMETOOLONG] __________________
+tests/unit/test_retention_location_readable.py:173: in test_filter_stat_table
+    assert (place in result) == (outcome != "ELOOP")
+E   AssertionError: assert ('/private/tmp/sf-fix272r12/real-tmp/mutant-r12-enametoolong-drops/pytest-of-maxghenis/pytest-0/test_filter_stat_table_...nglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglong' in []) == ('ENAMETOOLONG' != 'ELOOP')
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r12.py::test_filter_keeps_readable_normalization_length[alternates]
+FAILED tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-ENAMETOOLONG]
+2 failed in 21.27s
+{"name": "mutant-r12-enametoolong-drops", "start": "2026-10-31T20:32:38.902744+00:00", "load": [70.54443359375, 76.158203125, 78.31201171875], "seconds": 24.822137125011068, "exit": 1}

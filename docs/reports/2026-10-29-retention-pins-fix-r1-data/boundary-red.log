@@ -1,0 +1,8 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 05:30:56Z slot A load 
+warning: `--no-sync` has no effect when used outside of a project
+ADMITTED 2026-10-29T05:30:56.969351+00:00 LOAD (28.51513671875, 30.46337890625, 29.0458984375)
+Traceback (most recent call last):
+  File "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-fix272r1/pytest_entry.py", line 9, in <module>
+    import pytest
+ModuleNotFoundError: No module named 'pytest'

@@ -29,6 +29,7 @@ from typing import Callable
 
 from . import protocol
 from .contracts import Exit
+from .launch_env import build_environment
 
 #: C-16.6: the soft open-file limit the daemon asks for at start, and the value
 #: `daemon install` writes into the launchd plist. The hard limit bounds it.
@@ -70,9 +71,9 @@ READ_ONLY_OPS = frozenset({"list", "show", "wait", "readings", "why", "pick",
 #: daemon does (C-26.14). `conversation.open` only reads when it names a
 #: conversation (`read_only`); opened by native session it may create one.
 READ_ONLY_CONVERSATION_OPS = frozenset({
-    "capabilities", "models.list", "conversation.list", "conversation.history",
+    "capabilities", "models.list", "conversation.list", "conversation.status", "conversation.history",
     "conversation.events", "conversation.watch", "conversation.runs", "message.status",
-    "approval.list", "approval.get", "turn.diff", "conversation.diff", "workspace.check"})
+    "approval.list", "approval.get", "turn.diff", "conversation.diff", "workspace.check", "suggestion.list"})
 
 
 def open_file_limits() -> tuple[int, int]:
@@ -262,7 +263,7 @@ def kernel_open_files_ceiling() -> int | None:
         return None
     try:
         done = subprocess.run(["/usr/sbin/sysctl", "-n", "kern.maxfilesperproc"],
-                              capture_output=True, text=True, timeout=5, check=False)
+                              capture_output=True, text=True, timeout=5, check=False, env=build_environment())
         return int(done.stdout.strip()) if done.returncode == 0 else None
     except (OSError, subprocess.SubprocessError, ValueError):
         return None

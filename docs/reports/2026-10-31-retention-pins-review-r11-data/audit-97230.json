@@ -1,0 +1,1445 @@
+{
+  "comparisons": [],
+  "audits": [
+    {
+      "scope": "git_storage",
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-target-HEAD]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/checkout"
+      ],
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/stable/container/admin",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/stable/container/admin/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/owner/hop0",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/owner/hop1",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-target-HEAD]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/checkout"
+      ],
+      "kwargs": {},
+      "actual": {
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/stable/container/admin",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/stable/container/admin/objects",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/owner/hop0",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/owner/hop1"
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/stable/container/admin",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/stable/container/admin/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/owner/hop0",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/owner/hop1",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        }
+      ]
+    },
+    {
+      "scope": "git_storage",
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[intermediate-HEAD]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/checkout"
+      ],
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/stable/container/admin",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/stable/container/admin/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/owner/hop0",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/owner/hop1",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[intermediate-HEAD]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/checkout"
+      ],
+      "kwargs": {},
+      "actual": {
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/stable/container/admin",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/stable/container/admin/objects",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/owner/hop0",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/owner/hop1"
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/stable/container/admin",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/stable/container/admin/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/owner/hop0",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv1/owner/hop1",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        }
+      ]
+    },
+    {
+      "scope": "git_storage",
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-pointer-HEAD]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/checkout"
+      ],
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/stable/container/admin",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/stable/container/admin/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/owner/pointer",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/stable/hop0",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/stable/hop1",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-pointer-HEAD]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/checkout"
+      ],
+      "kwargs": {},
+      "actual": {
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/stable/container/admin",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/stable/container/admin/objects",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/owner/pointer",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/stable/hop0",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/stable/hop1"
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/stable/container/admin",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/stable/container/admin/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/owner/pointer",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/stable/hop0",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv2/stable/hop1",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        }
+      ]
+    },
+    {
+      "scope": "git_storage",
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[commondir-file-HEAD]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/checkout"
+      ],
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/container/admin",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/common",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/common/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/owner/pointer",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/hop0",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/hop1",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[commondir-file-HEAD]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/checkout"
+      ],
+      "kwargs": {},
+      "actual": {
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/container/admin",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/common",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/common/objects",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/owner/pointer",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/hop0",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/hop1"
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/container/admin",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/common",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/common/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/owner/pointer",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/hop0",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv3/stable/hop1",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        }
+      ]
+    },
+    {
+      "scope": "git_storage",
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[alternates-file-HEAD]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/checkout"
+      ],
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/container/admin",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/container/admin/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/source/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/owner/pointer",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/hop0",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/hop1",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[alternates-file-HEAD]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/checkout"
+      ],
+      "kwargs": {},
+      "actual": {
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/container/admin",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/container/admin/objects",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/source/.git/objects",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/owner/pointer",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/hop0",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/hop1"
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/container/admin",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/container/admin/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/source/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/owner/pointer",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/hop0",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv4/stable/hop1",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        }
+      ]
+    },
+    {
+      "scope": "git_storage",
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[git-entry-HEAD]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/checkout"
+      ],
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/stable/container/admin",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/stable/container/admin/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/owner/hop0",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/owner/hop1",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/stable/entry",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[git-entry-HEAD]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/checkout"
+      ],
+      "kwargs": {},
+      "actual": {
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/stable/container/admin",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/stable/container/admin/objects",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/owner/hop0",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/owner/hop1",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/stable/entry"
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/stable/container/admin",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/stable/container/admin/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/owner/hop0",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/owner/hop1",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv5/stable/entry",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "scope": "git_storage",
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[objects-pack-HEAD]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/checkout"
+      ],
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/stable/container/admin",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/stable/container/admin/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/owner/hop0",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/owner/hop1",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/stable/packs",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[objects-pack-HEAD]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/checkout"
+      ],
+      "kwargs": {},
+      "actual": {
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/stable/container/admin",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/stable/container/admin/objects",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/owner/hop0",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/owner/hop1",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/stable/packs"
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/stable/container/admin",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/stable/container/admin/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/owner/hop0",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/owner/hop1",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_required_locations_surviv6/stable/packs",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "scope": "git_storage",
+      "node": "tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/checkout"
+      ],
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/stable/container/admin",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/stable/container/admin/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/owner/hop0",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/owner/hop1",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/checkout"
+      ],
+      "kwargs": {},
+      "actual": {
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/stable/container/admin",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/stable/container/admin/objects",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/owner/hop0",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/owner/hop1"
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/stable/container/admin",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/stable/container/admin/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/owner/hop0",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/owner/hop1",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        }
+      ]
+    },
+    {
+      "scope": "git_storage",
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[missing]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_kernel_walk_failure_does_0/checkout"
+      ],
+      "equations": []
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[missing]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_kernel_walk_failure_does_0/checkout"
+      ],
+      "kwargs": {},
+      "actual": {},
+      "equations": []
+    },
+    {
+      "scope": "git_storage",
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[not-directory]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_kernel_walk_failure_does_1/checkout"
+      ],
+      "equations": []
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[not-directory]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_kernel_walk_failure_does_1/checkout"
+      ],
+      "kwargs": {},
+      "actual": {},
+      "equations": []
+    },
+    {
+      "scope": "git_storage",
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[loop]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_kernel_walk_failure_does_2/checkout"
+      ],
+      "equations": []
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_kernel_walk_failure_does_not_invent_incomplete_evidence[loop]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_kernel_walk_failure_does_2/checkout"
+      ],
+      "kwargs": {},
+      "actual": {},
+      "equations": []
+    },
+    {
+      "scope": "git_storage",
+      "node": "tests/unit/test_retention_locations.py::test_storage_scan_failure_is_incomplete",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_storage_scan_failure_is_i0/checkout"
+      ],
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_storage_scan_failure_is_i0/checkout/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_storage_scan_failure_is_i0/checkout/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_storage_scan_failure_is_incomplete",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_storage_scan_failure_is_i0/checkout"
+      ],
+      "kwargs": {},
+      "actual": {
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_storage_scan_failure_is_i0/checkout/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_storage_scan_failure_is_i0/checkout/.git/objects"
+        ],
+        "incomplete": [
+          {
+            "file": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_storage_scan_failure_is_i0/checkout/.git",
+            "reason": "[Errno 13] controlled scan failure: '/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_storage_scan_failure_is_i0/checkout/.git'"
+          }
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_storage_scan_failure_is_i0/checkout/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_storage_scan_failure_is_i0/checkout/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "scope": "git_storage",
+      "node": "tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/checkout"
+      ],
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/stable/container/worktrees/slot",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/stable/container",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/stable/container/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/stable/container/worktrees/slot/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/owner/hop0",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/owner/hop1",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/checkout"
+      ],
+      "kwargs": {},
+      "actual": {
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/stable/container/worktrees/slot",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/stable/container",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/stable/container/objects",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/stable/container/worktrees/slot/objects",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/owner/hop0",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/owner/hop1"
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/stable/container/worktrees/slot",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/stable/container",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/stable/container/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/stable/container/worktrees/slot/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/owner/hop0",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/owner/hop1",
+          "parent": true,
+          "canonical": true,
+          "physical_link": true,
+          "predicate": false
+        }
+      ]
+    },
+    {
+      "scope": "git_storage",
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[plain]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository"
+      ],
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[plain]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository"
+      ],
+      "kwargs": {},
+      "actual": {
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository/.git/objects"
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "scope": "git_storage",
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[plain]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository"
+      ],
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "scope": "git_storage",
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/linked"
+      ],
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/repository/.git/worktrees/linked",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/repository/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/repository/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/linked"
+      ],
+      "kwargs": {},
+      "actual": {
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/repository/.git/worktrees/linked",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/repository/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/repository/.git/objects"
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/repository/.git/worktrees/linked",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/repository/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/repository/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "scope": "git_storage",
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/linked"
+      ],
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/repository/.git/worktrees/linked",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/repository/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact1/repository/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "scope": "git_storage",
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[shared]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/shared"
+      ],
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/shared/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/shared/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/repository/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[shared]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/shared"
+      ],
+      "kwargs": {},
+      "actual": {
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/shared/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/shared/.git/objects",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/repository/.git/objects"
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/shared/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/shared/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/repository/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "scope": "git_storage",
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[shared]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/shared"
+      ],
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/shared/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/shared/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact2/repository/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "scope": "git_storage",
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[new-workdir]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/linked"
+      ],
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/linked/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[new-workdir]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/linked"
+      ],
+      "kwargs": {},
+      "actual": {
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/linked/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/.git/objects",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/.git"
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/linked/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "scope": "git_storage",
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[new-workdir]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/linked"
+      ],
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/linked/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact3/repository/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "scope": "git_storage",
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[none]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact4/neutral"
+      ],
+      "equations": []
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[none]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact4/neutral"
+      ],
+      "kwargs": {},
+      "actual": {},
+      "equations": []
+    },
+    {
+      "scope": "git_storage",
+      "node": "tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[none]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact4/neutral"
+      ],
+      "equations": []
+    },
+    {
+      "scope": "git_storage",
+      "node": "tests/unit/test_retention_locations.py::test_scanned_storage_target_beside_checkout_is_still_recorded",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_scanned_storage_target_be0/checkout"
+      ],
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_scanned_storage_target_be0/checkout/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_scanned_storage_target_be0/checkout/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_scanned_storage_target_be0/owner",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_scanned_storage_target_beside_checkout_is_still_recorded",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_scanned_storage_target_be0/checkout"
+      ],
+      "kwargs": {},
+      "actual": {
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_scanned_storage_target_be0/checkout/.git",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_scanned_storage_target_be0/checkout/.git/objects",
+          "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_scanned_storage_target_be0/owner"
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_scanned_storage_target_be0/checkout/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_scanned_storage_target_be0/checkout/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/round-test_retention_locations/pytest-of-maxghenis/pytest-0/test_scanned_storage_target_be0/owner",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    }
+  ]
+}

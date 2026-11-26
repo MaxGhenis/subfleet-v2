@@ -1,0 +1,12 @@
+{
+  "earlier_nine_passed": true,
+  "args": [
+    "-p",
+    "tests.conftest",
+    "docs/reports/qt-larger-text-review-r2/diagnostics.py",
+    "-s",
+    "-k",
+    "six_release_sensitive"
+  ],
+  "reason": "Only the fresh six-run mutant audit remains; avoid repeating independent diagnostics"
+}

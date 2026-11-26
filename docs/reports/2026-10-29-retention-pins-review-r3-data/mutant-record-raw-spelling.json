@@ -1,0 +1,29 @@
+{
+  "name": "mutant-record-raw-spelling",
+  "start": "2026-10-29T13:47:08.957798+00:00",
+  "load": [
+    19.2392578125,
+    20.56103515625,
+    22.39404296875
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_units.py::test_record_spells_each_place_once": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/unit/test_retention_dependency_units.py::test_record_spells_each_place_once"
+  ],
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+      "mutated_sha256": "113f167495738f9a41c8eca99ab697d80e69fe7f9c4432e2d8789b1e717a97f2"
+    }
+  ],
+  "rc": 1,
+  "seconds": 6.406342500005849,
+  "rss": 113246208
+}

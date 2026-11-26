@@ -1,0 +1,17 @@
+{
+  "name": "round7-marker",
+  "start": "2026-10-31T06:18:54.361183+00:00",
+  "load": [
+    31.98388671875,
+    32.0048828125,
+    32.00146484375
+  ],
+  "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+  "args": [
+    "tests/frontend/test_review_r219_fix8_mutations.py",
+    "-k",
+    "round7 and marker_releases_pending_reveal",
+    "-s"
+  ],
+  "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+}

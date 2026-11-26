@@ -1,0 +1,50 @@
+{
+  "start": "2026-10-28T21:16:32.309889+00:00",
+  "load": [
+    100.15869140625,
+    110.97119140625,
+    112.10205078125
+  ],
+  "pid": 79075,
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 9.518826000006811
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification",
+      "phase": "call",
+      "outcome": "failed",
+      "seconds": 129.30088479099504,
+      "failure": "@settings(max_examples=150, deadline=None, suppress_health_check=[HealthCheck.too_slow])\n>   @given(OWNERS, st.lists(JOB, max_size=6), st.integers(0, 3))\n                   ^^^\n\ntests/unit/test_retention_dependency_units.py:263: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nowners = [('t2', False), ('t1', False), ('T\u00e9', False)]\njobs = [{'review_root': None, 'out_path': ('t1x', '/a', 2), 'exporting': False, 'git': [('t1x', '/a', 1), ('t2', '/a', 2)], ...., ...}, {'workdir': ('t1', '/a/b', 3), 'exporting': True, 'git': [('out', '', 0), ('T\u00e9', '', 0)], 'folder': None, ...}]\nhow = 3\n\n    @settings(max_examples=150, deadline=None, suppress_health_check=[HealthCheck.too_slow])\n    @given(OWNERS, st.lists(JOB, max_size=6), st.integers(0, 3))\n    def test_d2_d3_worktree_in_use_is_exactly_the_specification(owners, jobs, how):\n        \"\"\"D2 and D3: `_pin_reasons` (pass and `only`) keeps an owner's tree as\n        `worktree-in-use` exactly when the oracle says another job needs a place in it,\n        for recorded and unrecorded trees; `dependents`, read inside a transaction on\n        the tree spelled any way, names a job exactly then.\"\"\"\n        store, directory = fresh_store()\n        try:\n            places = build(store, owners, jobs)\n            reasons = retention._pin_reasons(store, set(), None, root=Path(ROOT))\n            for tree, _ in owners:\n                path = f\"{ROOT}/worktrees/{tree}\"\n                expected = oracle(places, path, tree)\n>               assert (reasons.get(tree) == \"worktree-in-use\") == expected, (tree, reasons, places)\nE               AssertionError: ('T\u00e9', {'j1': 'active'}, {'j0': (False, {'/s/worktrees/t1', '/s/worktrees/t1x/a', '/s/worktrees/t1x/a/b'}, set()), 'j1.../WORKTREES/T1/A/B', '/S/WORKTREES/t\u00c9', '/s/worktrees/t1', '/s/worktrees/t1/a/b', '/s/worktrees/t2', ...}, set()), ...})\nE               assert (None == 'worktree-in-use') == True\nE                +  where None = <built-in method get of dict object at 0x10a154300>('T\u00e9')\nE                +    where <built-in method get of dict object at 0x10a154300> = {'j1': 'active'}.get\nE               Failing test case: test_d2_d3_worktree_in_use_is_exactly_the_specification(\nE                   owners=[('t2', False), ('t1', False), ('T\u00e9', False)],\nE                   jobs=[{'review_root': None,\nE                        'out_path': ('t1x', '/a', 2),\nE                        'exporting': False,\nE                        'git': [('t1x', '/a', 1), ('t2', '/a', 2)],\nE                        'worktree': ('t1x', '/a/b', 2),\nE                        'recorded': 'legacy',\nE                        'depends_out': None,\nE                        'state': 'cancelled',\nE                        'folder': None,\nE                        'workdir': ('t1', '', 2),\nE                        'depends_review': None},\nE                    {'recorded': 'legacy',\nE                        'exporting': True,\nE                        'state': 'queued',\nE                        'worktree': ('T\u00e9', '', 3),\nE                        'folder': ('T\u00e9', '/a/b', 3),\nE                        'review_root': ('T\u00e9', '/a', 0),\nE                        'workdir': ('t1x', '/a/b', 2),\nE                        'git': [('t1', '', 2), ('T\u00e9', '/a', 3)],\nE                        'depends_review': None,\nE                        'depends_out': None,\nE                        'out_path': ('t1x', '/a/b', 2)},\nE                    {'depends_review': ('t1x', '/a', 2),\nE                        'out_path': ('t1x', '', 2),\nE                        'git': [('t2', '/a/b', 3), ('out', '/a/b', 1)],\nE                        'depends_out': None,\nE                        'recorded': 'new',\nE                        'state': 'cancelled',\nE                        'review_root': ('out', '', 3),\nE                        'folder': None,\nE                        'exporting': False,\nE                        'worktree': None,\nE                        'workdir': ('t1', '/a/b', 2)},\nE                    {'out_path': ('t1', '', 2),\nE                        'folder': ('t2', '/a/b', 2),\nE                        'worktree': ('t1', '/a/b', 1),\nE                        'git': [('t2', '', 0), ('t1', '/a/b', 2)],\nE                        'depends_review': None,\nE                        'recorded': 'new',\nE                        'exporting': False,\nE                        'state': 'cancelled',\nE                        'workdir': ('out', '/a', 3),\nE                        'depends_out': ('T\u00e9', '', 3),\nE                        'review_root': None},\nE                    {'worktree': None,\nE                        'recorded': 'legacy',\nE                        'workdir': ('out', '', 3),\nE                        'state': 'lost',\nE                        'depends_review': ('T\u00e9', '', 2),\nE                        'exporting': False,\nE                        'folder': ('out', '', 2),\nE                        'review_root': ('out', '', 3),\nE                        'depends_out': ('t1', '/a', 1),\nE                        'out_path': ('t2', '/a', 3),\nE                        'git': [('out', '/a/b', 3), ('t1', '/a/b', 0)]},\nE                    {'workdir': ('t1', '/a/b', 3),\nE                        'exporting': True,\nE                        'git': [('out', '', 0), ('T\u00e9', '', 0)],\nE                        'folder': None,\nE                        'review_root': None,\nE                        'depends_out': ('t1x', '', 1),\nE                        'depends_review': ('t1', '', 2),\nE                        'recorded': 'spelled',\nE                        'out_path': None,\nE                        'state': 'cancelled',\nE                        'worktree': ('t2', '/a/b', 0)}],\nE                   how=3,\nE               )\n\ntests/unit/test_retention_dependency_units.py:276: AssertionError"
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.009789750001800712,
+      "_hypothesis_stats": "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification:\n\n  - during generate phase (125.25 seconds):\n    - Typical runtimes: ~ 5-3045 ms, of which ~ 0-225 ms in data generation\n    - 88 passing, 1 failing, and 12 invalid test cases\n    - Found 1 distinct error in this phase\n    - Events:\n      * 16.83%, Retried draw from TupleStrategy((sampled_from(('t1', 't2', 'T\u00e9')), booleans())).filter(not_yet_in_unique_list) to satisfy filter\n\n  - Stopped because nothing left to do"
+    }
+  ],
+  "hypothesis_profile": "explicit and generate; no shrinking; first failure",
+  "all_collected": [
+    "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+  ],
+  "collected": [
+    "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+  ],
+  "exit": 1,
+  "seconds": 174.63666129199555,
+  "maxrss": 119308288,
+  "lock": "locked",
+  "command": [
+    "-x",
+    "--hypothesis-seed=217",
+    "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+  ],
+  "admission_utc": "2026-10-28T21:16:06.866540+00:00",
+  "wall_seconds": 1637.387,
+  "queue_seconds": 1424.626
+}

@@ -1,0 +1,41 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 10:14:48Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ test_spelling_inputs_keep_the_places_real_git_traverses ____________
+tests/unit/test_retention_location_spelling.py:201: in test_spelling_inputs_keep_the_places_real_git_traverses
+    suppress_health_check=[HealthCheck.function_scoped_fixture])
+         ^^^^^^^^^^^^^^^^^^
+tests/unit/test_retention_location_spelling.py:206: in test_spelling_inputs_keep_the_places_real_git_traverses
+    observation = check_spelling_input(Path(directory), data)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/maxghenis/.subfleet/worktrees/20261031-055640-pr272-fix-r9/docs/reports/2026-10-31-retention-pins-fix-r9-data/run.py:103: in observed
+    result = original(base, data)
+             ^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_retention_location_spelling.py:189: in check_spelling_input
+    assert_location_spelling(supplied, recorded.get("git", []))
+tests/unit/test_retention_location_spelling.py:64: in assert_location_spelling
+    assert os.path.join(folders.canonical(os.path.dirname(place)), os.path.basename(place)) == place, place
+E   AssertionError: /System/Volumes/Data/private/tmp/sf-fix272r9/real-tmp/revert-r9-alternates-canonicalization-dropped/tmpf0db8ylm/ownér/pointer
+E   assert '/private/tmp...ownér/pointer' == '/System/Volu...ownér/pointer'
+E     
+E     - /System/Volumes/Data/private/tmp/sf-fix272r9/real-tmp/revert-r9-alternates-canonicalization-dropped/tmpf0db8ylm/ownér/pointer
+E     ? --------------------
+E     + /private/tmp/sf-fix272r9/real-tmp/revert-r9-alternates-canonicalization-dropped/tmpf0db8ylm/ownér/pointer
+E   Failing test case: test_spelling_inputs_keep_the_places_real_git_traverses(
+E       record_property=append_property,
+E       data={'position': 'alternates-file', 'spelling': 'data-volume', 'named': False},
+E   )
+E   {'position': 'alternates-file', 'spelling': 'data-volume', 'named': False}
+E   Explanation:
+E       These lines were always and only run by failing test cases:
+E           /private/tmp/sf-fix272r9/reversion-r9-alternates-canonicalization-dropped/tests/unit/test_retention_location_spelling.py:145
+E           /private/tmp/sf-fix272r9/reversion-r9-alternates-canonicalization-dropped/tests/unit/test_retention_location_spelling.py:146
+E           /private/tmp/sf-fix272r9/reversion-r9-alternates-canonicalization-dropped/tests/unit/test_retention_location_spelling.py:147
+E           /private/tmp/sf-fix272r9/reversion-r9-alternates-canonicalization-dropped/tests/unit/test_retention_location_spelling.py:148
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_location_spelling.py::test_spelling_inputs_keep_the_places_real_git_traverses
+1 failed in 12.43s
+{"name": "revert-r9-alternates-canonicalization-dropped", "start": "2026-10-31T10:14:49.654503+00:00", "load": [33.27099609375, 33.93505859375, 34.6083984375], "seconds": 13.149997333999636, "exit": 1}

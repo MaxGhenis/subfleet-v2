@@ -1,0 +1,6 @@
+{
+  "alternates_line_bound": 1048576,
+  "readline_bound": 1048577,
+  "host_path_max": 1024,
+  "gitfile_bound": 65536
+}

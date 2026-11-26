@@ -1,0 +1,530 @@
+{
+  "name": "review-r2-closeout",
+  "start": "2026-10-29T06:42:07.188393+00:00",
+  "load": [
+    18.14892578125,
+    22.44189453125,
+    22.93017578125
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[rewrite]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_unlinked_open_alternates_is_incomplete",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[full-pass]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_3_null_job_output_preserves_lease_and_recorded_export_pins[False]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_3_null_job_output_preserves_lease_and_recorded_export_pins[True]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_many_short_valid_lines_use_bounded_input_memory",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_alternates_cycle_across_all_five_levels_matches_git[cycle-within-bound]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_alternates_cycle_across_all_five_levels_matches_git[full-five-alternates]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[case-census]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[case-fence]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[case-commit]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[nfc-census]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[nfc-fence]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[nfc-commit]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[greek-census]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[greek-fence]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[greek-commit]",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_turn_job_directory_rule_keeps_its_precedence"
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]": {
+      "setup": "passed",
+      "call": "skipped",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[rewrite]": {
+      "setup": "passed",
+      "call": "skipped",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_unlinked_open_alternates_is_incomplete": {
+      "setup": "passed",
+      "call": "skipped",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]": {
+      "setup": "passed",
+      "call": "skipped",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[full-pass]": {
+      "setup": "passed",
+      "call": "skipped",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]": {
+      "setup": "passed",
+      "call": "skipped",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_3_null_job_output_preserves_lease_and_recorded_export_pins[False]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_3_null_job_output_preserves_lease_and_recorded_export_pins[True]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_many_short_valid_lines_use_bounded_input_memory": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_alternates_cycle_across_all_five_levels_matches_git[cycle-within-bound]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_alternates_cycle_across_all_five_levels_matches_git[full-five-alternates]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[case-census]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[case-fence]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[case-commit]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[nfc-census]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[nfc-fence]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[nfc-commit]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[greek-census]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[greek-fence]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[greek-commit]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_turn_job_directory_rule_keeps_its_precedence": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]": {
+      "setup": {
+        "duration": 1.0138392499939073,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 1.895810000001802,
+        "wasxfail": "R2-F1: alternates replacement during discovery is not detected",
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0021777499932795763,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[rewrite]": {
+      "setup": {
+        "duration": 0.3202107499964768,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 2.218140166994999,
+        "wasxfail": "R2-F1: alternates replacement during discovery is not detected",
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.064009250010713,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_unlinked_open_alternates_is_incomplete": {
+      "setup": {
+        "duration": 0.004844458002480678,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.010736541997175664,
+        "wasxfail": "R2-F1: actual unlink during an open alternates read is not detected",
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00025883299531415105,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]": {
+      "setup": {
+        "duration": 0.6103186660038773,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.08439045801060274,
+        "wasxfail": "R2-F2: legacy incomplete evidence is lost on transition to pending export",
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0034905420034192502,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[full-pass]": {
+      "setup": {
+        "duration": 0.6653917920048116,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 1.923910084005911,
+        "wasxfail": "R2-F2: legacy incomplete evidence is lost on transition to pending export",
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0024265000101877376,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]": {
+      "setup": {
+        "duration": 0.42222466600651387,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 1.609318250004435,
+        "wasxfail": "R2-F2: legacy incomplete evidence is lost on transition to pending export",
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.007066834004945122,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_3_null_job_output_preserves_lease_and_recorded_export_pins[False]": {
+      "setup": {
+        "duration": 0.46457174999522977,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 1.945588749993476,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.003663791998405941,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_3_null_job_output_preserves_lease_and_recorded_export_pins[True]": {
+      "setup": {
+        "duration": 0.6748907919973135,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 1.9074024159926921,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00654124999709893,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_many_short_valid_lines_use_bounded_input_memory": {
+      "setup": {
+        "duration": 0.003135292005026713,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 4.461222750003799,
+        "wasxfail": null,
+        "properties": [
+          [
+            "alternates_bytes",
+            2097210
+          ],
+          [
+            "distinct_paths",
+            1
+          ],
+          [
+            "traced_peak_bytes",
+            135564
+          ]
+        ]
+      },
+      "teardown": {
+        "duration": 0.00029429199639707804,
+        "wasxfail": null,
+        "properties": [
+          [
+            "alternates_bytes",
+            2097210
+          ],
+          [
+            "distinct_paths",
+            1
+          ],
+          [
+            "traced_peak_bytes",
+            135564
+          ]
+        ]
+      }
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_alternates_cycle_across_all_five_levels_matches_git[cycle-within-bound]": {
+      "setup": {
+        "duration": 0.0023067080037435517,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.1856124159967294,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0005244170024525374,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_alternates_cycle_across_all_five_levels_matches_git[full-five-alternates]": {
+      "setup": {
+        "duration": 0.0032342500053346157,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.19533008299185894,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0006158750038594007,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[case-census]": {
+      "setup": {
+        "duration": 0.7350544590008212,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.018951041987747885,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0017965000006370246,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[case-fence]": {
+      "setup": {
+        "duration": 0.3802319999958854,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.07209804200101644,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0025352079974254593,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[case-commit]": {
+      "setup": {
+        "duration": 0.35987220899551176,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.21885624999413267,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.006771749991457909,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[nfc-census]": {
+      "setup": {
+        "duration": 0.39440062499488704,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.024220625011366792,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.001948416989762336,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[nfc-fence]": {
+      "setup": {
+        "duration": 0.4874252909939969,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.08904004099895246,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0034949580003740266,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[nfc-commit]": {
+      "setup": {
+        "duration": 0.38569745799759403,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.38397004100261256,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0038737499999115244,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[greek-census]": {
+      "setup": {
+        "duration": 0.8075913330103504,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.04474554199259728,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00954466700204648,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[greek-fence]": {
+      "setup": {
+        "duration": 0.7425102499983041,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.17529012500017416,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.003927459008991718,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_nested_job_directory_aliases_pin_at_every_stage[greek-commit]": {
+      "setup": {
+        "duration": 0.6037400829955004,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.24745012499624863,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0028492909914348274,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_turn_job_directory_rule_keeps_its_precedence": {
+      "setup": {
+        "duration": 0.5700147499883315,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.019873917000950314,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0024514170072507113,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

@@ -1,0 +1,20 @@
+{
+  "old_count": 41,
+  "current_count": 1,
+  "current_transitions": [
+    {
+      "at": 5.9286789894104,
+      "at_bottom": true,
+      "event": "marker_appeared",
+      "position": {
+        "content": 40842,
+        "from_end": 0,
+        "offset": 40359,
+        "viewport": 483
+      },
+      "suspended": false
+    }
+  ],
+  "cutoff": 5.218409061431885,
+  "reveals": 2
+}

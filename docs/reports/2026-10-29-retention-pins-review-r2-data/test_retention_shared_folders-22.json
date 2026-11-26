@@ -1,0 +1,67 @@
+{
+  "name": "test_retention_shared_folders-22",
+  "start": "2026-10-29T06:39:20.899861+00:00",
+  "load": [
+    22.849609375,
+    24.2548828125,
+    23.5029296875
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[running]",
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[lost]"
+  ],
+  "phases": {
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[running]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[lost]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[running]": {
+      "setup": {
+        "duration": 0.4285254580026958,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.1754403750092024,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.005936500005191192,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_turn_in_a_repository_nested_in_the_job_worktree_keeps_it[lost]": {
+      "setup": {
+        "duration": 0.31882266599859577,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 2.3160190409980714,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.004066583001986146,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

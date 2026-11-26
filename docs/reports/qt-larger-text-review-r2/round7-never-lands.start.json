@@ -1,0 +1,17 @@
+{
+  "name": "round7-never-lands",
+  "start": "2026-10-31T06:31:38.001027+00:00",
+  "load": [
+    35.72314453125,
+    34.07763671875,
+    33.71630859375
+  ],
+  "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+  "args": [
+    "tests/frontend/test_review_r219_fix8_mutations.py",
+    "-k",
+    "round7 and reveal_never_lands",
+    "-s"
+  ],
+  "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+}

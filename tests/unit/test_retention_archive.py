@@ -36,6 +36,10 @@ from tests.unit.retention_world import (
     Clock, World, all_commits, git, inode_groups, snapshot, trust_temporary_directories,
 )
 
+# One listing a pass (D-HOLDERS-LSOF1): a retirement finishes in the pass after its
+# archive, as the daemon's catch-up runs it; see `catch_up` in tests/conftest.py.
+pytestmark = pytest.mark.retention_catch_up
+
 
 @pytest.fixture
 def world(tmp_path, monkeypatch):
@@ -377,8 +381,10 @@ def test_pinned_at_commit_rolls_back_then_retires_when_unpinned(world):
     asked = []
 
     def pins():
-        asked.append(w.store.connection.in_transaction)
-        return {"job-pin-late"} if len(asked) == 3 else set()
+        inside = w.store.connection.in_transaction
+        asked.append(inside)
+        # Asked inside a transaction by the selection, then by the commit.
+        return {"job-pin-late"} if inside and sum(asked) == 2 else set()
 
     state, clock = retention.RetentionState(), Clock()
     first = run(w, pins=pins, state=state, clock=clock)
@@ -613,9 +619,20 @@ def test_batch_bounds_a_pass_and_takes_the_oldest_first(world):
     w = world
     for n in range(5):
         w.job(f"j{n}", worktree=False, created=f"2026-09-01T00:0{n}:00Z")
-    result = run(w, batch=2)
-    assert result["pruned"] == ["j0", "j1"] and result["more"] is True
-    assert run(w, batch=2)["pruned"] == ["j2", "j3"]
+    # Single passes (D-HOLDERS-LSOF1): a pass archives at most a batch of new
+    # jobs, which take their check 2 from the next pass's listing; finishing
+    # them holds no place in that pass's batch.
+    single = getattr(retention.maintenance, "real", retention.maintenance)
+    state = retention.RetentionState()
+
+    def one_pass():
+        return single(w.store, w.root, max_jobs=0, max_bytes=0, holders=lambda watches, **_: {}, batch=2,
+                      state=state)
+    first = one_pass()
+    assert first["pruned"] == [] and first["awaiting_check2"] == ["j0", "j1"] and first["more"] is True
+    second = one_pass()
+    assert second["pruned"] == ["j0", "j1"] and second["awaiting_check2"] == ["j2", "j3"]
+    assert one_pass()["pruned"] == ["j2", "j3"]
 
 
 def test_a_pool_over_its_count_is_pruned_without_sizing_everything(world, monkeypatch):
@@ -1502,11 +1519,25 @@ def test_byte_copy_path_when_clones_are_unavailable(world, monkeypatch):
 
 @pytest.mark.real_lsof
 @pytest.mark.skipif(not os.access("/usr/sbin/lsof", os.X_OK), reason="needs lsof")
-def test_real_lsof_sees_a_process_whose_cwd_is_in_the_tree(world):
+def test_real_lsof_sees_a_process_whose_cwd_is_in_the_tree(world, monkeypatch):
     """E3: after the rename into quarantine, lsof still names the holder."""
     w = world
     wt = w.job("job-cwd")
-    holder = subprocess.Popen(["/bin/sleep", "600"], cwd=wt)
+    from subfleet import procs
+    # Exercise the existing lsof path after the rename. The independent native
+    # pre-move hold is covered by test_retention_worktree_cwd.py.
+    monkeypatch.setattr(procs, "worktree_cwd_pids", lambda *a: frozenset())
+    holder = subprocess.Popen(["/bin/sleep", "600"], cwd=wt, start_new_session=True)
+    # Only inspect this test's child, never unrelated processes on the host.
+    from subfleet import retention_holders as rholders
+    original_argv = rholders.rqos.argv
+
+    def child_only(command):
+        if command[0] == rholders.LSOF:
+            command = [*command, "-p", str(holder.pid)]
+        return original_argv(command)
+
+    monkeypatch.setattr(rholders.rqos, "argv", child_only)
     try:
         result = retention.maintenance(w.store, w.root, max_jobs=0, max_bytes=0)
         assert result["pruned"] == [] and "busy" in result["deferred"]["job-cwd"], result

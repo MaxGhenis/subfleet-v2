@@ -1,0 +1,1 @@
+{"start": "2026-10-31T06:10:12.406729+00:00", "loads": [31.5068359375, 32.6865234375, 32.03857421875], "pid": 43688, "args": ["tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine"], "fixture_root": "/private/tmp/sf-r272r8"}

@@ -1,0 +1,58 @@
+{
+  "name": "mutant-r3-write-metadata-check-dropped",
+  "start": "2026-10-31T09:09:22.268574+00:00",
+  "load": [
+    36.4267578125,
+    46.55712890625,
+    49.16796875
+  ],
+  "args": [
+    "--mutant",
+    "r3-write-metadata-check-dropped",
+    "-p",
+    "tests.conftest",
+    "--confcutdir=docs/reports/2026-10-31-retention-pins-fix-r7-data",
+    "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[same-size-running]"
+  ],
+  "phases": [
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[same-size-running]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.468525917000079,
+      "failure": null
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[same-size-running]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.6725579580015619,
+      "failure": "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py:56: in test_changes\n    assert changed and recorded.get('incomplete'), recorded\nE   AssertionError: {'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-r3-write-metadata-check-dropped/pytest-of-maxghenis/pytest-0/test_cha...nt-r3-write-metadata-check-dropped/pytest-of-maxghenis/pytest-0/test_changes_same_size_running0/outside/.git/objects']}\nE   assert ([True] and None)\nE    +  where None = <built-in method get of dict object at 0x1089f5dc0>('incomplete')\nE    +    where <built-in method get of dict object at 0x1089f5dc0> = {'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-r3-write-metadata-check-dropped/pytest-of-maxghenis/pytest-0/test_cha...nt-r3-write-metadata-check-dropped/pytest-of-maxghenis/pytest-0/test_changes_same_size_running0/outside/.git/objects']}.get"
+    },
+    {
+      "node": "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[same-size-running]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.01947574999940116,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+      "mutated": "e498c9aa3f4fc598ada33cd7fe2e81911b9e8facf177e1b88810f39d3c89bf9f"
+    }
+  ],
+  "collected": [
+    "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[same-size-running]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/subfleet/dependencies.py",
+  "product_sha256": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+  "end": "2026-10-31T09:09:38.890440+00:00",
+  "seconds": 16.62148687499939,
+  "peak_rss_mib": 111.546875,
+  "exit": 1
+}

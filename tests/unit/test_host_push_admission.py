@@ -138,6 +138,12 @@ CASES = {
 }
 
 
+def admit_push(core):
+    """Wait only in the harness; the production pass returns while building."""
+    from test_host_push_build import admit_ready
+    admit_ready(core)
+
+
 def notices(core, job_id):
     return [row["text"] for row in core.store.query("SELECT text FROM notices WHERE job_id=?", (job_id,))]
 
@@ -161,7 +167,7 @@ def test_a_push_job_whose_checkout_cannot_be_prepared_never_stops_the_jobs_behin
         behind = ordinary(world)
         breaks(world)
         for _ in range(2):
-            core._admit_kind("detached")                    # never raises
+            admit_push(core)                    # never raises
             row = core._job(push_job)
             assert (row["state"], row["rc"]) == ("failed", 7), dict(row)
             assert core.store.list_attempts(push_job) == []
@@ -214,13 +220,13 @@ def test_a_workspace_wait_never_finds_half_a_checkout(worlds):
                 raise OSError(errno.ENOSPC, "No space left on device")
             return result
         world.patch.setattr(host_push, "git", full_disk_after_clone)
-        core._admit_kind("detached")
+        admit_push(core)
         row = core._job(push_job)
         assert (row["state"], row["wait_reason"]) == ("waiting", "workspace"), dict(row)
         assert not destination.exists() and not failures[0].exists()
         with core.store.transaction("test.due") as tx:
             tx.execute("UPDATE jobs SET next_check_at=NULL WHERE job_id=?", (push_job,))
-        core._admit_kind("detached")
+        admit_push(core)
         assert placed(core, push_job), core._holds.get(push_job)
         assert git(destination, "rev-parse", "HEAD") == core._job(push_job)["workdir_head"]
         assert (destination / ".git/info/exclude").read_text() == f"/{host_push.BUNDLE_PATH[0]}/\n"
@@ -243,7 +249,7 @@ def test_git_that_cannot_start_is_the_hosts_trouble_not_the_jobs(worlds):
                     raise host_push.PushError(f"host git {args[0]} failed (OSError)") from exc
             return actual(repo, *args, **kwargs)
         world.patch.setattr(host_push, "git", cannot_fork)
-        core._admit_kind("detached")
+        admit_push(core)
         row = core._job(push_job)
         assert (row["state"], row["wait_reason"]) == ("waiting", "workspace"), dict(row)
 
@@ -308,7 +314,7 @@ def test_no_push_job_workspace_failure_ever_raises_out_of_an_admission_pass(worl
             def failing(*args, **kwargs):
                 raise error
             world.patch.setattr(host_push, stage, failing)
-        core._admit_kind("detached")
+        admit_push(core)
         assert placed(core, behind), core._holds.get(behind)
         row = core._job(push_job)
         reached = not stage.startswith("git:") or not in_place      # an in-place job runs no Git here

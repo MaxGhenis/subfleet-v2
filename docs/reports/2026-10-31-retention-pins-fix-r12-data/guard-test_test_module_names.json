@@ -1,0 +1,49 @@
+{
+  "name": "guard-test_test_module_names",
+  "start": "2026-10-31T20:54:55.502404+00:00",
+  "load": [
+    44.32080078125,
+    50.14697265625,
+    57.8076171875
+  ],
+  "pytest_pid": 43660,
+  "failure_root": "/private/tmp/sf-fix272r12/failed-keep",
+  "args": [
+    "tests/unit/test_test_module_names.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.5253575000097044,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.9973953330045333,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0002615830017020926,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own"
+  ],
+  "end": "2026-10-31T20:55:08.650165+00:00",
+  "seconds": 13.147557791002328,
+  "peak_rss_mib": 113.515625,
+  "exit": 0
+}

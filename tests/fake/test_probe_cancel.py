@@ -6,6 +6,7 @@ transaction boundary models a commit overtaking an earlier read, without threads
 """
 
 from contextlib import contextmanager
+from itertools import groupby
 import json
 import os
 from pathlib import Path
@@ -269,10 +270,17 @@ def test_probe_gate_refuses_and_releases_after_cancel(history, cancel_at):
     assert history.gates == [(b"0", True)]
     assert len(history.guardians) == 1  # Guardian stayed behind the refused gate.
     assert history.service.store.list_leases(holder) == []
-    states = [value["state"] for row in history.service.store.query(
+    records = [value for row in history.service.store.query(
         "SELECT data_json FROM events WHERE kind='probe.state' ORDER BY rowid")
         if (value := json.loads(row["data_json"])).get("state")]
-    assert states == ["reserved", "starting", "contained", "completed"]
+    # D-TMP1 adds allocation/measurement/cleanup evidence to the same durable
+    # journal; metadata records must preserve the four ownership transitions.
+    assert [state for state, _ in groupby(record["state"] for record in records)] == [
+        "reserved", "starting", "contained", "completed"]
+    allocation = next(record for record in records if record.get("tmpdir"))
+    assert allocation["state"] == "reserved", "scratch authority precedes the launch gate"
+    assert records[-1]["tmpdir"]["removed_at"]
+    assert not Path(records[-1]["tmpdir"]["path"]).exists()
 
 
 @pytest.mark.parametrize("change", ["stamp", "succeeded", "failed", "cancelled", "lost"])

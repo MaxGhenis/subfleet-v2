@@ -1,0 +1,11 @@
+--- a/subfleet/dependencies.py
++++ b/subfleet/dependencies.py
+@@ -243,7 +243,7 @@
+             if exc.errno not in (errno.ENOENT, errno.ENOTDIR, errno.ELOOP):
+                 raise
+             identity = None        # a gitdir target may already be absent
+-        return resolved, identity, links
++        return resolved, identity, links, (folders.canonical(resolved) if identity is not None else None)
+ 
+     def resolve(self, path: str) -> str:
+         try:

@@ -1,0 +1,51 @@
+{
+  "name": "extra-test_retention_regenerable_properties",
+  "start": "2026-10-31T19:18:08.259609+00:00",
+  "load": [
+    57.1787109375,
+    59.4013671875,
+    63.97265625
+  ],
+  "pytest_pid": 46465,
+  "failure_root": "/private/tmp/sf-fix272r11/failed-keep",
+  "args": [
+    "tests/unit/test_retention_regenerable_properties.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_regenerable_properties.py::test_only_and_all_regenerable_output_is_dropped_and_the_rest_restored",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.692942874993605,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_regenerable_properties.py::test_only_and_all_regenerable_output_is_dropped_and_the_rest_restored",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 133.02168495800288,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_regenerable_properties.py::test_only_and_all_regenerable_output_is_dropped_and_the_rest_restored",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0026760420005302876,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_regenerable_properties.py::test_only_and_all_regenerable_output_is_dropped_and_the_rest_restored"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-140216-pr272-fix-r11/subfleet/dependencies.py",
+  "product_sha256": "71066920a6f158ab189ac0b931ef62e774314276df23cb28855f0edcb0bdd4bc",
+  "end": "2026-10-31T19:20:53.302133+00:00",
+  "seconds": 165.04193666700303,
+  "peak_rss_mib": 115.390625,
+  "exit": 0
+}

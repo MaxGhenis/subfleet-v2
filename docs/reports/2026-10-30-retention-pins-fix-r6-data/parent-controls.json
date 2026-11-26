@@ -1,0 +1,148 @@
+{
+  "label": "parent-controls",
+  "start": "2026-10-30T22:47:16.338103+00:00",
+  "loads": [
+    41.9833984375,
+    41.91162109375,
+    38.60107421875
+  ],
+  "seconds": 45.62106433301233,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "pointer_matrix.py::test_rejected_child_with_valid_parent[gitdir: \\n]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.6477564999950118,
+      "properties": []
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_rejected_child_with_valid_parent[gitdir:metadata\\n]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.5142877090111142,
+      "properties": []
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_rejected_child_with_valid_parent[]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.589214790990809,
+      "properties": []
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_rejected_child_with_valid_parent[\\n]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.0593109159963205,
+      "properties": []
+    },
+    {
+      "nodeid": "pointer_matrix.py::test_rejected_child_with_valid_parent[\\r\\n]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.097040166001534,
+      "properties": []
+    }
+  ],
+  "nodes": [
+    "pointer_matrix.py::test_rejected_child_with_valid_parent[gitdir: \\n]",
+    "pointer_matrix.py::test_rejected_child_with_valid_parent[gitdir:metadata\\n]",
+    "pointer_matrix.py::test_rejected_child_with_valid_parent[]",
+    "pointer_matrix.py::test_rejected_child_with_valid_parent[\\n]",
+    "pointer_matrix.py::test_rejected_child_with_valid_parent[\\r\\n]"
+  ],
+  "all_nodes": [
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata-False-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata-False-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata-True-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata-True-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\n-metadata -False-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\n-metadata -False-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\n-metadata -True-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\n-metadata -True-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata -False-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata -False-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata -True-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\n- metadata -True-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\n-   -False-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\n-   -False-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\n-   -True-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\n-   -True-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata-False-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata-False-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata-True-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata-True-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-metadata -False-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-metadata -False-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-metadata -True-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-metadata -True-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata -False-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata -False-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata -True-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n- metadata -True-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-   -False-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-   -False-commondir]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-   -True-gitfile]",
+    "pointer_matrix.py::test_valid_pointer[\\r\\n-   -True-commondir]",
+    "pointer_matrix.py::test_empty_common[None-False-False]",
+    "pointer_matrix.py::test_empty_common[None-False-True]",
+    "pointer_matrix.py::test_empty_common[None-True-False]",
+    "pointer_matrix.py::test_empty_common[None-True-True]",
+    "pointer_matrix.py::test_empty_common[-False-False]",
+    "pointer_matrix.py::test_empty_common[-False-True]",
+    "pointer_matrix.py::test_empty_common[-True-False]",
+    "pointer_matrix.py::test_empty_common[-True-True]",
+    "pointer_matrix.py::test_empty_common[\\n-False-False]",
+    "pointer_matrix.py::test_empty_common[\\n-False-True]",
+    "pointer_matrix.py::test_empty_common[\\n-True-False]",
+    "pointer_matrix.py::test_empty_common[\\n-True-True]",
+    "pointer_matrix.py::test_empty_common[\\r\\n-False-False]",
+    "pointer_matrix.py::test_empty_common[\\r\\n-False-True]",
+    "pointer_matrix.py::test_empty_common[\\r\\n-True-False]",
+    "pointer_matrix.py::test_empty_common[\\r\\n-True-True]",
+    "pointer_matrix.py::test_rejected_child_with_valid_parent[gitdir: \\n]",
+    "pointer_matrix.py::test_rejected_child_with_valid_parent[gitdir:metadata\\n]",
+    "pointer_matrix.py::test_rejected_child_with_valid_parent[]",
+    "pointer_matrix.py::test_rejected_child_with_valid_parent[\\n]",
+    "pointer_matrix.py::test_rejected_child_with_valid_parent[\\r\\n]",
+    "pointer_matrix.py::test_padded_pointer[gitfile]",
+    "pointer_matrix.py::test_padded_pointer[commondir]"
+  ],
+  "phases": {
+    "pointer_matrix.py::test_rejected_child_with_valid_parent[gitdir: \\n]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_rejected_child_with_valid_parent[gitdir:metadata\\n]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_rejected_child_with_valid_parent[]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_rejected_child_with_valid_parent[\\n]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "pointer_matrix.py::test_rejected_child_with_valid_parent[\\r\\n]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {},
+  "loaded": [],
+  "rss": 120356864
+}

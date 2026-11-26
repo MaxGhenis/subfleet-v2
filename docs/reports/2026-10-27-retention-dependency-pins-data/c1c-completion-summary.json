@@ -1,0 +1,16 @@
+{
+  "planned": 1104,
+  "initial_reconstructed_remaining": 761,
+  "verified_remaining": 759,
+  "reused_replacement": 27,
+  "own_start": 732,
+  "own_outcomes": {
+    "passed": 728,
+    "skipped": 4
+  },
+  "remaining": 0,
+  "unresolved_failures": [],
+  "latest_hold_queued_utc": "2026-10-28T11:44:52.916289+00:00",
+  "new_hold_cutoff_utc": "2026-10-28T11:46:00+00:00",
+  "all_claimed_holds_ended": true
+}

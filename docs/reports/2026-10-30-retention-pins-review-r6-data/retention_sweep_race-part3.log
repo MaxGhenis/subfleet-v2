@@ -1,0 +1,11 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 20:24:07Z slot B load 
+START retention_sweep_race-part3 2026-10-30T20:24:09.463441+00:00 load=(38.201171875, 44.55029296875, 47.68603515625)
+
+============================ Hypothesis Statistics =============================
+!!!!!!!!!!!!!!!!!!! KeyboardInterrupt: 570 second hold bound !!!!!!!!!!!!!!!!!!!
+/private/tmp/sf-r272r6/run_hold.py:76: KeyboardInterrupt: 570 second hold bound
+(to show a full traceback on KeyboardInterrupt use --full-trace)
+no tests ran in 572.57s (0:09:32)

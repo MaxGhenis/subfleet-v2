@@ -1,0 +1,8 @@
+{
+  "selected": 816,
+  "passed": 815,
+  "remaining": [
+    "tests/unit/test_retention_shared_folders.py::test_early_fences_equal_reservation_before_and_after_quarantine"
+  ],
+  "active": []
+}

@@ -70,8 +70,12 @@ class TurnSpec:
 @dataclass(frozen=True)
 class Frame:
     tag: str                  # unique within the attempt: init, user-message, approval:<id>, interrupt, close, ...
-    op: str                   # write | close
+    op: str                   # write | signal | close
     line: str | None = None
+    # Whether delivery can end/abort the active provider turn (C-9.2).
+    # Old callers default conservatively; every production builder must classify
+    # its protocol explicitly, including replies that only refuse one tool.
+    stops: bool = field(default=True, kw_only=True)
 
 
 @dataclass(frozen=True)

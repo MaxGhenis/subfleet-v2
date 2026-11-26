@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T07:29:10.128389+00:00",
+  "args": [
+    "--mutant",
+    "r7-unused-parent-pointer-probing-restored",
+    "tests/fake/test_retention_dependency_review_r7.py::test_unused_parent_pointer_must_not_globally_pin_trees"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/real-tmp/mutant-r7-unused-parent-pointer-probing-restored",
+  "linked": false
+}

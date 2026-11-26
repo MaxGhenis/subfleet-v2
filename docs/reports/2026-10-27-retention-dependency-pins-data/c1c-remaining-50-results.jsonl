@@ -1,0 +1,7 @@
+{"nodeid": "tests/fake/test_admission_ramp.py::test_generated_enabled_daemon_windows_liveness_order_and_restart", "when": "setup", "outcome": "passed", "xfail": null}
+{"nodeid": "tests/fake/test_admission_ramp.py::test_generated_enabled_daemon_windows_liveness_order_and_restart", "when": "call", "outcome": "passed", "xfail": null}
+{"nodeid": "tests/fake/test_admission_ramp.py::test_generated_enabled_daemon_windows_liveness_order_and_restart", "when": "teardown", "outcome": "passed", "xfail": null}
+{"nodeid": "tests/unit/test_retention_case_alias.py::test_interleavings_with_case_aliases_never_delete_a_folder_a_row_names", "when": "setup", "outcome": "passed", "xfail": null}
+{"nodeid": "tests/unit/test_retention_case_alias.py::test_interleavings_with_case_aliases_never_delete_a_folder_a_row_names", "when": "call", "outcome": "passed", "xfail": null}
+{"nodeid": "tests/unit/test_retention_case_alias.py::test_interleavings_with_case_aliases_never_delete_a_folder_a_row_names", "when": "teardown", "outcome": "passed", "xfail": null}
+{"nodeid": "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn", "when": "setup", "outcome": "passed", "xfail": null}

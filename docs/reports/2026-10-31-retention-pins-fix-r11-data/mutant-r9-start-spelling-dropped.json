@@ -1,0 +1,60 @@
+{
+  "name": "mutant-r9-start-spelling-dropped",
+  "start": "2026-10-31T18:34:59.044040+00:00",
+  "load": [
+    62.9130859375,
+    61.21435546875,
+    60.27392578125
+  ],
+  "pytest_pid": 1432,
+  "failure_root": "/private/tmp/sf-fix272r11/failed-keep",
+  "args": [
+    "--mutant",
+    "r9-start-spelling-dropped",
+    "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[data-volume-worktree]"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[data-volume-worktree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 8.116155209005228,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[data-volume-worktree]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.8966777500027092,
+      "wasxfail": null,
+      "failure": "tests/unit/test_retention_location_spelling.py:234: in test_routine_alias_keeps_the_exact_record\n    assert recorded == expected\nE   AssertionError: assert {'git': ['/pr...linked/.git']} == {'git': ['/pr...git/objects']}\nE     \nE     Differing items:\nE     {'git': ['/private/tmp/sf-fix272r11/real-tmp/mutant-r9-start-spelling-dropped/pytest-of-maxghenis/pytest-0/test_routin...-tmp/mutant-r9-start-spelling-dropped/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e0/own\u00e9r/linked/.git']} != {'git': ['/private/tmp/sf-fix272r11/real-tmp/mutant-r9-start-spelling-dropped/pytest-of-maxghenis/pytest-0/test_routin...r9-start-spelling-dropped/pytest-of-maxghenis/pytest-0/test_routine_alias_keeps_the_e0/own\u00e9r/repository/.git/objects']}\nE     Use -v to get more diff"
+    },
+    {
+      "node": "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[data-volume-worktree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007280829959199764,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "ebed2a43ddfc264b9faf0ee0101550081ea78df97acec789b8f16aeb82807a69",
+      "mutated": "d46960b2bc2a199913e7e029fa73323e142a5303f40e43e12b3527989bcc6a4a"
+    }
+  ],
+  "collected": [
+    "tests/unit/test_retention_location_spelling.py::test_routine_alias_keeps_the_exact_record[data-volume-worktree]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-140216-pr272-fix-r11/subfleet/dependencies.py",
+  "product_sha256": "ebed2a43ddfc264b9faf0ee0101550081ea78df97acec789b8f16aeb82807a69",
+  "end": "2026-10-31T18:35:28.884702+00:00",
+  "seconds": 29.840146708003886,
+  "peak_rss_mib": 114.34375,
+  "exit": 1
+}

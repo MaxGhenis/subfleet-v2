@@ -1,0 +1,892 @@
+{
+ "partial": {
+  "tests/fake/test_admission_priority.py": [
+   3.8,
+   4.2
+  ],
+  "tests/fake/test_admission_visibility.py": [
+   2.2,
+   1.7
+  ],
+  "tests/fake/test_census_recycled_pid_daemon.py": [
+   3.0,
+   2.8
+  ],
+  "tests/fake/test_lanes_reenroll.py": [
+   0.6,
+   0.5
+  ],
+  "tests/fake/test_launch_env_daemon.py": [
+   6.2,
+   6.7
+  ],
+  "tests/fake/test_resume_cli.py": [
+   2.0,
+   1.9
+  ],
+  "tests/fake/test_resume_contract.py": [
+   4.0,
+   4.3
+  ],
+  "tests/fake/test_review_r185_adversarial.py": [
+   0.3,
+   0.4
+  ],
+  "tests/fake/test_salvage_worktree_gone.py": [
+   2.3,
+   2.3
+  ],
+  "tests/fake/test_state_fixture_processes.py": [
+   0.2,
+   0.3
+  ],
+  "tests/fake/test_turn_wait_reasons.py": [
+   2.8,
+   2.4
+  ],
+  "tests/fake/test_unadmittable_pin_rereview.py": [
+   0.5,
+   0.7
+  ],
+  "tests/fake/test_wall_cancel_races.py": [
+   14.4,
+   16.7
+  ],
+  "tests/fake/test_wall_inspection_order.py": [
+   5.6,
+   5.0
+  ],
+  "tests/frontend/test_app_cutover_start.py": [
+   44.9,
+   38.1
+  ],
+  "tests/frontend/test_conversation_view.py": [
+   40.9,
+   36.0
+  ],
+  "tests/frontend/test_core_app_cutover_reading.py": [
+   0.7,
+   0.4
+  ],
+  "tests/frontend/test_core_approval_notification.py": [
+   0.4,
+   0.3
+  ],
+  "tests/frontend/test_core_approval_reach.py": [
+   21.0,
+   21.3
+  ],
+  "tests/frontend/test_core_client.py": [
+   15.8,
+   16.1
+  ],
+  "tests/frontend/test_core_diff.py": [
+   3.1,
+   4.1
+  ],
+  "tests/frontend/test_core_draft.py": [
+   14.1,
+   15.0
+  ],
+  "tests/frontend/test_core_idle.py": [
+   6.4,
+   6.5
+  ],
+  "tests/frontend/test_core_live.py": [
+   18.1,
+   20.7
+  ],
+  "tests/frontend/test_core_live_failure.py": [
+   0.0,
+   0.0
+  ],
+  "tests/frontend/test_core_markdown.py": [
+   3.6,
+   3.6
+  ],
+  "tests/frontend/test_core_outbox.py": [
+   1.1,
+   1.0
+  ],
+  "tests/frontend/test_core_protocol.py": [
+   1.1,
+   1.1
+  ],
+  "tests/frontend/test_core_question_card.py": [
+   0.2,
+   0.2
+  ],
+  "tests/frontend/test_core_queue_engine.py": [
+   3.6,
+   3.5
+  ],
+  "tests/frontend/test_core_queue_tray.py": [
+   97.2,
+   90.0
+  ],
+  "tests/frontend/test_core_search.py": [
+   19.2,
+   18.0
+  ],
+  "tests/frontend/test_core_steer.py": [
+   4.7,
+   4.2
+  ],
+  "tests/frontend/test_core_steer_properties.py": [
+   5.4,
+   4.5
+  ],
+  "tests/frontend/test_core_store.py": [
+   0.9,
+   0.7
+  ],
+  "tests/frontend/test_core_suggestions.py": [
+   0.8,
+   0.7
+  ],
+  "tests/frontend/test_core_suggestions_r1b.py": [
+   0.7,
+   0.6
+  ],
+  "tests/frontend/test_core_text_scale.py": [
+   4.1,
+   3.3
+  ],
+  "tests/frontend/test_core_timeline.py": [
+   1.3,
+   1.6
+  ],
+  "tests/frontend/test_core_titles.py": [
+   0.1,
+   0.1
+  ],
+  "tests/frontend/test_disk_ruling.py": [
+   13.8,
+   19.3
+  ],
+  "tests/frontend/test_menu_view.py": [
+   45.5,
+   40.0
+  ],
+  "tests/frontend/test_pr124_fixes_ui.py": [
+   29.2,
+   25.2
+  ],
+  "tests/frontend/test_pr124_recovery_properties.py": [
+   59.3,
+   55.0
+  ],
+  "tests/frontend/test_pr124_review_r2_fixes_ui.py": [
+   30.4,
+   32.9
+  ],
+  "tests/frontend/test_queue_tray_fix4_mutations.py": [
+   129.1,
+   119.5
+  ],
+  "tests/frontend/test_queue_tray_notice.py": [
+   36.5,
+   35.5
+  ],
+  "tests/frontend/test_queue_tray_view.py": [
+   43.2,
+   46.8
+  ],
+  "tests/frontend/test_reading_view.py": [
+   33.3,
+   36.6
+  ],
+  "tests/frontend/test_review_pr127_timeline.py": [
+   0.2,
+   0.2
+  ],
+  "tests/frontend/test_review_r219_fix10_view.py": [
+   356.8,
+   362.0
+  ],
+  "tests/frontend/test_review_r219_fix11_view.py": [
+   71.5,
+   67.9
+  ],
+  "tests/frontend/test_review_r219_fix12_view.py": [
+   105.4,
+   105.8
+  ],
+  "tests/frontend/test_review_r219_fix4.py": [
+   15.4,
+   17.6
+  ],
+  "tests/frontend/test_review_r219_fix6.py": [
+   50.9,
+   50.7
+  ],
+  "tests/frontend/test_review_r219_fix8_engine.py": [
+   16.9,
+   17.5
+  ],
+  "tests/frontend/test_review_r219_fix8_mutations.py": [
+   627.6,
+   557.0
+  ],
+  "tests/frontend/test_review_r219_fix8_view.py": [
+   86.8,
+   83.2
+  ],
+  "tests/frontend/test_review_r219_fix9_view.py": [
+   26.2,
+   25.6
+  ],
+  "tests/frontend/test_review_r219_probes.py": [
+   59.2,
+   56.7
+  ],
+  "tests/frontend/test_status_model.py": [
+   11.4,
+   11.2
+  ],
+  "tests/frontend/test_visual_progress.py": [
+   10.1,
+   10.3
+  ],
+  "tests/frontend/test_visual_report_hygiene.py": [
+   0.1,
+   0.1
+  ],
+  "tests/frontend/test_visual_review_fixes.py": [
+   72.1,
+   72.8
+  ],
+  "tests/frontend/test_visual_round_five.py": [
+   99.9,
+   92.5
+  ],
+  "tests/frontend/test_visual_round_four.py": [
+   27.7,
+   28.0
+  ],
+  "tests/frontend/test_visual_round_three.py": [
+   60.1,
+   59.6
+  ],
+  "tests/frontend/test_visual_round_two.py": [
+   75.2,
+   76.1
+  ],
+  "tests/frontend/test_visual_snapshots.py": [
+   63.8
+  ],
+  "tests/frontend/test_visual_suggestions.py": [
+   31.1
+  ],
+  "tests/process/test_census_responsibility_process.py": [
+   4.0
+  ],
+  "tests/process/test_claude_isolation.py": [
+   1.4
+  ],
+  "tests/process/test_guardian_process.py": [
+   2.7
+  ],
+  "tests/unit/test_attempt_tmpdir_sandboxes.py": [
+   0.1
+  ],
+  "tests/unit/test_census_responsibility_races.py": [
+   0.8
+  ],
+  "tests/unit/test_claude_attest.py": [
+   0.2
+  ],
+  "tests/unit/test_claude_cards_wiring.py": [
+   0.5
+  ],
+  "tests/unit/test_client_availability.py": [
+   0.2
+  ],
+  "tests/unit/test_codex_adapter.py": [
+   3.2
+  ],
+  "tests/unit/test_codex_probe.py": [
+   0.7
+  ],
+  "tests/unit/test_conversation_handoff_dispatch_races.py": [
+   0.4
+  ],
+  "tests/unit/test_conversation_refresh.py": [
+   0.1
+  ],
+  "tests/unit/test_conversation_status.py": [
+   0.3
+  ]
+ },
+ "kept": {
+  "tests/unit/test_daemon_qos_tools.py": 0.3,
+  "tests/unit/test_daemon_settle.py": 1.8,
+  "tests/unit/test_doctor.py": 1.5,
+  "tests/unit/test_gate_revision.py": 0.1,
+  "tests/unit/test_guardian.py": 0.2,
+  "tests/unit/test_host_push_cli.py": 0.8,
+  "tests/unit/test_host_push_storage_recovery.py": 0.6,
+  "tests/unit/test_host_push_storage_retry_budget.py": 1.3,
+  "tests/unit/test_policy_support.py": 1.1,
+  "tests/unit/test_pr124_fixes.py": 0.4,
+  "tests/unit/test_prune_decision_fingerprints.py": 1.7,
+  "tests/unit/test_quota_projection.py": 0.8,
+  "tests/unit/test_render.py": 0.1,
+  "tests/unit/test_retention_ordinary_trees.py": 2.6,
+  "tests/unit/test_review_pr127_fixes.py": 0.5,
+  "tests/unit/test_review_r3_repro.py": 1.5,
+  "tests/unit/test_review_r6_restart.py": 0.2,
+  "tests/unit/test_sessions_mirror_hot_health.py": 0.1,
+  "tests/unit/test_sessions_mirror_hot_regressions.py": 0.7,
+  "tests/unit/test_sessions_revive_reads.py": 1.0,
+  "tests/unit/test_status_json.py": 1.8,
+  "tests/unit/test_store_migration_2.py": 0.4,
+  "tests/unit/test_wake_cli.py": 0.1,
+  "tests/unit/test_weekly_rank_vs_base.py": 0.6
+ },
+ "no_whole": {
+  "tests/fake/test_admission_priority.py": 4.2,
+  "tests/fake/test_admission_visibility.py": 2.2,
+  "tests/fake/test_census_recycled_pid_daemon.py": 3.0,
+  "tests/fake/test_lanes_reenroll.py": 0.6,
+  "tests/fake/test_launch_env_daemon.py": 6.7,
+  "tests/fake/test_resume_cli.py": 2.0,
+  "tests/fake/test_resume_contract.py": 4.3,
+  "tests/fake/test_review_r185_adversarial.py": 0.4,
+  "tests/fake/test_salvage_worktree_gone.py": 2.3,
+  "tests/fake/test_state_fixture_processes.py": 0.3,
+  "tests/fake/test_turn_wait_reasons.py": 2.8,
+  "tests/fake/test_unadmittable_pin_rereview.py": 0.7,
+  "tests/fake/test_wall_cancel_races.py": 16.7,
+  "tests/fake/test_wall_inspection_order.py": 5.6,
+  "tests/frontend/test_app_cutover_start.py": 44.9,
+  "tests/frontend/test_conversation_view.py": 40.9,
+  "tests/frontend/test_core_app_cutover_reading.py": 0.7,
+  "tests/frontend/test_core_approval_notification.py": 0.4,
+  "tests/frontend/test_core_approval_reach.py": 21.3,
+  "tests/frontend/test_core_client.py": 16.1,
+  "tests/frontend/test_core_diff.py": 4.1,
+  "tests/frontend/test_core_draft.py": 15.0,
+  "tests/frontend/test_core_idle.py": 6.5,
+  "tests/frontend/test_core_live.py": 20.7,
+  "tests/frontend/test_core_live_failure.py": 0.0,
+  "tests/frontend/test_core_markdown.py": 3.6,
+  "tests/frontend/test_core_outbox.py": 1.1,
+  "tests/frontend/test_core_protocol.py": 1.1,
+  "tests/frontend/test_core_question_card.py": 0.2,
+  "tests/frontend/test_core_queue_engine.py": 3.6,
+  "tests/frontend/test_core_queue_tray.py": 97.2,
+  "tests/frontend/test_core_search.py": 19.2,
+  "tests/frontend/test_core_steer.py": 4.7,
+  "tests/frontend/test_core_steer_properties.py": 5.4,
+  "tests/frontend/test_core_store.py": 0.9,
+  "tests/frontend/test_core_suggestions.py": 0.8,
+  "tests/frontend/test_core_suggestions_r1b.py": 0.7,
+  "tests/frontend/test_core_text_scale.py": 4.1,
+  "tests/frontend/test_core_timeline.py": 1.6,
+  "tests/frontend/test_core_titles.py": 0.1,
+  "tests/frontend/test_disk_ruling.py": 19.3,
+  "tests/frontend/test_menu_view.py": 45.5,
+  "tests/frontend/test_pr124_fixes_ui.py": 29.2,
+  "tests/frontend/test_pr124_recovery_properties.py": 59.3,
+  "tests/frontend/test_pr124_review_r2_fixes_ui.py": 32.9,
+  "tests/frontend/test_queue_tray_fix4_mutations.py": 129.1,
+  "tests/frontend/test_queue_tray_notice.py": 36.5,
+  "tests/frontend/test_queue_tray_view.py": 46.8,
+  "tests/frontend/test_reading_view.py": 36.6,
+  "tests/frontend/test_review_pr127_timeline.py": 0.2,
+  "tests/frontend/test_review_r219_fix10_view.py": 362.0,
+  "tests/frontend/test_review_r219_fix11_view.py": 71.5,
+  "tests/frontend/test_review_r219_fix12_view.py": 105.8,
+  "tests/frontend/test_review_r219_fix4.py": 17.6,
+  "tests/frontend/test_review_r219_fix6.py": 50.9,
+  "tests/frontend/test_review_r219_fix8_engine.py": 17.5,
+  "tests/frontend/test_review_r219_fix8_mutations.py": 627.6,
+  "tests/frontend/test_review_r219_fix8_view.py": 86.8,
+  "tests/frontend/test_review_r219_fix9_view.py": 26.2,
+  "tests/frontend/test_review_r219_probes.py": 59.2,
+  "tests/frontend/test_status_model.py": 11.4,
+  "tests/frontend/test_visual_progress.py": 10.3,
+  "tests/frontend/test_visual_report_hygiene.py": 0.1,
+  "tests/frontend/test_visual_review_fixes.py": 72.8,
+  "tests/frontend/test_visual_round_five.py": 99.9,
+  "tests/frontend/test_visual_round_four.py": 28.0,
+  "tests/frontend/test_visual_round_three.py": 60.1,
+  "tests/frontend/test_visual_round_two.py": 76.1,
+  "tests/frontend/test_visual_snapshots.py": 63.8,
+  "tests/frontend/test_visual_suggestions.py": 31.1,
+  "tests/process/test_census_responsibility_process.py": 4.0,
+  "tests/process/test_claude_isolation.py": 1.4,
+  "tests/process/test_guardian_process.py": 2.7,
+  "tests/unit/test_attempt_tmpdir_sandboxes.py": 0.1,
+  "tests/unit/test_census_responsibility_races.py": 0.8,
+  "tests/unit/test_claude_attest.py": 0.2,
+  "tests/unit/test_claude_cards_wiring.py": 0.5,
+  "tests/unit/test_client_availability.py": 0.2,
+  "tests/unit/test_codex_adapter.py": 3.2,
+  "tests/unit/test_codex_probe.py": 0.7,
+  "tests/unit/test_conversation_handoff_dispatch_races.py": 0.4,
+  "tests/unit/test_conversation_refresh.py": 0.1,
+  "tests/unit/test_conversation_status.py": 0.3,
+  "tests/unit/test_daemon_qos_tools.py": 0.3,
+  "tests/unit/test_daemon_settle.py": 1.8,
+  "tests/unit/test_doctor.py": 1.5,
+  "tests/unit/test_gate_revision.py": 0.1,
+  "tests/unit/test_guardian.py": 0.2,
+  "tests/unit/test_host_push_cli.py": 0.8,
+  "tests/unit/test_host_push_storage_recovery.py": 0.6,
+  "tests/unit/test_host_push_storage_retry_budget.py": 1.3,
+  "tests/unit/test_policy_support.py": 1.1,
+  "tests/unit/test_pr124_fixes.py": 0.4,
+  "tests/unit/test_prune_decision_fingerprints.py": 1.7,
+  "tests/unit/test_quota_projection.py": 0.8,
+  "tests/unit/test_render.py": 0.1,
+  "tests/unit/test_retention_ordinary_trees.py": 2.6,
+  "tests/unit/test_review_pr127_fixes.py": 0.5,
+  "tests/unit/test_review_r3_repro.py": 1.5,
+  "tests/unit/test_review_r6_restart.py": 0.2,
+  "tests/unit/test_sessions_mirror_hot_health.py": 0.1,
+  "tests/unit/test_sessions_mirror_hot_regressions.py": 0.7,
+  "tests/unit/test_sessions_revive_reads.py": 1.0,
+  "tests/unit/test_status_json.py": 1.8,
+  "tests/unit/test_store_migration_2.py": 0.4,
+  "tests/unit/test_wake_cli.py": 0.1,
+  "tests/unit/test_weekly_rank_vs_base.py": 0.6
+ },
+ "run": 40377886461,
+ "whole_reports": 8,
+ "whole_files": 459,
+ "complete_partial_files": 83,
+ "partial_report_seconds": {
+  "tests/fake/test_admission_priority.py": {
+   "3.12": 3.8,
+   "3.14": 4.2
+  },
+  "tests/fake/test_admission_visibility.py": {
+   "3.12": 2.2,
+   "3.14": 1.7
+  },
+  "tests/fake/test_census_recycled_pid_daemon.py": {
+   "3.12": 3.0,
+   "3.14": 2.8
+  },
+  "tests/fake/test_lanes_reenroll.py": {
+   "3.12": 0.6,
+   "3.14": 0.5
+  },
+  "tests/fake/test_launch_env_daemon.py": {
+   "3.12": 6.2,
+   "3.14": 6.7
+  },
+  "tests/fake/test_resume_cli.py": {
+   "3.12": 2.0,
+   "3.14": 1.9
+  },
+  "tests/fake/test_resume_contract.py": {
+   "3.12": 4.0,
+   "3.14": 4.3
+  },
+  "tests/fake/test_review_r185_adversarial.py": {
+   "3.12": 0.3,
+   "3.14": 0.4
+  },
+  "tests/fake/test_salvage_worktree_gone.py": {
+   "3.12": 2.3,
+   "3.14": 2.3
+  },
+  "tests/fake/test_state_fixture_processes.py": {
+   "3.12": 0.2,
+   "3.14": 0.3
+  },
+  "tests/fake/test_turn_wait_reasons.py": {
+   "3.12": 2.8,
+   "3.14": 2.4
+  },
+  "tests/fake/test_unadmittable_pin_rereview.py": {
+   "3.12": 0.5,
+   "3.14": 0.7
+  },
+  "tests/fake/test_wall_cancel_races.py": {
+   "3.12": 14.4,
+   "3.14": 16.7
+  },
+  "tests/fake/test_wall_inspection_order.py": {
+   "3.12": 5.6,
+   "3.14": 5.0
+  },
+  "tests/frontend/test_app_cutover_start.py": {
+   "3.12": 44.9,
+   "3.14": 38.1
+  },
+  "tests/frontend/test_conversation_view.py": {
+   "3.12": 40.9,
+   "3.14": 36.0
+  },
+  "tests/frontend/test_core_app_cutover_reading.py": {
+   "3.12": 0.7,
+   "3.14": 0.4
+  },
+  "tests/frontend/test_core_approval_notification.py": {
+   "3.12": 0.4,
+   "3.14": 0.3
+  },
+  "tests/frontend/test_core_approval_reach.py": {
+   "3.12": 21.0,
+   "3.14": 21.3
+  },
+  "tests/frontend/test_core_client.py": {
+   "3.12": 15.8,
+   "3.14": 16.1
+  },
+  "tests/frontend/test_core_diff.py": {
+   "3.12": 3.1,
+   "3.14": 4.1
+  },
+  "tests/frontend/test_core_draft.py": {
+   "3.12": 14.1,
+   "3.14": 15.0
+  },
+  "tests/frontend/test_core_idle.py": {
+   "3.12": 6.4,
+   "3.14": 6.5
+  },
+  "tests/frontend/test_core_live.py": {
+   "3.12": 18.1,
+   "3.14": 20.7
+  },
+  "tests/frontend/test_core_live_failure.py": {
+   "3.12": 0.0,
+   "3.14": 0.0
+  },
+  "tests/frontend/test_core_markdown.py": {
+   "3.12": 3.6,
+   "3.14": 3.6
+  },
+  "tests/frontend/test_core_outbox.py": {
+   "3.12": 1.1,
+   "3.14": 1.0
+  },
+  "tests/frontend/test_core_protocol.py": {
+   "3.12": 1.1,
+   "3.14": 1.1
+  },
+  "tests/frontend/test_core_question_card.py": {
+   "3.12": 0.2,
+   "3.14": 0.2
+  },
+  "tests/frontend/test_core_queue_engine.py": {
+   "3.12": 3.6,
+   "3.14": 3.5
+  },
+  "tests/frontend/test_core_queue_tray.py": {
+   "3.12": 97.2,
+   "3.14": 90.0
+  },
+  "tests/frontend/test_core_search.py": {
+   "3.12": 19.2,
+   "3.14": 18.0
+  },
+  "tests/frontend/test_core_steer.py": {
+   "3.12": 4.7,
+   "3.14": 4.2
+  },
+  "tests/frontend/test_core_steer_properties.py": {
+   "3.12": 5.4,
+   "3.14": 4.5
+  },
+  "tests/frontend/test_core_store.py": {
+   "3.12": 0.9,
+   "3.14": 0.7
+  },
+  "tests/frontend/test_core_suggestions.py": {
+   "3.12": 0.8,
+   "3.14": 0.7
+  },
+  "tests/frontend/test_core_suggestions_r1b.py": {
+   "3.12": 0.7,
+   "3.14": 0.6
+  },
+  "tests/frontend/test_core_text_scale.py": {
+   "3.12": 4.1,
+   "3.14": 3.3
+  },
+  "tests/frontend/test_core_timeline.py": {
+   "3.12": 1.3,
+   "3.14": 1.6
+  },
+  "tests/frontend/test_core_titles.py": {
+   "3.12": 0.1,
+   "3.14": 0.1
+  },
+  "tests/frontend/test_disk_ruling.py": {
+   "3.12": 13.8,
+   "3.14": 19.3
+  },
+  "tests/frontend/test_menu_view.py": {
+   "3.12": 45.5,
+   "3.14": 40.0
+  },
+  "tests/frontend/test_pr124_fixes_ui.py": {
+   "3.12": 29.2,
+   "3.14": 25.2
+  },
+  "tests/frontend/test_pr124_recovery_properties.py": {
+   "3.12": 59.3,
+   "3.14": 55.0
+  },
+  "tests/frontend/test_pr124_review_r2_fixes_ui.py": {
+   "3.12": 30.4,
+   "3.14": 32.9
+  },
+  "tests/frontend/test_queue_tray_fix4_mutations.py": {
+   "3.12": 129.1,
+   "3.14": 119.5
+  },
+  "tests/frontend/test_queue_tray_notice.py": {
+   "3.12": 36.5,
+   "3.14": 35.5
+  },
+  "tests/frontend/test_queue_tray_view.py": {
+   "3.12": 43.2,
+   "3.14": 46.8
+  },
+  "tests/frontend/test_reading_view.py": {
+   "3.12": 33.3,
+   "3.14": 36.6
+  },
+  "tests/frontend/test_review_pr127_timeline.py": {
+   "3.12": 0.2,
+   "3.14": 0.2
+  },
+  "tests/frontend/test_review_r219_fix10_view.py": {
+   "3.12": 356.8,
+   "3.14": 362.0
+  },
+  "tests/frontend/test_review_r219_fix11_view.py": {
+   "3.12": 71.5,
+   "3.14": 67.9
+  },
+  "tests/frontend/test_review_r219_fix12_view.py": {
+   "3.12": 105.4,
+   "3.14": 105.8
+  },
+  "tests/frontend/test_review_r219_fix4.py": {
+   "3.12": 15.4,
+   "3.14": 17.6
+  },
+  "tests/frontend/test_review_r219_fix6.py": {
+   "3.12": 50.9,
+   "3.14": 50.7
+  },
+  "tests/frontend/test_review_r219_fix8_engine.py": {
+   "3.12": 16.9,
+   "3.14": 17.5
+  },
+  "tests/frontend/test_review_r219_fix8_mutations.py": {
+   "3.12": 627.6,
+   "3.14": 557.0
+  },
+  "tests/frontend/test_review_r219_fix8_view.py": {
+   "3.12": 86.8,
+   "3.14": 83.2
+  },
+  "tests/frontend/test_review_r219_fix9_view.py": {
+   "3.12": 26.2,
+   "3.14": 25.6
+  },
+  "tests/frontend/test_review_r219_probes.py": {
+   "3.12": 59.2,
+   "3.14": 56.7
+  },
+  "tests/frontend/test_status_model.py": {
+   "3.12": 11.4,
+   "3.14": 11.2
+  },
+  "tests/frontend/test_visual_progress.py": {
+   "3.12": 10.1,
+   "3.14": 10.3
+  },
+  "tests/frontend/test_visual_report_hygiene.py": {
+   "3.12": 0.1,
+   "3.14": 0.1
+  },
+  "tests/frontend/test_visual_review_fixes.py": {
+   "3.12": 72.1,
+   "3.14": 72.8
+  },
+  "tests/frontend/test_visual_round_five.py": {
+   "3.12": 99.9,
+   "3.14": 92.5
+  },
+  "tests/frontend/test_visual_round_four.py": {
+   "3.12": 27.7,
+   "3.14": 28.0
+  },
+  "tests/frontend/test_visual_round_three.py": {
+   "3.12": 60.1,
+   "3.14": 59.6
+  },
+  "tests/frontend/test_visual_round_two.py": {
+   "3.12": 75.2,
+   "3.14": 76.1
+  },
+  "tests/frontend/test_visual_snapshots.py": {
+   "3.14": 63.8
+  },
+  "tests/frontend/test_visual_suggestions.py": {
+   "3.14": 31.1
+  },
+  "tests/process/test_census_responsibility_process.py": {
+   "3.14": 4.0
+  },
+  "tests/process/test_claude_isolation.py": {
+   "3.14": 1.4
+  },
+  "tests/process/test_guardian_process.py": {
+   "3.14": 2.7
+  },
+  "tests/unit/test_attempt_tmpdir_sandboxes.py": {
+   "3.14": 0.1
+  },
+  "tests/unit/test_census_responsibility_races.py": {
+   "3.14": 0.8
+  },
+  "tests/unit/test_claude_attest.py": {
+   "3.14": 0.2
+  },
+  "tests/unit/test_claude_cards_wiring.py": {
+   "3.14": 0.5
+  },
+  "tests/unit/test_client_availability.py": {
+   "3.14": 0.2
+  },
+  "tests/unit/test_codex_adapter.py": {
+   "3.14": 3.2
+  },
+  "tests/unit/test_codex_probe.py": {
+   "3.14": 0.7
+  },
+  "tests/unit/test_conversation_handoff_dispatch_races.py": {
+   "3.14": 0.4
+  },
+  "tests/unit/test_conversation_refresh.py": {
+   "3.14": 0.1
+  },
+  "tests/unit/test_conversation_status.py": {
+   "3.14": 0.3
+  }
+ },
+ "collected_tests": {
+  "tests/fake/test_admission_priority.py": 33,
+  "tests/fake/test_admission_visibility.py": 43,
+  "tests/fake/test_census_recycled_pid_daemon.py": 29,
+  "tests/fake/test_lanes_reenroll.py": 19,
+  "tests/fake/test_launch_env_daemon.py": 52,
+  "tests/fake/test_resume_cli.py": 1,
+  "tests/fake/test_resume_contract.py": 23,
+  "tests/fake/test_review_r185_adversarial.py": 1,
+  "tests/fake/test_salvage_worktree_gone.py": 6,
+  "tests/fake/test_state_fixture_processes.py": 4,
+  "tests/fake/test_turn_wait_reasons.py": 7,
+  "tests/fake/test_unadmittable_pin_rereview.py": 6,
+  "tests/fake/test_wall_cancel_races.py": 30,
+  "tests/fake/test_wall_inspection_order.py": 18,
+  "tests/frontend/test_app_cutover_start.py": 13,
+  "tests/frontend/test_conversation_view.py": 6,
+  "tests/frontend/test_core_app_cutover_reading.py": 15,
+  "tests/frontend/test_core_approval_notification.py": 10,
+  "tests/frontend/test_core_approval_reach.py": 41,
+  "tests/frontend/test_core_client.py": 18,
+  "tests/frontend/test_core_diff.py": 7,
+  "tests/frontend/test_core_draft.py": 7,
+  "tests/frontend/test_core_idle.py": 1,
+  "tests/frontend/test_core_live.py": 1,
+  "tests/frontend/test_core_live_failure.py": 1,
+  "tests/frontend/test_core_markdown.py": 42,
+  "tests/frontend/test_core_outbox.py": 13,
+  "tests/frontend/test_core_protocol.py": 10,
+  "tests/frontend/test_core_question_card.py": 10,
+  "tests/frontend/test_core_queue_engine.py": 75,
+  "tests/frontend/test_core_queue_tray.py": 69,
+  "tests/frontend/test_core_search.py": 20,
+  "tests/frontend/test_core_steer.py": 43,
+  "tests/frontend/test_core_steer_properties.py": 2,
+  "tests/frontend/test_core_store.py": 10,
+  "tests/frontend/test_core_suggestions.py": 7,
+  "tests/frontend/test_core_suggestions_r1b.py": 4,
+  "tests/frontend/test_core_text_scale.py": 7,
+  "tests/frontend/test_core_timeline.py": 23,
+  "tests/frontend/test_core_titles.py": 1,
+  "tests/frontend/test_disk_ruling.py": 8,
+  "tests/frontend/test_menu_view.py": 8,
+  "tests/frontend/test_pr124_fixes_ui.py": 17,
+  "tests/frontend/test_pr124_recovery_properties.py": 1,
+  "tests/frontend/test_pr124_review_r2_fixes_ui.py": 19,
+  "tests/frontend/test_queue_tray_fix4_mutations.py": 4,
+  "tests/frontend/test_queue_tray_notice.py": 2,
+  "tests/frontend/test_queue_tray_view.py": 15,
+  "tests/frontend/test_reading_view.py": 5,
+  "tests/frontend/test_review_pr127_timeline.py": 4,
+  "tests/frontend/test_review_r219_fix10_view.py": 36,
+  "tests/frontend/test_review_r219_fix11_view.py": 6,
+  "tests/frontend/test_review_r219_fix12_view.py": 9,
+  "tests/frontend/test_review_r219_fix4.py": 39,
+  "tests/frontend/test_review_r219_fix6.py": 7,
+  "tests/frontend/test_review_r219_fix8_engine.py": 8,
+  "tests/frontend/test_review_r219_fix8_mutations.py": 13,
+  "tests/frontend/test_review_r219_fix8_view.py": 6,
+  "tests/frontend/test_review_r219_fix9_view.py": 3,
+  "tests/frontend/test_review_r219_probes.py": 23,
+  "tests/frontend/test_status_model.py": 25,
+  "tests/frontend/test_visual_progress.py": 5,
+  "tests/frontend/test_visual_report_hygiene.py": 15,
+  "tests/frontend/test_visual_review_fixes.py": 43,
+  "tests/frontend/test_visual_round_five.py": 9,
+  "tests/frontend/test_visual_round_four.py": 27,
+  "tests/frontend/test_visual_round_three.py": 28,
+  "tests/frontend/test_visual_round_two.py": 85,
+  "tests/frontend/test_visual_snapshots.py": 3,
+  "tests/frontend/test_visual_suggestions.py": 1,
+  "tests/process/test_census_responsibility_process.py": 12,
+  "tests/process/test_claude_isolation.py": 15,
+  "tests/process/test_guardian_process.py": 5,
+  "tests/unit/test_attempt_tmpdir_sandboxes.py": 12,
+  "tests/unit/test_census_responsibility_races.py": 34,
+  "tests/unit/test_claude_attest.py": 19,
+  "tests/unit/test_claude_cards_wiring.py": 15,
+  "tests/unit/test_client_availability.py": 22,
+  "tests/unit/test_codex_adapter.py": 172,
+  "tests/unit/test_codex_probe.py": 55,
+  "tests/unit/test_conversation_handoff_dispatch_races.py": 9,
+  "tests/unit/test_conversation_refresh.py": 2,
+  "tests/unit/test_conversation_status.py": 9
+ },
+ "incomplete_unmeasured": {
+  "tests/unit/test_daemon_log_handler.py": {
+   "collected": 127,
+   "teardowns": 104,
+   "old_seconds": null
+  }
+ },
+ "red_old_group_seconds": [
+  2629.0,
+  1263.1,
+  1263.1,
+  1263.1,
+  1263.0
+ ],
+ "projected_seconds": [
+  1536.3,
+  1536.3,
+  1536.3,
+  1536.2,
+  1536.2
+ ],
+ "placement": {
+  "tests/frontend/test_review_r219_": 1,
+  "tests/frontend/": 2
+ },
+ "old_source": "run 38490164720 (PR #210 at 4b5078d75): each file's seconds in the slower of Python 3.12 and 3.14",
+ "new_unmeasured_file": "tests/frontend/test_review_r219_fix13_view.py",
+ "method": "8 whole reports via tools/ci_shard_durations.py; collect-only 84 partial-report files (1710 test IDs), supplement only per-file exact teardown-ID matches, max Python phase sum."
+}

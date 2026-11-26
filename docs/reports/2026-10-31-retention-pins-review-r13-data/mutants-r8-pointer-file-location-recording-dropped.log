@@ -1,0 +1,12 @@
+hold 22:52:29Z slot A load { 69.59 69.16 62.12 }
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____ test_running_job_keeps_tree_containing_required_git_pointer[gitfile] _____
+tests/fake/test_retention_dependency_review_r8.py:44: in test_running_job_keeps_tree_containing_required_git_pointer
+    assert "owner" not in result["pruned"] and tree.is_dir(), (recorded, result)
+E   AssertionError: ({'git': ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r8-pointer-file-location-recor...independent-storage/.git/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48950, 'bytes_after': 0, ...})
+E   assert ('owner' not in ['owner'])
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[gitfile]
+1 failed in 37.60s
+MUTANT {"name": "r8-pointer-file-location-recording-dropped", "rc": 1, "failed": 1, "killed": true, "same_as_fix_r12": true, "assertions": [["assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)"]]}

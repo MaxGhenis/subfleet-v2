@@ -1,0 +1,8 @@
+{
+  "queued": "2026-10-31T04:15:53.303925+00:00",
+  "args": [
+    "--mutant",
+    "r4-initial-objects-recording-dropped",
+    "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]"
+  ]
+}

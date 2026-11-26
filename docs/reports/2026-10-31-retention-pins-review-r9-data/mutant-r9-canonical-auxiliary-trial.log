@@ -1,0 +1,7 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 09:21:26Z slot B load 
+.........                                                                [100%]
+9 passed in 19.27s
+{"name": "mutant-r9-canonical-auxiliary-trial", "start": "2026-10-31T09:21:31.244503+00:00", "load": [38.6953125, 34.65380859375, 39.60693359375], "seconds": 23.713608624999324, "exit": 0}

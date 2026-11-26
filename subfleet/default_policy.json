@@ -1,4 +1,9 @@
 {
+  "providers": {
+    "codex": {
+      "ca_bundle": "/etc/ssl/cert.pem"
+    }
+  },
   "tiers": [
     "trivial",
     "easy",
@@ -58,7 +63,8 @@
   "fallback": "upward-only",
   "permissions": {
     "build": "workspace-write",
-    "*": "read-only"
+    "*": "read-only",
+    "review": "worktree-write"
   },
   "network": {
     "codex_workspace_write": true
@@ -93,6 +99,14 @@
     "terra": {
       "provider": "codex",
       "id": "gpt-5.6-terra"
+    },
+    "luna": {
+      "provider": "codex",
+      "id": "gpt-6-luna"
+    },
+    "sol61": {
+      "provider": "codex",
+      "id": "gpt-6.1-sol"
     }
   },
   "retired": {
@@ -117,8 +131,7 @@
     "gate_max_rounds": 4
   },
   "reset_credits": {
-    "enabled": true,
-    "headroom_floor_pct": 15,
+    "enabled": false,
     "min_interval_min": 30
   },
   "claude_cards": {
@@ -168,7 +181,7 @@
   "admission": {
     "lane_spread": 2,
     "weekly_reserve": 0.02,
-    "five_hour_reserve": 0.10,
+    "five_hour_reserve": 0.1,
     "desktop_recent_s": 1800,
     "machine_guard": null,
     "disk": {
@@ -186,7 +199,8 @@
     "pin_grace_s": 1800,
     "pin_hold_far_s": 604800,
     "prove_idle_s": 900,
-    "prove_wait_s": 300
+    "prove_wait_s": 300,
+    "probe_deadline_s": 180
   },
   "conversations": {
     "approval_wait_s": null,

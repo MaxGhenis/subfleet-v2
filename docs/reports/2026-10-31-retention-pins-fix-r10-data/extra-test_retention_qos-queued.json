@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T15:17:02.685599+00:00",
+  "args": [
+    "tests/unit/test_retention_qos.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r10/real-tmp/extra-test_retention_qos",
+  "linked": false,
+  "driver_pid": 32330,
+  "lock_process_group": 32964
+}

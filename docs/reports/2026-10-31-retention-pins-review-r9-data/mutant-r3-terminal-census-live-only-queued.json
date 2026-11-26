@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T09:09:39.521816+00:00",
+  "args": [
+    "--mutant",
+    "r3-terminal-census-live-only",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r9/real-tmp/mutant-r3-terminal-census-live-only",
+  "linked": false,
+  "driver_pid": 4291,
+  "lock_process_group": 4310
+}

@@ -1,0 +1,46 @@
+{
+  "name": "dependency-properties-0",
+  "start": "2026-10-31T04:12:29.057813+00:00",
+  "load": [
+    31.6484375,
+    34.7685546875,
+    36.3720703125
+  ],
+  "args": [
+    "tests/unit/test_retention_dependency_properties.py",
+    "-k",
+    "selection_never_retires"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.08909133300039684,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 54.46232624999993,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004608330000337446,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": false,
+  "collected": [
+    "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs"
+  ],
+  "end": "2026-10-31T04:13:31.674563+00:00",
+  "seconds": 62.61516487500012,
+  "peak_rss_mib": 125.359375,
+  "exit": 0
+}

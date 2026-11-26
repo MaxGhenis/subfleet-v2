@@ -32,6 +32,7 @@ import os
 from typing import Any, Callable
 
 from ..guard.preflight import HOOK_KEY
+from ..launch_env import codex_shell_args
 from ..usage import parse_usage
 from . import redact
 from .turn import COMPLETE, FAILED, INTERRUPTED, Approval, Event, Frame, Image, Outcome, Step, SteerTracking, TurnSpec
@@ -88,7 +89,8 @@ def argv(executable: str, override: str, *, unified_exec_off: bool = False) -> l
     command = [executable, "app-server", "--listen", "stdio://", "-c", override]
     if unified_exec_off:
         command += ["-c", "features.unified_exec=false"]
-    return command
+    # D-ENV3: a turn's commands see the launch's environment, not ~/.zshrc's exports.
+    return command + codex_shell_args()
 
 
 def check_hooks(result: Any, cwd: str, hooks_hash: str | None) -> str | None:
@@ -179,7 +181,7 @@ class CodexTurn(SteerTracking):
     def start(self) -> Step:
         self.phase = "initializing"
         init = _request(ID_INIT, "initialize", {"clientInfo": {"name": "subfleet", "title": "Subfleet", "version": "2"}})
-        return Step(frames=[Frame("init", "write", init)],
+        return Step(frames=[Frame("init", "write", init, stops=False)],
                     events=[Event("status", {"phase": "starting-provider"}, "cmd:start")])
 
     def interrupt(self) -> Step:
@@ -207,7 +209,7 @@ class CodexTurn(SteerTracking):
 
     def _send_interrupt(self, source: str) -> Step:
         frame = Frame("interrupt", "write", _request(ID_INTERRUPT, "turn/interrupt",
-                                                     {"threadId": self.thread_id, "turnId": self.turn_id}))
+                                                     {"threadId": self.thread_id, "turnId": self.turn_id}), stops=True)
         return Step(frames=[frame], events=[Event("status", {"phase": "stopping"}, source)])
 
     @property
@@ -238,11 +240,21 @@ class CodexTurn(SteerTracking):
         for mid, content in self._held_steers.items():
             frame = Frame(f"steer:{mid}", "write", _request(f"steer:{mid}", "turn/steer", {
                 "threadId": self.thread_id, "expectedTurnId": self.turn_id,
-                "input": content, "clientUserMessageId": mid}))
+                "input": content, "clientUserMessageId": mid}), stops=False)
             step.frames.append(frame)
             step.events.append(Event("steer.sent", {"message_id": mid}, f"cmd:steer:{mid}"))
         self._held_steers.clear()
         return step
+
+    def restore_answer(self, request_id: str, decision: str) -> Step:
+        """Replay a recorded answer whose reply was written, without rebuilding it."""
+        if self.pending.pop(request_id, None) is None:
+            return Step()
+        if decision == "cancel-turn":
+            self.interrupt_requested = True
+        return Step(resolved=[request_id],
+                    events=[Event("approval.resolved", {"request_id": request_id, "decision": decision},
+                                  f"cmd:approval:{request_id}")])
 
     def respond(self, request_id: str, decision: str, message: str | None = None) -> Step:
         found = self.pending.pop(request_id, None)
@@ -265,7 +277,7 @@ class CodexTurn(SteerTracking):
                 raise ValueError(f"decision {decision!r} is not offered for {method}")
         else:
             raise ValueError(f"no response is defined for {method}")
-        frame = Frame(f"approval:{request_id}", "write", _line({"id": _rpc_id(request_id), "result": result}))
+        frame = Frame(f"approval:{request_id}", "write", _line({"id": _rpc_id(request_id), "result": result}), stops=decision == "cancel-turn")
         return Step(frames=[frame], resolved=[request_id],
                     events=[Event("approval.resolved", {"request_id": request_id, "decision": decision},
                                   f"cmd:approval:{request_id}")])
@@ -345,9 +357,9 @@ class CodexTurn(SteerTracking):
                 return self._end(FAILED, "provider-init-failed", detail=str(error)[:300], source=source.next())
             self.phase = "checking"
             return Step(frames=[
-                Frame("initialized", "write", _line({"method": "initialized"})),
-                Frame("hooks", "write", _request(ID_HOOKS, "hooks/list", {"cwds": [self.spec.cwd]})),
-                Frame("models", "write", _request(ID_MODELS, "model/list", {})),
+                Frame("initialized", "write", _line({"method": "initialized"}), stops=False),
+                Frame("hooks", "write", _request(ID_HOOKS, "hooks/list", {"cwds": [self.spec.cwd]}), stops=False),
+                Frame("models", "write", _request(ID_MODELS, "model/list", {}), stops=False),
             ])
         if rid == ID_HOOKS and self.phase == "checking":
             refusal = str(error)[:300] if error else check_hooks(result, self.spec.cwd, self.spec.guard_hash)
@@ -408,9 +420,9 @@ class CodexTurn(SteerTracking):
                   "serviceTier": FAST_TIER if self.spec.fast else None}
         if self.spec.native_session_id:
             frame = Frame("thread", "write", _request(ID_THREAD, "thread/resume",
-                                                      {"threadId": self.spec.native_session_id, "excludeTurns": True, **common}))
+                                                      {"threadId": self.spec.native_session_id, "excludeTurns": True, **common}), stops=False)
         else:
-            frame = Frame("thread", "write", _request(ID_THREAD, "thread/start", common))
+            frame = Frame("thread", "write", _request(ID_THREAD, "thread/start", common), stops=False)
         return Step(frames=[frame], events=[Event("status", {"phase": "opening-thread"}, source.next())])
 
     def _thread(self, result: Any, error: Any, source: "_Sources") -> Step:
@@ -455,7 +467,7 @@ class CodexTurn(SteerTracking):
         }
         if self.spec.effort:
             params["effort"] = self.spec.effort
-        return Step(frames=[Frame("user-message", "write", _request(ID_TURN, "turn/start", params))],
+        return Step(frames=[Frame("user-message", "write", _request(ID_TURN, "turn/start", params), stops=False)],
                     events=events)
 
     def _input(self, text: str | None = None, images: tuple[Image, ...] | None = None) -> list[dict]:
@@ -713,7 +725,7 @@ class CodexTurn(SteerTracking):
             reply = {"id": msg["id"], "result": {"decision": "abort"}}
         else:
             reply = {"id": msg["id"], "error": {"code": -32601, "message": "not supported by Subfleet"}}
-        return Step(frames=[Frame(f"refuse:{rid}", "write", _line(reply))],
+        return Step(frames=[Frame(f"refuse:{rid}", "write", _line(reply), stops=method in ("applyPatchApproval", "execCommandApproval"))],
                     events=[Event("error", {"message": f"refused unsupported provider request {method}"}, source.next())])
 
     # --- end -------------------------------------------------------------------
@@ -733,7 +745,7 @@ class CodexTurn(SteerTracking):
         self.pending.clear()
         data = {"state": state, "reason": reason, "detail": detail, "served_model": self.served_model,
                 "native_session_id": self.thread_id, "turn_id": self.turn_id, **(extra or {})}
-        return Step(frames=[Frame("close", "close")], resolved=withdrawn, outcome=self.outcome,
+        return Step(frames=[Frame("close", "close", stops=True)], resolved=withdrawn, outcome=self.outcome,
                     events=[Event("turn.completed", data, source)])
 
 

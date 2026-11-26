@@ -1,0 +1,386 @@
+[
+ {
+  "args": [
+   "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/c0/checkout"
+  ],
+  "extra": [],
+  "incomplete_count": [
+   0,
+   0,
+   0
+  ],
+  "incomplete_equal": true,
+  "missing": [],
+  "node": "control-self-suffix",
+  "record_equal_base": true,
+  "subset": true
+ },
+ {
+  "args": [
+   "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/b0/checkout"
+  ],
+  "extra": [],
+  "incomplete_count": [
+   0,
+   0,
+   0
+  ],
+  "incomplete_equal": true,
+  "missing": [],
+  "node": "beside:control-self-suffix",
+  "record_equal_base": true,
+  "subset": true
+ },
+ {
+  "args": [
+   "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/c1/checkout"
+  ],
+  "extra": [],
+  "incomplete_count": [
+   0,
+   0,
+   0
+  ],
+  "incomplete_equal": true,
+  "missing": [
+   {
+    "place": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/c1/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+    "stat": 62
+   }
+  ],
+  "node": "scan-self-suffix",
+  "record_equal_base": false,
+  "subset": true
+ },
+ {
+  "args": [
+   "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/b1/checkout"
+  ],
+  "extra": [],
+  "incomplete_count": [
+   0,
+   0,
+   0
+  ],
+  "incomplete_equal": true,
+  "missing": [
+   {
+    "place": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/b1/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+    "stat": 62
+   }
+  ],
+  "node": "beside:scan-self-suffix",
+  "record_equal_base": false,
+  "subset": true
+ },
+ {
+  "args": [
+   "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/c2/checkout"
+  ],
+  "extra": [],
+  "incomplete_count": [
+   2,
+   2,
+   2
+  ],
+  "incomplete_equal": true,
+  "missing": [
+   {
+    "place": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/c2/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+    "stat": 62
+   }
+  ],
+  "node": "alternates-self-suffix",
+  "record_equal_base": false,
+  "subset": true
+ },
+ {
+  "args": [
+   "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/b2/checkout"
+  ],
+  "extra": [],
+  "incomplete_count": [
+   2,
+   2,
+   2
+  ],
+  "incomplete_equal": true,
+  "missing": [
+   {
+    "place": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/b2/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+    "stat": 62
+   }
+  ],
+  "node": "beside:alternates-self-suffix",
+  "record_equal_base": false,
+  "subset": true
+ },
+ {
+  "args": [
+   "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/c3/checkout"
+  ],
+  "extra": [],
+  "incomplete_count": [
+   2,
+   2,
+   2
+  ],
+  "incomplete_equal": true,
+  "missing": [
+   {
+    "place": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/c3/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x",
+    "stat": 62
+   }
+  ],
+  "node": "alternates-tail-self-suffix",
+  "record_equal_base": false,
+  "subset": true
+ },
+ {
+  "args": [
+   "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/b3/checkout"
+  ],
+  "extra": [],
+  "incomplete_count": [
+   2,
+   2,
+   2
+  ],
+  "incomplete_equal": true,
+  "missing": [
+   {
+    "place": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/b3/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/x",
+    "stat": 62
+   }
+  ],
+  "node": "beside:alternates-tail-self-suffix",
+  "record_equal_base": false,
+  "subset": true
+ },
+ {
+  "args": [
+   "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/c4/checkout"
+  ],
+  "extra": [],
+  "incomplete_count": [
+   4,
+   4,
+   4
+  ],
+  "incomplete_equal": true,
+  "missing": [
+   {
+    "place": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/c4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+    "stat": 62
+   },
+   {
+    "place": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/c4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects",
+    "stat": 62
+   }
+  ],
+  "node": "gitfile-self-suffix",
+  "record_equal_base": false,
+  "subset": true
+ },
+ {
+  "args": [
+   "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/b4/checkout"
+  ],
+  "extra": [],
+  "incomplete_count": [
+   4,
+   4,
+   4
+  ],
+  "incomplete_equal": true,
+  "missing": [
+   {
+    "place": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/b4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+    "stat": 62
+   },
+   {
+    "place": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/b4/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects",
+    "stat": 62
+   }
+  ],
+  "node": "beside:gitfile-self-suffix",
+  "record_equal_base": false,
+  "subset": true
+ },
+ {
+  "args": [
+   "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/c5/checkout"
+  ],
+  "extra": [],
+  "incomplete_count": [
+   3,
+   3,
+   3
+  ],
+  "incomplete_equal": true,
+  "missing": [
+   {
+    "place": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/c5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+    "stat": 62
+   },
+   {
+    "place": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/c5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects",
+    "stat": 62
+   }
+  ],
+  "node": "commondir-self-suffix",
+  "record_equal_base": false,
+  "subset": true
+ },
+ {
+  "args": [
+   "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/b5/checkout"
+  ],
+  "extra": [],
+  "incomplete_count": [
+   3,
+   3,
+   3
+  ],
+  "incomplete_equal": true,
+  "missing": [
+   {
+    "place": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/b5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+    "stat": 62
+   },
+   {
+    "place": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/b5/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/objects",
+    "stat": 62
+   }
+  ],
+  "node": "beside:commondir-self-suffix",
+  "record_equal_base": false,
+  "subset": true
+ },
+ {
+  "args": [
+   "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/c6/checkout"
+  ],
+  "extra": [],
+  "incomplete_count": [
+   2,
+   2,
+   2
+  ],
+  "incomplete_equal": true,
+  "missing": [
+   {
+    "place": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/c6/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+    "stat": 62
+   }
+  ],
+  "node": "objects-alternates-self-suffix",
+  "record_equal_base": false,
+  "subset": true
+ },
+ {
+  "args": [
+   "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/b6/checkout"
+  ],
+  "extra": [],
+  "incomplete_count": [
+   2,
+   2,
+   2
+  ],
+  "incomplete_equal": true,
+  "missing": [
+   {
+    "place": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/b6/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail",
+    "stat": 62
+   }
+  ],
+  "node": "beside:objects-alternates-self-suffix",
+  "record_equal_base": false,
+  "subset": true
+ },
+ {
+  "args": [
+   "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/c7/checkout"
+  ],
+  "extra": [],
+  "incomplete_count": [
+   0,
+   0,
+   0
+  ],
+  "incomplete_equal": true,
+  "missing": [
+   {
+    "place": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/c7/other/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail",
+    "stat": 62
+   }
+  ],
+  "node": "scan-two-link-suffix",
+  "record_equal_base": false,
+  "subset": true
+ },
+ {
+  "args": [
+   "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/b7/checkout"
+  ],
+  "extra": [],
+  "incomplete_count": [
+   0,
+   0,
+   0
+  ],
+  "incomplete_equal": true,
+  "missing": [
+   {
+    "place": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/b7/other/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail",
+    "stat": 62
+   }
+  ],
+  "node": "beside:scan-two-link-suffix",
+  "record_equal_base": false,
+  "subset": true
+ },
+ {
+  "args": [
+   "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/c8/checkout"
+  ],
+  "extra": [],
+  "incomplete_count": [
+   2,
+   2,
+   2
+  ],
+  "incomplete_equal": true,
+  "missing": [
+   {
+    "place": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/c8/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail",
+    "stat": 62
+   }
+  ],
+  "node": "alternates-two-link-suffix",
+  "record_equal_base": false,
+  "subset": true
+ },
+ {
+  "args": [
+   "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/b8/checkout"
+  ],
+  "extra": [],
+  "incomplete_count": [
+   2,
+   2,
+   2
+  ],
+  "incomplete_equal": true,
+  "missing": [
+   {
+    "place": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/hold-h08-r13-evidence-cycles-routine/pytest-of-maxghenis/pytest-0/b8/loop/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail",
+    "stat": 62
+   }
+  ],
+  "node": "beside:alternates-two-link-suffix",
+  "record_equal_base": false,
+  "subset": true
+ }
+]

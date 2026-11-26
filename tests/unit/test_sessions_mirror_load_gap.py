@@ -967,9 +967,9 @@ def test_the_hot_timer_is_queued_on_the_mirror_worker(tmp_path, monkeypatch):
     submitted = []
     try:
         monkeypatch.setattr(timers._mirror, "submit",
-                            lambda fn, name, *a: submitted.append(("mirror", name)))
+                            lambda fn, callback, name, *a: submitted.append(("mirror", name)))
         monkeypatch.setattr(timers._cycles, "submit",
-                            lambda fn, name, *a: submitted.append(("cycles", name)))
+                            lambda fn, callback, name, *a: submitted.append(("cycles", name)))
         timers.start()
         timers._due = {name: 0 for name in timers.intervals}
         timers.tick()

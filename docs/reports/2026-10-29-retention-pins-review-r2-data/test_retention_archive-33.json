@@ -1,0 +1,44 @@
+{
+  "name": "test_retention_archive-33",
+  "start": "2026-10-29T06:41:30.862138+00:00",
+  "load": [
+    21.54296875,
+    23.53955078125,
+    23.32470703125
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_archive.py::test_discarding_a_broken_allocation_removes_only_its_own_registration"
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_discarding_a_broken_allocation_removes_only_its_own_registration": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/unit/test_retention_archive.py::test_discarding_a_broken_allocation_removes_only_its_own_registration": {
+      "setup": {
+        "duration": 0.7456054579961346,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.08567391599353869,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0024547079956391826,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

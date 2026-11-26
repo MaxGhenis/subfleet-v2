@@ -1,0 +1,13 @@
+hold 23:07:37Z slot A load { 87.33 73.23 65.50 }
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_ test_scan_retargeted_into_cycle_before_spelling_is_incomplete[resolved-target] _
+tests/unit/test_retention_location_cycles.py:149: in test_scan_retargeted_into_cycle_before_spelling_is_incomplete
+    assert any(error["file"] == str(entry) and "alias changed" in error["reason"]
+E   AssertionError: {'git': ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r10-check-before-spelling/pytes...eal/mut-r10-check-before-spelling/pytest-of-maxghenis/pytest-0/test_scan_retargeted_into_cycl0/checkout/.git/objects']}
+E   assert False
+E    +  where False = any(<generator object test_scan_retargeted_into_cycle_before_spelling_is_incomplete.<locals>.<genexpr> at 0x1081998a0>)
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_location_cycles.py::test_scan_retargeted_into_cycle_before_spelling_is_incomplete[resolved-target]
+1 failed in 22.45s
+MUTANT {"name": "r10-check-before-spelling", "rc": 1, "failed": 1, "killed": true, "same_as_fix_r12": true, "assertions": [["assert any(error[\"file\"] == str(entry) and \"alias changed\" in error[\"reason\"]"]]}

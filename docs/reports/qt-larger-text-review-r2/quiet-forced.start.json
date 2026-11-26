@@ -1,0 +1,16 @@
+{
+  "name": "quiet-forced",
+  "start": "2026-10-31T06:51:23.164533+00:00",
+  "load": [
+    39.49267578125,
+    38.650390625,
+    36.94287109375
+  ],
+  "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+  "args": [
+    "tests/frontend/test_review_pr284_pin.py::test_quiet_landing_rule_rejects_a_measured_missed_growth",
+    "--runxfail",
+    "-s"
+  ],
+  "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+}

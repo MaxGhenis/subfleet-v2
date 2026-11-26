@@ -1,0 +1,18 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 10:43:28Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____________ test_routine_records_are_exactly_unchanged[worktree] _____________
+tests/unit/test_retention_locations.py:152: in test_routine_records_are_exactly_unchanged
+    assert recorded == expected
+E   AssertionError: assert {'git': ['/pr...d/commondir']} == {'git': ['/pr...git/objects']}
+E     
+E     Differing items:
+E     {'git': ['/private/tmp/sf-r272r10/real-tmp/mutant-r8-routine-skip-dropped/pytest-of-maxghenis/pytest-0/test_routine_re...skip-dropped/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository/.git/worktrees/linked/commondir']} != {'git': ['/private/tmp/sf-r272r10/real-tmp/mutant-r8-routine-skip-dropped/pytest-of-maxghenis/pytest-0/test_routine_re.../mutant-r8-routine-skip-dropped/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository/.git/objects']}
+E     Use -v to get more diff
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_locations.py::test_routine_records_are_exactly_unchanged[worktree]
+1 failed in 5.92s
+{"name": "mutant-r8-routine-skip-dropped", "start": "2026-10-31T10:43:30.434719+00:00", "load": [42.2685546875, 39.47119140625, 37.24755859375], "seconds": 8.189587042001222, "exit": 1}

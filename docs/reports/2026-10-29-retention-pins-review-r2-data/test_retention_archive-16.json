@@ -1,0 +1,25 @@
+{
+  "name": "test_retention_archive-16",
+  "start": "2026-10-29T06:34:37.648365+00:00",
+  "load": [
+    30.9794921875,
+    23.99072265625,
+    23.13671875
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_archive.py::test_every_commit_only_the_admin_directory_names_survives_gc"
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_every_commit_only_the_admin_directory_names_survives_gc": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

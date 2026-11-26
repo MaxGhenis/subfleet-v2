@@ -31,9 +31,10 @@ from unittest import mock
 import hypothesis
 import pytest
 
-from subfleet import protocol
+from subfleet import protocol, refusals
 from subfleet.adapters.base import AdapterError
 from subfleet.contracts import Credential, Lane, LaneOwner
+from subfleet.daemon import Daemon
 from subfleet.conversations import attachments as attachment_module
 from subfleet.conversations import catalog as catalog_module
 from subfleet.conversations import service as service_module
@@ -56,6 +57,21 @@ POLICY = {"models": {"opus": {"provider": "claude", "id": "claude-opus-5-5"}},
 
 
 class FakeDaemon:
+    """What the borrowed methods read is checked by tests/unit/test_fake_daemon_borrowed_methods.py."""
+
+    _job = Daemon._job
+    _running_s = Daemon._running_s
+    _request_cancel = Daemon._request_cancel
+    _cancel_info = Daemon._cancel_info
+    _cancel_requester = staticmethod(Daemon._cancel_requester)
+    _notice = Daemon._notice
+    _earlier_attempt = Daemon._earlier_attempt
+    _scan_observers = Daemon._scan_observers
+    _release_ending = Daemon._release_ending
+    _keep_for_cwd = Daemon._keep_for_cwd
+    _cwd_notice = staticmethod(Daemon._cwd_notice)
+    _start_stop_delivery = Daemon._start_stop_delivery
+
     def __init__(self, root: Path):
         self.root = root
         self.log = logging.getLogger("test-conversations")
@@ -241,8 +257,8 @@ def test_with_the_timer_off_the_catalog_runs_only_on_request(svc, runs):
 
 
 def test_a_wedged_catalog_run_is_stopped_and_reaped_later(svc, runs):
-    """C-30.1: a run alive past three times its own cap is killed by process group, once;
-    a later tick reaps it and the timer carries on."""
+    """C-30.1: a run alive past three times its cap gets SIGTERM, then SIGKILL after
+    its grace; a later tick reaps it and the timer carries on."""
     svc._catalog_tick()
     runs[0].stubborn = True                 # it takes a while to die
     svc.clock.now += service_module.CATALOG_KILL_AFTER_S - 1
@@ -251,7 +267,11 @@ def test_a_wedged_catalog_run_is_stopped_and_reaped_later(svc, runs):
     svc.clock.now += 2
     svc._catalog_tick()
     svc._catalog_tick()
-    assert runs[0].signals == [service_module.signal.SIGKILL]
+    assert runs[0].signals == [service_module.signal.SIGTERM]
+    svc.clock.now += service_module.CATALOG_TERM_GRACE_S
+    svc._catalog_tick()
+    svc._catalog_tick()
+    assert runs[0].signals == [service_module.signal.SIGTERM, service_module.signal.SIGKILL]
     runs[0].end(-9)
     svc._catalog_tick()
     assert svc._catalog_proc is not None and len(runs) == 2         # reaped, and the next one due
@@ -303,11 +323,276 @@ def test_close_stops_the_catalog_run_and_starts_none_after(svc, runs, caplog):
     assert runs[0].signals == [service_module.signal.SIGTERM] and runs[0].returncode == -15
     assert svc._catalog_proc is None and svc._catalog_fence is None
     svc.clock.now += 1000
+    caplog.clear()
     with caplog.at_level(logging.WARNING):
         svc._catalog_tick()
         svc.tick()
     assert svc.handle("catalog.refresh", {}, None)["requested"] is False
     assert len(runs) == 1 and caplog.text == ""
+
+
+@pytest.mark.parametrize("elapsed", [0, 4, 10, 21])
+def test_begin_close_spends_the_catalog_grace_while_the_daemon_drains(svc, runs, monkeypatch, elapsed):
+    """The daemon starts TERM before draining; close waits only the unused grace."""
+    monkeypatch.setattr(service_module, "CATALOG_STOP_WAIT_S", 2.0)
+    svc._start_catalog()
+    run = runs[0]
+    run.stubborn = True
+    fence_read, fence_write = svc._catalog_fence
+    svc.begin_close()
+    assert run.signals == [service_module.signal.SIGTERM]
+    assert svc._catalog_proc is run              # still tracked, never waited on
+    assert svc._catalog_fence is None
+    for fd in (fence_read, fence_write):
+        with pytest.raises(OSError):
+            os.fstat(fd)
+    assert svc._start_catalog() == {"requested": False, "running": False}
+    svc.clock.now += elapsed
+    svc.begin_close()                          # no repeated TERM or renewed grace
+    waits = []
+
+    def wait(timeout):
+        waits.append(timeout)
+        if run.signals == [service_module.signal.SIGTERM]:
+            svc.clock.now += timeout
+            raise subprocess.TimeoutExpired("catalog", timeout)
+        run.end(-9)
+        return run.returncode
+
+    monkeypatch.setattr(run, "wait", wait)
+    svc.close()
+    assert waits == [max(0, 10 - elapsed), 2]
+    assert run.signals == [service_module.signal.SIGTERM, service_module.signal.SIGKILL]
+    assert svc._catalog_proc is None
+
+
+def test_begin_close_quietly_reaps_a_run_that_already_declined(svc, runs, caplog):
+    """A run reaped while closing the fence is no later tick's publishing decline."""
+    svc._start_catalog()
+    runs[0].end(catalog_module.OWNER_GONE)
+    with caplog.at_level(logging.WARNING):
+        svc.begin_close()
+        assert svc._catalog_proc is None
+        svc._reap_catalog()
+    assert runs[0].signals == []
+    assert caplog.text == ""
+
+
+def test_begin_close_grace_starts_after_a_slow_term_send(svc, runs, monkeypatch):
+    svc._start_catalog()
+    run = runs[0]
+    run.stubborn = True
+    original_send = service_module.os.killpg
+
+    def slow_send(pid, sig):
+        original_send(pid, sig)
+        svc.clock.now += 0.5
+
+    monkeypatch.setattr(service_module.os, "killpg", slow_send)
+    try:
+        svc.begin_close()
+        assert svc._catalog_terminated_at == 1000.5
+        svc.clock.now = 1010.499
+        svc._reap_catalog()
+        assert run.signals == [service_module.signal.SIGTERM]
+        svc.clock.now = 1010.5
+        svc._reap_catalog()
+        assert run.signals == [service_module.signal.SIGTERM, service_module.signal.SIGKILL]
+    finally:
+        run.end()
+
+
+@pytest.mark.parametrize("phase", ["before-lock", "in-spawn", "before-handoff", "after-handoff"])
+def test_close_at_each_catalog_start_boundary(svc, runs, monkeypatch, phase):
+    entered, release = threading.Event(), threading.Event()
+    original_spawn = catalog_module.spawn_refresh
+    original_clock = svc.clock
+    original_close = os.close
+    closed_fds = []
+    reaped = set()
+    errors = []
+    from subfleet.procs import pipe_above_stdio
+    svc._catalog_fence = pipe_above_stdio()
+    fence = list(svc._catalog_fence)
+
+    def close_fd(fd):
+        if fd in fence:
+            closed_fds.append(fd)
+        original_close(fd)
+
+    def clock():
+        if phase == "before-handoff" and threading.current_thread() is starter and svc._catalog_starting and runs:
+            entered.set()
+            assert release.wait(5)
+        return original_clock()
+
+    def spawn(*args, **kwargs):
+        if phase == "in-spawn":
+            entered.set()
+            assert release.wait(5)
+            os.fstat(fence[0])
+            with pytest.raises(OSError):
+                os.fstat(fence[1])
+        process = original_spawn(*args, **kwargs)
+        if process is not None:
+            original_poll = process.poll
+
+            def poll():
+                result = original_poll()
+                if result is not None:
+                    reaped.add(process.pid)
+                return result
+
+            monkeypatch.setattr(process, "poll", poll)
+        return process
+
+    def start():
+        try:
+            svc._start_catalog()
+        except BaseException as exc:
+            errors.append(exc)
+
+    monkeypatch.setattr(catalog_module, "spawn_refresh", spawn)
+    monkeypatch.setattr(svc, "clock", clock)
+    monkeypatch.setattr(service_module.os, "close", close_fd)
+    starter = threading.Thread(target=start)
+    try:
+        if phase == "before-lock":
+            svc.begin_close()
+        starter.start()
+        if phase in ("in-spawn", "before-handoff"):
+            assert entered.wait(5)
+            assert svc._start_catalog() == {"requested": False, "running": True}
+            closer = threading.Thread(target=svc.begin_close)
+            closer.start()
+            closer.join(0.25)
+            assert not closer.is_alive()
+            assert closed_fds == [fence[1]]
+            assert svc._catalog_fence == (fence[0], None)
+            os.fstat(fence[0])
+            with pytest.raises(OSError):
+                os.fstat(fence[1])
+            release.set()
+        starter.join(5)
+        assert not starter.is_alive() and not errors
+        if phase in ("in-spawn", "before-handoff"):
+            assert runs[0].signals == [service_module.signal.SIGTERM]
+        svc._stop_catalog()
+        assert len(runs) == (0 if phase == "before-lock" else 1)
+        if runs:
+            assert runs[0].signals == [service_module.signal.SIGTERM]
+            assert runs[0].returncode == -15
+            assert reaped == {runs[0].pid}
+        else:
+            assert reaped == set()
+        assert sorted(closed_fds) == sorted(fence)
+        assert svc._catalog_proc is None and svc._catalog_fence is None
+        assert svc._start_catalog() == {"requested": False, "running": False}
+    finally:
+        release.set()
+        starter.join(5)
+        if "closer" in locals():
+            closer.join(5)
+        for run in runs:
+            run.end()
+
+
+@pytest.mark.parametrize("elapsed", [0, 0.5, 1])
+def test_close_bounds_the_start_handoff_and_the_late_starter_reaps(svc, runs, monkeypatch, elapsed):
+    entered, release = threading.Event(), threading.Event()
+    original_spawn = catalog_module.spawn_refresh
+    errors = []
+
+    def spawn(*args, **kwargs):
+        entered.set()
+        assert release.wait(5)
+        return original_spawn(*args, **kwargs)
+
+    def start():
+        try:
+            svc._start_catalog()
+        except BaseException as exc:
+            errors.append(exc)
+
+    monkeypatch.setattr(catalog_module, "spawn_refresh", spawn)
+    starter = threading.Thread(target=start)
+    try:
+        starter.start()
+        assert entered.wait(5)
+        fence_read, fence_write = svc._catalog_fence
+        svc.begin_close()
+        fence = svc._catalog_fence
+        assert fence == (fence_read, None)
+        os.fstat(fence_read)
+        with pytest.raises(OSError):
+            os.fstat(fence_write)
+        svc.clock.now += elapsed
+        waits = []
+
+        def wait(timeout):
+            waits.append(timeout)
+            svc.clock.now += timeout
+            return False
+
+        with monkeypatch.context() as patch:
+            patch.setattr(svc._catalog_handoff, "wait", wait)
+            svc._stop_catalog()
+        assert waits == [service_module.CATALOG_HANDOFF_WAIT_S - elapsed]
+        assert svc._catalog_stop_abandoned and svc._catalog_fence == fence
+        os.fstat(fence_read)
+        with pytest.raises(OSError):
+            os.fstat(fence_write)
+        release.set()
+        starter.join(5)
+        assert not starter.is_alive() and not errors
+        assert len(runs) == 1 and runs[0].signals == [service_module.signal.SIGTERM]
+        assert runs[0].returncode == -15
+        assert svc._catalog_proc is None and svc._catalog_fence is None
+    finally:
+        release.set()
+        starter.join(5)
+        for run in runs:
+            run.end()
+
+
+@pytest.mark.parametrize("previous_killed", [False, True], ids=["after-sigterm", "after-sigkill"])
+def test_each_catalog_run_gets_its_own_sixty_seconds_and_sigterm_first(svc, runs, previous_killed):
+    """A stopped run's TERM time and KILL state cannot shorten the next run's life."""
+    try:
+        svc._start_catalog()
+        previous = runs[-1]
+        previous.stubborn = True
+        svc.clock.now += 60
+        svc._reap_catalog()
+        assert previous.signals == [service_module.signal.SIGTERM]
+        if previous_killed:
+            svc.clock.now += 10
+            svc._reap_catalog()
+            assert previous.signals == [service_module.signal.SIGTERM, service_module.signal.SIGKILL]
+        previous.end(-9 if previous_killed else 143)
+        svc._start_catalog()
+        current = runs[-1]
+        assert current is not previous
+        current.stubborn = True
+        started = svc.clock.now
+        for age in (0, 10, 59.999):
+            svc.clock.now = started + age
+            svc._reap_catalog()
+            assert current.signals == []
+        svc.clock.now = started + 60
+        svc._reap_catalog()
+        assert current.signals == [service_module.signal.SIGTERM]
+        svc.clock.now += 9.999
+        svc._reap_catalog()
+        assert current.signals == [service_module.signal.SIGTERM]
+        svc.clock.now = started + 70
+        svc._reap_catalog()
+        assert current.signals == [service_module.signal.SIGTERM, service_module.signal.SIGKILL]
+    finally:
+        # Negative controls must fail in the call phase, never the fixture's
+        # guard against waiting for an unsignalled fake during close.
+        for run in runs:
+            run.end()
 
 
 def test_close_escalates_to_sigkill_when_a_run_outlasts_sigterm(svc, runs, caplog):
@@ -324,6 +609,7 @@ def test_close_escalates_to_sigkill_when_a_run_outlasts_sigterm(svc, runs, caplo
 def test_close_kills_a_real_run_that_ignores_sigterm(svc, monkeypatch, tmp_path):
     """C-30.1: the same with a real process: close() returns with it killed and reaped."""
     monkeypatch.setattr(service_module, "CATALOG_STOP_WAIT_S", 0.5)
+    monkeypatch.setattr(service_module, "CATALOG_TERM_GRACE_S", 0.5)
     ready = tmp_path / "ready"
     script = ("import pathlib, signal, sys, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
               "pathlib.Path(sys.argv[1]).touch(); time.sleep(60)")
@@ -341,9 +627,9 @@ def test_close_kills_a_real_run_that_ignores_sigterm(svc, monkeypatch, tmp_path)
     assert time.monotonic() - started < 10
 
 
-def test_a_run_started_while_close_waits_for_the_lock_is_stopped_too(svc, runs, monkeypatch):
-    """C-30.1: a start and close() take the same lock. A start already inside it
-    finishes; close() then stops the run it made, so none outlives close()."""
+def test_a_run_in_flight_when_close_begins_is_stopped_too(svc, runs, monkeypatch):
+    """C-30.1: close waits for the reserved start's handoff, not its spawn lock.
+    The starter signals the run it made before the waiting close reaps it."""
     entered, go = threading.Event(), threading.Event()
     fake_spawn = catalog_module.spawn_refresh
 
@@ -446,7 +732,10 @@ def test_catalog_lifecycle_invariants_hold_for_random_interleavings(tmp_path, mo
                 for run, before in zip(runs, signals):
                     added = run.signals[len(before):]
                     if run in found:
-                        assert added == ([TERM, KILL] if run.stubborn else [TERM]), where
+                        expected = ([TERM] if TERM not in before else [])
+                        if run.stubborn and KILL not in before:
+                            expected.append(KILL)
+                        assert added == expected, where
                     else:
                         assert added == [], where
         finally:
@@ -711,8 +1000,8 @@ def test_a_real_catalog_run_writes_the_catalog_the_list_reads(svc, monkeypatch, 
 # --- compaction (C-25.4, review IR-6) --------------------------------------------
 
 
-def turn_attempt(svc, message_id: str, *, state: str, n: int) -> str:
-    job_id = f"turn-job-{n}"
+def turn_attempt(svc, message_id: str, *, state: str, n: int, job_id: str | None = None) -> str:
+    job_id = job_id or f"turn-job-{n}"
     svc.daemon.store.add_job(job_id=job_id, request_id=f"turn:{message_id}:{n}", payload_digest="d", kind="turn",
                              workdir="/w", prompt_path="/p", sandbox="read-only", state="running")
     attempt_id = f"{job_id}/a1"
@@ -810,14 +1099,16 @@ def test_events_reset_a_client_whose_cursor_is_below_the_floor(svc):
 def test_a_refusal_that_may_pass_keeps_the_message_waiting_with_a_reason_and_a_backoff(svc):
     """C-26.1, C-24.3: an operational refusal (exit 1) before any provider saw the
     message leaves it queued with `deferred: <why>`; it is not submitted again every
-    tick, but after 2 s, then 4 s, and goes on normally once submit accepts it."""
+    tick, but after 2 s, then 4 s, and goes on normally once submit accepts it. `why`
+    is the refusal's template (C-25.7): its own words are for daemon.log."""
     cid = conversation(svc)
     mid = submit(svc, cid)
-    svc.daemon.refuse = AdapterError("could not inspect the workdir: git rev-parse timed out after 60 s", code=1)
+    svc.daemon.refuse = AdapterError("could not inspect the workdir: git rev-parse timed out after 60 s", code=1,
+                                     reason="inspect-workdir")
     svc._dispatch()
     message = svc.store.message(mid)
     assert message["state"] == "queued"
-    assert message["state_reason"] == "deferred: could not inspect the workdir: git rev-parse timed out after 60 s"
+    assert message["state_reason"] == "deferred: could not inspect the workdir"
     for _ in range(5):
         svc._dispatch()
     assert len(svc.daemon.submits) == 1
@@ -841,23 +1132,32 @@ def test_the_backoff_is_capped(svc):
     """C-26.1: the wait doubles up to five minutes."""
     cid = conversation(svc)
     submit(svc, cid)
-    svc.daemon.refuse = OSError("disk full")
+    svc.daemon.refuse = OSError(28, "No space left on device", "/a/file")
     for _ in range(12):
         svc._dispatch()
         svc.clock.now += service_module.DEFER_MAX_S + 0.1
     count, due = next(iter(svc._deferred.values()))
     assert count == 12 and due - svc.clock.now <= service_module.DEFER_MAX_S
-    assert svc.store.message(next(iter(svc._deferred)))["state_reason"] == "deferred: OSError: disk full"
+    # An OS error by its class, errno and `os.strerror` text, never its filename (C-25.7).
+    assert svc.store.message(next(iter(svc._deferred)))["state_reason"] == (
+        f"deferred: OSError: [Errno 28] {os.strerror(28)}")
 
 
 @pytest.mark.parametrize("refusal, reason", [
-    (AdapterError("writable job refused on main", code=7), "not-delivered: writable job refused on main"),
-    (protocol.ProtocolError("workdir must be a directory"), "not-delivered: workdir must be a directory"),
+    (AdapterError("writable job refused on main: own words", code=7, reason="writable-branch",
+                  details={"branch": "main"}), "not-delivered: writable job refused on main"),
+    (protocol.ProtocolError("workdir must be a directory", reason="invalid-args"),
+     f"not-delivered: {protocol.REFUSAL_MESSAGES['invalid-args']}"),
+    (AdapterError("refused for a reason the vocabulary lacks", code=7),
+     f"not-delivered: {refusals.FALLBACK[0]}"),
     (ConversationError("attachment-missing", "attachment abc is gone"), "not-delivered: attachment-missing"),
 ])
 def test_a_permanent_refusal_fails_the_message_with_its_reason(svc, refusal, reason):
     """C-26.1, design §9: the daemon's own refusal of the message as it is (exit 2 or 7)
-    fails it, never delivered, with the reason; it is not tried again."""
+    fails it, never delivered, with the reason; it is not tried again. The reason is the
+    refusal's template, as on the wire (C-25.7): a handler's by its reason and checked
+    values, an argument check's the argument template, one with no known reason the
+    operation fallback."""
     cid = conversation(svc)
     mid = submit(svc, cid)
     svc.daemon.refuse = refusal
@@ -891,6 +1191,8 @@ def test_a_persisted_writable_conversation_refuses_an_unspellable_protected_home
     home = sealed / "User-Home"
     (home / ".claude").mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home / ".claude"))
+    monkeypatch.setenv("SUBFLEET_CODEX_APP_HOME", str(home / ".codex"))
     writable = {**SETTINGS, "permission": "accept-edits"}
     cid = conversation(svc, settings=writable)
     mid = str(uuid.uuid4())
@@ -930,7 +1232,7 @@ def test_a_readmitted_message_is_deferred_and_submitted_again_as_waiting(svc):
     cid = conversation(svc)
     mid = submit(svc, cid)
     svc.store.set_state(mid, "waiting", reason="readmit:external-writer", turn_seq=1, job_id=None)
-    svc.daemon.refuse = AdapterError("could not inspect the workdir", code=1)
+    svc.daemon.refuse = AdapterError("could not inspect the workdir", code=1, reason="inspect-workdir")
     svc._dispatch()
     message = svc.store.message(mid)
     assert (message["state"], message["state_reason"]) == ("waiting", "deferred: could not inspect the workdir")
@@ -1128,11 +1430,12 @@ def test_a_worktree_conversation_without_its_worktree_never_runs_in_the_source(s
     assert svc.daemon.submits == []
 
 
-def test_a_worktree_add_that_quotes_a_name_that_is_not_utf8_fails_with_it(svc, repo, monkeypatch):
+def test_a_worktree_add_that_quotes_a_name_that_is_not_utf8_fails_with_it(svc, repo, monkeypatch, caplog):
     """Review of 43b8bf29, F6: `git worktree add` prints a file it could not check out in
     its own bytes; read as strict UTF-8 that raised `UnicodeDecodeError` out of
-    `conversation.create`, not the `worktree-failed` refusal naming the file. The call is
-    faked (APFS refuses such names) and decodes as `subprocess` would."""
+    `conversation.create`, not the `worktree-failed` refusal. The call is faked (APFS
+    refuses such names) and decodes as `subprocess` would. What git printed (a hook's
+    output too) is in daemon.log only, as valid UTF-8 (C-25.7); the refusal is fixed."""
     real = subprocess.run
 
     def run(cmd, *args, **kwargs):
@@ -1142,11 +1445,13 @@ def test_a_worktree_add_that_quotes_a_name_that_is_not_utf8_fails_with_it(svc, r
             return subprocess.CompletedProcess(cmd, 128, "" if kwargs.get("text") else b"", decoded)
         return real(cmd, *args, **kwargs)
     monkeypatch.setattr(service_module.subprocess, "run", run)
-    with pytest.raises(ConversationError) as err:
+    with caplog.at_level(logging.WARNING, logger="test-conversations"), pytest.raises(ConversationError) as err:
         create_worktree(svc, repo)
-    assert err.value.reason == "worktree-failed"
-    assert str(err.value) == "error: unable to create file caf\\xe9.txt: Permission denied\nfatal: could not reset"
-    str(err.value).encode("utf-8")                                     # a reply can carry it
+    assert (err.value.reason, str(err.value)) == ("worktree-failed", "git worktree add failed")
+    logged = [r.getMessage() for r in caplog.records if "git worktree add diagnostic" in r.getMessage()]
+    assert logged == ["git worktree add diagnostic: error: unable to create file caf\\xe9.txt: Permission denied "
+                      "fatal: could not reset"]
+    logged[0].encode("utf-8")
 
 
 def test_a_worktree_needs_a_repository_and_creates_nothing_without_one(svc, tmp_path):
@@ -1412,6 +1717,40 @@ def launched_turn(svc, tmp_path, stdout=(), *, n=0) -> str:
             "cwd": svc.test_workspace, "new_session_id": str(uuid.uuid4())}
     (job / "manifest.json").write_text(json.dumps({TURN_MANIFEST_KEY: turn}))
     return attempt_id
+
+
+@pytest.mark.parametrize("source", ["client", "replay"])
+def test_adoption_audits_stops_before_starting_the_runner(svc, tmp_path, monkeypatch, source):
+    """C-26.6 / C-9.2: client and replayed interrupts share the delivery audit,
+    which is installed before the runner can send anything."""
+    from subfleet.conversations.runner import TurnRunner
+    from subfleet.conversations.turn import Frame
+    from subfleet.relay import Ack
+
+    aid = launched_turn(svc, tmp_path)
+    monkeypatch.setattr(TurnRunner, "start", lambda runner: None)
+    svc._adopt_runners()
+    runner = svc.runners[aid]
+    if source == "client":
+        svc.op_turn_interrupt({"message_id": runner.message_id}, None)
+        assert runner.commands.get_nowait() == ("interrupt",)
+    else:
+        svc.store.request_stop(runner.message_id, stop_at="2026-10-19T00:00:00Z", requester=None)
+        runner.interrupt("stopped")             # the catch-up replay's command
+    frame = Frame("interrupt", "write", '{"type":"control_request"}')
+    runner.outbox.append(frame)
+    def send(seq, op, **kwargs):
+        event = svc.daemon.store.one("SELECT data_json FROM events WHERE attempt_id=? "
+                                    "AND kind='attempt.stop_delivery'", (aid,))
+        assert json.loads(event["data_json"])["signal_pending"] is True
+        if kwargs.get("before_send") is not None:
+            kwargs["before_send"]()
+        return Ack(seq=seq, ok=True)
+    monkeypatch.setattr(runner.relay, "send", send)
+    assert runner._transmit(frame)
+    event = svc.daemon.store.one("SELECT data_json FROM events WHERE attempt_id=? "
+                                "AND kind='attempt.stop_delivery'", (aid,))
+    assert json.loads(event["data_json"])["signal_sent"] is True
 
 
 class Hold:

@@ -1,0 +1,10 @@
+{
+  "name": "plain-test_retention_dependency_units",
+  "waiting_since_or_at": "2026-10-31T13:56:46.439060+00:00",
+  "load": [
+    100.5107421875,
+    91.73388671875,
+    85.92626953125
+  ],
+  "threshold": 100
+}

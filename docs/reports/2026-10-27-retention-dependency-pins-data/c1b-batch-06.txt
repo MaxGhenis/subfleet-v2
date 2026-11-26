@@ -1,0 +1,1 @@
+tests/fake/test_admission_liveness.py::test_c6_9_c24_5_a_turn_waiting_for_a_folder_a_retrying_turn_holds_never_holds_it_back

@@ -1,0 +1,134 @@
+{
+  "label": "ordinary-trial",
+  "start": "2026-10-30T14:38:09.804399+00:00",
+  "loads": [
+    20.28955078125,
+    19.29736328125,
+    18.4462890625
+  ],
+  "seconds": 44.578922540997155,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "ordinary_trial.py::test_ordinary_initial_recording_changes_lists_but_not_owner_verdict[running]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.0150492079992546
+    },
+    {
+      "nodeid": "ordinary_trial.py::test_ordinary_initial_recording_changes_lists_but_not_owner_verdict[succeeded]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.3575300829979824
+    },
+    {
+      "nodeid": "ordinary_trial.py::test_pointer_trailing_space_matches_git[running-gitfile-leading]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.7938534159911796
+    },
+    {
+      "nodeid": "ordinary_trial.py::test_pointer_trailing_space_matches_git[running-gitfile-trailing]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 3.6784637500095414
+    },
+    {
+      "nodeid": "ordinary_trial.py::test_pointer_trailing_space_matches_git[running-commondir]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 2.456674667002517
+    },
+    {
+      "nodeid": "ordinary_trial.py::test_pointer_trailing_space_matches_git[succeeded-gitfile-leading]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.6062820000079228
+    },
+    {
+      "nodeid": "ordinary_trial.py::test_pointer_trailing_space_matches_git[succeeded-gitfile-trailing]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.9690376250073314
+    },
+    {
+      "nodeid": "ordinary_trial.py::test_pointer_trailing_space_matches_git[succeeded-commondir]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.6379082499915967
+    }
+  ],
+  "nodes": [
+    "ordinary_trial.py::test_ordinary_initial_recording_changes_lists_but_not_owner_verdict[running]",
+    "ordinary_trial.py::test_ordinary_initial_recording_changes_lists_but_not_owner_verdict[succeeded]",
+    "ordinary_trial.py::test_pointer_trailing_space_matches_git[running-gitfile-leading]",
+    "ordinary_trial.py::test_pointer_trailing_space_matches_git[running-gitfile-trailing]",
+    "ordinary_trial.py::test_pointer_trailing_space_matches_git[running-commondir]",
+    "ordinary_trial.py::test_pointer_trailing_space_matches_git[succeeded-gitfile-leading]",
+    "ordinary_trial.py::test_pointer_trailing_space_matches_git[succeeded-gitfile-trailing]",
+    "ordinary_trial.py::test_pointer_trailing_space_matches_git[succeeded-commondir]"
+  ],
+  "all_nodes": [
+    "ordinary_trial.py::test_ordinary_initial_recording_changes_lists_but_not_owner_verdict[running]",
+    "ordinary_trial.py::test_ordinary_initial_recording_changes_lists_but_not_owner_verdict[succeeded]",
+    "ordinary_trial.py::test_pointer_trailing_space_matches_git[running-gitfile-leading]",
+    "ordinary_trial.py::test_pointer_trailing_space_matches_git[running-gitfile-trailing]",
+    "ordinary_trial.py::test_pointer_trailing_space_matches_git[running-commondir]",
+    "ordinary_trial.py::test_pointer_trailing_space_matches_git[succeeded-gitfile-leading]",
+    "ordinary_trial.py::test_pointer_trailing_space_matches_git[succeeded-gitfile-trailing]",
+    "ordinary_trial.py::test_pointer_trailing_space_matches_git[succeeded-commondir]"
+  ],
+  "phases": {
+    "ordinary_trial.py::test_ordinary_initial_recording_changes_lists_but_not_owner_verdict[running]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "ordinary_trial.py::test_ordinary_initial_recording_changes_lists_but_not_owner_verdict[succeeded]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "ordinary_trial.py::test_pointer_trailing_space_matches_git[running-gitfile-leading]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "ordinary_trial.py::test_pointer_trailing_space_matches_git[running-gitfile-trailing]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    },
+    "ordinary_trial.py::test_pointer_trailing_space_matches_git[running-commondir]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    },
+    "ordinary_trial.py::test_pointer_trailing_space_matches_git[succeeded-gitfile-leading]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "ordinary_trial.py::test_pointer_trailing_space_matches_git[succeeded-gitfile-trailing]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "ordinary_trial.py::test_pointer_trailing_space_matches_git[succeeded-commondir]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 117391360
+}

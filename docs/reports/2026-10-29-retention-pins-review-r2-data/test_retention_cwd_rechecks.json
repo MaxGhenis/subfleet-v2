@@ -1,0 +1,90 @@
+{
+  "name": "test_retention_cwd_rechecks",
+  "start": "2026-10-29T06:44:09.617788+00:00",
+  "load": [
+    19.55322265625,
+    21.50732421875,
+    22.48681640625
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_cwd_rechecks.py::test_observer_after_move_is_rechecked_before_pruning[after-move]",
+    "tests/unit/test_retention_cwd_rechecks.py::test_observer_after_move_is_rechecked_before_pruning[resume-quarantined]",
+    "tests/unit/test_retention_cwd_rechecks.py::test_retention_holds_a_worktree_recorded_with_different_case"
+  ],
+  "phases": {
+    "tests/unit/test_retention_cwd_rechecks.py::test_observer_after_move_is_rechecked_before_pruning[after-move]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_cwd_rechecks.py::test_observer_after_move_is_rechecked_before_pruning[resume-quarantined]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_cwd_rechecks.py::test_retention_holds_a_worktree_recorded_with_different_case": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/unit/test_retention_cwd_rechecks.py::test_observer_after_move_is_rechecked_before_pruning[after-move]": {
+      "setup": {
+        "duration": 0.19657816700055264,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.35304187500150874,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.002326458998140879,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_cwd_rechecks.py::test_observer_after_move_is_rechecked_before_pruning[resume-quarantined]": {
+      "setup": {
+        "duration": 0.1313581249996787,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.32503520799218677,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.002202834002673626,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/unit/test_retention_cwd_rechecks.py::test_retention_holds_a_worktree_recorded_with_different_case": {
+      "setup": {
+        "duration": 0.11406300000089686,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.11105354099709075,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0017263329937122762,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

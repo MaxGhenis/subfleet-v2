@@ -1,0 +1,1 @@
+{"label": "mutant-r5-gitfile-colon-without-space-accepted", "queued": "2026-10-31T06:34:47.891857+00:00", "args": ["tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-no-space]"], "pid": 53902}

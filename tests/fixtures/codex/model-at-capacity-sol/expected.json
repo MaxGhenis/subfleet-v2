@@ -1,0 +1,21 @@
+{
+  "class": "transient",
+  "model_capacity": true,
+  "scope": null,
+  "clock_source": null,
+  "closure": false,
+  "native_session_id": "01a13400-8a99-7a90-b040-96e7072c5662",
+  "synthetic": false,
+  "provenance": {
+    "source": "v2",
+    "run": "20261013-024327-pr198-review-r6",
+    "lane": "codex-1",
+    "model": "gpt-6.1-sol",
+    "files": [
+      "a1/stream.jsonl",
+      "a1/stderr",
+      "a1/exit.json"
+    ],
+    "normalization": "Events copied verbatim from the attempt's stream (lines 1, 2, 3, 92, 100 and 101 of 101): thread.started, turn.started, the first agent_message, the recovered `Reconnecting... 2/5` 503 error, and the capacity error and turn.failed pair that ended the turn after 1,585 s (06:43:28Z to 07:09:54Z on 2026-10-13). The 42 command_execution pairs and ten later agent messages between them are removed. stderr and rc are the attempt's own. The run was classified transient with the 503 reconnect as its admission evidence, and retried on the same lane and model 60 s later (D-CAP1)."
+  }
+}

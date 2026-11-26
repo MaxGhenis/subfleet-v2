@@ -1,0 +1,13 @@
+hold 22:54:14Z slot A load { 54.02 63.67 60.79 }
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_________________ test_dotdot_applies_after_the_link_before_it _________________
+tests/unit/test_retention_locations.py:37: in test_dotdot_applies_after_the_link_before_it
+    assert str(paths["admin"]) in recorded["git"], recorded
+E   AssertionError: {'git': ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r8-lexical-dotdot/pytest-of-max...-r272r13/real/mut-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/owner/admin/objects']}
+E   assert '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/stable/container/admin' in ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r8-lexical-dotdot/pytest-of-maxghenis/p...f-r272r13/real/mut-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/owner/admin/objects']
+E    +  where '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/stable/container/admin' = str(PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/stable/container/admin'))
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it
+1 failed in 34.16s
+MUTANT {"name": "r8-lexical-dotdot", "rc": 1, "failed": 1, "killed": true, "same_as_fix_r12": true, "assertions": [["assert str(paths[\"admin\"]) in recorded[\"git\"], recorded"]]}

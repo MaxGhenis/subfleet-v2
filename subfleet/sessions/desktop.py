@@ -77,10 +77,9 @@ _NEEDLES = (b"[LocalSessionManager]", b"persisted sessions from")
 
 
 def log_path() -> Path:
-    override = os.environ.get(LOG_ENV)
-    if override:
-        return Path(override).expanduser()
-    return Path.home() / "Library" / "Logs" / "Claude" / "main.log"
+    from ..home_paths import home_path
+    return Path(home_path(LOG_ENV, lambda: Path.home() / "Library" / "Logs"
+                          / "Claude" / "main.log", expand_override=True))
 
 
 @dataclass(frozen=True)

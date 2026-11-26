@@ -1,0 +1,7 @@
+{
+  "actual_common": "/private/tmp/sf-r272r11/real-tmp/reader-differences/pytest-of-maxghenis/pytest-0/test_registration_discard_uses0/common ",
+  "stripped_common": "/private/tmp/sf-r272r11/real-tmp/reader-differences/pytest-of-maxghenis/pytest-0/test_registration_discard_uses0/common",
+  "removed": "/private/tmp/sf-r272r11/real-tmp/reader-differences/pytest-of-maxghenis/pytest-0/test_registration_discard_uses0/common/worktrees/owner",
+  "actual_admin_exists": true,
+  "stripped_admin_exists": false
+}

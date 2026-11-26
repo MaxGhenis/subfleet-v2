@@ -1,0 +1,4207 @@
+{
+  "review_start": "2026-10-31T05:19:50Z",
+  "head": "6700b9bbc6268981e3949a09fb3879f53cfecd7a",
+  "updated": "2026-10-31T06:52:34.654046+00:00",
+  "scratch": "/private/tmp/sf-r284r2",
+  "darwin_scratch_denied": true,
+  "source_sha256": {
+    "app/Sources/ConversationOpeningPin.swift": "ce4697c21fada546864403feb3cf28b1b901334e0f3ab44283c58cdf058082b4",
+    "app/Sources/UIWindow.swift": "9abbf1acb41f8bc9f4252c92bacae82994ed8ad4198234d81d4b3a5c8765f46f",
+    "tests/frontend/ReviewPR284PinProbe.swift": "cf8731c40fe0e83d730cf3e93551cf17b66fbcf603f27a6a97d664ab90e68da7",
+    "tests/frontend/ReviewR219Fix8ViewProbe.swift": "077f9ea5ff34b8fe6e878bb3ed431675350bdd9a733ae2aa4f0ff70a1ac1f23a",
+    "tests/frontend/test_review_pr284_pin.py": "fa071775f6d3b62e465115b03e77d33d53b99d5dba34656428c9703e3dd5c970",
+    "tests/frontend/test_review_pr284_resizes.py": "ea955a1e5d36ac0af31d985563a6aab0fa6fc3e5d8f2cf02b84c0adea97f22fc",
+    "tests/frontend/test_review_r219_fix10_view.py": "d50cd343433ea5ea1ed6c1d74703d2d5f49f864091682f198a319e40a6242f2b",
+    "tests/frontend/test_review_r219_fix8_mutations.py": "daceac9a754f1828f7ddf22a7b616254a40f4bb6acec7cf3cca96c628db7f4ae",
+    "tests/frontend/test_review_r219_fix8_view.py": "dc40bea45281621401fd694a740c4cfbf0efc098f3d8e36e01690476ccfc59dc",
+    "tests/fixtures/qt-flake/pr284-landed-replay.json": "065426de3ba03216def9ea35e24db47405e847f2c3b4ee47fc2b05536290b3b3",
+    "tests/fixtures/qt-flake/pr284-pending-attempt2.json": "54c91e543d319a46fbf93b51b921d79bba91fc78ee34c27149a425320c06301e"
+  },
+  "inherited_sources_unchanged": true,
+  "runs": [
+    {
+      "name": "fix10-whole",
+      "queued": {
+        "queued": "2026-10-31T05:20:53.548582+00:00",
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "tests/frontend/test_review_r219_fix10_view.py"
+        ]
+      },
+      "start": {
+        "name": "fix10-whole",
+        "start": "2026-10-31T05:20:57.960973+00:00",
+        "load": [
+          27.7265625,
+          19.0380859375,
+          20.38623046875
+        ],
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "tests/frontend/test_review_r219_fix10_view.py"
+        ],
+        "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+      },
+      "end": {
+        "end": "2026-10-31T05:35:01.902976+00:00",
+        "seconds": 843.8951881249995,
+        "returncode": 0,
+        "max_child_rss_bytes": 1312145408
+      },
+      "process": {
+        "controller_pid": 66594,
+        "owned_process_group": 66716,
+        "started": "2026-10-31T05:20:53.553549+00:00",
+        "outside_lock": false
+      },
+      "process_ended": {
+        "at": "2026-10-31T05:35:02.676600+00:00",
+        "returncode": 0,
+        "owned_group_terminated_and_waited": true
+      },
+      "outside_lock": null,
+      "boundary": null,
+      "collection": [
+        "tests/frontend/test_review_r219_fix10_view.py::test_distant_search_reveal_lands_and_keeps_position[far_quiet]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_distant_search_reveal_lands_and_keeps_position[far_text_50ms]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_distant_search_reveal_lands_and_keeps_position[far_text_120ms]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_distant_search_reveal_lands_and_keeps_position[far_rows_150ms]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_distant_search_reveal_lands_and_keeps_position[far_rows_400ms]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_distant_search_reveal_during_catchup_keeps_position[250]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_distant_search_reveal_during_catchup_keeps_position[100]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_completion_before_scroll_cannot_release_a_distant_opening_reveal",
+        "tests/frontend/test_review_r219_fix10_view.py::test_scripted_growth_is_followed_before_a_compensating_shrink",
+        "tests/frontend/test_review_r219_fix10_view.py::test_scripted_document_resizes_without_a_marker_remount[pending]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_scripted_document_resizes_without_a_marker_remount[landed]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_reveal_invariant_for_resize_schedules",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[default]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_person_scroll_to_the_end_during_a_pending_reveal_releases",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[default]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_focused_50ms_probe_lands_and_keeps_position",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stream_arrives_before_first_reveal_notice[0-text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stream_arrives_before_first_reveal_notice[0-tool]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stream_arrives_before_first_reveal_notice[16-text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stream_arrives_before_first_reveal_notice[16-tool]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stream_arrives_before_first_reveal_notice[50-text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stream_arrives_before_first_reveal_notice[50-tool]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stream_arrives_before_first_reveal_notice[120-text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stream_arrives_before_first_reveal_notice[120-tool]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_background_stream_crosses_both_notices_and_consumption[text-50]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_background_stream_crosses_both_notices_and_consumption[tool-17]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_background_checks_reject_replayed_overlap_jump",
+        "tests/frontend/test_review_r219_fix10_view.py::test_trailing_stream_waits_for_late_reveal_consumption",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stream_burst_at_reveal_boundary_keeps_position[first_notice-text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stream_burst_at_reveal_boundary_keeps_position[first_notice-tool]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stream_burst_at_reveal_boundary_keeps_position[second_notice-text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stream_burst_at_reveal_boundary_keeps_position[second_notice-tool]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stream_burst_at_reveal_boundary_keeps_position[consumption-text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stream_burst_at_reveal_boundary_keeps_position[consumption-tool]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stale_end_marker_cannot_undo_search_reveal[text-50]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_stale_end_marker_cannot_undo_search_reveal[tool-17]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_background_stream_survives_delayed_first_notice[text-50]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_background_stream_survives_delayed_first_notice[tool-17]"
+      ],
+      "counts": {
+        "tests/frontend/test_review_r219_fix10_view.py": {
+          "passed": 40
+        }
+      }
+    },
+    {
+      "name": "repeat-larger",
+      "queued": {
+        "queued": "2026-10-31T05:32:07.354172+00:00",
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "tests/frontend/test_review_r219_fix10_view.py",
+          "tests/frontend/test_review_r219_fix10_view.py",
+          "tests/frontend/test_review_r219_fix10_view.py",
+          "tests/frontend/test_review_r219_fix10_view.py",
+          "tests/frontend/test_review_r219_fix10_view.py",
+          "--keep-duplicates",
+          "-k",
+          "(test_document_shrink_under_a_pending_reveal_releases_nothing or test_document_shrink_after_a_distant_reveal_lands_releases) and larger_text"
+        ]
+      },
+      "start": {
+        "name": "repeat-larger",
+        "start": "2026-10-31T05:33:46.341792+00:00",
+        "load": [
+          31.04541015625,
+          30.96875,
+          27.54736328125
+        ],
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "tests/frontend/test_review_r219_fix10_view.py",
+          "tests/frontend/test_review_r219_fix10_view.py",
+          "tests/frontend/test_review_r219_fix10_view.py",
+          "tests/frontend/test_review_r219_fix10_view.py",
+          "tests/frontend/test_review_r219_fix10_view.py",
+          "--keep-duplicates",
+          "-k",
+          "(test_document_shrink_under_a_pending_reveal_releases_nothing or test_document_shrink_after_a_distant_reveal_lands_releases) and larger_text"
+        ],
+        "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+      },
+      "end": {
+        "end": "2026-10-31T05:37:21.226888+00:00",
+        "seconds": 214.8817849169991,
+        "returncode": 0,
+        "max_child_rss_bytes": 101187584
+      },
+      "process": {
+        "controller_pid": 14140,
+        "owned_process_group": 14155,
+        "started": "2026-10-31T05:32:07.356751+00:00",
+        "outside_lock": false
+      },
+      "process_ended": {
+        "at": "2026-10-31T05:37:22.587374+00:00",
+        "returncode": 0,
+        "owned_group_terminated_and_waited": true
+      },
+      "outside_lock": null,
+      "boundary": null,
+      "collection": [
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]",
+        "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]"
+      ],
+      "counts": {
+        "tests/frontend/test_review_r219_fix10_view.py": {
+          "passed": 10
+        }
+      }
+    },
+    {
+      "name": "pin-and-r2",
+      "queued": {
+        "queued": "2026-10-31T05:24:39.609345+00:00",
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "tests/frontend/test_review_pr284_pin.py",
+          "tests/frontend/test_review_pr284_r2.py",
+          "-s"
+        ]
+      },
+      "start": {
+        "name": "pin-and-r2",
+        "start": "2026-10-31T05:35:34.115372+00:00",
+        "load": [
+          36.88330078125,
+          33.228515625,
+          28.8486328125
+        ],
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "tests/frontend/test_review_pr284_pin.py",
+          "tests/frontend/test_review_pr284_r2.py",
+          "-s"
+        ],
+        "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+      },
+      "end": {
+        "end": "2026-10-31T05:39:19.104778+00:00",
+        "seconds": 224.98593308300042,
+        "returncode": 0,
+        "max_child_rss_bytes": 426688512
+      },
+      "process": {
+        "controller_pid": 15735,
+        "owned_process_group": 16008,
+        "started": "2026-10-31T05:24:39.615007+00:00",
+        "outside_lock": false
+      },
+      "process_ended": {
+        "at": "2026-10-31T05:39:19.586766+00:00",
+        "returncode": 0,
+        "owned_group_terminated_and_waited": true
+      },
+      "outside_lock": null,
+      "boundary": null,
+      "collection": [
+        "tests/frontend/test_review_pr284_pin.py::test_retained_request_callback_boundaries[True]",
+        "tests/frontend/test_review_pr284_pin.py::test_retained_request_callback_boundaries[False]",
+        "tests/frontend/test_review_pr284_pin.py::test_repeat_callbacks_coalesce_and_do_not_move_the_pin[True]",
+        "tests/frontend/test_review_pr284_pin.py::test_repeat_callbacks_coalesce_and_do_not_move_the_pin[False]",
+        "tests/frontend/test_review_pr284_pin.py::test_growth_after_person_input_and_a_quiet_send_is_pinned",
+        "tests/frontend/test_review_pr284_pin.py::test_conversation_change_cancels_the_landed_request[True]",
+        "tests/frontend/test_review_pr284_pin.py::test_conversation_change_cancels_the_landed_request[False]",
+        "tests/frontend/test_review_pr284_pin.py::test_production_sources_typecheck_without_view_test_names",
+        "tests/frontend/test_review_pr284_pin.py::test_identity_reset_mutant_is_rejected",
+        "tests/frontend/test_review_pr284_pin.py::test_queued_checks_read_the_current_requests[True]",
+        "tests/frontend/test_review_pr284_pin.py::test_queued_checks_read_the_current_requests[False]",
+        "tests/frontend/test_review_pr284_pin.py::test_conversation_change_cancels_the_pending_request[True]",
+        "tests/frontend/test_review_pr284_pin.py::test_conversation_change_cancels_the_pending_request[False]",
+        "tests/frontend/test_review_pr284_pin.py::test_pending_identity_gap_is_also_present_at_base",
+        "tests/frontend/test_review_pr284_pin.py::test_person_scroll_cancellation_mutant_is_rejected",
+        "tests/frontend/test_review_pr284_pin.py::test_quiet_landing_rule_rejects_a_measured_missed_growth",
+        "tests/frontend/test_review_pr284_pin.py::test_release_probe_counts_suspension_transitions",
+        "tests/frontend/test_review_pr284_pin.py::test_release_probe_keeps_state_across_the_cutoff[0-expected0]",
+        "tests/frontend/test_review_pr284_pin.py::test_release_probe_keeps_state_across_the_cutoff[1-expected1]",
+        "tests/frontend/test_review_pr284_pin.py::test_release_probe_keeps_state_across_the_cutoff[2-expected2]",
+        "tests/frontend/test_review_pr284_pin.py::test_release_probe_keeps_state_across_the_cutoff[3-expected3]",
+        "tests/frontend/test_review_pr284_pin.py::test_release_probe_keeps_state_across_the_cutoff[6-expected4]",
+        "tests/frontend/test_review_pr284_r2.py::test_roundtrip_drops_old_requests_and_lands_new_ones[True]",
+        "tests/frontend/test_review_pr284_r2.py::test_roundtrip_drops_old_requests_and_lands_new_ones[False]",
+        "tests/frontend/test_review_pr284_r2.py::test_new_reveals_end_old_watches_and_queued_work_uses_b[True]",
+        "tests/frontend/test_review_pr284_r2.py::test_new_reveals_end_old_watches_and_queued_work_uses_b[False]",
+        "tests/frontend/test_review_pr284_r2.py::test_reveal_range_rejects_counts_outside_the_scene[0]",
+        "tests/frontend/test_review_pr284_r2.py::test_reveal_range_rejects_counts_outside_the_scene[4]",
+        "tests/frontend/test_review_pr284_r2.py::test_reveal_range_does_not_accept_a_reveal_that_never_lands",
+        "tests/frontend/test_review_pr284_r2.py::test_release_counter_detects_a_second_transition_and_ignores_initial_resumed",
+        "tests/frontend/test_review_pr284_r2.py::test_pending_behavior_rejects_a_second_release_and_initially_resumed_malformed_trace",
+        "tests/frontend/test_review_pr284_r2.py::test_landed_behavior_requires_a_transition_even_if_the_trace_starts_resumed",
+        "tests/frontend/test_review_pr284_r2.py::test_delayed_row_presentation_can_require_a_fourth_attempt[True]",
+        "tests/frontend/test_review_pr284_r2.py::test_delayed_row_presentation_can_require_a_fourth_attempt[False]",
+        "tests/frontend/test_review_pr284_r2.py::test_landed_replay_is_not_a_search_repetition_guard"
+      ],
+      "counts": {
+        "tests/frontend/test_review_pr284_pin.py": {
+          "passed": 21,
+          "xfailed": 1
+        },
+        "tests/frontend/test_review_pr284_r2.py": {
+          "passed": 13
+        }
+      }
+    },
+    {
+      "name": "guards",
+      "queued": {
+        "queued": "2026-10-31T05:22:32.311158+00:00",
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "tests/fake/test_state_contract.py",
+          "tests/unit/test_test_module_names.py",
+          "tests/unit/test_invariants_index.py"
+        ]
+      },
+      "start": {
+        "name": "guards",
+        "start": "2026-10-31T05:39:12.033545+00:00",
+        "load": [
+          32.72314453125,
+          32.5576171875,
+          29.53271484375
+        ],
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "tests/fake/test_state_contract.py",
+          "tests/unit/test_test_module_names.py",
+          "tests/unit/test_invariants_index.py"
+        ],
+        "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+      },
+      "end": {
+        "end": "2026-10-31T05:39:49.153294+00:00",
+        "seconds": 37.119200457998886,
+        "returncode": 0,
+        "max_child_rss_bytes": 6963200
+      },
+      "process": {
+        "controller_pid": 83488,
+        "owned_process_group": 83616,
+        "started": "2026-10-31T05:22:32.315618+00:00",
+        "outside_lock": false
+      },
+      "process_ended": {
+        "at": "2026-10-31T05:39:50.275132+00:00",
+        "returncode": 0,
+        "owned_group_terminated_and_waited": true
+      },
+      "outside_lock": null,
+      "boundary": null,
+      "collection": [
+        "tests/fake/test_state_contract.py::test_c6_2_state_submission_deduplicates_and_rejects_digest_conflicts",
+        "tests/fake/test_state_contract.py::test_c6_2_state_concurrent_duplicate_requests_create_one_job",
+        "tests/fake/test_state_contract.py::test_c6_4_a_parent_has_no_child_budget_unless_a_policy_sets_one",
+        "tests/fake/test_state_contract.py::test_c7_3_a_family_cancel_has_one_instant_however_slow_the_clock",
+        "tests/fake/test_state_contract.py::test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches",
+        "tests/fake/test_state_contract.py::test_c15_1_state_terminal_and_notice_roll_back_together",
+        "tests/fake/test_state_contract.py::test_c15_3_state_notice_ack_is_session_scoped_and_show_is_read_only",
+        "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[sandbox-unrestricted-2]",
+        "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[allow_tmp-False-7]",
+        "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[prompt_path-/a-nonexistent-subfleet-test-prompt-2]",
+        "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[out_path-/a-nonexistent-subfleet-test-directory/result-2]",
+        "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[pinned_model-no-such-model-7]",
+        "tests/fake/test_state_contract.py::test_c5_8_state_exclusive_flock_and_reacquisition",
+        "tests/fake/test_state_contract.py::test_c16_1_state_socket_handler_recovers_after_malformed_line",
+        "tests/fake/test_state_contract.py::test_c6_3_state_concurrent_submit_admission_owns_one_slot",
+        "tests/fake/test_state_contract.py::test_c4_2_state_reserved_recovery_releases_and_retries",
+        "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[False]",
+        "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[True]",
+        "tests/fake/test_state_contract.py::test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace",
+        "tests/fake/test_state_contract.py::test_c4_4_state_missing_exit_receipt_never_accepts_success",
+        "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[False]",
+        "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[True]",
+        "tests/fake/test_state_contract.py::test_c4_3_state_acceptance_and_notice_share_one_transaction",
+        "tests/fake/test_state_contract.py::test_c8_2_state_deliverable_is_frozen_during_finalization_replay",
+        "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[prompt]",
+        "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[manifest]",
+        "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[deliverable]",
+        "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[export]",
+        "tests/fake/test_state_contract.py::test_c8_3_state_export_recovery_publishes_after_terminal_commit",
+        "tests/fake/test_state_contract.py::test_c5_6_state_kill_escalation_signals_only_owned_survivors",
+        "tests/fake/test_state_contract.py::test_c5_7_state_quarantine_confirm_dead_requires_empty_and_override_is_audited",
+        "tests/fake/test_state_contract.py::test_c8_1_state_deliverable_and_export_sync_before_and_after_rename",
+        "tests/fake/test_state_contract.py::test_c8_3_state_concurrent_export_workers_publish_once",
+        "tests/fake/test_state_contract.py::test_c8_3_state_stale_failed_export_cannot_overwrite_a_new_owner",
+        "tests/fake/test_state_contract.py::test_c4_5_state_limited_retry_moves_to_next_lane_and_records_clock",
+        "tests/fake/test_state_contract.py::test_c4_5_state_transient_retries_same_lane_once_then_another",
+        "tests/fake/test_state_contract.py::test_c6_4_state_wall_does_not_cancel_a_held_retry",
+        "tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own",
+        "tests/unit/test_invariants_index.py::test_index_is_a_json_array_of_objects",
+        "tests/unit/test_invariants_index.py::test_every_ledger_row_is_adjudicated",
+        "tests/unit/test_invariants_index.py::test_ids_are_unique_and_complete",
+        "tests/unit/test_invariants_index.py::test_rows_are_in_ledger_order",
+        "tests/unit/test_invariants_index.py::test_every_row_has_every_field",
+        "tests/unit/test_invariants_index.py::test_dispositions_are_in_the_allowed_set",
+        "tests/unit/test_invariants_index.py::test_classes_match_the_ledger_vocabulary",
+        "tests/unit/test_invariants_index.py::test_replaced_rows_name_their_replacement",
+        "tests/unit/test_invariants_index.py::test_dropped_rows_give_a_reason",
+        "tests/unit/test_invariants_index.py::test_kept_and_replaced_rows_name_a_clause",
+        "tests/unit/test_invariants_index.py::test_no_row_is_left_unresolved",
+        "tests/unit/test_invariants_index.py::test_every_cited_contract_clause_exists",
+        "tests/unit/test_invariants_index.py::test_every_cited_proposal_is_defined",
+        "tests/unit/test_invariants_index.py::test_no_proposal_is_orphaned",
+        "tests/unit/test_invariants_index.py::test_proposals_and_index_agree_on_which_rows_each_covers",
+        "tests/unit/test_invariants_index.py::test_proposals_are_numbered_from_one_without_gaps",
+        "tests/unit/test_invariants_index.py::test_every_proposal_names_an_owner_and_a_module",
+        "tests/unit/test_invariants_index.py::test_the_proposed_rows_are_the_ninety_two",
+        "tests/unit/test_invariants_index.py::test_dropped_rows_do_not_claim_a_clause",
+        "tests/unit/test_invariants_index.py::test_surviving_rows_name_an_acceptance_owner",
+        "tests/unit/test_invariants_index.py::test_dropped_rows_carry_no_owner_module_or_test",
+        "tests/unit/test_invariants_index.py::test_test_names_are_unique",
+        "tests/unit/test_invariants_index.py::test_mandated_dispositions_hold",
+        "tests/unit/test_invariants_index.py::test_markdown_table_and_json_agree",
+        "tests/unit/test_invariants_index.py::test_ledger_still_has_two_hundred_and_twenty_rows"
+      ],
+      "counts": {
+        "tests/fake/test_state_contract.py": {
+          "passed": 37
+        },
+        "tests/unit/test_test_module_names.py": {
+          "passed": 1
+        },
+        "tests/unit/test_invariants_index.py": {
+          "passed": 25
+        }
+      }
+    },
+    {
+      "name": "fix8-view",
+      "queued": {
+        "queued": "2026-10-31T05:37:23.525194+00:00",
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "tests/frontend/test_review_r219_fix8_view.py"
+        ]
+      },
+      "start": {
+        "name": "fix8-view",
+        "start": "2026-10-31T05:48:52.881552+00:00",
+        "load": [
+          30.74462890625,
+          31.3896484375,
+          30.14697265625
+        ],
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "tests/frontend/test_review_r219_fix8_view.py"
+        ],
+        "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+      },
+      "end": {
+        "end": "2026-10-31T05:50:29.776729+00:00",
+        "seconds": 96.89369329200053,
+        "returncode": 0,
+        "max_child_rss_bytes": 110575616
+      },
+      "process": {
+        "controller_pid": 95945,
+        "owned_process_group": 96068,
+        "started": "2026-10-31T05:37:23.541413+00:00",
+        "outside_lock": false
+      },
+      "process_ended": {
+        "at": "2026-10-31T05:50:30.301505+00:00",
+        "returncode": 0,
+        "owned_group_terminated_and_waited": true
+      },
+      "outside_lock": null,
+      "boundary": null,
+      "collection": [
+        "tests/frontend/test_review_r219_fix8_view.py::test_tray_reveal_keeps_following_two_40_line_streams",
+        "tests/frontend/test_review_r219_fix8_view.py::test_timeline_reveal_leaving_end_visible_keeps_follow",
+        "tests/frontend/test_review_r219_fix8_view.py::test_tray_reveal_during_ten_catchup_pages_keeps_open_at_end",
+        "tests/frontend/test_review_r219_fix8_view.py::test_continuous_rows_reveal_at_most_twice[busy_200ms]",
+        "tests/frontend/test_review_r219_fix8_view.py::test_continuous_rows_reveal_at_most_twice[busy_400ms]",
+        "tests/frontend/test_review_r219_fix8_view.py::test_one_reveal_pair_for_bounded_row_schedules"
+      ],
+      "counts": {
+        "tests/frontend/test_review_r219_fix8_view.py": {
+          "passed": 6
+        }
+      }
+    },
+    {
+      "name": "resizes",
+      "queued": {
+        "queued": "2026-10-31T05:50:30.579418+00:00",
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "tests/frontend/test_review_pr284_resizes.py",
+          "-s"
+        ]
+      },
+      "start": {
+        "name": "resizes",
+        "start": "2026-10-31T05:54:40.202458+00:00",
+        "load": [
+          27.115234375,
+          28.52001953125,
+          29.22705078125
+        ],
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "tests/frontend/test_review_pr284_resizes.py",
+          "-s"
+        ],
+        "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+      },
+      "end": {
+        "end": "2026-10-31T06:00:46.521178+00:00",
+        "seconds": 366.30643229199995,
+        "returncode": 0,
+        "max_child_rss_bytes": 1305722880
+      },
+      "process": {
+        "controller_pid": 80961,
+        "owned_process_group": 81029,
+        "started": "2026-10-31T05:50:30.581405+00:00",
+        "outside_lock": false
+      },
+      "process_ended": {
+        "at": "2026-10-31T06:00:47.929604+00:00",
+        "returncode": 0,
+        "owned_group_terminated_and_waited": true
+      },
+      "outside_lock": null,
+      "boundary": null,
+      "collection": [
+        "tests/frontend/test_review_pr284_resizes.py::test_base_pin_resize_schedule_exposes_the_landed_race",
+        "tests/frontend/test_review_pr284_resizes.py::test_generated_property_rejects_dropping_the_landed_request",
+        "tests/frontend/test_review_pr284_resizes.py::test_scripted_growth_control_passes_repeatedly",
+        "tests/frontend/test_review_pr284_resizes.py::test_pending_attempt2_capture_needs_geometry_and_keeps_suspension",
+        "tests/frontend/test_review_pr284_resizes.py::test_landed_replay_accepts_each_permitted_reveal_count[1]",
+        "tests/frontend/test_review_pr284_resizes.py::test_landed_replay_accepts_each_permitted_reveal_count[2]",
+        "tests/frontend/test_review_pr284_resizes.py::test_landed_replay_accepts_each_permitted_reveal_count[3]",
+        "tests/frontend/test_review_pr284_resizes.py::test_landed_replay_requires_a_reveal"
+      ],
+      "counts": {
+        "tests/frontend/test_review_pr284_resizes.py": {
+          "passed": 8
+        }
+      }
+    },
+    {
+      "name": "identity-replay-diagnostics",
+      "queued": {
+        "queued": "2026-10-31T06:14:30.239838+00:00",
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "-p",
+          "tests.conftest",
+          "docs/reports/qt-larger-text-review-r2/diagnostics.py",
+          "-s",
+          "-k",
+          "not six_release_sensitive"
+        ]
+      },
+      "start": {
+        "name": "identity-replay-diagnostics",
+        "start": "2026-10-31T06:15:32.134316+00:00",
+        "load": [
+          29.990234375,
+          31.88427734375,
+          31.99658203125
+        ],
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "-p",
+          "tests.conftest",
+          "docs/reports/qt-larger-text-review-r2/diagnostics.py",
+          "-s",
+          "-k",
+          "not six_release_sensitive"
+        ],
+        "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+      },
+      "end": {
+        "end": "2026-10-31T06:27:26.263454+00:00",
+        "seconds": 714.116577625,
+        "returncode": 0,
+        "max_child_rss_bytes": 1329496064
+      },
+      "process": {
+        "controller_pid": 27987,
+        "owned_process_group": 28267,
+        "started": "2026-10-31T06:14:30.264405+00:00",
+        "outside_lock": false
+      },
+      "process_ended": {
+        "at": "2026-10-31T06:27:28.385977+00:00",
+        "returncode": 0,
+        "owned_group_terminated_and_waited": true
+      },
+      "outside_lock": null,
+      "boundary": null,
+      "collection": [
+        "docs/reports/qt-larger-text-review-r2/diagnostics.py::test_navigation_drops_a_pending_reveal_without_suspending_b",
+        "docs/reports/qt-larger-text-review-r2/diagnostics.py::test_native_two_reveal_landing_and_real_release_count",
+        "docs/reports/qt-larger-text-review-r2/diagnostics.py::test_saved_attempt2_old_and_new_helpers",
+        "docs/reports/qt-larger-text-review-r2/diagnostics.py::test_navigation_change_reveal_shrink_orders[change,reveal,shrink]",
+        "docs/reports/qt-larger-text-review-r2/diagnostics.py::test_navigation_change_reveal_shrink_orders[change,shrink,reveal]",
+        "docs/reports/qt-larger-text-review-r2/diagnostics.py::test_navigation_change_reveal_shrink_orders[reveal,change,shrink]",
+        "docs/reports/qt-larger-text-review-r2/diagnostics.py::test_navigation_change_reveal_shrink_orders[reveal,shrink,change]",
+        "docs/reports/qt-larger-text-review-r2/diagnostics.py::test_navigation_change_reveal_shrink_orders[shrink,change,reveal]",
+        "docs/reports/qt-larger-text-review-r2/diagnostics.py::test_navigation_change_reveal_shrink_orders[shrink,reveal,change]"
+      ],
+      "counts": {
+        "docs/reports/qt-larger-text-review-r2/diagnostics.py": {
+          "passed": 9
+        }
+      }
+    },
+    {
+      "name": "round7-marker",
+      "queued": {
+        "queued": "2026-10-31T06:00:48.064105+00:00",
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "tests/frontend/test_review_r219_fix8_mutations.py",
+          "-k",
+          "round7 and marker_releases_pending_reveal",
+          "-s"
+        ]
+      },
+      "start": {
+        "name": "round7-marker",
+        "start": "2026-10-31T06:18:54.361183+00:00",
+        "load": [
+          31.98388671875,
+          32.0048828125,
+          32.00146484375
+        ],
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "tests/frontend/test_review_r219_fix8_mutations.py",
+          "-k",
+          "round7 and marker_releases_pending_reveal",
+          "-s"
+        ],
+        "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+      },
+      "end": {
+        "end": "2026-10-31T06:23:24.747674+00:00",
+        "seconds": 270.38175362499896,
+        "returncode": 0,
+        "max_child_rss_bytes": 1284653056
+      },
+      "process": {
+        "controller_pid": 34294,
+        "owned_process_group": 34316,
+        "started": "2026-10-31T06:00:48.074580+00:00",
+        "outside_lock": false
+      },
+      "process_ended": {
+        "at": "2026-10-31T06:23:25.818224+00:00",
+        "returncode": 0,
+        "owned_group_terminated_and_waited": true
+      },
+      "outside_lock": null,
+      "boundary": null,
+      "collection": [
+        "tests/frontend/test_review_r219_fix8_mutations.py::test_round7_mutation_fails_its_named_regression[marker_releases_pending_reveal]"
+      ],
+      "counts": {
+        "tests/frontend/test_review_r219_fix8_mutations.py": {
+          "passed": 1
+        }
+      }
+    },
+    {
+      "name": "round7-distance",
+      "queued": {
+        "queued": "2026-10-31T06:23:26.165009+00:00",
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "tests/frontend/test_review_r219_fix8_mutations.py",
+          "-k",
+          "round7 and confirm_by_distance_only",
+          "-s"
+        ]
+      },
+      "start": {
+        "name": "round7-distance",
+        "start": "2026-10-31T06:23:32.651205+00:00",
+        "load": [
+          42.072265625,
+          37.3369140625,
+          34.275390625
+        ],
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "tests/frontend/test_review_r219_fix8_mutations.py",
+          "-k",
+          "round7 and confirm_by_distance_only",
+          "-s"
+        ],
+        "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+      },
+      "end": {
+        "end": "2026-10-31T06:31:28.085462+00:00",
+        "seconds": 475.4697264999995,
+        "returncode": 0,
+        "max_child_rss_bytes": 1289256960
+      },
+      "process": {
+        "controller_pid": 51740,
+        "owned_process_group": 51820,
+        "started": "2026-10-31T06:23:26.185603+00:00",
+        "outside_lock": false
+      },
+      "process_ended": {
+        "at": "2026-10-31T06:31:30.009368+00:00",
+        "returncode": 0,
+        "owned_group_terminated_and_waited": true
+      },
+      "outside_lock": null,
+      "boundary": null,
+      "collection": [
+        "tests/frontend/test_review_r219_fix8_mutations.py::test_round7_mutation_fails_its_named_regression[confirm_by_distance_only]"
+      ],
+      "counts": {
+        "tests/frontend/test_review_r219_fix8_mutations.py": {
+          "passed": 1
+        }
+      }
+    },
+    {
+      "name": "round7-never-lands",
+      "queued": {
+        "queued": "2026-10-31T06:31:30.395059+00:00",
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "tests/frontend/test_review_r219_fix8_mutations.py",
+          "-k",
+          "round7 and reveal_never_lands",
+          "-s"
+        ]
+      },
+      "start": {
+        "name": "round7-never-lands",
+        "start": "2026-10-31T06:31:38.001027+00:00",
+        "load": [
+          35.72314453125,
+          34.07763671875,
+          33.71630859375
+        ],
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "tests/frontend/test_review_r219_fix8_mutations.py",
+          "-k",
+          "round7 and reveal_never_lands",
+          "-s"
+        ],
+        "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+      },
+      "end": {
+        "end": "2026-10-31T06:35:29.810103+00:00",
+        "seconds": 231.80793708300007,
+        "returncode": 0,
+        "max_child_rss_bytes": 1290895360
+      },
+      "process": {
+        "controller_pid": 65391,
+        "owned_process_group": 65397,
+        "started": "2026-10-31T06:31:30.401948+00:00",
+        "outside_lock": false
+      },
+      "process_ended": {
+        "at": "2026-10-31T06:35:30.652091+00:00",
+        "returncode": 0,
+        "owned_group_terminated_and_waited": true
+      },
+      "outside_lock": null,
+      "boundary": null,
+      "collection": [
+        "tests/frontend/test_review_r219_fix8_mutations.py::test_round7_mutation_fails_its_named_regression[reveal_never_lands]"
+      ],
+      "counts": {
+        "tests/frontend/test_review_r219_fix8_mutations.py": {
+          "passed": 1
+        }
+      }
+    },
+    {
+      "name": "round7-larger",
+      "queued": {
+        "queued": "2026-10-31T06:35:31.155066+00:00",
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "tests/frontend/test_review_r219_fix8_mutations.py",
+          "-k",
+          "round7",
+          "-s"
+        ]
+      },
+      "start": {
+        "name": "round7-larger",
+        "start": "2026-10-31T06:39:23.857156+00:00",
+        "load": [
+          36.693359375,
+          36.40625,
+          35.14111328125
+        ],
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "tests/frontend/test_review_r219_fix8_mutations.py",
+          "-k",
+          "round7",
+          "-s"
+        ],
+        "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+      },
+      "end": {
+        "end": "2026-10-31T06:40:24.726099+00:00",
+        "seconds": 60.86866787500003,
+        "returncode": 0,
+        "max_child_rss_bytes": 101564416
+      },
+      "process": {
+        "controller_pid": 74894,
+        "owned_process_group": 74959,
+        "started": "2026-10-31T06:35:31.161788+00:00",
+        "outside_lock": false
+      },
+      "process_ended": {
+        "at": "2026-10-31T06:40:25.606698+00:00",
+        "returncode": 0,
+        "owned_group_terminated_and_waited": true
+      },
+      "outside_lock": null,
+      "boundary": null,
+      "collection": [
+        "tests/frontend/test_review_r219_fix8_mutations.py::test_round7_mutation_fails_its_named_regression[marker_releases_pending_reveal]",
+        "tests/frontend/test_review_r219_fix8_mutations.py::test_round7_mutation_fails_its_named_regression[confirm_by_distance_only]",
+        "tests/frontend/test_review_r219_fix8_mutations.py::test_round7_mutation_fails_its_named_regression[reveal_never_lands]"
+      ],
+      "counts": {
+        "tests/frontend/test_review_r219_fix8_mutations.py": {
+          "passed": 3
+        }
+      }
+    },
+    {
+      "name": "round10-quiet",
+      "queued": {
+        "queued": "2026-10-31T06:40:26.221300+00:00",
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "tests/frontend/test_review_r219_fix8_mutations.py",
+          "-k",
+          "test_round10_mutation_fails_its_named_regression and quiet_landing_ends_following",
+          "-s"
+        ]
+      },
+      "start": {
+        "name": "round10-quiet",
+        "start": "2026-10-31T06:40:33.018567+00:00",
+        "load": [
+          33.8037109375,
+          35.82470703125,
+          35.0341796875
+        ],
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "tests/frontend/test_review_r219_fix8_mutations.py",
+          "-k",
+          "test_round10_mutation_fails_its_named_regression and quiet_landing_ends_following",
+          "-s"
+        ],
+        "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+      },
+      "end": {
+        "end": "2026-10-31T06:44:26.789923+00:00",
+        "seconds": 233.77022266600034,
+        "returncode": 0,
+        "max_child_rss_bytes": 1296220160
+      },
+      "process": {
+        "controller_pid": 49221,
+        "owned_process_group": 49302,
+        "started": "2026-10-31T06:40:26.225445+00:00",
+        "outside_lock": false
+      },
+      "process_ended": {
+        "at": "2026-10-31T06:44:27.530193+00:00",
+        "returncode": 0,
+        "owned_group_terminated_and_waited": true
+      },
+      "outside_lock": null,
+      "boundary": null,
+      "collection": [
+        "tests/frontend/test_review_r219_fix8_mutations.py::test_round10_mutation_fails_its_named_regression[quiet_landing_ends_following-quiet-regrow]",
+        "tests/frontend/test_review_r219_fix8_mutations.py::test_round10_mutation_fails_its_named_regression[quiet_landing_ends_following-quiet-regrow-natural]",
+        "tests/frontend/test_review_r219_fix8_mutations.py::test_round10_mutation_fails_its_named_regression[quiet_landing_ends_following-quiet-regrow-late]"
+      ],
+      "counts": {
+        "tests/frontend/test_review_r219_fix8_mutations.py": {
+          "passed": 3
+        }
+      }
+    },
+    {
+      "name": "round10-growth",
+      "queued": {
+        "queued": "2026-10-31T06:44:27.855554+00:00",
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "tests/frontend/test_review_r219_fix8_mutations.py",
+          "-k",
+          "growth_repins_dropped or test_scripted_regrow_then_shrink_reaches_the_growth_mutant_check",
+          "-s"
+        ]
+      },
+      "start": {
+        "name": "round10-growth",
+        "start": "2026-10-31T06:44:32.989681+00:00",
+        "load": [
+          38.48876953125,
+          37.052734375,
+          35.6953125
+        ],
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "tests/frontend/test_review_r219_fix8_mutations.py",
+          "-k",
+          "growth_repins_dropped or test_scripted_regrow_then_shrink_reaches_the_growth_mutant_check",
+          "-s"
+        ],
+        "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+      },
+      "end": {
+        "end": "2026-10-31T06:47:15.040337+00:00",
+        "seconds": 162.04986699999972,
+        "returncode": 0,
+        "max_child_rss_bytes": 1291354112
+      },
+      "process": {
+        "controller_pid": 94481,
+        "owned_process_group": 94505,
+        "started": "2026-10-31T06:44:27.860607+00:00",
+        "outside_lock": false
+      },
+      "process_ended": {
+        "at": "2026-10-31T06:47:17.153638+00:00",
+        "returncode": 0,
+        "owned_group_terminated_and_waited": true
+      },
+      "outside_lock": null,
+      "boundary": null,
+      "collection": [
+        "tests/frontend/test_review_r219_fix8_mutations.py::test_scripted_regrow_then_shrink_reaches_the_growth_mutant_check",
+        "tests/frontend/test_review_r219_fix8_mutations.py::test_round10_mutation_fails_its_named_regression[growth_repins_dropped-quiet-regrow]"
+      ],
+      "counts": {
+        "tests/frontend/test_review_r219_fix8_mutations.py": {
+          "passed": 2
+        }
+      }
+    },
+    {
+      "name": "round10-window",
+      "queued": {
+        "queued": "2026-10-31T06:47:17.408168+00:00",
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "tests/frontend/test_review_r219_fix8_mutations.py",
+          "-k",
+          "test_round10_mutation_fails_its_named_regression and quiet_window_0ms",
+          "-s"
+        ]
+      },
+      "start": {
+        "name": "round10-window",
+        "start": "2026-10-31T06:47:22.547458+00:00",
+        "load": [
+          39.236328125,
+          37.68896484375,
+          36.18798828125
+        ],
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "tests/frontend/test_review_r219_fix8_mutations.py",
+          "-k",
+          "test_round10_mutation_fails_its_named_regression and quiet_window_0ms",
+          "-s"
+        ],
+        "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+      },
+      "end": {
+        "end": "2026-10-31T06:50:59.665425+00:00",
+        "seconds": 217.116908375001,
+        "returncode": 0,
+        "max_child_rss_bytes": 1290764288
+      },
+      "process": {
+        "controller_pid": 22450,
+        "owned_process_group": 22466,
+        "started": "2026-10-31T06:47:17.420064+00:00",
+        "outside_lock": false
+      },
+      "process_ended": {
+        "at": "2026-10-31T06:51:01.439255+00:00",
+        "returncode": 0,
+        "owned_group_terminated_and_waited": true
+      },
+      "outside_lock": null,
+      "boundary": null,
+      "collection": [
+        "tests/frontend/test_review_r219_fix8_mutations.py::test_round10_mutation_fails_its_named_regression[quiet_window_0ms-stale-glide]"
+      ],
+      "counts": {
+        "tests/frontend/test_review_r219_fix8_mutations.py": {
+          "passed": 1
+        }
+      }
+    },
+    {
+      "name": "diagnostics",
+      "queued": {
+        "queued": "2026-10-31T06:51:01.767928+00:00",
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "-p",
+          "tests.conftest",
+          "docs/reports/qt-larger-text-review-r2/diagnostics.py",
+          "-s",
+          "-k",
+          "six_release_sensitive"
+        ]
+      },
+      "start": {
+        "name": "diagnostics",
+        "start": "2026-10-31T06:51:04.992576+00:00",
+        "load": [
+          40.84130859375,
+          38.8193359375,
+          36.96044921875
+        ],
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "-p",
+          "tests.conftest",
+          "docs/reports/qt-larger-text-review-r2/diagnostics.py",
+          "-s",
+          "-k",
+          "six_release_sensitive"
+        ],
+        "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+      },
+      "end": {
+        "end": "2026-10-31T06:51:17.944792+00:00",
+        "seconds": 12.952178667001135,
+        "returncode": 0,
+        "max_child_rss_bytes": 0
+      },
+      "process": {
+        "controller_pid": 82526,
+        "owned_process_group": 82557,
+        "started": "2026-10-31T06:51:01.774569+00:00",
+        "outside_lock": false
+      },
+      "process_ended": {
+        "at": "2026-10-31T06:51:19.647243+00:00",
+        "returncode": 0,
+        "owned_group_terminated_and_waited": true
+      },
+      "outside_lock": null,
+      "boundary": null,
+      "collection": [
+        "docs/reports/qt-larger-text-review-r2/diagnostics.py::test_six_release_sensitive_mutant_runs_failed_for_measured_behavior"
+      ],
+      "counts": {
+        "docs/reports/qt-larger-text-review-r2/diagnostics.py": {
+          "passed": 1
+        }
+      }
+    },
+    {
+      "name": "quiet-forced",
+      "queued": {
+        "queued": "2026-10-31T06:51:19.945054+00:00",
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "tests/frontend/test_review_pr284_pin.py::test_quiet_landing_rule_rejects_a_measured_missed_growth",
+          "--runxfail",
+          "-s"
+        ]
+      },
+      "start": {
+        "name": "quiet-forced",
+        "start": "2026-10-31T06:51:23.164533+00:00",
+        "load": [
+          39.49267578125,
+          38.650390625,
+          36.94287109375
+        ],
+        "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+        "args": [
+          "tests/frontend/test_review_pr284_pin.py::test_quiet_landing_rule_rejects_a_measured_missed_growth",
+          "--runxfail",
+          "-s"
+        ],
+        "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+      },
+      "end": {
+        "end": "2026-10-31T06:51:54.239106+00:00",
+        "seconds": 31.07444504200248,
+        "returncode": 1,
+        "max_child_rss_bytes": 302776320
+      },
+      "process": {
+        "controller_pid": 84842,
+        "owned_process_group": 84892,
+        "started": "2026-10-31T06:51:19.950026+00:00",
+        "outside_lock": false
+      },
+      "process_ended": {
+        "at": "2026-10-31T06:51:55.276295+00:00",
+        "returncode": 1,
+        "owned_group_terminated_and_waited": true
+      },
+      "outside_lock": null,
+      "boundary": null,
+      "collection": [
+        "tests/frontend/test_review_pr284_pin.py::test_quiet_landing_rule_rejects_a_measured_missed_growth"
+      ],
+      "counts": {
+        "tests/frontend/test_review_pr284_pin.py": {
+          "failed": 1
+        }
+      }
+    }
+  ],
+  "counts_per_file": {
+    "tests/frontend/test_review_r219_fix8_mutations.py": {
+      "passed": 12
+    },
+    "docs/reports/qt-larger-text-review-r2/diagnostics.py": {
+      "passed": 10
+    },
+    "tests/fake/test_state_contract.py": {
+      "passed": 37
+    },
+    "tests/unit/test_test_module_names.py": {
+      "passed": 1
+    },
+    "tests/unit/test_invariants_index.py": {
+      "passed": 25
+    },
+    "tests/frontend/test_review_pr284_pin.py": {
+      "passed": 21,
+      "xfailed": 1,
+      "failed": 1
+    },
+    "tests/frontend/test_review_pr284_r2.py": {
+      "passed": 13
+    },
+    "tests/frontend/test_review_pr284_resizes.py": {
+      "passed": 8
+    },
+    "tests/frontend/test_review_r219_fix8_view.py": {
+      "passed": 6
+    },
+    "tests/frontend/test_review_r219_fix10_view.py": {
+      "passed": 50
+    }
+  },
+  "native_files": [
+    "docs/reports/qt-larger-text-review-r2/native/identity-replay-diagnostics/test_native_two_reveal_landing0/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/round7-marker/test_round7_mutation_fails_its0/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/repeat-larger/test_document_shrink_under_a_p1/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/repeat-larger/test_document_shrink_under_a_p0/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/repeat-larger/test_document_shrink_after_a_d2/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/repeat-larger/test_document_shrink_after_a_d3/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/repeat-larger/test_document_shrink_after_a_d4/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/repeat-larger/test_document_shrink_under_a_p2/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/repeat-larger/test_document_shrink_under_a_p3/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/repeat-larger/test_document_shrink_under_a_p4/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/repeat-larger/test_document_shrink_after_a_d1/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/repeat-larger/test_document_shrink_after_a_d0/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/round10-growth/test_scripted_regrow_then_shri0/resize-result.json",
+    "docs/reports/qt-larger-text-review-r2/native/round10-growth/test_scripted_regrow_then_shri0/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/round10-growth/test_round10_mutation_fails_it0/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/round10-growth/test_round10_mutation_fails_it0/resize-result.json",
+    "docs/reports/qt-larger-text-review-r2/native/round10-growth/test_round10_mutation_fails_it0/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/test_document_shrink_under_a_p1/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/test_document_shrink_under_a_p0/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/test_focused_50ms_probe_lands_0/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/test_stale_end_marker_cannot_u1/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/test_stale_end_marker_cannot_u0/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/test_scripted_document_resizes0/resize-result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/test_scripted_document_resizes0/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/test_scripted_document_resizes1/resize-result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/test_scripted_document_resizes1/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/resize-property9/resize-result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/resize-property9/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/resize-property0/resize-result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/resize-property0/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/resize-property7/resize-result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/resize-property7/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/resize-property6/resize-result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/resize-property6/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/resize-property1/resize-result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/resize-property1/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/fix10-distant0/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/resize-property8/resize-result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/resize-property8/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/test_background_stream_survive1/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/test_background_checks_reject_0/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/test_background_stream_survive0/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/test_completion_before_scroll_0/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/test_document_shrink_after_a_d1/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/test_scripted_growth_is_follow0/resize-result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/test_scripted_growth_is_follow0/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/test_document_shrink_after_a_d0/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/resize-property10/resize-result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/resize-property10/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/resize-property4/resize-result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/resize-property4/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/resize-property3/resize-result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/resize-property3/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/test_person_scroll_to_the_end_0/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/resize-property2/resize-result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/resize-property2/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/resize-property5/resize-result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/resize-property5/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/resize-property11/resize-result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/resize-property11/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix10-whole/fix10-streaming0/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/round10-window/test_round10_mutation_fails_it0/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/resizes/resize-property0/resize-result.json",
+    "docs/reports/qt-larger-text-review-r2/native/resizes/resize-property0/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/resizes/resize-property1/resize-result.json",
+    "docs/reports/qt-larger-text-review-r2/native/resizes/resize-property1/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/resizes/resize-property2/resize-result.json",
+    "docs/reports/qt-larger-text-review-r2/native/resizes/resize-property2/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/resizes/test_scripted_growth_control_p0/0/resize-result.json",
+    "docs/reports/qt-larger-text-review-r2/native/resizes/test_scripted_growth_control_p0/0/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/resizes/test_scripted_growth_control_p0/1/resize-result.json",
+    "docs/reports/qt-larger-text-review-r2/native/resizes/test_scripted_growth_control_p0/1/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/resizes/test_scripted_growth_control_p0/2/resize-result.json",
+    "docs/reports/qt-larger-text-review-r2/native/resizes/test_scripted_growth_control_p0/2/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/resizes/test_base_pin_resize_schedule_0/marker-reader/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/resizes/test_base_pin_resize_schedule_0/growth/resize-result.json",
+    "docs/reports/qt-larger-text-review-r2/native/resizes/test_base_pin_resize_schedule_0/growth/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/resizes/test_base_pin_resize_schedule_0/landed/resize-result.json",
+    "docs/reports/qt-larger-text-review-r2/native/resizes/test_base_pin_resize_schedule_0/landed/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/resizes/test_base_pin_resize_schedule_0/pending/resize-result.json",
+    "docs/reports/qt-larger-text-review-r2/native/resizes/test_base_pin_resize_schedule_0/pending/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix8-view/fix8-view0/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix8-view/fix8-arrivals12/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix8-view/fix8-arrivals12/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix8-view/fix8-arrivals1/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix8-view/fix8-arrivals1/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix8-view/fix8-arrivals6/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix8-view/fix8-arrivals6/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix8-view/fix8-arrivals8/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix8-view/fix8-arrivals8/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix8-view/fix8-arrivals9/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix8-view/fix8-arrivals9/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix8-view/fix8-arrivals7/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix8-view/fix8-arrivals7/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix8-view/fix8-arrivals0/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix8-view/fix8-arrivals0/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix8-view/fix8-arrivals10/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix8-view/fix8-arrivals10/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix8-view/fix8-arrivals11/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix8-view/fix8-arrivals11/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix8-view/fix8-arrivals5/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix8-view/fix8-arrivals5/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix8-view/fix8-arrivals2/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix8-view/fix8-arrivals2/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix8-view/fix8-arrivals3/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix8-view/fix8-arrivals3/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix8-view/fix8-arrivals4/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/fix8-view/fix8-arrivals4/schedule.json",
+    "docs/reports/qt-larger-text-review-r2/native/round7-larger/test_round7_mutation_fails_its2/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/round7-larger/test_round7_mutation_fails_its1/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/round7-larger/test_round7_mutation_fails_its0/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/round7-distance/test_round7_mutation_fails_its0/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/round7-never-lands/test_round7_mutation_fails_its0/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/round10-quiet/test_round10_mutation_fails_it0/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/round10-quiet/test_round10_mutation_fails_it1/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/round10-quiet/test_round10_mutation_fails_it2/result.json",
+    "docs/reports/qt-larger-text-review-r2/native/pin-and-r2/r2-roundtrips0/inputs.json",
+    "docs/reports/qt-larger-text-review-r2/native/pin-and-r2/review-pin0/inputs.json"
+  ],
+  "repeat_collection_counts": {
+    "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_under_a_pending_reveal_releases_nothing[larger_text]": 5,
+    "tests/frontend/test_review_r219_fix10_view.py::test_document_shrink_after_a_distant_reveal_lands_releases[larger_text]": 5
+  },
+  "saved_41_comparison": {
+    "old_count": 41,
+    "current_count": 1,
+    "current_transitions": [
+      {
+        "at": 5.9286789894104,
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "position": {
+          "content": 40842,
+          "from_end": 0,
+          "offset": 40359,
+          "viewport": 483
+        },
+        "suspended": false
+      }
+    ],
+    "cutoff": 5.218409061431885,
+    "reveals": 2
+  },
+  "fresh_two_comparison": {
+    "reveals": 2,
+    "current_regression": "passed order, landing and follow behavior",
+    "old_exact_one": "rejected",
+    "old_release_count": 41,
+    "real_release_count": 1
+  },
+  "attempt2_comparison": {
+    "old_order": "rejected",
+    "new_order": "accepted",
+    "old_behavior": "passed",
+    "new_behavior": "passed",
+    "pending": {
+      "ended_at": -1,
+      "ended_by": "",
+      "outstanding": true,
+      "requested_at": 0.576464056968689
+    },
+    "geometry_checks": [
+      {
+        "at": 1.26322603225708,
+        "distance": 0,
+        "event": "reveal_check",
+        "position": {
+          "content": 48691,
+          "from_end": 0,
+          "offset": 48208,
+          "viewport": 483
+        },
+        "presented": false,
+        "source": "clip",
+        "target": "person:m000040"
+      }
+    ]
+  },
+  "navigation": {
+    "a_pending": true,
+    "a_suspended": true,
+    "a_trace": [
+      {
+        "at_bottom": true,
+        "event": "reveal",
+        "suspended": true
+      },
+      {
+        "distance": 93,
+        "event": "reveal_check",
+        "presented": false,
+        "source": "document",
+        "target": "person:m000100"
+      }
+    ],
+    "b_caught_up": true,
+    "b_position": {
+      "content": 14985,
+      "from_end": 25,
+      "offset": 14406,
+      "viewport": 554
+    },
+    "b_trace": [
+      {
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_disappearing",
+        "suspended": false
+      },
+      {
+        "at_bottom": false,
+        "event": "marker_false",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 0,
+        "old_length": 0,
+        "settling": true,
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_disappearing",
+        "suspended": false
+      },
+      {
+        "at_bottom": false,
+        "event": "marker_false",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 127,
+        "old_length": 0,
+        "settling": true,
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_disappearing",
+        "suspended": false
+      },
+      {
+        "at_bottom": false,
+        "event": "marker_false",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 127,
+        "old_length": 127,
+        "settling": true,
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_disappearing",
+        "suspended": false
+      },
+      {
+        "at_bottom": false,
+        "event": "marker_false",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 0,
+        "old_length": 127,
+        "settling": true,
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_disappearing",
+        "suspended": false
+      },
+      {
+        "at_bottom": false,
+        "event": "marker_false",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 127,
+        "old_length": 0,
+        "settling": true,
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_disappearing",
+        "suspended": false
+      },
+      {
+        "at_bottom": false,
+        "event": "marker_false",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 127,
+        "old_length": 127,
+        "settling": true,
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_disappearing",
+        "suspended": false
+      },
+      {
+        "at_bottom": false,
+        "event": "marker_false",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 0,
+        "old_length": 127,
+        "settling": true,
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_disappearing",
+        "suspended": false
+      },
+      {
+        "at_bottom": false,
+        "event": "marker_false",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 135,
+        "old_length": 0,
+        "settling": true,
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_disappearing",
+        "suspended": false
+      },
+      {
+        "at_bottom": false,
+        "event": "marker_false",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 135,
+        "old_length": 135,
+        "settling": true,
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_disappearing",
+        "suspended": false
+      },
+      {
+        "at_bottom": false,
+        "event": "marker_false",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 17,
+        "old_length": 135,
+        "settling": true,
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_disappearing",
+        "suspended": false
+      },
+      {
+        "at_bottom": false,
+        "event": "marker_false",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "marker_appeared",
+        "suspended": false
+      },
+      {
+        "at_bottom": true,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 17,
+        "old_length": 17,
+        "settling": true,
+        "suspended": false
+      }
+    ],
+    "pin_replaced": true
+  },
+  "navigation_orderings": {
+    "navigation-shrink-change-reveal.json": {
+      "a_suspended": true,
+      "a_trace": [
+        {
+          "at_bottom": true,
+          "event": "reveal",
+          "suspended": true
+        },
+        {
+          "distance": 93,
+          "event": "reveal_check",
+          "presented": false,
+          "source": "document",
+          "target": "person:m000100"
+        }
+      ],
+      "b_caught_up": true,
+      "b_position": {
+        "content": 14985,
+        "from_end": 25,
+        "offset": 14406,
+        "viewport": 554
+      },
+      "b_trace": [
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal",
+          "suspended": true
+        },
+        {
+          "distance": 0,
+          "event": "reveal_check",
+          "presented": true,
+          "source": "completion",
+          "target": "person:m000119"
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_landed",
+          "suspended": true
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_end_visible",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_end_visible",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal",
+          "suspended": true
+        },
+        {
+          "distance": 0,
+          "event": "reveal_check",
+          "presented": true,
+          "source": "completion",
+          "target": "person:m000119"
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_landed",
+          "suspended": true
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_end_visible",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 0,
+          "old_length": 0,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 127,
+          "old_length": 0,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 127,
+          "old_length": 127,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_end_visible",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 0,
+          "old_length": 127,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_end_visible",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 127,
+          "old_length": 0,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_end_visible",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 127,
+          "old_length": 127,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_end_visible",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 0,
+          "old_length": 127,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 135,
+          "old_length": 0,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 135,
+          "old_length": 135,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_end_visible",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 17,
+          "old_length": 135,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 17,
+          "old_length": 17,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_end_visible",
+          "suspended": false
+        }
+      ],
+      "operations": [
+        {
+          "action": "shrink",
+          "current": "matrix-a",
+          "position": {
+            "content": 7367,
+            "from_end": 0,
+            "offset": 6813,
+            "viewport": 554
+          }
+        },
+        {
+          "action": "change",
+          "current": "matrix-b",
+          "position": {
+            "content": 4164,
+            "from_end": 0,
+            "offset": 3610,
+            "viewport": 554
+          }
+        },
+        {
+          "action": "reveal",
+          "current": "matrix-b",
+          "position": {
+            "content": 4164,
+            "from_end": 0,
+            "offset": 3610,
+            "viewport": 554
+          }
+        }
+      ],
+      "order": [
+        "shrink",
+        "change",
+        "reveal"
+      ],
+      "pin_replaced": true
+    },
+    "navigation-shrink-reveal-change.json": {
+      "a_suspended": true,
+      "a_trace": [
+        {
+          "at_bottom": true,
+          "event": "reveal",
+          "suspended": true
+        },
+        {
+          "distance": 93,
+          "event": "reveal_check",
+          "presented": false,
+          "source": "document",
+          "target": "person:m000100"
+        }
+      ],
+      "b_caught_up": true,
+      "b_position": {
+        "content": 14985,
+        "from_end": 25,
+        "offset": 14406,
+        "viewport": 554
+      },
+      "b_trace": [
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 0,
+          "old_length": 0,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 127,
+          "old_length": 0,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 127,
+          "old_length": 127,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 0,
+          "old_length": 127,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 127,
+          "old_length": 0,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 127,
+          "old_length": 127,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 0,
+          "old_length": 127,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 135,
+          "old_length": 0,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 135,
+          "old_length": 135,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 17,
+          "old_length": 135,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 17,
+          "old_length": 17,
+          "settling": true,
+          "suspended": false
+        }
+      ],
+      "operations": [
+        {
+          "action": "shrink",
+          "current": "matrix-a",
+          "position": {
+            "content": 7367,
+            "from_end": 0,
+            "offset": 6813,
+            "viewport": 554
+          }
+        },
+        {
+          "action": "reveal",
+          "current": "matrix-a",
+          "position": {
+            "content": 7367,
+            "from_end": 0,
+            "offset": 6813,
+            "viewport": 554
+          }
+        },
+        {
+          "action": "change",
+          "current": "matrix-b",
+          "position": {
+            "content": 4164,
+            "from_end": 0,
+            "offset": 3610,
+            "viewport": 554
+          }
+        }
+      ],
+      "order": [
+        "shrink",
+        "reveal",
+        "change"
+      ],
+      "pin_replaced": true
+    },
+    "navigation-reveal-shrink-change.json": {
+      "a_suspended": true,
+      "a_trace": [
+        {
+          "at_bottom": true,
+          "event": "reveal",
+          "suspended": true
+        },
+        {
+          "distance": 93,
+          "event": "reveal_check",
+          "presented": false,
+          "source": "document",
+          "target": "person:m000100"
+        }
+      ],
+      "b_caught_up": true,
+      "b_position": {
+        "content": 14985,
+        "from_end": 25,
+        "offset": 14406,
+        "viewport": 554
+      },
+      "b_trace": [
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 0,
+          "old_length": 0,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 127,
+          "old_length": 0,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 127,
+          "old_length": 127,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 0,
+          "old_length": 127,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 127,
+          "old_length": 0,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 127,
+          "old_length": 127,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 0,
+          "old_length": 127,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 135,
+          "old_length": 0,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 135,
+          "old_length": 135,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 17,
+          "old_length": 135,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 17,
+          "old_length": 17,
+          "settling": true,
+          "suspended": false
+        }
+      ],
+      "operations": [
+        {
+          "action": "reveal",
+          "current": "matrix-a",
+          "position": {
+            "content": 9367,
+            "from_end": 93,
+            "offset": 8720,
+            "viewport": 554
+          }
+        },
+        {
+          "action": "shrink",
+          "current": "matrix-a",
+          "position": {
+            "content": 7367,
+            "from_end": 0,
+            "offset": 6813,
+            "viewport": 554
+          }
+        },
+        {
+          "action": "change",
+          "current": "matrix-b",
+          "position": {
+            "content": 4164,
+            "from_end": 0,
+            "offset": 3610,
+            "viewport": 554
+          }
+        }
+      ],
+      "order": [
+        "reveal",
+        "shrink",
+        "change"
+      ],
+      "pin_replaced": true
+    },
+    "navigation-change-shrink-reveal.json": {
+      "a_suspended": true,
+      "a_trace": [
+        {
+          "at_bottom": true,
+          "event": "reveal",
+          "suspended": true
+        },
+        {
+          "distance": 93,
+          "event": "reveal_check",
+          "presented": false,
+          "source": "document",
+          "target": "person:m000100"
+        }
+      ],
+      "b_caught_up": true,
+      "b_position": {
+        "content": 17694,
+        "from_end": 24,
+        "offset": 17116,
+        "viewport": 554
+      },
+      "b_trace": [
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal",
+          "suspended": true
+        },
+        {
+          "distance": 0,
+          "event": "reveal_check",
+          "presented": true,
+          "source": "completion",
+          "target": "person:m000119"
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_landed",
+          "suspended": true
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_end_visible",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_end_visible",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal",
+          "suspended": true
+        },
+        {
+          "distance": 0,
+          "event": "reveal_check",
+          "presented": true,
+          "source": "completion",
+          "target": "person:m000119"
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_landed",
+          "suspended": true
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_end_visible",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 0,
+          "old_length": 0,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 127,
+          "old_length": 0,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 127,
+          "old_length": 127,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_end_visible",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 0,
+          "old_length": 127,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_end_visible",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 127,
+          "old_length": 0,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_end_visible",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 127,
+          "old_length": 127,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_end_visible",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 0,
+          "old_length": 127,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 135,
+          "old_length": 0,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 135,
+          "old_length": 135,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_end_visible",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 17,
+          "old_length": 135,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 17,
+          "old_length": 17,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_end_visible",
+          "suspended": false
+        }
+      ],
+      "operations": [
+        {
+          "action": "change",
+          "current": "matrix-b",
+          "position": {
+            "content": 4164,
+            "from_end": 0,
+            "offset": 3610,
+            "viewport": 554
+          }
+        },
+        {
+          "action": "shrink",
+          "current": "matrix-b",
+          "position": {
+            "content": 2164,
+            "from_end": 0,
+            "offset": 1610,
+            "viewport": 554
+          }
+        },
+        {
+          "action": "reveal",
+          "current": "matrix-b",
+          "position": {
+            "content": 2164,
+            "from_end": 0,
+            "offset": 1610,
+            "viewport": 554
+          }
+        }
+      ],
+      "order": [
+        "change",
+        "shrink",
+        "reveal"
+      ],
+      "pin_replaced": true
+    },
+    "navigation-change-reveal-shrink.json": {
+      "a_suspended": true,
+      "a_trace": [
+        {
+          "at_bottom": true,
+          "event": "reveal",
+          "suspended": true
+        },
+        {
+          "distance": 93,
+          "event": "reveal_check",
+          "presented": false,
+          "source": "document",
+          "target": "person:m000100"
+        }
+      ],
+      "b_caught_up": true,
+      "b_position": {
+        "content": 17609,
+        "from_end": 25,
+        "offset": 17030,
+        "viewport": 554
+      },
+      "b_trace": [
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal",
+          "suspended": true
+        },
+        {
+          "distance": 0,
+          "event": "reveal_check",
+          "presented": true,
+          "source": "completion",
+          "target": "person:m000119"
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_landed",
+          "suspended": true
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_end_visible",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_end_visible",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal",
+          "suspended": true
+        },
+        {
+          "distance": 0,
+          "event": "reveal_check",
+          "presented": true,
+          "source": "completion",
+          "target": "person:m000119"
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_landed",
+          "suspended": true
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_end_visible",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 0,
+          "old_length": 0,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 127,
+          "old_length": 0,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 127,
+          "old_length": 127,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_end_visible",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 0,
+          "old_length": 127,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_end_visible",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 127,
+          "old_length": 0,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_end_visible",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 127,
+          "old_length": 127,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_end_visible",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 0,
+          "old_length": 127,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 135,
+          "old_length": 0,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 135,
+          "old_length": 135,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_end_visible",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 17,
+          "old_length": 135,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 17,
+          "old_length": 17,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "reveal_end_visible",
+          "suspended": false
+        }
+      ],
+      "operations": [
+        {
+          "action": "change",
+          "current": "matrix-b",
+          "position": {
+            "content": 4164,
+            "from_end": 0,
+            "offset": 3610,
+            "viewport": 554
+          }
+        },
+        {
+          "action": "reveal",
+          "current": "matrix-b",
+          "position": {
+            "content": 4164,
+            "from_end": 0,
+            "offset": 3610,
+            "viewport": 554
+          }
+        },
+        {
+          "action": "shrink",
+          "current": "matrix-b",
+          "position": {
+            "content": 2164,
+            "from_end": 0,
+            "offset": 1610,
+            "viewport": 554
+          }
+        }
+      ],
+      "order": [
+        "change",
+        "reveal",
+        "shrink"
+      ],
+      "pin_replaced": true
+    },
+    "navigation-reveal-change-shrink.json": {
+      "a_suspended": true,
+      "a_trace": [
+        {
+          "at_bottom": true,
+          "event": "reveal",
+          "suspended": true
+        },
+        {
+          "distance": 93,
+          "event": "reveal_check",
+          "presented": false,
+          "source": "document",
+          "target": "person:m000100"
+        }
+      ],
+      "b_caught_up": true,
+      "b_position": {
+        "content": 17694,
+        "from_end": 24,
+        "offset": 17116,
+        "viewport": 554
+      },
+      "b_trace": [
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 0,
+          "old_length": 0,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 127,
+          "old_length": 0,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 127,
+          "old_length": 127,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 0,
+          "old_length": 127,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 127,
+          "old_length": 0,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 127,
+          "old_length": 127,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 0,
+          "old_length": 127,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 135,
+          "old_length": 0,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 135,
+          "old_length": 135,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 17,
+          "old_length": 135,
+          "settling": true,
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_disappearing",
+          "suspended": false
+        },
+        {
+          "at_bottom": false,
+          "event": "marker_false",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "marker_appeared",
+          "suspended": false
+        },
+        {
+          "at_bottom": true,
+          "event": "move",
+          "landing": false,
+          "move": "jump",
+          "new_length": 17,
+          "old_length": 17,
+          "settling": true,
+          "suspended": false
+        }
+      ],
+      "operations": [
+        {
+          "action": "reveal",
+          "current": "matrix-a",
+          "position": {
+            "content": 9367,
+            "from_end": 93,
+            "offset": 8720,
+            "viewport": 554
+          }
+        },
+        {
+          "action": "change",
+          "current": "matrix-b",
+          "position": {
+            "content": 4164,
+            "from_end": 0,
+            "offset": 3610,
+            "viewport": 554
+          }
+        },
+        {
+          "action": "shrink",
+          "current": "matrix-b",
+          "position": {
+            "content": 2164,
+            "from_end": 0,
+            "offset": 1610,
+            "viewport": 554
+          }
+        }
+      ],
+      "order": [
+        "reveal",
+        "change",
+        "shrink"
+      ],
+      "pin_replaced": true
+    }
+  },
+  "release_mutant_audit": [
+    {
+      "run": "round7-marker",
+      "mutation": "marker_releases_pending_reveal",
+      "order": "passed",
+      "failed_rule": "assert_shrink_releases_nothing",
+      "cutoff": 11.245423078536987,
+      "release_count": 1,
+      "release_triggers": [
+        "marker_appeared"
+      ],
+      "tick": {
+        "at": 16.218951106071472,
+        "at_bottom": false,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 0,
+        "old_length": 0,
+        "position": {
+          "content": 48861,
+          "from_end": 2885,
+          "offset": 45422,
+          "viewport": 554
+        },
+        "settling": true,
+        "suspended": false
+      },
+      "caught_up": {
+        "content": 60096,
+        "from_end": 25,
+        "offset": 59517,
+        "viewport": 554
+      }
+    },
+    {
+      "run": "round7-distance",
+      "mutation": "confirm_by_distance_only",
+      "order": "passed",
+      "failed_rule": "assert_shrink_releases_nothing",
+      "cutoff": 3.1844249963760376,
+      "release_count": 1,
+      "release_triggers": [
+        "reveal_end_visible"
+      ],
+      "tick": {
+        "at": 5.2947999238967896,
+        "at_bottom": false,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 0,
+        "old_length": 0,
+        "position": {
+          "content": 48861,
+          "from_end": 2885,
+          "offset": 45422,
+          "viewport": 554
+        },
+        "settling": true,
+        "suspended": false
+      },
+      "caught_up": {
+        "content": 60096,
+        "from_end": 25,
+        "offset": 59517,
+        "viewport": 554
+      }
+    },
+    {
+      "run": "round7-never-lands",
+      "mutation": "reveal_never_lands",
+      "order": "passed",
+      "failed_rule": "assert_landed_shrink_releases",
+      "cutoff": 4.91579806804657,
+      "release_count": 0,
+      "release_triggers": [],
+      "tick": {
+        "at": 9.389050006866455,
+        "at_bottom": false,
+        "event": "move",
+        "landing": false,
+        "move": "stay",
+        "new_length": 0,
+        "old_length": 0,
+        "position": {
+          "content": 49031,
+          "from_end": 16761,
+          "offset": 31716,
+          "viewport": 554
+        },
+        "settling": true,
+        "suspended": true
+      },
+      "caught_up": {
+        "content": 70525,
+        "from_end": 38255,
+        "offset": 31716,
+        "viewport": 554
+      }
+    },
+    {
+      "run": "round7-larger",
+      "mutation": "marker_releases_pending_reveal",
+      "order": "passed",
+      "failed_rule": "assert_shrink_releases_nothing",
+      "cutoff": 4.091984987258911,
+      "release_count": 1,
+      "release_triggers": [
+        "marker_appeared"
+      ],
+      "tick": {
+        "at": 7.19576096534729,
+        "at_bottom": false,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 0,
+        "old_length": 0,
+        "position": {
+          "content": 50765,
+          "from_end": 5260,
+          "offset": 45022,
+          "viewport": 483
+        },
+        "settling": true,
+        "suspended": false
+      },
+      "caught_up": {
+        "content": 64221,
+        "from_end": 24,
+        "offset": 63714,
+        "viewport": 483
+      }
+    },
+    {
+      "run": "round7-larger",
+      "mutation": "confirm_by_distance_only",
+      "order": "passed",
+      "failed_rule": "assert_shrink_releases_nothing",
+      "cutoff": 4.526628017425537,
+      "release_count": 1,
+      "release_triggers": [
+        "reveal_end_visible"
+      ],
+      "tick": {
+        "at": 7.566411972045898,
+        "at_bottom": false,
+        "event": "move",
+        "landing": false,
+        "move": "jump",
+        "new_length": 0,
+        "old_length": 0,
+        "position": {
+          "content": 50739,
+          "from_end": 5250,
+          "offset": 45006,
+          "viewport": 483
+        },
+        "settling": true,
+        "suspended": false
+      },
+      "caught_up": {
+        "content": 64161,
+        "from_end": 25,
+        "offset": 63653,
+        "viewport": 483
+      }
+    },
+    {
+      "run": "round7-larger",
+      "mutation": "reveal_never_lands",
+      "order": "passed",
+      "failed_rule": "assert_landed_shrink_releases",
+      "cutoff": 3.411607027053833,
+      "release_count": 0,
+      "release_triggers": [],
+      "tick": {
+        "at": 5.582705974578857,
+        "at_bottom": false,
+        "event": "move",
+        "landing": false,
+        "move": "stay",
+        "new_length": 0,
+        "old_length": 0,
+        "position": {
+          "content": 51513,
+          "from_end": 10543,
+          "offset": 40487,
+          "viewport": 483
+        },
+        "settling": true,
+        "suspended": true
+      },
+      "caught_up": {
+        "content": 72845,
+        "from_end": 32075,
+        "offset": 40287,
+        "viewport": 483
+      }
+    }
+  ],
+  "review_files_sha256": {
+    "tests/frontend/test_review_pr284_r2.py": "2f311d27385954623faae95d8d376ff9ed3a18c5b15d0ac9471b4df91f076eb5",
+    "docs/reports/qt-larger-text-review-r2/diagnostics.py": "c2c6d5cdb41d393d7382f8bd4490094b50e9755b1d732f404a501144d089f048",
+    "docs/reports/qt-larger-text-review-r2/NavigationInput.swift": "754ef2972c2ab61956d2ecdccb14f26dd001c24cd241bfe7ee8590c9e69a43a6",
+    "docs/reports/qt-larger-text-review-r2/runner.py": "62b2be89af26276fcb36e274e7e4b6a0cd843ef08c75729c89dc0666c597b630",
+    "docs/reports/qt-larger-text-review-r2/remaining.py": "f8dd888148559ba163d4b1c6fa175932da93eae070a586092b0286de31618e46"
+  },
+  "not_run": [
+    "tests/frontend/test_core_live.py (prohibited person-only daemon gate)",
+    "fresh CI matrix (hub-owned)",
+    "Python 3.12",
+    "CI macOS image"
+  ],
+  "commits_or_publications": false,
+  "cleanup": {
+    "complete": true,
+    "at": "2026-10-31T06:54:05.080338+00:00",
+    "guarded_scratch_removed": "/private/tmp/sf-r284r2",
+    "workspace_paths_removed": [
+      "build",
+      ".diag/review-r2",
+      ".diag"
+    ],
+    "all_managed_tool_sessions_completed": true,
+    "no_generated_bytecode_remaining": true
+  },
+  "quiet_forced_measured_reason": {
+    "growth_gap": 600,
+    "compensated_reply_gap": 0,
+    "assertion": "measured missed growth was accepted after compensation"
+  },
+  "quiet_window_measured_reason": {
+    "landing_at": 8.987333059310913,
+    "max_gap_after_landing": 1680,
+    "callback_count": 1
+  },
+  "resource_checkpoint": {
+    "at": "2026-10-31T06:52:47.891419+00:00",
+    "scratch_bytes": 528723968,
+    "max_reported_child_rss_bytes": 1329496064,
+    "all_hold_groups_terminated_and_waited": true,
+    "all_managed_tool_sessions_completed": true
+  }
+}

@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 14:20:59Z slot A load 
+START retention_dependency_properties-part2 2026-10-30T14:21:00.218936+00:00 load=(20.9013671875, 22.06005859375, 15.732421875)
+.                                                                        [100%]
+1 passed, 3 deselected in 63.07s (0:01:03)

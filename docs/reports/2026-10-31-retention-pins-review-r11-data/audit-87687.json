@@ -1,0 +1,303 @@
+{
+  "comparisons": [],
+  "audits": [
+    {
+      "scope": "git_storage",
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[gitfile]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio0/outside"
+      ],
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio0/stable/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio0/stable/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio0/state/worktrees/owner/pointer",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[gitfile]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio0/outside"
+      ],
+      "kwargs": {},
+      "actual": {
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio0/stable/.git",
+          "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio0/stable/.git/objects",
+          "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio0/state/worktrees/owner/pointer"
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio0/stable/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio0/stable/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio0/state/worktrees/owner/pointer",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "scope": "git_storage",
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[commondir]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/outside"
+      ],
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/admin",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/stable/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/stable/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/state/worktrees/owner/pointer",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[commondir]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/outside"
+      ],
+      "kwargs": {},
+      "actual": {
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/admin",
+          "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/stable/.git",
+          "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/stable/.git/objects",
+          "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/state/worktrees/owner/pointer"
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/admin",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/stable/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/stable/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/state/worktrees/owner/pointer",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "scope": "git_storage",
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[alternates]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio2/outside"
+      ],
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio2/admin",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio2/admin/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio2/stable/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio2/state/worktrees/owner/pointer",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[alternates]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio2/outside"
+      ],
+      "kwargs": {},
+      "actual": {
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio2/admin",
+          "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio2/admin/objects",
+          "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio2/stable/.git/objects",
+          "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio2/state/worktrees/owner/pointer"
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio2/admin",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio2/admin/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio2/stable/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio2/state/worktrees/owner/pointer",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "scope": "git_storage",
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[objects-pack]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio3/outside"
+      ],
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio3/stable/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio3/stable/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio3/state/worktrees/owner/packs",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[objects-pack]",
+      "input": [
+        "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio3/outside"
+      ],
+      "kwargs": {},
+      "actual": {
+        "git": [
+          "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio3/stable/.git",
+          "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio3/stable/.git/objects",
+          "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio3/state/worktrees/owner/packs"
+        ]
+      },
+      "equations": [
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio3/stable/.git",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio3/stable/.git/objects",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        },
+        {
+          "path": "/private/tmp/sf-r272r11/real-tmp/linked-test_retention_dependency_review_r9/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio3/state/worktrees/owner/packs",
+          "parent": true,
+          "canonical": true,
+          "physical_link": false,
+          "predicate": true
+        }
+      ]
+    }
+  ]
+}

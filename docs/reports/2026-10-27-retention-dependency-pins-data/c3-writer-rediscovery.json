@@ -1,0 +1,829 @@
+{
+  "start": "2026-10-28T22:29:49.448641+00:00",
+  "load": [
+    78.37158203125,
+    75.96923828125,
+    83.2861328125
+  ],
+  "pid": 31801,
+  "phases": [
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_detached_writer_nested_in_a_tree_being_retired_waits_for_its_fence",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.6872944999922765
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_detached_writer_nested_in_a_tree_being_retired_waits_for_its_fence",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 9.440211667009862
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_detached_writer_nested_in_a_tree_being_retired_waits_for_its_fence",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.07188679199316539
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_nested_writer_waits_out_a_retirement_and_runs_once_the_fence_goes",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.0025456659932387993
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_nested_writer_waits_out_a_retirement_and_runs_once_the_fence_goes",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 11.312463833004585
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_nested_writer_waits_out_a_retirement_and_runs_once_the_fence_goes",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.012942457993631251
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[tree-retired2]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.14744808299292345
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[tree-retired2]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 3.405049791006604
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[tree-retired2]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0010277499968651682
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[tree-retired:x]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.0026494999910937622
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[tree-retired:x]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 3.8063551249942975
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[tree-retired:x]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.01401391600666102
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[sibling-retired2]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.00397408299613744
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[sibling-retired2]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 2.491024374990957
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[sibling-retired2]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0008156249969033524
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[sibling-retired:x]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.003757874990697019
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[sibling-retired:x]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 3.7659011669893516
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[sibling-retired:x]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.00041491701267659664
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[writer]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.004306832997826859
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[writer]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.881721583005856
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[writer]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0006017079867888242
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[turn-row]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.00841516700165812
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[turn-row]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.288537957996596
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[turn-row]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0005156669940333813
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[other]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.002501416005543433
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[other]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 2.786748583006556
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[other]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0004714579990832135
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_retentions_fence_on_a_writers_own_folder_is_named_once[top]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.012752374997944571
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_retentions_fence_on_a_writers_own_folder_is_named_once[top]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 7.332370457996149
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_retentions_fence_on_a_writers_own_folder_is_named_once[top]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.00585545800277032
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_retentions_fence_on_a_writers_own_folder_is_named_once[subdirectory]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.14106895799341146
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_retentions_fence_on_a_writers_own_folder_is_named_once[subdirectory]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 2.131874874990899
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_retentions_fence_on_a_writers_own_folder_is_named_once[subdirectory]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0005293750000419095
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[subdirectory]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.010558834008406848
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[subdirectory]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 6.074043041997356
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[subdirectory]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0006150419940240681
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[symlink]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.04929183299827855
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[symlink]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 7.966598166996846
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[symlink]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.001131917000748217
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[case]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.09440175000054296
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[case]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 2.741024125003605
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[case]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.00044604099821299314
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.004999042008421384
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 138.43264649999037
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0005008749867556617
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-case]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.05450712499441579
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-case]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 52.72166137499153
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-case]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0020555420051096007
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-unicode-case]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.12060112500330433
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-unicode-case]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 40.228077417006716
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-unicode-case]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.014891416009049863
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-nfd]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.0882993749983143
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-nfd]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 53.99117320799269
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-nfd]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.009068500003195368
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_queued_on_the_tree_under_a_case_alias_keeps_it_from_selection",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.034723000004305504
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_queued_on_the_tree_under_a_case_alias_keeps_it_from_selection",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 15.262666833994444
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_queued_on_the_tree_under_a_case_alias_keeps_it_from_selection",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0009179159969789907
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c6_11_a_writer_on_its_clock_never_queues_the_fence_above_it",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.047653000001446344
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c6_11_a_writer_on_its_clock_never_queues_the_fence_above_it",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.090902083989931
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c6_11_a_writer_on_its_clock_never_queues_the_fence_above_it",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.016225541010499
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[writer]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.02269858299405314
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[writer]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 24.10040970800037
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[writer]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0009184170048683882
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[TURN]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.036382791004143655
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[TURN]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 19.80305375000171
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[TURN]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.37652633400284685
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[READER]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.012832541993702762
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[READER]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 10.677723792003235
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[READER]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.04459729199879803
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_an_unspelled_turns_look_reads_the_external_top_its_reservation_names[reader]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.04613420799432788
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_an_unspelled_turns_look_reads_the_external_top_its_reservation_names[reader]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.581808083006763
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_an_unspelled_turns_look_reads_the_external_top_its_reservation_names[reader]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.004309874988393858
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_an_unspelled_turns_look_reads_the_external_top_its_reservation_names[writer]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.019516291009495035
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_an_unspelled_turns_look_reads_the_external_top_its_reservation_names[writer]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.7977233749988955
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_an_unspelled_turns_look_reads_the_external_top_its_reservation_names[writer]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0010493330046301708
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_an_unspelled_turn_fenced_on_its_external_top_prepares_no_workspace[reader]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.2411834579979768
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_an_unspelled_turn_fenced_on_its_external_top_prepares_no_workspace[reader]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.341849125004956
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_an_unspelled_turn_fenced_on_its_external_top_prepares_no_workspace[reader]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.042935416000545956
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_an_unspelled_turn_fenced_on_its_external_top_prepares_no_workspace[writer]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.059300459004589356
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_an_unspelled_turn_fenced_on_its_external_top_prepares_no_workspace[writer]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 6.755664875003276
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_an_unspelled_turn_fenced_on_its_external_top_prepares_no_workspace[writer]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0012297499924898148
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[TURN-tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.08266108400130179
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[TURN-tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 7.8027662910026265
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[TURN-tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0008325840026373044
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[TURN-nested]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.07660754199605435
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[TURN-nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 7.196347499993863
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[TURN-nested]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.003628957987530157
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[TURN-external]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.0302834169997368
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[TURN-external]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 5.330173209003988
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[TURN-external]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.009094124994589947
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[READER-tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.0035960829991381615
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[READER-tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 6.251263083002414
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[READER-tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.002369624999118969
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[READER-nested]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.005567249987507239
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[READER-nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 3.83132366699283
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[READER-nested]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.011454666004283354
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[READER-external]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.016688792005879804
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[READER-external]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 5.891358792010578
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[READER-external]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.001036250003380701
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_a_turn_whose_folder_cannot_be_found_again_still_waits_on_its_fence[TURN-fenced]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.0784095409908332
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_a_turn_whose_folder_cannot_be_found_again_still_waits_on_its_fence[TURN-fenced]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 2.8678048750007292
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_a_turn_whose_folder_cannot_be_found_again_still_waits_on_its_fence[TURN-fenced]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0006313749909168109
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_a_turn_whose_folder_cannot_be_found_again_still_waits_on_its_fence[TURN-free]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.059294667007634416
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_a_turn_whose_folder_cannot_be_found_again_still_waits_on_its_fence[TURN-free]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 5.204317916999571
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_a_turn_whose_folder_cannot_be_found_again_still_waits_on_its_fence[TURN-free]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0006517500005429611
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_a_turn_whose_folder_cannot_be_found_again_still_waits_on_its_fence[READER-fenced]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.07317791599780321
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_a_turn_whose_folder_cannot_be_found_again_still_waits_on_its_fence[READER-fenced]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 2.962929624991375
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_a_turn_whose_folder_cannot_be_found_again_still_waits_on_its_fence[READER-fenced]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0004842079943045974
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_a_turn_whose_folder_cannot_be_found_again_still_waits_on_its_fence[READER-free]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.014750124988495372
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_a_turn_whose_folder_cannot_be_found_again_still_waits_on_its_fence[READER-free]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.200231459006318
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_a_turn_whose_folder_cannot_be_found_again_still_waits_on_its_fence[READER-free]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0013706249883398414
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_identical_paths_with_different_absence_flags_use_both_queries[False]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.07456083298893645
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_identical_paths_with_different_absence_flags_use_both_queries[False]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0013121670053806156
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_identical_paths_with_different_absence_flags_use_both_queries[False]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0002530000056140125
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_identical_paths_with_different_absence_flags_use_both_queries[True]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.03299387499282602
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_identical_paths_with_different_absence_flags_use_both_queries[True]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.005127958007506095
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_identical_paths_with_different_absence_flags_use_both_queries[True]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0010362079920014367
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_the_look_holds_on_retentions_fences_alone_where_the_transaction_names_every_blocker",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.005758916988270357
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_the_look_holds_on_retentions_fences_alone_where_the_transaction_names_every_blocker",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.092443958987133
+    },
+    {
+      "node": "tests/unit/test_retention_rediscovery.py::test_the_look_holds_on_retentions_fences_alone_where_the_transaction_names_every_blocker",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0007113750034477562
+    }
+  ],
+  "hypothesis_profile": "normal",
+  "all_collected": [
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_detached_writer_nested_in_a_tree_being_retired_waits_for_its_fence",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_nested_writer_waits_out_a_retirement_and_runs_once_the_fence_goes",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[tree-retired2]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[tree-retired:x]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[sibling-retired2]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[sibling-retired:x]",
+    "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[writer]",
+    "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[turn-row]",
+    "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[other]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_retentions_fence_on_a_writers_own_folder_is_named_once[top]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_retentions_fence_on_a_writers_own_folder_is_named_once[subdirectory]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[subdirectory]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[symlink]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[case]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-case]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-unicode-case]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-nfd]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_queued_on_the_tree_under_a_case_alias_keeps_it_from_selection",
+    "tests/fake/test_writer_retention_fence.py::test_c6_11_a_writer_on_its_clock_never_queues_the_fence_above_it",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[writer]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[TURN]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[READER]",
+    "tests/unit/test_retention_rediscovery.py::test_an_unspelled_turns_look_reads_the_external_top_its_reservation_names[reader]",
+    "tests/unit/test_retention_rediscovery.py::test_an_unspelled_turns_look_reads_the_external_top_its_reservation_names[writer]",
+    "tests/unit/test_retention_rediscovery.py::test_an_unspelled_turn_fenced_on_its_external_top_prepares_no_workspace[reader]",
+    "tests/unit/test_retention_rediscovery.py::test_an_unspelled_turn_fenced_on_its_external_top_prepares_no_workspace[writer]",
+    "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[TURN-tree]",
+    "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[TURN-nested]",
+    "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[TURN-external]",
+    "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[READER-tree]",
+    "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[READER-nested]",
+    "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[READER-external]",
+    "tests/unit/test_retention_rediscovery.py::test_a_turn_whose_folder_cannot_be_found_again_still_waits_on_its_fence[TURN-fenced]",
+    "tests/unit/test_retention_rediscovery.py::test_a_turn_whose_folder_cannot_be_found_again_still_waits_on_its_fence[TURN-free]",
+    "tests/unit/test_retention_rediscovery.py::test_a_turn_whose_folder_cannot_be_found_again_still_waits_on_its_fence[READER-fenced]",
+    "tests/unit/test_retention_rediscovery.py::test_a_turn_whose_folder_cannot_be_found_again_still_waits_on_its_fence[READER-free]",
+    "tests/unit/test_retention_rediscovery.py::test_identical_paths_with_different_absence_flags_use_both_queries[False]",
+    "tests/unit/test_retention_rediscovery.py::test_identical_paths_with_different_absence_flags_use_both_queries[True]",
+    "tests/unit/test_retention_rediscovery.py::test_the_look_holds_on_retentions_fences_alone_where_the_transaction_names_every_blocker"
+  ],
+  "collected": [
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_detached_writer_nested_in_a_tree_being_retired_waits_for_its_fence",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_nested_writer_waits_out_a_retirement_and_runs_once_the_fence_goes",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[tree-retired2]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[tree-retired:x]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[sibling-retired2]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_writer[sibling-retired:x]",
+    "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[writer]",
+    "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[turn-row]",
+    "tests/fake/test_writer_retention_fence.py::test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer[other]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_retentions_fence_on_a_writers_own_folder_is_named_once[top]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_retentions_fence_on_a_writers_own_folder_is_named_once[subdirectory]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[subdirectory]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[symlink]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_the_fence_above_is_read_on_the_writers_write_target[case]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-case]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-unicode-case]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_submitted_under_an_alias_keeps_the_tree_through_a_retirement[nested-nfd]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_writer_queued_on_the_tree_under_a_case_alias_keeps_it_from_selection",
+    "tests/fake/test_writer_retention_fence.py::test_c6_11_a_writer_on_its_clock_never_queues_the_fence_above_it",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[writer]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[TURN]",
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_a_job_submitted_through_the_data_firmlink_keeps_the_tree[READER]",
+    "tests/unit/test_retention_rediscovery.py::test_an_unspelled_turns_look_reads_the_external_top_its_reservation_names[reader]",
+    "tests/unit/test_retention_rediscovery.py::test_an_unspelled_turns_look_reads_the_external_top_its_reservation_names[writer]",
+    "tests/unit/test_retention_rediscovery.py::test_an_unspelled_turn_fenced_on_its_external_top_prepares_no_workspace[reader]",
+    "tests/unit/test_retention_rediscovery.py::test_an_unspelled_turn_fenced_on_its_external_top_prepares_no_workspace[writer]",
+    "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[TURN-tree]",
+    "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[TURN-nested]",
+    "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[TURN-external]",
+    "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[READER-tree]",
+    "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[READER-nested]",
+    "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[READER-external]",
+    "tests/unit/test_retention_rediscovery.py::test_a_turn_whose_folder_cannot_be_found_again_still_waits_on_its_fence[TURN-fenced]",
+    "tests/unit/test_retention_rediscovery.py::test_a_turn_whose_folder_cannot_be_found_again_still_waits_on_its_fence[TURN-free]",
+    "tests/unit/test_retention_rediscovery.py::test_a_turn_whose_folder_cannot_be_found_again_still_waits_on_its_fence[READER-fenced]",
+    "tests/unit/test_retention_rediscovery.py::test_a_turn_whose_folder_cannot_be_found_again_still_waits_on_its_fence[READER-free]",
+    "tests/unit/test_retention_rediscovery.py::test_identical_paths_with_different_absence_flags_use_both_queries[False]",
+    "tests/unit/test_retention_rediscovery.py::test_identical_paths_with_different_absence_flags_use_both_queries[True]",
+    "tests/unit/test_retention_rediscovery.py::test_the_look_holds_on_retentions_fences_alone_where_the_transaction_names_every_blocker"
+  ],
+  "exit": 0,
+  "seconds": 545.956224249996,
+  "maxrss": 129794048,
+  "capped": false,
+  "cap_seconds": null,
+  "lock": "locked",
+  "command": [
+    "tests/fake/test_writer_retention_fence.py",
+    "tests/unit/test_retention_rediscovery.py"
+  ],
+  "admission_utc": "2026-10-28T22:29:40.823897+00:00",
+  "wall_seconds": 565.709,
+  "queue_seconds": 8.71
+}

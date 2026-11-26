@@ -1,0 +1,33 @@
+{
+  "name": "dependency-property-3",
+  "start": "2026-10-29T05:40:14.013603+00:00",
+  "load": [
+    18.74072265625,
+    21.19287109375,
+    24.5966796875
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-011712-pr272-fix-r1",
+  "collected": [
+    "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement"
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [
+    {
+      "nodeid": "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement",
+      "valid": 100,
+      "invalid": 0,
+      "calls": 104,
+      "settings_max": 100
+    }
+  ],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

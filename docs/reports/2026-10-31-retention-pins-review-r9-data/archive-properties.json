@@ -1,0 +1,68 @@
+{
+  "name": "archive-properties",
+  "start": "2026-10-31T08:57:42.214935+00:00",
+  "load": [
+    69.6494140625,
+    62.87060546875,
+    49.98046875
+  ],
+  "args": [
+    "tests/unit/test_retention_archive_properties.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_a_trusted_repository",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 8.100676624999323,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_a_trusted_repository",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 58.063388208000106,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_a_trusted_repository",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004727500017907005,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_after_the_scratch_source_is_deleted",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.024140125002304558,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_after_the_scratch_source_is_deleted",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 80.49990904099832,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_after_the_scratch_source_is_deleted",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006286670031840913,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_a_trusted_repository",
+    "tests/unit/test_retention_archive_properties.py::test_archive_then_restore_round_trips_after_the_scratch_source_is_deleted"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/subfleet/dependencies.py",
+  "product_sha256": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+  "end": "2026-10-31T09:00:44.547314+00:00",
+  "seconds": 182.331312833001,
+  "peak_rss_mib": 115.890625,
+  "exit": 0
+}

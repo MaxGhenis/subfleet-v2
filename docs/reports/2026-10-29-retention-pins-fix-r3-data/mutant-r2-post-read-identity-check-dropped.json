@@ -1,0 +1,38 @@
+{
+  "label": "mutant-r2-post-read-identity-check-dropped",
+  "start": "2026-10-29T20:17:24.533046+00:00",
+  "loads": [
+    35.87255859375,
+    25.35205078125,
+    18.640625
+  ],
+  "seconds": 19.881120416000158,
+  "exit": 1,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 5.345780541000295
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]"
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original_sha256": "6e9b7e2493c5ad3b3e6f682a44021280934103a9153eed247d5901395ef1d05d",
+      "mutated_sha256": "75c4f094fad90e7b5c866d60b1fba1e5a74030c8dfcb1f0f51067de3126db126"
+    }
+  ],
+  "rss": 118046720
+}

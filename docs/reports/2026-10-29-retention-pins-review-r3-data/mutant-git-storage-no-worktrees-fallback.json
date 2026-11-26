@@ -1,0 +1,29 @@
+{
+  "name": "mutant-git-storage-no-worktrees-fallback",
+  "start": "2026-10-29T13:46:54.117675+00:00",
+  "load": [
+    20.8994140625,
+    20.93310546875,
+    22.5556640625
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_units.py::test_d1_storage_a_gitfile_names_counts_when_it_is_gone": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/unit/test_retention_dependency_units.py::test_d1_storage_a_gitfile_names_counts_when_it_is_gone"
+  ],
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+      "mutated_sha256": "b6c9079787c712e6c2f9d6312db307e5727497abf704bb2924268e5c4167be0c"
+    }
+  ],
+  "rc": 1,
+  "seconds": 1.7980566250043921,
+  "rss": 114130944
+}

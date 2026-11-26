@@ -1,0 +1,46 @@
+{
+  "baseline_commit": "26ee5d6f2a82f99ee31b7a1664605ce61eedc8d6",
+  "baseline_files_match_git": {
+    "app/Sources/ConversationOpeningPin.swift": {
+      "git_blob": "f7e746f19fb09e431382c8ad1c58a9148c0dbdcf",
+      "sha256": "0929094c0dcd5628b175947a9d6a15ddf106818f53b3c9fbdd2ae20fa7200970"
+    },
+    "app/Sources/UIWindow.swift": {
+      "git_blob": "7cee6499508cbeb2ae6339e4dbfa40f41a7d80ba",
+      "sha256": "9abbf1acb41f8bc9f4252c92bacae82994ed8ad4198234d81d4b3a5c8765f46f"
+    },
+    "tests/frontend/ReviewPR284PinProbe.swift": {
+      "git_blob": "5e9535855d50a8fec6df3a62c3717ddd02396210",
+      "sha256": "e182684234ea9d25796eb05dad14bba6f2d1ce923d823055ea4a7851c3c66a02"
+    },
+    "tests/frontend/ReviewR219Fix8ViewProbe.swift": {
+      "git_blob": "42421fc77e9c040480a2ebe7a320386a2c6de805",
+      "sha256": "077f9ea5ff34b8fe6e878bb3ed431675350bdd9a733ae2aa4f0ff70a1ac1f23a"
+    },
+    "tests/frontend/test_review_pr284_pin.py": {
+      "git_blob": "942dd5d2fa650355204a93e2c78780c9ad7f18dd",
+      "sha256": "2cb2423905bc0c97065750dbe6b8c568bd7143ce16f38a2b098ea97b696eaee4"
+    },
+    "tests/frontend/test_review_pr284_resizes.py": {
+      "git_blob": "ffa644f0e49e067bd6b5d25ff627227cb3884109",
+      "sha256": "39cc2e5cfba3f1ac820c3c0ecb57b3bed41baa97d262868e2259d4d96dbea830"
+    },
+    "tests/frontend/test_review_r219_fix10_view.py": {
+      "git_blob": "f70839dfa24c236f5c77b370783ceec4f655afe9",
+      "sha256": "b643b41bfd55a6994507e05fd1c03d20eb5f0ac8695bb1ea86f5ff94ab3517a7"
+    },
+    "tests/frontend/test_review_r219_fix8_mutations.py": {
+      "git_blob": "791235df2e10b6e590b334dec850aa77192293b9",
+      "sha256": "daceac9a754f1828f7ddf22a7b616254a40f4bb6acec7cf3cca96c628db7f4ae"
+    },
+    "tests/frontend/test_review_r219_fix8_view.py": {
+      "git_blob": "0183227e29deb5ab6291238e4e18c2111f066686",
+      "sha256": "dc40bea45281621401fd694a740c4cfbf0efc098f3d8e36e01690476ccfc59dc"
+    },
+    "tests/fixtures/qt-flake/pr284-base-opening-pin.swift.txt": {
+      "git_blob": "2b6fcb2c7f61f66b2e7f692350fa04b08984c2b0",
+      "sha256": "6b0f1190ad9136e1e8e10850651b7e1f95e4e916c5d3b821a3497aa3f7a55fb1"
+    }
+  },
+  "inherited_product_and_tests_unchanged": true
+}

@@ -68,6 +68,15 @@ Environment:
                               probes.md, "Hooks inside a Subfleet launch"). Each
                               run is logged to SUBFLEET_FAKE_TURN_LOG with its rc
                               and stdout.
+    SUBFLEET_FAKE_LATE_INIT_S
+                              seconds a `slow` turn holds back its `system init`
+                              row after replaying its message (default 0; an
+                              interrupt cuts it short). The turn is running and
+                              accepted meanwhile, but the Claude turn driver takes
+                              no steer before that row names `msg_lifecycle_v1`
+                              (`ClaudeTurn.steerable`), so the daemon answers
+                              `message.steer` with `not-steerable`, as it does for
+                              a runner that lags under load (D-STEER-PUMP1)
 """
 
 from __future__ import annotations
@@ -351,6 +360,8 @@ class Fake:
         self.record({"type": "user", "uuid": row.get("uuid"), "message": {"role": "user", "content": text}})
         self.emit({"type": "user", "uuid": row.get("uuid"), "message": message, "parent_tool_use_id": None,
                    "isReplay": True})
+        if scenario == "slow":
+            self.interrupted.wait(float(os.environ.get("SUBFLEET_FAKE_LATE_INIT_S") or 0))
         model = served_model(self.model_value)
         if scenario == "wrong-model":
             model = "claude-haiku-4-5-20251001"

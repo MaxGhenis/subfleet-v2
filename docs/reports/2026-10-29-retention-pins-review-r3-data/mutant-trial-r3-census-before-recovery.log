@@ -1,0 +1,7 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 13:56:07Z slot B load 
+{"start": "2026-10-29T13:56:08.567990+00:00", "load": [20.3251953125, 20.29296875, 21.7529296875], "name": "mutant-trial-r3-census-before-recovery"}
+....                                                                     [100%]
+4 passed in 15.43s

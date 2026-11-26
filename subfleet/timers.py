@@ -14,11 +14,13 @@ import threading
 import time
 from uuid import uuid4
 
+from .provider_env import ProviderEnvironment
+from .launch_env import helper_policy
 from . import capacity, claude_cards
 from .policy import cap as policy_cap, lane_slot_cap
 from .adapters.registry import get_adapter
 from .contracts import ClockSource, Closure, ClosureReason, Outcome, OutcomeClass, Reading, ReadingLabel
-from .credentials import resolve_credential
+from .credentials import resolve_credential, withheld_references
 from .sessions.transcripts import read_regular
 from .store import Store
 
@@ -39,11 +41,20 @@ def iso(value):
 
 class Timers:
     def __init__(self, store, root, policy, *, turn=None, adapter_factory=get_adapter,
-                 deliver=None, now=None, cards_sensor=None):
-        from .actions import ResetCredits
+                 deliver=None, now=None, cards_sensor=None, demand=None, references=None):
+        from .actions import ResetCredits, inhibit_path
         from .alerts import Alerts
         self.store, self.root, self.policy = store, Path(root), policy
         self.turn, self.adapter_factory = turn, adapter_factory
+        # D-ENV1: the names this kit's own launches withhold. The daemon supplies
+        # its own (`Daemon._withheld_references`), which add the hooks of the
+        # lanes.json rows startup ignored (review r1 of #248, P3-1); without it,
+        # the stored lanes' (`credentials.withheld_references`).
+        self.references = references
+        # C-23.16 (a): the daemon's admission view of the jobs waiting on capacity
+        # (`Daemon._reset_demand`). Without one no credit is ever spent, by the
+        # timer or for an operator's `reset codex <lane>`.
+        self.demand = demand
         # C-10.3: whether Claude Code is using the desktop login now, a callable the
         # daemon supplies (`Daemon._desktop_in_use`); None judges the desktop lane
         # in use, as a view without the signal does.
@@ -81,7 +92,8 @@ class Timers:
         self._usage_lock = threading.Lock()
         self._usage_next = 0.0
         self.started = False
-        self.actions = ResetCredits(store, policy, adapter_factory=lambda lane: self.adapter_factory(lane.provider))
+        self.actions = ResetCredits(store, policy, adapter_factory=lambda lane: self.adapter_factory(lane.provider),
+                                    inhibit=inhibit_path(self.root))
         self.alerts = Alerts(store, policy, deliver or (lambda notice: False))
         settings = policy.get('timers', {})
         self.intervals = {'probe': settings.get('probe_interval_s', 60),
@@ -175,7 +187,7 @@ class Timers:
                 self._status[name]['next_due'] = iso(self.now() + timedelta(seconds=interval))
                 pool = (self._mirror if name in ('mirror', 'mirror_hot')
                         else self._cards if name == 'claude_cards' else self._cycles)
-                pool.submit(self._run, name)
+                pool.submit(self._run_worker, self._run, name)
 
     def request(self, name, *, target=None):
         """Queue operator maintenance on the same workers and overlap guard."""
@@ -205,8 +217,12 @@ class Timers:
                 self._running.discard(name)
             raise
         callback = (lambda: self.reset_credits_cycle(target=target)) if name == 'reset_credits' else None
-        (self._cards if name == 'claude_cards' else self._cycles).submit(self._run, name, callback)
+        (self._cards if name == 'claude_cards' else self._cycles).submit(self._run_worker, self._run, name, callback)
         return {'status': 'scheduled', 'timer': name, 'target': target}
+
+    def _run_worker(self, function, *args):
+        with helper_policy(self.policy, withheld=self._withheld):
+            return function(*args)
 
     def _run(self, name, callback=None):
         error = None
@@ -272,10 +288,48 @@ class Timers:
             self._session_mirror = Mirror(self.root, self.policy, now=self.now, cancel=self.cancel)
         return self._session_mirror
 
+    def current_demand(self, *, record=True, errors=None):
+        """C-23.16 (a): the waiting jobs, as admission judges them, or None if unknown.
+
+        A reader that raises is no demand: an unreadable queue never spends a
+        credit. The failure is an event unless `record` is false (a preview
+        writes nothing, C-19.1), and its type is appended to `errors` if given.
+        """
+        if self.demand is None:
+            return None
+        try:
+            return list(self.demand())
+        except Exception as exc:
+            if errors is not None:
+                errors.append(type(exc).__name__)
+            if record:
+                self.store.add_event('timer.error', data={'timer': 'reset_credits', 'stage': 'demand',
+                                                          'error_type': type(exc).__name__})
+            return None
+
+    def evaluate_resets(self, snapshot, *, target=None):
+        """C-23.16: one reset-credit evaluation, demand read only if it is needed.
+
+        The timer and an operator's `reset codex <lane>` (`target`) both judge
+        the same waiting demand; the operator's names the one lane a credit may
+        go on. A demand reader that raised spends nothing, and says so: the
+        result is `demand-error` with its `error_type`, so the timer's status
+        shows it rather than a quiet `no-demand`. The error travels with this
+        call, not on the component, so a preview on another thread cannot
+        relabel it. The daemon's clock goes with it: the lanes are judged again
+        at the spend, at the time it then reads (C-23.16 (c), (d)).
+        """
+        errors = []
+        result = self.actions.evaluate(snapshot, now=self.now(), cancel=self.cancel,
+                                       deadline=time.monotonic() + 60, target_lane_id=target,
+                                       demand=lambda: self.current_demand(errors=errors), clock=self.now)
+        if errors and result.get('status') in ('no-demand', 'demand-changed'):
+            result = {**result, 'status': 'demand-error', 'error_type': errors[-1]}
+        return result
+
     def reset_credits_cycle(self, *, target=None):
         snapshot = self.snapshot()
-        result = self.actions.evaluate(snapshot, now=self.now(), cancel=self.cancel,
-                                       deadline=time.monotonic() + 60, target_lane_id=target)
+        result = self.evaluate_resets(snapshot, target=target)
         if result.get('status') == 'confirmed':
             lane_id = result['lane_id']
             row = next(row for row in snapshot['lanes'] if row['lane_id'] == lane_id)
@@ -375,12 +429,12 @@ class Timers:
         """C-9.10: the Claude lanes, each marked `held` when an operator hold is in force.
 
         A hold is read from the closures and from its own `lane.held` and
-        `lane.released` events: `Store.put_closure` keeps one open closure per
-        lane and scope, so a hold that ends before an open provider limit on the
-        account scope leaves no `operator-hold` row, though it is in force.
-        Releasing such a hold changes no row and so writes no `lane.released`
-        event; the hold then lasts until its own end, which errs toward spending
-        nothing.
+        `lane.released` events. `Store.put_closure` now keeps a hold's row apart
+        from any limit (C-9.6, D-HOLD1), but in a store written before that, a
+        hold that ended before an open provider limit on the account scope left
+        no `operator-hold` row, though it is in force. Releasing such a hold
+        changes no row and so writes no `lane.released` event; the hold then
+        lasts until its own end, which errs toward spending nothing.
         """
         now = iso(self.now())
         held = {row['lane_id'] for row in self.store.query(
@@ -405,6 +459,15 @@ class Timers:
                 for row in self.store.query("SELECT lane_id,identity,label,account_key,enabled FROM lanes "
                                             "WHERE provider='claude' ORDER BY created_at,rowid")]
 
+    def _withheld(self) -> frozenset[str]:
+        """D-ENV2: what the timers' launches and helper subprocesses withhold, read at
+        each: the daemon's set (`Daemon._withheld_references`), else the stored lanes'."""
+        return frozenset(self.references() if self.references else withheld_references(self.store.list_lanes()))
+
+    def _provider_environment(self) -> ProviderEnvironment:
+        """The daemon's launch selection: no lane's credential reference (D-ENV1)."""
+        return ProviderEnvironment(self.policy, references=self._withheld)
+
     def _card_sensor(self):
         if self._cards_sensor is None:
             from .adapters.claude import ENROLL_MODEL, ENROLL_PROMPT, home_login
@@ -415,8 +478,9 @@ class Timers:
             self._cards_sensor = claude_cards.Sensor(
                 login_reader=home_login,
                 heal=lambda home: claude_cards.heal_turn(home, claude_bin=claude_bin, model=ENROLL_MODEL,
-                                                         prompt=ENROLL_PROMPT, cancel=self.cancel),
-                version=lambda: claude_cards.cli_version(claude_bin),
+                                                         prompt=ENROLL_PROMPT, cancel=self.cancel,
+                                                         environment=self._provider_environment()),
+                version=lambda: claude_cards.cli_version(claude_bin, environment=self._provider_environment()),
                 now=self.now)
         return self._cards_sensor
 
@@ -504,7 +568,8 @@ class Timers:
         # Desktop Codex identity is observed read-only; it is never a lane.
         try:
             from .adapters.codex import _identity, _read_auth
-            identity = _identity(_read_auth(Path.home() / '.codex'))
+            from .home_paths import codex_app_home
+            identity = _identity(_read_auth(codex_app_home()))
             self._app_account = 'codex:' + str(identity.get('account_id') or identity.get('email') or '')
         except (OSError, ValueError):
             self._app_account = None
@@ -575,7 +640,7 @@ class Timers:
                     self._io_busy.discard(key)
                 self._io_slots.release()
                 done.set()
-        threading.Thread(target=read, daemon=True, name='subfleet-usage-read').start()
+        threading.Thread(target=self._run_worker, args=(read,), daemon=True, name='subfleet-usage-read').start()
         deadline = time.monotonic() + min(15, self.policy.get('caps', {}).get('probe_timeout_s', 60))
         while not done.wait(.02):
             if self.cancel.is_set() or time.monotonic() >= deadline:
@@ -718,9 +783,9 @@ class Timers:
     def _mark(self):
         """The newest event as a busy read starts: a mark no later limit report slips past.
 
-        `put_closure` keeps one open closure per lane and scope. It extends that
-        row in place, and a limit reported again that ends no later changes
-        nothing in it. Every report leaves a `closure.recorded` event all the
+        `put_closure` keeps one open closure per lane, scope and kind (a hold
+        or a limit). It extends that row in place, and a limit reported again
+        that ends no later changes nothing in it. Every report leaves a `closure.recorded` event all the
         same (`Store.put_closure`), whoever made it: an attempt, a conversation
         turn, an admission probe, an operator's hold. Retention prunes jobs and
         their attempts, never events, so it cannot take the trace away.
@@ -964,7 +1029,7 @@ class Timers:
             self.cancel.wait(wait)
         if self.cancel.is_set():
             return
-        futures = [self._lanes.submit(self._probe_lane, lane) for lane in self.store.list_lanes()
+        futures = [self._lanes.submit(self._run_worker, self._probe_lane, lane) for lane in self.store.list_lanes()
                    if lane.enabled and lane.owner == 'v2']
         # Every holder this cycle took is released, whatever raised: one lane's
         # failure must not leave another lane's `slot:0` held until a restart
@@ -1000,7 +1065,7 @@ class Timers:
             raise failure
         # The same four-worker/read fences apply, but no idle probe lease is
         # held across busy reads, their Claude pacing, or their publication.
-        futures = [self._lanes.submit(self._busy_read, lane) for lane in busy]
+        futures = [self._lanes.submit(self._run_worker, self._busy_read, lane) for lane in busy]
         busy_results = [value for future in as_completed(futures) if (value := future.result())]
         results.extend(busy_results)
         for lane, probe, opened in busy_results:
@@ -1017,8 +1082,7 @@ class Timers:
         offline = bool(codex) and all(p.get('status') == 'network-error' for p in codex)
         snapshot = self.snapshot()
         if not offline:
-            result = self.actions.evaluate(snapshot, now=self.now(), cancel=self.cancel,
-                                           deadline=time.monotonic() + 60)
+            result = self.evaluate_resets(snapshot)
             self.mark('reset_credits', error=result.get('error_type'), next_due=self.status()['probe']['next_due'])
             if result.get('status') == 'confirmed':
                 row = next(row for row in snapshot['lanes'] if row['lane_id'] == result['lane_id'])
@@ -1090,6 +1154,6 @@ class Timers:
             self._release(holder, quarantined=quarantined)
 
     def keepalive_cycle(self):
-        futures = [self._lanes.submit(self._keepalive_lane, lane) for lane in self.store.list_lanes()
+        futures = [self._lanes.submit(self._run_worker, self._keepalive_lane, lane) for lane in self.store.list_lanes()
                    if lane.provider == 'claude' and lane.enabled and lane.owner == 'v2' and not lane.desktop]
         return [future.result() for future in as_completed(futures)]

@@ -1,0 +1,80 @@
+{
+  "consumers": {
+    "needed": {
+      "base_sha256": "dba6d7e1fc2a0a103bc3e66263bc3b6c9540333f4e07b0b34fc79b0901a95680",
+      "head_sha256": "dba6d7e1fc2a0a103bc3e66263bc3b6c9540333f4e07b0b34fc79b0901a95680",
+      "unchanged": true
+    },
+    "fenced": {
+      "base_sha256": "d456390500b3c6d94b0d0e11269210cdd1ab544de58ca2dc7add1116852265b0",
+      "head_sha256": "d456390500b3c6d94b0d0e11269210cdd1ab544de58ca2dc7add1116852265b0",
+      "unchanged": true
+    },
+    "fences": {
+      "base_sha256": "403b3dd522a31c5eef0c3e74c86f2bb2c9aa32f95b4508ee41273a4fe6cec995",
+      "head_sha256": "403b3dd522a31c5eef0c3e74c86f2bb2c9aa32f95b4508ee41273a4fe6cec995",
+      "unchanged": true
+    },
+    "legacy": {
+      "base_sha256": "45e71d97f117d5365bd630149cd3ac1b6b44d96818f10001ed2f8b520d594758",
+      "head_sha256": "45e71d97f117d5365bd630149cd3ac1b6b44d96818f10001ed2f8b520d594758",
+      "unchanged": true
+    },
+    "live": {
+      "base_sha256": "483163d02e01c9305fc6cba1722181200cf31d31cb2a95525ecd497a1dc709ec",
+      "head_sha256": "483163d02e01c9305fc6cba1722181200cf31d31cb2a95525ecd497a1dc709ec",
+      "unchanged": true
+    },
+    "users": {
+      "base_sha256": "2e6a6b2b03d2f787a17d05400faceea0469e6e2b7e7e5009a4499c0886b40094",
+      "head_sha256": "2e6a6b2b03d2f787a17d05400faceea0469e6e2b7e7e5009a4499c0886b40094",
+      "unchanged": true
+    },
+    "dependents": {
+      "base_sha256": "ccf3e7176ff3df7fceb2f5e7b8d6dbfe67ad41dd429d16ac2082c134a4f46061",
+      "head_sha256": "ccf3e7176ff3df7fceb2f5e7b8d6dbfe67ad41dd429d16ac2082c134a4f46061",
+      "unchanged": true
+    }
+  },
+  "unchanged_files": {
+    "subfleet/daemon.py": {
+      "sha256": "6e3e2dc4fbc5c83e96227bbe09c3f99e200d6948e3ea6b7461c5f65f241fa90a",
+      "unchanged": true
+    },
+    "subfleet/retention.py": {
+      "sha256": "e08ffd693d85249fedef40e2ee493137a2b588dcfe801cfb376784f85e438de2",
+      "unchanged": true
+    },
+    "subfleet/retention_archive.py": {
+      "sha256": "40a2a4712a1dbd9b5a4e0a6ac28c7e87a8762a646a5d26a546151723802fcf26",
+      "unchanged": true
+    },
+    "subfleet/render.py": {
+      "sha256": "1b2fdf0d6093876b4842d9b6f8b2f4b035e0836253d4aef63722a9bda50e0ef8",
+      "unchanged": true
+    },
+    "subfleet/conversations/service.py": {
+      "sha256": "7424d7ab03d13ef2de937d88020691e92e985a8db2df41e02e74366872ccccd0",
+      "unchanged": true
+    },
+    "tests/unit/test_retention_dependency_units.py": {
+      "sha256": "958bc7bed3a5d4b597e0e1c8856952d39bbbad6adb18e57ea5ece53850efc575",
+      "unchanged": true
+    },
+    "docs/acceptance-contract.md": {
+      "sha256": "e4f236bcb51f20d20c59d825fc80da64ca03c02c35dc98daddfae5779faf35f7",
+      "unchanged": true
+    }
+  },
+  "r8_only_strict_mark_removed": true,
+  "notes": [
+    "All consumers use strings, ancestor relationships, folded comparison keys or database reads.",
+    "Daemon _needs feeds _fence_hold and reservation; neither canonicalizes needs. Hold.folder is display text.",
+    "render._retiring and conversations.service hold descriptions only format or fold those strings."
+  ],
+  "documentation_only_after_final_repair": {
+    "commit": "334b82f22",
+    "executable_ast_sha256": "e5b9087e7ec379a1426b16812f0dfb8f3b099f77a53a0749a412991beed33e61",
+    "unchanged": true
+  }
+}

@@ -16,22 +16,27 @@ from . import protocol, render
 from .client import DaemonError, DaemonUnavailable
 from .contracts import Exit
 from .offline import Offline, OfflineUnavailable
+from .status_json import closure_row
 
 
 def error_report(query, hours: float, *, now=None) -> dict:
     if isinstance(hours, bool) or not isinstance(hours, (int, float)) or not math.isfinite(hours) or hours <= 0:
-        raise protocol.ProtocolError('errors: --hours must be a finite positive number')
+        raise protocol.ProtocolError('errors: --hours must be a finite positive number', reason='errors-hours')
     now = now or datetime.now(timezone.utc)
     try:
         since = (now - timedelta(hours=hours)).isoformat(timespec='seconds').replace('+00:00', 'Z')
     except OverflowError:
-        raise protocol.ProtocolError('errors: --hours is outside the supported date range') from None
+        raise protocol.ProtocolError('errors: --hours is outside the supported date range',
+                                     reason='errors-hours-range') from None
     attempts = query("SELECT attempt_id,job_id,lane_id,state,outcome_class,outcome_detail,rc,finished_at "
                      "FROM attempts WHERE COALESCE(finished_at,started_at,reserved_at)>=? "
                      "AND (state IN ('failed','lost','quarantined') OR outcome_class IN ('limited','auth-dead')) "
                      "ORDER BY COALESCE(finished_at,started_at,reserved_at) DESC", (since,))
-    closures = query("SELECT lane_id,scope,reason,until_at,clock_source,source_event,created_at,released_at "
-                     "FROM closures WHERE created_at>=? ORDER BY created_at DESC", (since,))
+    # D-STATUS-SRC1 (review r2 of #263, P3-2): with `kind` and `note`, and a hold's
+    # stored source withheld, as `daemon.status` shows closure rows.
+    closures = [closure_row(row) for row in query(
+        "SELECT lane_id,scope,reason,until_at,clock_source,source_event,created_at,released_at "
+        "FROM closures WHERE created_at>=? ORDER BY created_at DESC", (since,))]
     probes = []
     for row in query("SELECT lane_id,ts,data_json FROM events WHERE kind='timer.verdict' AND ts>=? "
                      "AND data_json!='{}' ORDER BY event_id DESC", (since,)):
@@ -68,7 +73,7 @@ def brief(view: dict) -> str:
             if lane.get('identity_status') in ('mismatch', 'unverified'):
                 conditions.append('identity ' + lane['identity_status'])
             closures = lane.get('closures', [row for row in view.get('closures', ()) if row['lane_id'] == lane['lane_id']])
-            conditions.extend(render.closure_text(row) for row in closures)
+            conditions.extend(render.closure_text(row, home=render.lane_home(lane)) for row in closures)
             lines.append(f"  - {lane['lane_id']}: {text}" + ('; ' + '; '.join(conditions) if conditions else ''))
     return '\n'.join(lines)
 
@@ -78,17 +83,19 @@ def _target(service, target: str | None, provider='codex'):
     if target is None or target == 'all':
         return None
     if not isinstance(target, str) or not target.strip():
-        raise protocol.ProtocolError('name a lane or all')
+        raise protocol.ProtocolError('name a lane or all', reason='operations-target')
     value = f'{provider}-{target}' if target.isdigit() else target
     row = resolve_lane(service.store.query('SELECT * FROM lanes'), value)
     if row is None or row['provider'] != provider:
-        raise protocol.ProtocolError(f'unknown {provider} lane {target!r}', fix='subfleet lanes list')
+        raise protocol.ProtocolError(f'unknown {provider} lane {target!r}', fix='subfleet lanes list',
+                                     reason='unknown-provider-lane',
+                                     details={'provider': provider, 'lane_id': value})
     return row
 
 
 def dispatch(service, args: protocol.OperationsArgs) -> dict:
     if not isinstance(args.dry_run, bool):
-        raise protocol.ProtocolError('dry_run must be a boolean')
+        raise protocol.ProtocolError('dry_run must be a boolean', reason='operations-dry-run')
     if args.command == 'errors':
         return error_report(service.store.query, args.hours)
     if args.command == 'canonical-model':
@@ -96,7 +103,7 @@ def dispatch(service, args: protocol.OperationsArgs) -> dict:
         target = args.target or ''
         match = re.fullmatch(r'([^\[\]]+)(\[[^\[\]]+\])?', target.strip())
         if not match:
-            raise protocol.ProtocolError('canonical-model: name a model')
+            raise protocol.ProtocolError('canonical-model: name a model', reason='canonical-model')
         base, suffix = match.groups()
         try:
             short = resolve_model(service.policy, base.lower(), note=False)
@@ -105,20 +112,25 @@ def dispatch(service, args: protocol.OperationsArgs) -> dict:
         return {'model': service.policy['models'][short]['id'] + (suffix or '')}
     if args.command == 'login':
         if args.target in ('app', 'desktop'):
-            raise protocol.ProtocolError('desktop login is never a Subfleet lane operation', Exit.REFUSED)
+            raise protocol.ProtocolError('desktop login is never a Subfleet lane operation', Exit.REFUSED,
+                                         reason='desktop-login')
         lane = _target(service, args.target)
         if lane is None:
-            raise protocol.ProtocolError('login codex: name one existing lane')
+            raise protocol.ProtocolError('login codex: name one existing lane', reason='login-lane')
         if lane['desktop']:
-            raise protocol.ProtocolError('desktop login is never a Subfleet lane operation', Exit.REFUSED)
+            raise protocol.ProtocolError('desktop login is never a Subfleet lane operation', Exit.REFUSED,
+                                         reason='desktop-login')
         if lane['owner'] != 'v2':
-            raise protocol.ProtocolError('transfer this lane to v2 before re-enrollment', Exit.REFUSED)
+            raise protocol.ProtocolError('transfer this lane to v2 before re-enrollment', Exit.REFUSED,
+                                         reason='login-owner')
         if lane['enabled']:
-            raise protocol.ProtocolError('login requires a disabled lane; healthy bindings are not replaced', Exit.REFUSED)
+            raise protocol.ProtocolError('login requires a disabled lane; healthy bindings are not replaced', Exit.REFUSED,
+                                         reason='login-enabled')
         if service.store.one("SELECT 1 FROM attempts WHERE lane_id=? AND state IN "
                              "('reserved','starting','running','finalizing','quarantined')", (lane['lane_id'],)) or service.store.one(
                 "SELECT 1 FROM leases WHERE lease_key LIKE ?", (f"lane:{lane['lane_id']}:slot:%",)):
-            raise protocol.ProtocolError('lane still has live work or an execution lease', Exit.REFUSED)
+            raise protocol.ProtocolError('lane still has live work or an execution lease', Exit.REFUSED,
+                                         reason='login-busy')
         home = shlex.quote(lane['home'] or lane['credential_ref'])
         return {'status': 'manual-login-required', 'lane_id': lane['lane_id'],
                 'detail': 'Subfleet never performs provider login. In your terminal, authenticate this lane home, '
@@ -132,10 +144,10 @@ def dispatch(service, args: protocol.OperationsArgs) -> dict:
         if args.target == 'refresh':
             return {**service.timers.request('claude_cards'), 'cards': view}
         if args.target is not None:
-            raise protocol.ProtocolError("cards: the only target is 'refresh'")
+            raise protocol.ProtocolError("cards: the only target is 'refresh'", reason='cards-target')
         return {'status': 'ok', 'cards': view}
     if args.command not in ('brief', 'watch', 'keepalive', 'reset'):
-        raise protocol.ProtocolError('unknown operator command')
+        raise protocol.ProtocolError('unknown operator command', reason='operations-command')
     # Display and preview never refresh credentials or call a provider.
     view = service._capacity_view(service._cached_desktop_identity())
     if args.command == 'brief':
@@ -144,8 +156,11 @@ def dispatch(service, args: protocol.OperationsArgs) -> dict:
         lane = _target(service, args.target)
         lane_id = lane['lane_id'] if lane else None
         if args.dry_run:
+            # C-23.16: a preview judges the same waiting demand the spend would,
+            # for the timer and for a named lane alike, and writes nothing.
             return service.timers.actions.evaluate(view, now=service.timers.now(),
-                                                   target_lane_id=lane_id, dry_run=True)
+                                                   target_lane_id=lane_id, dry_run=True,
+                                                   demand=lambda: service.timers.current_demand(record=False))
         return service.timers.request('reset_credits', target=lane_id)
     if args.dry_run:
         if args.command == 'watch':

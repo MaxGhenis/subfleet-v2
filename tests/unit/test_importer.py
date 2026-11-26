@@ -25,6 +25,7 @@ from subfleet.conversations.store import ConversationStore
 from subfleet.importer import ImportRefused, import_legacy_cockpit, import_v1
 from subfleet.store import Store
 from tests import legacy_fixtures
+from tests.fake.conftest import process_inspection_available  # noqa: F401
 from tests.legacy_fixtures import (
     LEGACY, LEGACY_SESSION, QUEUED_SESSION, outbox_row, write_outbox, write_transcript,
 )
@@ -37,14 +38,29 @@ CODEX_TWO = "3163881b-4300-4ed1-a2ec-9c5360d10db8"
 APP_ACCOUNT = "390a6216-cdbe-478e-b9f1-42a9dc7f5dd7"
 SESSION = "29c03102-0afc-452f-a605-14a356d334bc"
 
-def _dead_pid() -> int:
+# Outside the host PID range. Where the host lets `ps` and `sysctl` report
+# process identity, the `v1` fixture replaces both with real ones (this process,
+# and a child already reaped); only where it does not (`process_inspection_
+# available` would skip) does it supply their identities itself (#221 review
+# r1b, P3-6: CI ran no real identity here at all).
+DEAD_PID = 999_999_991
+LIVE_PID = 999_999_992
+
+
+def _inspection_works() -> bool:
+    from subfleet.procs import InspectionError, boot_id, proc_start
+    try:
+        boot_id()
+        return bool(proc_start(os.getpid()))
+    except InspectionError:
+        return False
+
+
+def _reaped_pid() -> int:
     """A pid `ps` accepts and no process holds: a child that has already been reaped."""
     child = subprocess.Popen(["/usr/bin/true"])
     child.wait()
     return child.pid
-
-
-DEAD_PID = _dead_pid()
 
 
 def offset_now(delta_s: float = 0.0) -> str:
@@ -79,8 +95,29 @@ def run_meta(run_id: str, **overrides: object) -> dict:
 
 
 @pytest.fixture
-def v1(tmp_path: Path) -> dict:
+def real_identity() -> bool:
+    """Whether `v1` judges its live and dead runs by real process identity."""
+    return _inspection_works()
+
+
+@pytest.fixture
+def v1(tmp_path: Path, monkeypatch, real_identity) -> dict:
     """A synthetic v1 state tree: roster, homes, runs, notices, outbox, files."""
+    module = sys.modules[__name__]
+    if real_identity:
+        monkeypatch.setattr(module, "DEAD_PID", _reaped_pid())
+        monkeypatch.setattr(module, "LIVE_PID", os.getpid())
+    else:
+        real_identity = importer.procs.identity
+
+        def fixture_identity(pid):
+            if pid == DEAD_PID:
+                return None
+            if pid == LIVE_PID:
+                return importer.procs.ProcessIdentity(pid, "fixture-boot", "fixture-start")
+            return real_identity(pid)
+
+        monkeypatch.setattr(importer.procs, "identity", fixture_identity)
     home = tmp_path / "home"
     state = tmp_path / "v1-state"
     delegate = tmp_path / "delegate"
@@ -131,7 +168,7 @@ def v1(tmp_path: Path) -> dict:
                                          finished_at=None, duration_s=None),
         "20260905-100400-live": run_meta("20260905-100400-live", rc=None,
                                          finished_at=None, duration_s=None,
-                                         pid=os.getpid()),
+                                         pid=LIVE_PID),
         "20260905-100500-claude": run_meta("20260905-100500-claude", family="claude",
                                            model="claude-opus-5", lane=ENROLLED,
                                            codex_home=None, codex_thread_id=None,
@@ -835,9 +872,13 @@ def test_imported_credit_cannot_be_spent_after_its_interval_and_override_expire(
         store.update_lane(row["lane_id"], owner="v2")
         row.update(owner="v2", dispatchable=False, probe={"status": "limited", "limit_reached": True,
                    "checked_at": now.isoformat(), "account_key": row["account_key"]})
-        resets = ResetCredits(store, {}, lambda lane: Credits())
+        resets = ResetCredits(store, {"reset_credits": {"enabled": True}}, lambda lane: Credits())
         assert resets.confirmed_override(row["lane_id"], now=now) is None
-        assert resets.evaluate({"lanes": [row]}, now=now)["status"] == "no-concrete-credit"
+        # C-23.16 (e): even an operator naming the lane, for a job waiting on it, cannot respend the imported credit.
+        waiting = [{"job_id": "waiting-job", "verdict": "codex-demand", "capacity_lanes": [],
+                    "limited_lanes": [row["lane_id"]]}]
+        assert resets.evaluate({"lanes": [row]}, now=now, target_lane_id=row["lane_id"],
+                               demand=waiting)["status"] == "no-concrete-credit"
         assert len(store.query("SELECT * FROM actions")) == 1
     assert calls == ["list"]
 
@@ -920,6 +961,33 @@ def test_a_closure_is_extended_never_shortened(v1):
     run_import(v1)
     after = rows(v1["root"], "SELECT * FROM closures WHERE closure_id=?", (before["closure_id"],))[0]
     assert after["until_at"] == before["until_at"]
+
+
+@pytest.mark.parametrize("hold_ends", ["before", "after"])
+def test_a_cooldown_never_merges_with_an_operator_hold(v1, hold_ends):
+    """C-9.6 (D-HOLD1): an imported cooldown is a limit. It neither replaces a hold that ends sooner
+    (`before`, the lane's own cooldown released first) nor yields to one that ends later (`after`): each
+    keeps its own row."""
+    from subfleet.contracts import ClockSource, Closure, ClosureReason
+
+    def utc(seconds: float) -> str:
+        return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    run_import(v1)
+    [cooldown] = rows(v1["root"], "SELECT * FROM closures WHERE scope='account'")
+    hold_until = utc(1800) if hold_ends == "before" else "2099-01-01T00:00:00Z"
+    with Store(v1["root"] / "state.sqlite3") as store:
+        if hold_ends == "before":
+            with store.transaction("fixture.released") as tx:
+                tx.execute("UPDATE closures SET released_at=? WHERE closure_id=?", (utc(0), cooldown["closure_id"]))
+        store.put_closure(Closure(cooldown["lane_id"], "account", hold_until, ClosureReason.OPERATOR_HOLD,
+                                  ClockSource.REPORTED, "operator"))
+    write_json(v1["delegate"] / "cooldowns.json", {f"{v1['home']}/.codex-2": {"*": offset_now(4 * 3600)}})
+    run_import(v1)
+    open_rows = rows(v1["root"], "SELECT reason,until_at FROM closures WHERE lane_id=? AND released_at IS NULL "
+                                 "ORDER BY reason", (cooldown["lane_id"],))
+    assert [row["reason"] for row in open_rows] == ["cooldown", "operator-hold"]
+    assert open_rows[0]["until_at"] > cooldown["until_at"] and open_rows[1]["until_at"] == hold_until
 
 
 # --- notices ------------------------------------------------------------------
@@ -1623,13 +1691,16 @@ def test_a_workers_file_naming_a_lone_surrogate_holds_every_session(v1):
 
 
 @pytest.mark.parametrize("subfleet", [False, True])
-def test_a_live_claude_process_outside_subfleet_keeps_history_out_and_fences_nothing(v1, subfleet):
+def test_a_live_claude_process_outside_subfleet_keeps_history_out_and_fences_nothing(v1, subfleet, request):
     """C-30.4, C-26.3 (review M1 and its follow-up): a live Claude process
     registered for a session in `<claude dir>/sessions` keeps this pass from
     placing history there, unless it is Subfleet's own (its environment names
     `SUBFLEET_ATTEMPT`, as a turn that kept running across the restart does).
     It holds no conversation: dispatch and launch make a turn there wait while
     the process lives (`external-writer`), and a hold set now would outlast it."""
+    if subfleet:
+        # This branch must prove the real child's Subfleet marker, beyond liveness.
+        request.getfixturevalue("process_inspection_available")
     cid = _bind(v1)
     write_outbox(v1["state"], [*fixture_rows(),
                                outbox_row(LEGACY[3], LEGACY_SESSION, "finished", "later, in the app", at=50)])
@@ -2431,3 +2502,145 @@ def test_swapped_roots_touch_neither_directory(v1):
                   home=v1["home"], milestone=importer.LEGACY_MILESTONE, claude_projects=v1["claude"] / "projects")
     assert sorted(path.name for path in v1["state"].iterdir()) == before
     assert dispositions(run_legacy(v1))[LEGACY[0]] == "history"
+
+
+# --- reset settings: v1's auto_reset switch and its reset hold (C-23.16 (f)) ---
+
+def _state_policy(root: Path, enabled: bool) -> Path:
+    """A state root whose policy.json predates C-23.16 (f): automatic redemption on."""
+    policy = json.loads(importer.DEFAULT_POLICY_PATH.read_text())
+    policy["reset_credits"] = {"enabled": enabled, "headroom_floor_pct": 15, "min_interval_min": 30}
+    policy["caps"]["max_active_attempts"] = 6          # an operator's own edit, which must survive
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / "policy.json"
+    path.write_text(json.dumps(policy, indent=2))
+    return path
+
+
+def _auto_reset(v1: dict, enabled) -> None:
+    config = json.loads((v1["roster"] / "codex-accounts.json").read_text())
+    config["auto_reset"] = {"enabled": enabled, "headroom_floor_pct": 15, "min_interval_min": 30}
+    write_json(v1["roster"] / "codex-accounts.json", config)
+
+
+def test_v1_auto_reset_off_turns_automatic_redemption_off(v1, monkeypatch):
+    """C-23.16 (f): v1 `auto_reset.enabled: false` becomes `reset_credits.enabled: false`, and nothing else moves."""
+    from subfleet.policy import load_policy
+    monkeypatch.delenv("SUBFLEET_RESET_INHIBIT", raising=False)
+    _auto_reset(v1, False)
+    path = _state_policy(v1["root"], True)
+    before = path.read_bytes()
+    dry = run_import(v1, dry_run=True, write_report=False)
+    assert path.read_bytes() == before
+    assert dry.stores["reset-settings"].reasons["reset-credits-disabled"] == 1
+    report = run_import(v1, write_report=False)
+    entry = report.stores["reset-settings"]
+    assert entry.imported == 1 and entry.reasons["reset-credits-disabled"] == 1
+    policy = load_policy(path)
+    assert policy["reset_credits"]["enabled"] is False
+    assert policy["reset_credits"]["min_interval_min"] == 30 and policy["caps"]["max_active_attempts"] == 6
+    again = run_import(v1, write_report=False).stores["reset-settings"]
+    assert again.imported == 0 and again.reasons["already-disabled"] == 1
+
+
+@pytest.mark.parametrize("v1_setting", [True, None])
+def test_v1_auto_reset_on_or_unset_never_turns_it_on(v1, monkeypatch, v1_setting):
+    """C-23.16 (f): enabling automatic redemption is an operator's choice; an import never makes it."""
+    monkeypatch.delenv("SUBFLEET_RESET_INHIBIT", raising=False)
+    _auto_reset(v1, v1_setting)
+    path = _state_policy(v1["root"], False)
+    before = path.read_bytes()
+    entry = run_import(v1, write_report=False).stores["reset-settings"]
+    assert path.read_bytes() == before
+    assert entry.imported == 0 and entry.reasons["v1-auto-reset-not-disabled"] == 1
+    assert any("operator's choice" in note for note in entry.notes) == (v1_setting is True)
+
+
+def test_v1_auto_reset_off_before_the_daemon_wrote_a_policy_writes_none(v1, monkeypatch):
+    """C-23.16 (f): with no policy.json the daemon writes its default, which is already off."""
+    monkeypatch.delenv("SUBFLEET_RESET_INHIBIT", raising=False)
+    _auto_reset(v1, False)
+    entry = run_import(v1, write_report=False).stores["reset-settings"]
+    assert not (v1["root"] / "policy.json").exists()
+    assert entry.reasons["no-policy-yet"] == 1
+    assert json.loads(importer.DEFAULT_POLICY_PATH.read_text())["reset_credits"]["enabled"] is False
+
+
+@pytest.mark.parametrize("hold", ["file", "dangling-link", "explicit", "environment"])
+def test_v1_reset_hold_becomes_the_no_reset_marker(v1, monkeypatch, hold):
+    """C-23.16 (f): v1's hold refused every consume; the marker it becomes refuses them in v2."""
+    from subfleet.actions import ResetCredits
+    monkeypatch.delenv("SUBFLEET_RESET_INHIBIT", raising=False)
+    source = v1["home"] / "capacity-sprint-20260907" / "no-reset.json"
+    options = {}
+    if hold in ("explicit", "environment"):
+        source = v1["home"] / "elsewhere" / "hold.json"
+        if hold == "explicit":
+            options["v1_reset_hold"] = source
+        else:
+            monkeypatch.setenv("SUBFLEET_RESET_INHIBIT", str(source))
+    source.parent.mkdir(parents=True, exist_ok=True)
+    held = {"block_enabled": True, "reason": "exhaust Axiom and Thesis capacity first"}
+    if hold == "dangling-link":
+        source.symlink_to(v1["home"] / "missing-target.json")
+    else:
+        write_json(source, held)
+    marker = v1["root"] / "no-reset"
+    run_import(v1, dry_run=True, write_report=False, **options)
+    assert not os.path.lexists(marker)
+    entry = run_import(v1, write_report=False, **options).stores["reset-settings"]
+    assert entry.reasons["reset-hold-imported"] == 1
+    recorded = json.loads(marker.read_text())
+    assert recorded["source"] == str(source)
+    assert recorded["v1_hold"] == (None if hold == "dangling-link" else held)
+    assert oct(marker.stat().st_mode & 0o777) == "0o600"
+    resets = ResetCredits(None, {"reset_credits": {"enabled": True}}, inhibit=marker)
+    assert resets.inhibited() == str(marker)
+    # A hold that is gone never lifts the marker; only an operator removes it.
+    source.unlink()
+    again = run_import(v1, write_report=False, **options).stores["reset-settings"]
+    assert os.path.lexists(marker) and again.reasons["no-v1-reset-hold"] == 1
+
+
+@pytest.mark.parametrize("content", ["{not json", json.dumps({"tiers": []}), json.dumps({"reset_credits": []})])
+def test_an_unreadable_policy_is_left_alone(v1, monkeypatch, content):
+    """C-23.16 (f): the import never rewrites a policy it cannot read; the daemon refuses to start on it."""
+    monkeypatch.delenv("SUBFLEET_RESET_INHIBIT", raising=False)
+    _auto_reset(v1, False)
+    v1["root"].mkdir(parents=True, exist_ok=True)
+    path = v1["root"] / "policy.json"
+    path.write_text(content)
+    entry = run_import(v1, write_report=False).stores["reset-settings"]
+    assert path.read_text() == content
+    assert entry.imported == 0 and entry.reasons["policy-unreadable"] == 1
+
+
+@pytest.mark.parametrize("real_identity", [False])
+def test_fixture_run_states_do_not_need_host_process_inspection(v1, monkeypatch):
+    """Synthetic live/dead records have fixed identities even in a denied kernel."""
+    def unavailable(pid):
+        raise importer.procs.InspectionError("fixture process inspection denied")
+
+    monkeypatch.setattr(importer.procs, "proc_start", unavailable)
+    run_import(v1)
+    states = {row["job_id"]: row["state"] for row in rows(v1["root"], "SELECT * FROM jobs")}
+    assert states["20260905-100300-lost"] == "lost"
+    assert states["20260905-100400-live"] == "running"
+
+
+def test_uninspectable_unfinalized_run_stays_external(monkeypatch):
+    """C-5.3: unavailable inspection cannot authorize adoption of a real run."""
+    def unavailable(pid):
+        raise importer.procs.InspectionError("fixture process inspection denied")
+
+    monkeypatch.setattr(importer.procs, "identity", unavailable)
+    assert importer._run_is_live({"pid": 999_999_997, "rc": None, "finished_at": None}) == (
+        True, "pid-inspection-failed")
+
+
+
+def test_v1_fixture_uses_real_process_identity_where_the_host_allows_it(v1, process_inspection_available):
+    """P3-6: on a host that reports identity, the live and dead runs are judged by real `ps`."""
+    assert LIVE_PID == os.getpid() and DEAD_PID != 999_999_991
+    assert importer.procs.identity(LIVE_PID) is not None
+    assert importer.procs.identity(DEAD_PID) is None

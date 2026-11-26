@@ -1,0 +1,172 @@
+[
+  {
+    "name": "r2-post-read-identity-check-dropped",
+    "exit": 0,
+    "failed_phases": [],
+    "failure": null
+  },
+  {
+    "name": "r3-final-path-check-dropped",
+    "exit": 0,
+    "failed_phases": [],
+    "failure": null
+  },
+  {
+    "name": "r4-initial-objects-revalidation-dropped",
+    "exit": 0,
+    "failed_phases": [],
+    "failure": null
+  },
+  {
+    "name": "r4-initial-objects-recording-dropped",
+    "exit": 0,
+    "failed_phases": [],
+    "failure": null
+  },
+  {
+    "name": "r6-empty-common-initial-objects-not-recorded",
+    "exit": 0,
+    "failed_phases": [],
+    "failure": null
+  },
+  {
+    "name": "r6-parent-common-fallback-restored",
+    "exit": 0,
+    "failed_phases": [],
+    "failure": null
+  },
+  {
+    "name": "r7-own-objects-revalidation-dropped",
+    "exit": 0,
+    "failed_phases": [],
+    "failure": null
+  },
+  {
+    "name": "r8-alias-location-recording-dropped",
+    "exit": 1,
+    "failed_phases": [
+      "call"
+    ],
+    "failure": "tests/fake/test_retention_dependency_review_r8.py:44: in test_running_job_keeps_tree_containing_required_git_pointer\n    assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)\nE   AssertionError: ({'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-r8-alias-location-recording-dropped/pytest-of-maxghenis/pytest-0/tes...independent-storage/.git/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48852, 'bytes_after': 0, ...})\nE   assert ('owner' not in ['owner'])"
+  },
+  {
+    "name": "r8-pointer-file-location-recording-dropped",
+    "exit": 1,
+    "failed_phases": [
+      "call"
+    ],
+    "failure": "tests/fake/test_retention_dependency_review_r8.py:44: in test_running_job_keeps_tree_containing_required_git_pointer\n    assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)\nE   AssertionError: ({'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-r8-pointer-file-location-recording-dropped/pytest-of-maxghenis/pytes...independent-storage/.git/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48875, 'bytes_after': 0, ...})\nE   assert ('owner' not in ['owner'])"
+  },
+  {
+    "name": "r8-intermediate-link-walk-dropped",
+    "exit": 1,
+    "failed_phases": [
+      "call"
+    ],
+    "failure": "tests/unit/test_retention_locations.py:20: in test_required_locations_survive_two_relative_links\n    observation = check_location_input(tmp_path, dict(position=position, chain=2, relative=True,\ntests/unit/test_retention_location_inputs.py:151: in check_location_input\n    assert held, recorded\nE   AssertionError: {'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-r8-intermediate-link-walk-dropped/pytest-of-maxghenis/pytest-0/test_r...ediate-link-walk-dropped/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/stable/container/admin/objects']}\nE   assert False"
+  },
+  {
+    "name": "r8-lexical-dotdot",
+    "exit": 1,
+    "failed_phases": [
+      "call"
+    ],
+    "failure": "tests/unit/test_retention_locations.py:37: in test_dotdot_applies_after_the_link_before_it\n    assert str(paths[\"admin\"]) in recorded[\"git\"], recorded\nE   AssertionError: {'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_af...9/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/owner/admin/objects']}\nE   assert '/private/tmp/sf-r272r9/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/stable/container/admin' in ['/private/tmp/sf-r272r9/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_...r9/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/owner/admin/objects']\nE    +  where '/private/tmp/sf-r272r9/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/stable/container/admin' = str(PosixPath('/private/tmp/sf-r272r9/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/stable/container/admin'))"
+  },
+  {
+    "name": "r8-link-location-followed",
+    "exit": 1,
+    "failed_phases": [
+      "call"
+    ],
+    "failure": "tests/unit/test_retention_locations.py:20: in test_required_locations_survive_two_relative_links\n    observation = check_location_input(tmp_path, dict(position=position, chain=2, relative=True,\ntests/unit/test_retention_location_inputs.py:151: in check_location_input\n    assert held, recorded\nE   AssertionError: {'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-r8-link-location-followed/pytest-of-maxghenis/pytest-0/test_required_...8-link-location-followed/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/stable/container/admin/objects']}\nE   assert False"
+  },
+  {
+    "name": "r8-top-level-links-dropped",
+    "exit": 1,
+    "failed_phases": [
+      "call"
+    ],
+    "failure": "tests/unit/test_retention_locations.py:20: in test_required_locations_survive_two_relative_links\n    observation = check_location_input(tmp_path, dict(position=position, chain=2, relative=True,\ntests/unit/test_retention_location_inputs.py:151: in check_location_input\n    assert held, recorded\nE   AssertionError: {'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-r8-top-level-links-dropped/pytest-of-maxghenis/pytest-0/test_required...-top-level-links-dropped/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/stable/container/admin/objects']}\nE   assert False"
+  },
+  {
+    "name": "r8-parent-hint-scanned",
+    "exit": 1,
+    "failed_phases": [
+      "call"
+    ],
+    "failure": "tests/unit/test_retention_locations.py:113: in test_inferred_parent_is_not_scanned\n    assert not any(folders.within(path, str(paths[\"unrelated\"])) for path in recorded[\"git\"]), recorded\nE   AssertionError: {'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-r8-parent-hint-scanned/pytest-of-maxghenis/pytest-0/test_inferred_par.../real-tmp/mutant-r8-parent-hint-scanned/pytest-of-maxghenis/pytest-0/test_inferred_parent_is_not_sc0/owner/hop1', ...]}\nE   assert not True\nE    +  where True = any(<generator object test_inferred_parent_is_not_scanned.<locals>.<genexpr> at 0x10a0e9040>)"
+  },
+  {
+    "name": "r8-walk-revalidation-dropped",
+    "exit": 1,
+    "failed_phases": [
+      "call"
+    ],
+    "failure": "tests/unit/test_retention_locations.py:59: in test_changed_link_chain_with_the_same_final_target_is_incomplete\n    assert any(error[\"file\"] == str(alias) for error in errors), errors\nE   AssertionError: []\nE   assert False\nE    +  where False = any(<generator object test_changed_link_chain_with_the_same_final_target_is_incomplete.<locals>.<genexpr> at 0x10ab28b80>)"
+  },
+  {
+    "name": "r8-routine-skip-dropped",
+    "exit": 1,
+    "failed_phases": [
+      "call"
+    ],
+    "failure": "tests/unit/test_retention_locations.py:152: in test_routine_records_are_exactly_unchanged\n    assert recorded == expected\nE   AssertionError: assert {'git': ['/pr...d/commondir']} == {'git': ['/pr...git/objects']}\nE     \nE     Differing items:\nE     {'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-r8-routine-skip-dropped/pytest-of-maxghenis/pytest-0/test_routine_rec...skip-dropped/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository/.git/worktrees/linked/commondir']} != {'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-r8-routine-skip-dropped/pytest-of-maxghenis/pytest-0/test_routine_rec.../mutant-r8-routine-skip-dropped/pytest-of-maxghenis/pytest-0/test_routine_records_are_exact0/repository/.git/objects']}\nE     Use -v to get more diff"
+  },
+  {
+    "name": "double-r2-post-read-identity-check-dropped",
+    "exit": 1,
+    "failed_phases": [
+      "call"
+    ],
+    "failure": "tests/fake/test_retention_dependency_review_r2.py:82: in test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads\n    assert \"owner\" not in result[\"pruned\"], (recorded, result)\nE   AssertionError: ({'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-double-r2-post-read-identity-check-dropped/pytest-of-maxghenis/pytes...ternates_d0/outside/.git/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48054, 'bytes_after': 0, ...})\nE   assert 'owner' not in ['owner']"
+  },
+  {
+    "name": "double-r3-final-path-check-dropped",
+    "exit": 1,
+    "failed_phases": [
+      "call"
+    ],
+    "failure": "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py:56: in test_changes\n    assert changed and recorded.get('incomplete'), recorded\nE   AssertionError: {'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-double-r3-final-path-check-dropped/pytest-of-maxghenis/pytest-0/test_...double-r3-final-path-check-dropped/pytest-of-maxghenis/pytest-0/test_changes_symlink_info_runn0/outside/.git/objects']}\nE   assert ([True] and None)\nE    +  where None = <built-in method get of dict object at 0x10b7f0680>('incomplete')\nE    +    where <built-in method get of dict object at 0x10b7f0680> = {'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-double-r3-final-path-check-dropped/pytest-of-maxghenis/pytest-0/test_...double-r3-final-path-check-dropped/pytest-of-maxghenis/pytest-0/test_changes_symlink_info_runn0/outside/.git/objects']}.get"
+  },
+  {
+    "name": "double-r4-initial-objects-revalidation-dropped",
+    "exit": 1,
+    "failed_phases": [
+      "call"
+    ],
+    "failure": "tests/fake/test_retention_dependency_review_r4.py:85: in test_objects_parent_swap_keeps_every_allocated_tree\n    assert not result[\"pruned\"], (recorded, result)\nE   AssertionError: ({'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-double-r4-initial-objects-revalidation-dropped/pytest-of-maxghenis/p..._keeps0/old-objects']}, {'pruned': ['owner-a', 'owner-b'], 'errors': [], 'bytes_before': 68833, 'bytes_after': 0, ...})\nE   assert not ['owner-a', 'owner-b']"
+  },
+  {
+    "name": "double-r4-initial-objects-recording-dropped",
+    "exit": 1,
+    "failed_phases": [
+      "call"
+    ],
+    "failure": "tests/fake/test_retention_dependency_review_r4.py:250: in test_stable_objects_alias_keeps_the_tree_git_reads\n    assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)\nE   AssertionError: ({'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-double-r4-initial-objects-recording-dropped/pytest-of-maxghenis/pyte...objects_alias_keep0/outside/.git']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48671, 'bytes_after': 0, ...})\nE   assert ('owner' not in ['owner'])"
+  },
+  {
+    "name": "double-r6-empty-common-initial-objects-not-recorded",
+    "exit": 1,
+    "failed_phases": [
+      "call"
+    ],
+    "failure": "tests/fake/test_retention_dependency_review_r6.py:45: in test_empty_common_target_keeps_the_own_store_git_reads\n    assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)\nE   AssertionError: ({'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-double-r6-empty-common-initial-objects-not-recorded/pytest-of-maxghe...ommon_target_keeps0/outside/.git']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 49095, 'bytes_after': 0, ...})\nE   assert ('owner' not in ['owner'])"
+  },
+  {
+    "name": "double-r6-parent-common-fallback-restored",
+    "exit": 1,
+    "failed_phases": [
+      "call"
+    ],
+    "failure": "tests/fake/test_retention_dependency_review_r6.py:45: in test_empty_common_target_keeps_the_own_store_git_reads\n    assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)\nE   AssertionError: ({'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-double-r6-parent-common-fallback-restored/pytest-of-maxghenis/pytest..._target_keeps0/container/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 49074, 'bytes_after': 0, ...})\nE   assert ('owner' not in ['owner'])"
+  },
+  {
+    "name": "double-r7-own-objects-revalidation-dropped",
+    "exit": 1,
+    "failed_phases": [
+      "call"
+    ],
+    "failure": "tests/fake/test_retention_dependency_review_r7.py:75: in test_named_own_objects_swap_keeps_actual_storage\n    assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)\nE   AssertionError: ({'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-double-r7-own-objects-revalidation-dropped/pytest-of-maxghenis/pytes...own_objects_swap_ke0/old-objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 49078, 'bytes_after': 0, ...})\nE   assert ('owner' not in ['owner'])"
+  }
+]

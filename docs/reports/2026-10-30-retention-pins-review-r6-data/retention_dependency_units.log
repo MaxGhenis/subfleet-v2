@@ -1,0 +1,46 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 19:54:14Z slot A load 
+START retention_dependency_units 2026-10-30T19:54:18.125459+00:00 load=(62.9130859375, 56.33251953125, 51.09375)
+...................                                                      [100%]
+============================ Hypothesis Statistics =============================
+tests/unit/test_retention_dependency_units.py::test_d1_git_storage_includes_what_git_uses_for_any_layout:
+
+  - during generate phase (6.94 seconds):
+    - Typical runtimes: ~ 44-1230 ms, of which ~ 0-1 ms in data generation
+    - 12 passing, 0 failing, and 0 invalid test cases
+
+  - Stopped because settings.max_examples=12
+
+
+tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification:
+
+  - during generate phase (24.69 seconds):
+    - Typical runtimes: ~ 1-392 ms, of which ~ 0-279 ms in data generation
+    - 150 passing, 0 failing, and 24 invalid test cases
+    - Events:
+      * 20.11%, Retried draw from TupleStrategy((sampled_from(('t1', 't2', 'Té')), booleans())).filter(not_yet_in_unique_list) to satisfy filter
+
+  - Stopped because settings.max_examples=150
+
+
+tests/unit/test_retention_dependency_units.py::test_d4_a_job_that_has_not_ended_never_releases_a_pin_and_ending_one_never_adds_one:
+
+  - during generate phase (7.40 seconds):
+    - Typical runtimes: ~ 2-311 ms, of which ~ 1-205 ms in data generation
+    - 60 passing, 0 failing, and 7 invalid test cases
+    - Events:
+      * 14.93%, Retried draw from TupleStrategy((sampled_from(('t1', 't2', 'Té')), booleans())).filter(not_yet_in_unique_list) to satisfy filter
+
+  - Stopped because settings.max_examples=60
+
+
+tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place:
+
+  - during generate phase (8.62 seconds):
+    - Typical runtimes: ~ 1-255 ms, of which ~ 0-2 ms in data generation
+    - 200 passing, 0 failing, and 16 invalid test cases
+
+  - Stopped because settings.max_examples=200
+
+
+19 passed in 65.61s (0:01:05)

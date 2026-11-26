@@ -1,0 +1,470 @@
+[
+  {
+    "name": "git-storage-no-commondir",
+    "verdict": "KILLED",
+    "named_selection": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_commondir_outside_the_worktrees_layout_is_followed"
+    ],
+    "failed": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_commondir_outside_the_worktrees_layout_is_followed"
+    ],
+    "start": "2026-10-29T13:46:41.565767+00:00",
+    "load": [
+      22.32763671875,
+      21.203125,
+      22.66943359375
+    ],
+    "seconds": 12.174426124998718,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+        "mutated_sha256": "8b3ce0c5e68ce313ba826d4058c5439c4db5247a01c339ec85b6217889a6248c"
+      }
+    ]
+  },
+  {
+    "name": "git-storage-no-worktrees-fallback",
+    "verdict": "KILLED",
+    "named_selection": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_storage_a_gitfile_names_counts_when_it_is_gone"
+    ],
+    "failed": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_storage_a_gitfile_names_counts_when_it_is_gone"
+    ],
+    "start": "2026-10-29T13:46:54.117675+00:00",
+    "load": [
+      20.8994140625,
+      20.93310546875,
+      22.5556640625
+    ],
+    "seconds": 1.7980566250043921,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+        "mutated_sha256": "b6c9079787c712e6c2f9d6312db307e5727497abf704bb2924268e5c4167be0c"
+      }
+    ]
+  },
+  {
+    "name": "git-storage-no-alternates",
+    "verdict": "KILLED",
+    "named_selection": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed"
+    ],
+    "failed": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed"
+    ],
+    "start": "2026-10-29T13:46:56.296031+00:00",
+    "load": [
+      19.8662109375,
+      20.71826171875,
+      22.47021484375
+    ],
+    "seconds": 1.5637001670111204,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+        "mutated_sha256": "d7942b0db63c39ccaa1fa9b49f751dbb15c00082f0081f8e60feff7e27be3a83"
+      }
+    ]
+  },
+  {
+    "name": "git-storage-alternates-one-level",
+    "verdict": "KILLED",
+    "named_selection": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed"
+    ],
+    "failed": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_alternates_are_followed"
+    ],
+    "start": "2026-10-29T13:46:58.212516+00:00",
+    "load": [
+      19.8662109375,
+      20.71826171875,
+      22.47021484375
+    ],
+    "seconds": 2.1421572500112234,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+        "mutated_sha256": "85c0ff91aca4aed9253a25c537ce6f4749d7583037514930c10fec32b79177a1"
+      }
+    ]
+  },
+  {
+    "name": "git-storage-gitfile-relative-to-cwd",
+    "verdict": "KILLED",
+    "named_selection": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_a_separate_git_dir_and_a_relative_gitfile"
+    ],
+    "failed": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_a_separate_git_dir_and_a_relative_gitfile"
+    ],
+    "start": "2026-10-29T13:47:00.807975+00:00",
+    "load": [
+      19.95654296875,
+      20.72265625,
+      22.46142578125
+    ],
+    "seconds": 2.7681174170138547,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+        "mutated_sha256": "65615429c332f254d9f33e67480a203337487fe278ce6eed2249021cbfe1d275"
+      }
+    ]
+  },
+  {
+    "name": "git-storage-nearest-ignores-gitfiles",
+    "verdict": "KILLED",
+    "named_selection": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_a_linked_checkout_outside_names_the_repository_it_lives_in"
+    ],
+    "failed": [
+      "tests/unit/test_retention_dependency_units.py::test_d1_a_linked_checkout_outside_names_the_repository_it_lives_in"
+    ],
+    "start": "2026-10-29T13:47:04.688176+00:00",
+    "load": [
+      19.95654296875,
+      20.72265625,
+      22.46142578125
+    ],
+    "seconds": 3.1453124999970896,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+        "mutated_sha256": "d3eee0ff9ed5ee775ce6dad1cc701dd14a42712cebcbe5a566e035049acf192f"
+      }
+    ]
+  },
+  {
+    "name": "record-raw-spelling",
+    "verdict": "KILLED",
+    "named_selection": [
+      "tests/unit/test_retention_dependency_units.py::test_record_spells_each_place_once"
+    ],
+    "failed": [
+      "tests/unit/test_retention_dependency_units.py::test_record_spells_each_place_once"
+    ],
+    "start": "2026-10-29T13:47:08.957798+00:00",
+    "load": [
+      19.2392578125,
+      20.56103515625,
+      22.39404296875
+    ],
+    "seconds": 6.406342500005849,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+        "mutated_sha256": "113f167495738f9a41c8eca99ab697d80e69fe7f9c4432e2d8789b1e717a97f2"
+      }
+    ]
+  },
+  {
+    "name": "fences-not-retention-only",
+    "verdict": "KILLED",
+    "named_selection": [
+      "tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place"
+    ],
+    "failed": [
+      "tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place"
+    ],
+    "start": "2026-10-29T13:47:16.597282+00:00",
+    "load": [
+      20.7939453125,
+      20.853515625,
+      22.4765625
+    ],
+    "seconds": 9.293708917000913,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+        "mutated_sha256": "2925093546bf18fee0631a0dadff6e232379414b06262a58b4e447f199c273f5"
+      }
+    ]
+  },
+  {
+    "name": "record-no-output",
+    "verdict": "KILLED",
+    "named_selection": [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[output]"
+    ],
+    "failed": [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[output]"
+    ],
+    "start": "2026-10-29T13:47:43.412880+00:00",
+    "load": [
+      23.443359375,
+      21.47412109375,
+      22.65283203125
+    ],
+    "seconds": 6.123394082998857,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+        "mutated_sha256": "b0745aa8cc3a9da6c9a19f858959873a3d485a5b39ee63d5dab99677fff29763"
+      }
+    ]
+  },
+  {
+    "name": "record-no-git",
+    "verdict": "KILLED",
+    "named_selection": [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]"
+    ],
+    "failed": [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]"
+    ],
+    "start": "2026-10-29T13:47:50.381669+00:00",
+    "load": [
+      22.76708984375,
+      21.3662109375,
+      22.60791015625
+    ],
+    "seconds": 8.232435083002201,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+        "mutated_sha256": "5109753dbbc431e028e6204dbc267525efc5580049c97f96f4979e14f0cf9bbe"
+      }
+    ]
+  },
+  {
+    "name": "review-quoted-decode-removed",
+    "verdict": "KILLED",
+    "named_selection": [
+      "tests/fake/test_retention_dependency_review_r1.py",
+      "-k",
+      "git_c_quoted"
+    ],
+    "failed": [
+      "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_git_c_quoted_alternate_keeps_the_tree_it_reads[absolute]"
+    ],
+    "start": "2026-10-29T13:49:21.102941+00:00",
+    "load": [
+      25.93310546875,
+      22.2724609375,
+      22.79541015625
+    ],
+    "seconds": 21.27358737499162,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+        "mutated_sha256": "9166927078a52bf47344f076bd8b984c8439c1a62d76aaa590b021167df45629"
+      }
+    ]
+  },
+  {
+    "name": "review-export-row-removed",
+    "verdict": "KILLED",
+    "named_selection": [
+      "tests/fake/test_retention_dependency_review_r1.py",
+      "-k",
+      "pending_export"
+    ],
+    "failed": [
+      "tests/fake/test_retention_dependency_review_r1.py::test_c8_3_pending_export_keeps_its_actual_path_beside_its_lease_identity[legacy-dotless-i]"
+    ],
+    "start": "2026-10-29T13:53:12.212555+00:00",
+    "load": [
+      17.8505859375,
+      21.701171875,
+      22.57958984375
+    ],
+    "seconds": 8.71156070799043,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+        "mutated_sha256": "d3133db3bd0ac1756dfcff2c8f8698aa89801a00dab1463173420ee9b09c265a"
+      }
+    ]
+  },
+  {
+    "name": "review-alternates-cap-restored",
+    "verdict": "KILLED",
+    "named_selection": [
+      "tests/fake/test_retention_dependency_review_r1.py",
+      "-k",
+      "large_valid"
+    ],
+    "failed": [
+      "tests/fake/test_retention_dependency_review_r1.py::test_c8_4_large_valid_alternates_file_keeps_the_tree_git_reads"
+    ],
+    "start": "2026-10-29T13:53:21.398609+00:00",
+    "load": [
+      17.2099609375,
+      21.43212890625,
+      22.4736328125
+    ],
+    "seconds": 5.682151957997121,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+        "mutated_sha256": "70b3a03ad7177e708991213f23d518780eb44718272e9e460d584f22d19c61db"
+      }
+    ]
+  },
+  {
+    "name": "review-job-directory-pin-removed",
+    "verdict": "KILLED",
+    "named_selection": [
+      "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-out_path]"
+    ],
+    "failed": [
+      "tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-out_path]"
+    ],
+    "start": "2026-10-29T13:53:28.033963+00:00",
+    "load": [
+      16.79248046875,
+      21.275390625,
+      22.412109375
+    ],
+    "seconds": 2.947918167003081,
+    "loaded": [
+      {
+        "module": "subfleet.retention",
+        "original_sha256": "3d3a3739adfc66dc745dc5f7e6f8ea3518f8c90074a757f93b50ff40b4479ff3",
+        "mutated_sha256": "a1f8566d689f2c843194c01913bbcbf5d2b5a87bd92ec02bc5bd0c5717ce66db"
+      }
+    ]
+  },
+  {
+    "name": "r2-post-read-identity-check-dropped",
+    "verdict": "KILLED",
+    "named_selection": [
+      "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]"
+    ],
+    "failed": [
+      "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]"
+    ],
+    "start": "2026-10-29T13:53:31.450102+00:00",
+    "load": [
+      16.48876953125,
+      21.1376953125,
+      22.35693359375
+    ],
+    "seconds": 5.673840792005649,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+        "mutated_sha256": "024cb03dc0daec4b2dddee84bcdd05b8117d9867e592ea441190017250c38d38"
+      }
+    ]
+  },
+  {
+    "name": "r2-terminal-legacy-incomplete-dropped",
+    "verdict": "KILLED",
+    "named_selection": [
+      "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]"
+    ],
+    "failed": [
+      "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]"
+    ],
+    "start": "2026-10-29T13:53:37.456322+00:00",
+    "load": [
+      16.609375,
+      21.08544921875,
+      22.3310546875
+    ],
+    "seconds": 3.4320082499907585,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+        "mutated_sha256": "aa2d62ad77380d2abcc3c42496c9aa62fc8cab000f0b6dd2e7fc2f3f78dc01ee"
+      }
+    ]
+  },
+  {
+    "name": "r3-write-metadata-check-dropped",
+    "verdict": "KILLED",
+    "named_selection": [
+      "-p",
+      "tests.conftest",
+      "--confcutdir=/private/tmp/sf-r272r3",
+      "/private/tmp/sf-r272r3/probes.py::test_changes[same-size-running]"
+    ],
+    "failed": [
+      "probes.py::test_changes[same-size-running]"
+    ],
+    "start": "2026-10-29T13:49:43.907579+00:00",
+    "load": [
+      31.1376953125,
+      23.73388671875,
+      23.30908203125
+    ],
+    "seconds": 14.517849540992756,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+        "mutated_sha256": "71b6d31db269f0728854946ec3edf30af04a1be3ea01ade35d0cc59ed9e9420d"
+      }
+    ]
+  },
+  {
+    "name": "r3-final-path-check-dropped",
+    "verdict": "KILLED",
+    "named_selection": [
+      "-p",
+      "tests.conftest",
+      "--confcutdir=/private/tmp/sf-r272r3",
+      "/private/tmp/sf-r272r3/probes.py::test_changes[symlink-info-running]"
+    ],
+    "failed": [
+      "probes.py::test_changes[symlink-info-running]"
+    ],
+    "start": "2026-10-29T13:49:59.767751+00:00",
+    "load": [
+      26.27685546875,
+      23.02685546875,
+      23.064453125
+    ],
+    "seconds": 18.768852499997593,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+        "mutated_sha256": "68feddfc066a503d21b9bb86c7900a7fafea784851d223a23cbbf91266ee697b"
+      }
+    ]
+  },
+  {
+    "name": "r3-terminal-census-live-only",
+    "verdict": "KILLED",
+    "named_selection": [
+      "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]"
+    ],
+    "failed": [
+      "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]"
+    ],
+    "start": "2026-10-29T13:50:19.369182+00:00",
+    "load": [
+      26.45849609375,
+      23.1787109375,
+      23.11181640625
+    ],
+    "seconds": 11.215330916005769,
+    "loaded": [
+      {
+        "module": "subfleet.dependencies",
+        "original_sha256": "02db9bc7392e5300886c0ae05af2f73897309cb1179862fe618e3a776bd34c41",
+        "mutated_sha256": "1eb7c76de60cf155a46f1ad7d46004169c0dde6d028ebc63b90fcace58108b27"
+      }
+    ]
+  }
+]

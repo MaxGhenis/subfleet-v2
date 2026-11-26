@@ -1,0 +1,36 @@
+{
+ "name": "r11-any-oserror-drops",
+ "start": "2026-10-31T23:09:00Z",
+ "load": [
+  60.65966796875,
+  67.6015625,
+  64.05078125
+ ],
+ "rc": 1,
+ "killers": [
+  "tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-ENOENT]"
+ ],
+ "hashes": [
+  {
+   "original": "3d013f755b9b045e4104c7be192f027125d12991be2c191a3a315e4228c4f728",
+   "mutated": "790be2d2e9ff91fda4ea5b56a8ca8749a3b230fcd7d683fac9490592a4821974"
+  }
+ ],
+ "failed": 1,
+ "other_failures": 0,
+ "killed": true,
+ "assertions": [
+  [
+   "assert (place in result) == (outcome != \"ELOOP\")"
+  ]
+ ],
+ "fix_r12_assertions": [
+  [
+   "assert (place in result) == (outcome != \"ELOOP\")"
+  ]
+ ],
+ "same_as_fix_r12": true,
+ "failures": [
+  "tests/unit/test_retention_location_readable.py:173: in test_filter_stat_table\n    assert (place in result) == (outcome != \"ELOOP\")\nE   AssertionError: assert ('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r11-any-oserror-drops/pytest-of-maxghenis/pytest-0/test_filter_stat_table_found_E0/missing' in []) == ('ENOENT' != 'ELOOP')"
+ ]
+}
