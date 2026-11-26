@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from hypothesis import assume, given, settings, strategies as st
+from hypothesis import assume, example, given, settings, strategies as st
 
 from subfleet.adapters import codex as codex_module
 from subfleet.adapters.base import AdapterError
@@ -877,6 +877,17 @@ def test_a_reset_clock_in_a_zone_this_host_has_not_is_guessed(tmp_path):
     assert outcome.closure.clock_source == ClockSource.GUESSED
 
 
+_UNCONVERTIBLE_RESET = "try again at 1:00 AM (Asia/Tokyo) on Jan 1, 0001"
+
+
+def test_c9_4_a_reset_date_this_host_cannot_convert_is_guessed(tmp_path):
+    launch = _events(tmp_path, stderr=f"You've hit your usage limit. {_UNCONVERTIBLE_RESET}.\n")
+    outcome = CodexAdapter(now=lambda: NOW).classify(tmp_path, launch, _exit())
+    assert outcome.cls == OutcomeClass.LIMITED
+    assert outcome.closure.clock_source == ClockSource.GUESSED
+    assert outcome.closure.until_at == "2026-09-05T13:00:00Z"
+
+
 _JSON = st.recursive(st.none() | st.booleans() | st.integers() | st.floats() | st.text(max_size=12),
                      lambda inner: st.lists(inner, max_size=3)
                      | st.dictionaries(st.sampled_from(["resets_at", "reset_at", "resetsAt", "reset_time",
@@ -887,14 +898,16 @@ _WALL_CLOCK = st.builds(
     "{} {}:{:02d} {}M ({}){}".format,
     st.sampled_from(["try again at", "resets at", "reset", "Try again at"]),
     st.integers(0, 13), st.integers(0, 61), st.sampled_from("APap"),
-    st.from_regex(r"[A-Za-z_]{1,8}/[A-Za-z_/]{1,12}", fullmatch=True),
+    st.sampled_from(["UTC", "America/New_York", "Asia/Tokyo", "Mars/Olympus_Mons", *UNNORMALIZED_ZONES])
+    | st.from_regex(r"[A-Za-z_]{1,8}/[A-Za-z_/]{1,12}", fullmatch=True),
     st.one_of(st.just(""), st.text(max_size=20).map(" on {}".format),
-              st.builds("  ({} {}, {})".format, st.sampled_from(["Feb", "February", "Sep", "Jan"]),
+              st.builds("  ({} {}, {:04d})".format, st.sampled_from(["Feb", "February", "Sep", "Jan"]),
                         st.integers(0, 40), st.integers(1, 9999))))
 
 
 @settings(max_examples=400, deadline=None)
 @given(event=_JSON, text=st.one_of(st.text(max_size=80), _WALL_CLOCK))
+@example(event={}, text=_UNCONVERTIBLE_RESET)
 def test_property_reset_never_raises(event, text):
     """C-9.4, C-6.12 for all inputs: `_reset` gives a clock or None for any event and any text,
     and a clock it gives is an instant in UTC. Classification falls back to a guessed clock on

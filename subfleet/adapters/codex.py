@@ -296,27 +296,24 @@ def _reset(event: dict, text: str, now: datetime) -> str | None:
             return None
         try:
             local = now.astimezone(ZoneInfo(zone)) if zone else now.astimezone()
-        except (ZoneInfoNotFoundError, ValueError, OSError):
-            # C-9.4: a zone this host cannot read gives no reported clock, and the
-            # limit closes on a guessed one. `ZoneInfo` raises ValueError for a key
-            # that does not normalize ('America//New_York', 'America/New_York/'),
-            # which the pattern above captures; caught as not found only, it ended
-            # `classify` and with it the admission pass (C-6.12), as an OSError
-            # reading a zone file would.
-            return None
-        result = local.replace(hour=hour % 12 + (12 if meridian.upper() == "P" else 0), minute=minute, second=0, microsecond=0)
-        # v1 prints an optional date in the process locale after the clock.
-        date_match = re.search(r"(?:on\s+|\()(\w{3,9}\s+\d{1,2},?\s+\d{4})", text[match.end():])
-        if date_match:
-            for fmt in ("%b %d, %Y", "%B %d, %Y", "%b %d %Y", "%B %d %Y"):
-                try:
-                    day = datetime.strptime(date_match.group(1), fmt)
+            result = local.replace(hour=hour % 12 + (12 if meridian.upper() == "P" else 0),
+                                   minute=minute, second=0, microsecond=0)
+            # v1 prints an optional date in the process locale after the clock.
+            date_match = re.search(r"(?:on\s+|\()(\w{3,9}\s+\d{1,2},?\s+\d{4})", text[match.end():])
+            if date_match:
+                for fmt in ("%b %d, %Y", "%B %d, %Y", "%b %d %Y", "%B %d %Y"):
+                    try:
+                        day = datetime.strptime(date_match.group(1), fmt)
+                    except ValueError:
+                        continue
                     return _iso(result.replace(year=day.year, month=day.month, day=day.day))
-                except ValueError:
-                    pass
-        if result <= local:
-            result += timedelta(days=1)
-        return _iso(result)
+            if result <= local:
+                result += timedelta(days=1)
+            return _iso(result)
+        except (ZoneInfoNotFoundError, ValueError, OSError, OverflowError):
+            # C-9.4: an unreadable zone or a date outside the conversion range
+            # gives no reported clock, so the limit closes on a guessed one.
+            return None
     return None
 
 

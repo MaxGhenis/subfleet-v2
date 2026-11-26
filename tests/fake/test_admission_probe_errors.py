@@ -23,6 +23,8 @@ C-11.4) and `claude-2` (measured, so a `hard` Opus job pinned to it needs no pro
 
 import dataclasses
 import json
+import sqlite3
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -135,7 +137,7 @@ def guardian_never_spawned(monkeypatch):
     monkeypatch.setattr(daemon_module.subprocess, "Popen", popen)
 
 
-def probe_ran(service, monkeypatch, *, rc=1, stderr=""):
+def probe_ran(service, monkeypatch, *, rc=1, stderr="", publish_receipt=None):
     """The probe's guardian, mocked as the deadline cases in test_probe_turn.py mock it: it starts,
     its provider writes `stderr` and exits `rc`, and containment is verified."""
     real = daemon_module.subprocess.Popen
@@ -156,6 +158,9 @@ def probe_ran(service, monkeypatch, *, rc=1, stderr=""):
         if child is None:
             return recover(record)               # recovery's: what is on disk (`recovered_probe`)
         Path(record["directory"], "stderr").write_text(stderr)
+        if publish_receipt is not None:
+            publish_receipt(Path(record["directory"]) / "exit.json")
+            return recover(record, child)
         record["state"] = "contained"
         service._save_probe(record)
         return True, {"rc": rc, "signal": None, "wall_s": .1, "child_pid": 900002}
@@ -247,6 +252,116 @@ def test_c11_2_a_pin_to_a_lane_whose_auth_json_is_unreadable_is_refused_at_submi
     assert not service.store.list_jobs()
 
 
+def _claude_probe_jobs(service, harness, credential, home=None):
+    service.store.put_lane(Lane("claude-1", "claude", "claude:fixture", credential, home,
+                                LaneOwner.V2, False))
+    stuck = submit(service, harness, pinned_lane="claude-1", pinned_model="opus", tier="hard")
+    later = submit(service, harness, pinned_lane="claude-2", pinned_model="opus", tier="hard")
+    return stuck, later
+
+
+def _assert_early_probe_error(service, stuck, later, error_type):
+    admission_pass(service)
+    assert_pass_went_on(service, later)
+    outcome = probe_outcome(service, stuck)
+    assert outcome["cls"] == "unknown"
+    assert outcome["detail"] == f"probe unavailable: {error_type}"
+    assert_probe_settled(service, stuck)
+
+
+@pytest.mark.parametrize(("stdout", "error_type"), [
+    (b"\xff", "UnicodeDecodeError"),
+    (b"synthetic\x00token", "ValueError"),
+], ids=["non-utf8", "nul"])
+def test_c6_12_a_broken_claude_credential_ends_only_the_probe(fleet, monkeypatch, stdout, error_type):
+    """The helper's text decode or the guardian's Popen fails before classification."""
+    import sys
+
+    service, harness = fleet
+    helper = harness.root / "fixture-credential-helper"
+    helper.write_text(f"#!{sys.executable}\nimport sys\nsys.stdout.buffer.write({stdout!r})\n")
+    helper.chmod(0o700)
+    monkeypatch.setenv("CLAUDE_LANE_AGENT_SECRET", str(helper))
+    if error_type == "UnicodeDecodeError":
+        guardian_never_spawned(monkeypatch)
+    else:
+        # Use the real Popen path, which rejects a NUL in the resolved token.
+        monkeypatch.setattr(service, "_disclaim_guardians", False)
+    stuck, later = _claude_probe_jobs(service, harness,
+                                     Credential("claude", "claude-quota-fixture", "keychain-token"))
+    _assert_early_probe_error(service, stuck, later, error_type)
+
+
+def test_c6_12_a_claude_home_symlink_loop_ends_only_the_probe(fleet, monkeypatch):
+    import sys
+
+    class HomeCheckingClaude(FakeAdapter):
+        def build_launch(self, job, attempt_id, attempt_dir, lane, credential_env, *args):
+            Path(credential_env["CLAUDE_CONFIG_DIR"]).stat()
+            return super().build_launch(job, attempt_id, attempt_dir, lane, credential_env, *args)
+
+    service, harness = fleet
+    home = harness.root / "fixture-claude-home"
+    home.mkdir()
+    stuck, later = _claude_probe_jobs(service, harness, Credential("claude", str(home), "home"), str(home))
+    home.rmdir()
+    home.symlink_to(home.name)
+    monkeypatch.setitem(registry._factories, "claude", HomeCheckingClaude)
+    guardian_never_spawned(monkeypatch)
+    # Python 3.12's non-strict resolve raises RuntimeError. Starting with 3.13 it
+    # leaves the loop unresolved, and the fake adapter's stat raises OSError (ELOOP).
+    error_type = "RuntimeError" if sys.version_info < (3, 13) else "OSError"
+    _assert_early_probe_error(service, stuck, later, error_type)
+
+
+def test_c6_12_a_deep_codex_hooks_reply_ends_only_the_probe(fleet, monkeypatch):
+    import subprocess
+    import sys
+
+    from subfleet.guard import preflight
+    from tests.fake.guard import install_guard
+
+    service, harness = fleet
+    _, pin = install_guard(service.root)
+    version = json.loads(pin.read_text())["codex_version"]
+    binary = harness.root / "fixture-codex"
+    binary.write_text(f"#!{sys.executable}\nimport json, sys\n"
+                      f"if sys.argv[1] == '--version':\n    print({version!r})\n    sys.exit()\n"
+                      "assert sys.argv[1] == 'app-server'\n"
+                      "for line in sys.stdin:\n"
+                      "    if json.loads(line)['method'] == 'hooks/list':\n"
+                      "        print('{\"id\":2,\"result\":' + '[' * 10_000 + ']' * 10_000 + '}')\n"
+                      "        break\n")
+    binary.chmod(0o700)
+
+    def reap_fake(process):
+        # This fixture has one self-exiting process and uses its PID for cleanup.
+        with process:
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                raise
+
+    monkeypatch.setattr(preflight, "_jq_available", lambda: True)
+    monkeypatch.setattr(preflight, "_stop_probe", reap_fake)
+    monkeypatch.delenv("CODEX_GUARD_PREFLIGHT_TIMEOUT", raising=False)
+    monkeypatch.delenv("SUBFLEET_GUARD_TRUST", raising=False)
+    monkeypatch.delenv("SUBFLEET_CODEX_GUARD_CACHE", raising=False)
+    monkeypatch.setitem(registry._factories, "codex", lambda: CodexAdapter(codex_bin=str(binary)))
+    guardian_never_spawned(monkeypatch)
+    stuck, later = two_jobs(service, harness)
+    try:
+        json.loads("[" * 10_000 + "]" * 10_000)
+    except RecursionError:
+        error_type = "RecursionError"
+    else:
+        # Python 3.14's JSON decoder accepts this depth. Preflight still refuses
+        # the reply because its result is a list, so the adapter raises instead.
+        error_type = "AdapterError"
+    _assert_early_probe_error(service, stuck, later, error_type)
+
+
 # --- 2. a reset clock in a zone that does not normalize ------------------------------------------
 
 
@@ -319,3 +434,149 @@ def test_c6_12_a_receipt_its_adapter_cannot_classify_ends_the_probe_unknown(flee
     assert "never-recorded-message" not in log_text(service)
     assert_probe_settled(service, stuck)
     assert f"its receipt could not be classified: {type(error).__name__}" in log_text(service)
+
+
+@pytest.mark.parametrize("site", ["execute", "recover"])
+@pytest.mark.parametrize("error_type", ["PermissionError", "JSONDecodeError", "UnicodeDecodeError"])
+def test_c11_4_an_unreadable_receipt_ends_the_probe_after_containment(
+        fleet, monkeypatch, site, error_type):
+    service, harness = fleet
+    stuck, later = two_jobs(service, harness)
+    censuses = []
+
+    def containment(pgid, guardian, child_pid, holder, **kwargs):
+        censuses.append(holder)
+        assert "its receipt could not be read" not in log_text(service)
+        return procs.Containment()
+
+    monkeypatch.setattr(service, "_probe_census", service._contain)
+    monkeypatch.setattr(procs, "containment", containment)
+    monkeypatch.setattr(procs, "same_process", lambda *args, **kwargs: False)
+
+    def publish(path):
+        if error_type == "PermissionError":
+            path.write_text('{"rc": 0, "child_pid": 900002}')
+            path.chmod(0)
+        else:
+            path.write_bytes(b'{"synthetic-private-receipt":' if error_type == "JSONDecodeError" else b"\xff")
+
+    probe_ran(service, monkeypatch, publish_receipt=publish if site == "execute" else None)
+    if site == "recover":
+        record = recovered_probe(service, stuck, monkeypatch)
+        publish(Path(record["directory"]) / "exit.json")
+    admission_pass(service)
+    assert_pass_went_on(service, later)
+    outcome = (service._probe_record(record["holder"])["outcome"] if site == "recover"
+               else probe_outcome(service, stuck))
+    assert censuses
+    assert outcome["cls"] == "unknown"
+    assert outcome["detail"] == f"probe receipt could not be read: {error_type}"
+    assert outcome["evidence"]["error_type"] == error_type
+    assert log_text(service).count(f"its receipt could not be read: {error_type}") == 1
+    assert "synthetic-private-receipt" not in log_text(service)
+    assert_probe_settled(service, stuck)
+
+
+@pytest.mark.parametrize("site", ["execute", "recover", "timer"])
+def test_c11_4_an_unreadable_request_is_treated_as_absent(fleet, monkeypatch, site):
+    service, harness = fleet
+    probe_ran(service, monkeypatch, rc=0)
+    if site != "recover":
+        awaited = service._await_probe
+
+        def request_then_receipt(record, child=None):
+            Path(record["directory"], "request.json").write_bytes(b"\xff")
+            return awaited(record, child)
+
+        monkeypatch.setattr(service, "_await_probe", request_then_receipt)
+    if site == "timer":
+        lane = service.store.get_lane("codex-1")
+        holder = "probe:timer"
+        outcome = service._timer_turn(lane, "keepalive", holder, cancel=service.timers.cancel,
+                                       deadline=time.monotonic() + 60)
+        assert outcome.cls == OutcomeClass.OK
+        assert outcome.evidence["requested_at"] is None
+    else:
+        stuck, later = two_jobs(service, harness)
+        if site == "recover":
+            record = recovered_probe(service, stuck, monkeypatch, rc=0)
+            record.update(job_id=None, timer_kind="keepalive")
+            service._save_probe(record)
+            Path(record["directory"], "request.json").write_bytes(b"\xff")
+        admission_pass(service)
+        assert_pass_went_on(service, later)
+        if site == "recover":
+            assert service._probe_record(record["holder"])["state"] == "completed"
+        else:
+            assert probe_outcome(service, stuck)["cls"] == OutcomeClass.OK
+    assert not service.store.query("SELECT 1 FROM events WHERE kind='timer.request'")
+    assert not service.store.query("SELECT 1 FROM readings WHERE source='keepalive'")
+    assert not any(row["holder"].startswith("probe:") for row in service.store.list_leases())
+    assert log_text(service).count("its request could not be read: UnicodeDecodeError") == 1
+
+
+def test_c11_4_an_unwritable_probe_directory_leaves_no_reservation_and_warns_once(fleet, monkeypatch):
+    service, harness = fleet
+    stuck, later = two_jobs(service, harness)
+    guardian_never_spawned(monkeypatch)
+    probes = service.root / "lanes" / "codex-1" / "probes"
+    probes.mkdir(parents=True)
+    probes.chmod(0o500)
+    try:
+        admission_pass(service)
+        assert_pass_went_on(service, later)
+        assert_probe_settled(service, stuck)
+        assert not list(probes.iterdir())
+        assert not service.store.query("SELECT 1 FROM events WHERE job_id=? AND kind LIKE 'probe.%'", (stuck,))
+        warning = "probe directory on codex-1 could not be created: PermissionError"
+        assert log_text(service).count(warning) == 1
+        with service.store.transaction("fixture") as tx:
+            tx.execute("UPDATE jobs SET next_check_at=NULL WHERE job_id=?", (stuck,))
+        admission_pass(service)
+        assert_pass_went_on(service, later)
+        assert_probe_settled(service, stuck)
+        assert log_text(service).count(warning) == 1
+    finally:
+        probes.chmod(0o700)
+
+
+@pytest.mark.parametrize("site", ["execute", "recover"])
+def test_c6_12_a_store_error_from_probe_classify_reaches_the_caller(fleet, monkeypatch, site):
+    service, harness = fleet
+    stuck = submit(service, harness, tier="hard")
+    record = recovered_probe(service, stuck, monkeypatch)
+    holder = record["holder"]
+    error = sqlite3.OperationalError("synthetic store failure")
+
+    def classify(*args):
+        raise error
+
+    monkeypatch.setattr(FakeAdapter, "classify", classify)
+    probe_ran(service, monkeypatch)
+    with pytest.raises(sqlite3.Error) as raised:
+        if site == "recover":
+            service._recover_probes()
+        else:
+            lane = service.store.get_lane(record["lane_id"])
+            service._execute_probe(service.store.get_job(stuck), lane, {"id": record["model_id"]}, holder)
+    assert raised.value is error
+    assert service.store.list_leases(holder)
+    assert service._probe_record(holder)["state"] == "contained"
+
+
+def test_c11_4_an_incompatible_recovered_launch_ends_the_probe_unknown(fleet, monkeypatch):
+    service, harness = fleet
+    stuck, later = two_jobs(service, harness)
+    probe_ran(service, monkeypatch)
+    record = recovered_probe(service, stuck, monkeypatch)
+    launch_path = Path(record["directory"], "launch.json")
+    launch = json.loads(launch_path.read_text())
+    launch["synthetic_unknown_field"] = True
+    launch_path.write_text(json.dumps(launch))
+    admission_pass(service)
+    assert_pass_went_on(service, later)
+    outcome = service._probe_record(record["holder"])["outcome"]
+    assert outcome["cls"] == "unknown"
+    assert outcome["detail"] == "probe receipt could not be classified: TypeError"
+    assert outcome["evidence"]["error_type"] == "TypeError"
+    assert not service.store.list_leases(record["holder"])

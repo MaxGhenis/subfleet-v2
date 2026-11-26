@@ -67,6 +67,11 @@ def test_c6_5_api_key_home_is_refused_without_exposing_its_value(tmp_path):
     assert "subscription" in error.value.fix
 
 
+def test_c6_5_utf16_auth_json_object_is_accepted(tmp_path):
+    (tmp_path / "auth.json").write_bytes(json.dumps({"auth_mode": "chatgpt"}).encode("utf-16"))
+    Daemon._validate_home(lane(tmp_path))
+
+
 _JSON_VALUES = st.recursive(
     st.none() | st.booleans() | st.integers() | st.floats(allow_nan=False) | st.text(max_size=8),
     lambda inner: st.lists(inner, max_size=3) | st.dictionaries(
