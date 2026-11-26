@@ -33,6 +33,7 @@ from tests.frontend.daemon_harness import ServiceHarness, claude_assistant, clau
 from tests.frontend.swift import ROOT, compile_probe
 
 pytestmark = needs_swift
+pytest_plugins = ["pytester"]
 
 KINDS = ("completed", "failed", "approval", "delivery-unknown")
 # How each kind's request identifier begins (`approval:<seq>`, `complete:<message>`).
@@ -49,11 +50,51 @@ def target(core_probe, request_id: str, user_info: dict, on_screen: str | None =
     return targets(core_probe, [{"request_id": request_id, "user_info": user_info, "on_screen": on_screen}])["cases"][0]
 
 
+# Fixture teardown removes the state root even if the test body raises.
 @pytest.fixture
 def harness():
-    harness = ServiceHarness(Path(tempfile.mkdtemp(prefix="sf-nt-", dir="/tmp")))
-    yield harness
-    harness.close()
+    with tempfile.TemporaryDirectory(prefix="sf-nt-", dir="/tmp") as root:
+        harness = ServiceHarness(Path(root))
+        try:
+            yield harness
+        finally:
+            harness.close()
+
+
+# These tests run the fixture in its own pytest session and record the roots it creates.
+ROOTS_CONFTEST = """
+from tests.frontend.test_core_notifications import harness  # noqa: F401  the fixture under test
+"""
+ROOTS_TESTS = """
+import pytest
+
+
+@pytest.mark.parametrize("raises", [False, True], ids=["passes", "raises"])
+def test_harness(harness, raises):
+    assert harness.root.is_dir()
+    if raises:
+        raise RuntimeError("the test body raises")
+"""
+
+
+def test_the_notification_harness_leaves_no_root_after_teardown(pytester, monkeypatch):
+    """The root goes away after fixture teardown even if the test body raises."""
+    made: list[Path] = []
+    real = tempfile.mkdtemp
+
+    def mkdtemp(*args, **kwargs):
+        path = real(*args, **kwargs)
+        if Path(path).name.startswith("sf-nt-"):
+            made.append(Path(path))
+        return path
+
+    monkeypatch.setattr(tempfile, "mkdtemp", mkdtemp)
+    pytester.makeconftest(ROOTS_CONFTEST)
+    pytester.makepyfile(test_notification_roots=ROOTS_TESTS)
+    run = pytester.inline_run("-p", "no:cacheprovider", "-q")
+    run.assertoutcome(passed=1, failed=1)
+    assert len(made) == 2, made
+    assert [path for path in made if path.exists()] == []
 
 
 def test_c29_9_the_feeds_notifications_open_their_conversation_and_an_approval_its_card(core_probe, tmp_path, harness):
@@ -513,15 +554,15 @@ def test_c29_9_the_merged_userinfo_reads_back_as_both_targets(notification_model
 # forwarding to the model, the presentation decision or the Allow once action.
 
 def test_c29_9_the_delegate_hands_each_response_to_the_model(notification_model_probe, tmp_path):
+    click = model_clicks(notification_model_probe, tmp_path,
+                         [{"deliver": {"action": "default", "request_id": "approval:7", **ALLOWING}}],
+                         detail=approval_detail(), pending={"cv-one": 1})
+    assert (click[-1]["focused"], click[-1]["reveal"], click[-1]["calls"]) == ("cv-one", "cv-one", [])
     allow = model_clicks(notification_model_probe, tmp_path,
                          [{"deliver": {"action": "allow-once", "request_id": "approval:7", **ALLOWING}}],
                          detail=approval_detail())
     assert allow[-1]["focused"] == "cv-one"
     assert [c["op"] for c in allow[-1]["calls"]] == ["approval.get", "approval.respond", "approval.list"]
-    click = model_clicks(notification_model_probe, tmp_path,
-                         [{"deliver": {"action": "default", "request_id": "approval:7", **ALLOWING}}],
-                         detail=approval_detail())
-    assert (click[-1]["focused"], click[-1]["calls"]) == ("cv-one", [])
     dismissed = model_clicks(notification_model_probe, tmp_path,
                              [{"deliver": {"action": "dismiss", "request_id": "approval:7", **ALLOWING}}],
                              detail=approval_detail())

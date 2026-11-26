@@ -1464,7 +1464,7 @@ final class ConversationEngine {
         }
     }
 
-    /// Drain the watch feed without waiting (the launch baseline, or a catch-up).
+    /// Drain the watch feed without waiting. The app's launch baseline reads page by page in `UIModel.connect`.
     func drainWatch(_ state: inout ConversationStoreState, maxPages: Int = 64) throws {
         for _ in 0..<maxPages {
             let known = state.focusedConversationID.map { state.knownMessageIDs(in: $0) } ?? []

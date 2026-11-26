@@ -102,6 +102,12 @@ final class UIModel: ObservableObject {
         })
     private var notificationsRegistered = false
 
+    #if SUBFLEET_UI_MODEL_TEST
+    /// Stands in for the notification center in the UI-model probes, which run
+    /// without an app bundle: each intent `post` was handed, in order.
+    private(set) var probePosted: [NotificationIntent] = []
+    #endif
+
     init(paths: AppPaths = .standard(), client: DaemonCalling? = nil, defaults: UserDefaults = .standard,
          state initialState: ConversationStoreState = ConversationStoreState()) {
         self.paths = paths
@@ -175,13 +181,13 @@ final class UIModel: ObservableObject {
             }
         }
         await refreshList()
-        var baseline = state
-        _ = try? await onOutbox { try engine.drainWatch(&baseline) }
-        // A navigation while the baseline was loading keeps its focus.
-        baseline.focus(state.focusedConversationID)
-        state = baseline
+        guard await drainBaseline(engine) else {
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            if !Task.isCancelled { await connect() }
+            return
+        }
         state.markBaselined()
-        // The copy was taken before the drain; read what is on screen now.
+        // Read what is on screen now, before the feed's first page.
         noteOnScreen()
         startWatchLoop()
         // A notification clicked before now (the click that launched the app).
@@ -194,6 +200,27 @@ final class UIModel: ObservableObject {
             focus(requested)
         }
         if let clicked { openClicked(clicked) }
+    }
+
+    private func drainBaseline(_ engine: ConversationEngine) async -> Bool {
+        while true {
+            let cursor = state.watchCursor
+            let focused = state.focusedConversationID
+            let known = focused.map { state.knownMessageIDs(in: $0) } ?? []
+            do {
+                let update = try await onOutbox {
+                    try engine.watchUpdate(after: cursor, focusedConversationID: focused, knownMessageIDs: known, wait: 0)
+                }
+                switch state.apply(update: update) {
+                case .applied(0): return true
+                case .applied: continue
+                case .superseded: return false
+                }
+            } catch {
+                report(error)
+                return false
+            }
+        }
     }
 
     func refreshList() async {
@@ -619,15 +646,21 @@ final class UIModel: ObservableObject {
         let visible = mainWindow.map {
             $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible) && holdsKey($0) && shown($0)
         } ?? false
+        #if SUBFLEET_UI_MODEL_TEST
         let onScreen = onScreenOverride ?? (NSApp?.isActive == true && visible)
+        #else
+        let onScreen = NSApp?.isActive == true && visible
+        #endif
         if publish && state.focusedOnScreen != onScreen { state.focusedOnScreen = onScreen }
         return onScreen
     }
 
+    #if SUBFLEET_UI_MODEL_TEST
     /// Stands in for what AppKit would say when set: the UI-model probes have no
     /// window to show, and set it to decide with the focused conversation on
-    /// screen. Nil in the app.
+    /// screen.
     var onScreenOverride: Bool?
+    #endif
 
     /// Whether the display showing `window` is awake (CoreGraphics: an asleep
     /// display "is therefore not drawable") and this login session is on the
@@ -1474,6 +1507,9 @@ final class UIModel: ObservableObject {
     }
 
     private func post(_ intent: NotificationIntent) {
+        #if SUBFLEET_UI_MODEL_TEST
+        probePosted.append(intent)
+        #else
         Task {
             let content = UNMutableNotificationContent()
             content.title = intent.title
@@ -1497,6 +1533,7 @@ final class UIModel: ObservableObject {
             let request = UNNotificationRequest(identifier: intent.id, content: content, trigger: nil)
             try? await UNUserNotificationCenter.current().add(request)
         }
+        #endif
     }
 
     /// A notification's response (C-29.9). Any but a dismissal opens the main

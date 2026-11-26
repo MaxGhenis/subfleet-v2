@@ -31,13 +31,54 @@ from tests.frontend.conftest import needs_swift, run_probe, write_json
 from tests.frontend.daemon_harness import CLAUDE_CATALOG, ServiceHarness, claude_assistant, claude_init, claude_result
 
 pytestmark = needs_swift
+pytest_plugins = ["pytester"]
 
 
+# Fixture teardown removes the state root even if the test body raises.
 @pytest.fixture
 def harness():
-    harness = ServiceHarness(Path(tempfile.mkdtemp(prefix="sf-st-", dir="/tmp")))
-    yield harness
-    harness.close()
+    with tempfile.TemporaryDirectory(prefix="sf-st-", dir="/tmp") as root:
+        harness = ServiceHarness(Path(root))
+        try:
+            yield harness
+        finally:
+            harness.close()
+
+
+# These tests run the fixture in its own pytest session and record the roots it creates.
+ROOTS_CONFTEST = """
+from tests.frontend.test_core_store import harness  # noqa: F401  the fixture under test
+"""
+ROOTS_TESTS = """
+import pytest
+
+
+@pytest.mark.parametrize("raises", [False, True], ids=["passes", "raises"])
+def test_harness(harness, raises):
+    assert harness.root.is_dir()
+    if raises:
+        raise RuntimeError("the test body raises")
+"""
+
+
+def test_the_store_harness_leaves_no_root_after_teardown(pytester, monkeypatch):
+    """The root goes away after fixture teardown even if the test body raises."""
+    made: list[Path] = []
+    real = tempfile.mkdtemp
+
+    def mkdtemp(*args, **kwargs):
+        path = real(*args, **kwargs)
+        if Path(path).name.startswith("sf-st-"):
+            made.append(Path(path))
+        return path
+
+    monkeypatch.setattr(tempfile, "mkdtemp", mkdtemp)
+    pytester.makeconftest(ROOTS_CONFTEST)
+    pytester.makepyfile(test_store_roots=ROOTS_TESTS)
+    run = pytester.inline_run("-p", "no:cacheprovider", "-q")
+    run.assertoutcome(passed=1, failed=1)
+    assert len(made) == 2, made
+    assert [path for path in made if path.exists()] == []
 
 
 def store(core_probe, tmp_path, steps: list[dict], now: float | None = None) -> dict:
