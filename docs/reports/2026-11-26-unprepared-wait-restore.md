@@ -79,6 +79,8 @@ Free space comes from `df -H /`. Local time and load averages come from `uptime`
 
 The module run failed in `tests/fake/test_unrun_worktrees.py::test_a_task_hold_that_commits_while_the_look_is_under_way_takes_the_job` with `threading.BrokenBarrierError`. The test pauses admission at `_capacity_wait` (line 577) and waits for a task-hold write before releasing the admission thread. The required wrapper now holds the writer lock at that pause. The lock warning showed the task-hold write waiting, and the test's 15 s barrier expired. That test file is outside the authorized edit scope. All eight new cases passed in this run.
 
+Hub note (2026-11-26): the hub's commit d51620224 moves that test's stop from `_capacity_wait` to `_capacity_wait_rollback`, which the pass enters before it takes the writer lock, so the hold commits at the same point as before: ahead of the wait. The hub's run of the same 12 modules passed 799 of 799. With the hold read removed from the unprepared write, the moved test fails.
+
 ## Scope and workspace
 
 The reserving, probe-wait, and fence-wait transactions on `release/217` lack cache restore until D-RESERVED-NOISE1 lands. The helper retains the original docstring reference to C-3.8. That clause is absent from `a4d21501e` and comes from D-RESERVED-NOISE1. The hub owns the tree-thrash test and full CI suite.
