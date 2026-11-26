@@ -926,3 +926,261 @@ scratch `$TMPDIR/sf-scrubop-fix1`, a new `--basetemp` with `pytest` in its name.
   mutants failed a test" (this round: six more killed, three not run).
 
 Built head: see the final answer.
+
+## Reminder-erased openers, fix round 2 (review r2)
+
+Fix job 20261126-001705-scrubop-fix-r2, run from 2026-11-25 23:17 UTC on 4890f0d60 (fix round 1's
+head, which review r2 read), in a detached job checkout. Host load ran 6.8–27.6 on 18 cores; free disk
+stayed at 106–108 GB. Commits: `cc58befaa` (tests), `282d23185` (the walk), `1096f592a` (the prefix
+look-back and the walk's entries), `160d69250` (one more row), `64e2f2781` (C-23.14), then this report.
+
+### Each finding's cause and fix
+
+All in `subfleet/sessions/handoff.py`, `_data_uri_run_ons` unless named.
+
+- **P1, the quadratic walk.** For each run, the loop followed `removals` from the run's block end
+  through every later chained block, and nothing remembered a chain already walked: k chained blocks
+  cost k(k+1)/2 body matches. Now `chain` keeps each body's run by where it starts, one memo per side
+  (the whole-text scrub's text, release's), so each chain is followed once, and each chain's end, its
+  `_data_uri_splits` read included, is handled once (`split`).
+- **P0, a prefix over 512 characters.** `_body_reaches` looked back for `data:` at most `_PREFIX_MAX`
+  (512) characters, while `_DATA_URI_PREFIX_RE` allows any number of `;param` parts. `_PrefixEnds`
+  finds every place a prefix ends, in one `finditer` pass over the text the first time one is asked
+  for (at most once per `_split_masks` call), and `_body_reaches` asks it whether the body run starts
+  there. `_PREFIX_MAX` is gone. Why `finditer` finds them all: after `data:` a prefix holds no `,` but
+  its last character, so any prefix that starts inside a match ends where that match does. Why the pass
+  is linear: each attempt reads on from a `data:` over characters that hold no `:` (the prefix's
+  classes and `;` lack it), so no two attempts read the same characters past their `data:`; a failed
+  attempt backtracks over them once, since each `;` part ends at a `;` or `,` that its class lacks.
+  Measured: 1 MiB and 4 MiB of five adversarial units (parameters with no `;base64,`, bare `data:`, a
+  long first part, `;a` runs, long valid prefixes) take 3.9–5.4 times as long at four times the size.
+- **P0, a kept reminder (min2).** The step acted only on blocks the whole-text scrub may remove, so a
+  reminder it keeps got nothing. Release removes that reminder, so a data URI's body before it runs on
+  in release's text and takes the next data URI's `data`. `_erased_keys` now also returns each release
+  reminder whose opener the whole-text scrub may keep (every reminder it adds to `live`, so the
+  "kept" branch and every other branch that may keep an opener are covered alike). For each, where
+  release's own data URI runs past the reminder's place (its data URI layer says so exactly), release's
+  body goes on from the reminder's end (`chain` over release's reminders), and where it takes a data
+  URI's `data`, the walk below starts with the whole-text scrub reading that data URI whole.
+- **P0, the shift down a chain (famB).** `stop -= 4` gave release one data URI's `data`, but the shift
+  by one goes on: wherever one side's body takes the next data URI's `data`, the other side reads that
+  data URI whole, and its body then takes the next one's `data` in turn. `shift` follows the chain,
+  reading each data URI once per side (`walked`), and masks each body the whole-text scrub's pairing
+  hides and release's shows, from just after its `data` (which release's previous body took), with the
+  rest of a quoted value whose key it ends in. It stops at a data URI that doesn't match (no prefix, or
+  a body under 32 characters) or whose body ends anywhere but at another `data:`, after which both
+  read on alike. A body's run goes on past each block its side removes that opens where it stops. So
+  the masks cover only bodies the whole-text scrub's data URIs hide, never the rest of the text unless
+  such a body runs there.
+- **Beyond the brief: release's data URI in a run-on.** This round's fuzz (below, seed 5011) found one
+  more shape of the class: a data URI in a whole-text block's run-on text, which the whole-text scrub
+  removes and release keeps, whose body runs past the block's end in release's text (through
+  release's next reminder) and takes the next data URI's `data`. The walk now starts wherever only one
+  side's body runs on past a block's end: the whole-text body, which a body may reach
+  (`_body_reaches`), where release's data URI doesn't run past it (as before); and release's data URI,
+  where no whole-text body may reach it. Both bodies, or neither: nothing to do.
+- **P2, the closer-once test.** It counted only searches made through `_Ahead`. It now patches
+  `handoff._PEM_END_RE` with a counting proxy, which `_Ahead` reads too (each `_Ahead` takes the module's
+  pattern when made), so every closer search `_split_masks` makes is counted, direct or not.
+- **P3 and the P1 claims:** below, under "Claims corrected".
+
+Seed 2075 (`handoff.py:2556`) and famA (#300's design, `:3064`) are not this round's: their code is
+unchanged and neither has a test. Both still show: seed 2075's value at 22 (on this head in both
+reminder modes at limits None, 40 and 2,048; on 4890f0d60 at None and 2,048 with reminders stripped),
+and famA's at 29 on both (`probe.py`).
+
+### Rows before and after
+
+Output offsets of the row's value with reminders stripped, alone at limits None / 2,048, and at limit
+None at the head's edge / on the tail's first line (`erased_text`'s placements). "Review" is review r2's
+figure for a4aded885 and 289f15a5c alone; "not run" means it gave none. "After" is this head: the rows
+test passes at every placement listed, so with reminders stripped the value is hidden at limits None, 0,
+40 and 2,048, and in neither mode does a value the whole-text scrub hides show.
+
+| Row (`REVIEW_R2`) | 4890f0d60 alone | 4890f0d60 head edge / tail line | Review | After |
+|---|---|---|---|---|
+| `r2-long-prefix` (622) | 46 / 46 | 130,364 / 131,761 | 46 | hidden |
+| `r2-prefix-of-513` | 46 / 46 | 130,473 / 131,694 | not run | hidden |
+| `r2-prefix-over-a-window` (16,822) | 46 / 46 | not placed (alone only) | not run | hidden alone |
+| `r2-long-prefix-inner-opener` | 22 / 22 | 130,349 / 131,804 | not run | hidden |
+| `r2-min2-a-kept-reminder` | 33 / 33 | 130,919 / 131,144 | 80 | hidden |
+| `r2-famb-a-chain-of-three` | 98 / 98 | 130,910 / 131,276 | 118 | hidden |
+| `r2-famb-a-chain-of-five` | 177 / 177 | 130,862 / 131,422 | not run | hidden |
+| `r2-release-s-data-uri-in-a-run-on` | 44 / 44 | 130,888 / 131,222 | not run | hidden |
+
+The 4890f0d60 offsets are `probe.py`'s (alone and at the edges); they match the review's where it gave
+one (the long prefix's 46, 130,364 and 131,761; min2's 33, 130,919 and 131,144; famB's 98). For each
+row, the whole-text scrub and `within_line_scrub` hide the value with reminders stripped (the rows test
+asserts it). With an odd number of data URIs after famB's reminder the whole-text scrub shows the value
+too, so both famB rows have an even number (two and four).
+
+### Counts
+
+Body matches (`_DATA_BODY_RE.match`) in one `_split_masks` call, reminders stripped (`bodycount.py`, the
+test's counting proxy):
+
+| Shape | k | text | 4890f0d60 | this head |
+|---|---|---|---|---|
+| review r2's chained blocks | 250 | 16,062 | 31,375 | 250 |
+| | 1,000 | 64,062 | 500,500 | 1,000 |
+| | 4,000 | 256,062 | 8,002,000 (1.40 s CPU) | 4,000 (0.06 s) |
+| | 16,384 | 1,048,638 | not counted (21.2 s CPU) | not counted (0.13 s) |
+| a chain of k data URIs after one block | 250 | 15,634 | 1 | 251 |
+| | 1,000 | 62,134 | 1 | 1,001 |
+| | 4,000 | 248,134 | 1 | 4,001 |
+
+4890f0d60 makes one match on the data URI chain because it never walked it. Characters the private key
+closer searches read in `_split_masks` (`pemcount.py`, the new test's proxy), on the closer-once shape:
+12,533 at m = 100 (text 18,568) and 100,033 at m = 800 (148,068), from two searches each, on both
+4890f0d60 and this head (no key code changed; measured before and after); p1-1b reads 1,253,300 at m = 100.
+
+### Invariants and their tests
+
+1. **No masked run shows.** `test_every_data_uri_run_on_past_a_reminder_keeps_only_what_the_whole_scrub_keeps`
+   runs the 8 rows alone and at both edges (the over-a-window row alone only: 22 ids) through
+   `assert_keeps_only_what_the_whole_scrub_keeps`, both modes, limits None, 0, 40 and 2,048, after
+   asserting the whole-text and within-line scrubs hide the value. The `REVIEW_R1` rows (36 ids) and
+   `test_drawn_reminder_outcomes_keep_only_what_the_whole_scrub_keeps` still pass.
+2. **Within the budget**, the same helper asserts `scrub_bounded(text, limit) == truncate(scrub_secrets(text), limit)`
+   on every row alone.
+3. **Superset.** `test_the_erased_key_step_only_adds_masks` now covers 42 rows (adds the 8; its stub
+   returns `_erased_keys`' new fourth value) and passed. By construction the step's masks are added
+   after every layer's, and the walk changes no layer's masks or the resolved text.
+4. **Linear work.** The growth test (`test_the_split_step_s_work_is_linear_in_the_blocks`, 7 shapes,
+   passed), the closer-once count (`test_the_erased_key_walk_reads_each_closer_once`, every closer
+   search), and the body-match count (`test_the_data_uri_step_s_body_matches_are_linear_in_the_blocks`:
+   at most 4k + 16 matches at k = 250 and 1,000 on both shapes; it fails on 4890f0d60 at 31,375 for
+   k = 250). No growth shape has a data URI chain; the count is the check for it.
+5. **Same resolution.** `test_the_head_resolves_drawn_blocks_as_release_does` passed (300 examples).
+
+### Mutant p1-1b
+
+In a `git archive HEAD` copy (`mut-p1-1b`), three substitutions, each asserted to hit once:
+`return masks, runs, removals, kept     # no closer follows: no later key closes either` became
+`cursor = key.end()` and `continue` (p1-1); `ahead(key.end())` in the key's first search became
+`_PEM_END_RE.search(text, key.end())`; and `closer = ahead(past)` became
+`closer = _PEM_END_RE.search(text, past)`. `reached = ahead(past)` stays. The first target is the
+head's text: this round added `kept` to that `return`, so 4890f0d60's text no longer occurs. Results
+(`<worktree>/.venv/bin/python -m pytest` from the copy; a `test_where_mut.py` in the copy asserted that
+`handoff.__file__` was the copy's, and `git status` in the worktree was clean after):
+
+- the head passes the new closer test (1 passed, 0.16 s);
+- p1-1b passes the old one (4890f0d60's module as `test_old_closer_once.py`; 1 passed, 0.37 s);
+- p1-1b fails the new one on its count assertion, line 1083, `(100, 1253300)`, in 0.20 s: no timeout.
+
+### Fuzz
+
+`fuzz.py` draws 2–14 parts (data URIs, a 542-character prefix, reminder tags, values holding tags,
+`passwd="`, `token="`, key tags, `Q` lines, `Zq` lines) and counts a leak where the whole-text scrub and
+`within_line_scrub` both hide a value that `scrub_bounded` shows (reminders stripped, limits None and
+2,048). `fuzz2.py` weights reminders and data URI pieces more.
+
+| Run | texts | 4890f0d60 | this head (final code) |
+|---|---|---|---|
+| `fuzz.py` seeds 0–2,999 | 3,000 | 1 | 1 (the same) |
+| `fuzz.py` seeds 3,000–22,999 | 20,000 | 14 | 10 (a subset) |
+| `fuzz2.py` seeds 100,000–139,999 | 40,000 | 22 | 11 (a subset) |
+
+No text leaks on this head that doesn't on 4890f0d60. Every remaining leak (22) is seed 2075's class:
+each holds a quoted value with a data URI inside its quotes; 18 (`fuzz.py`'s 1 and 10, `fuzz2.py`'s 7)
+show the value with every reminder opener removed (`fuzz.py`'s 10 in both reminder modes too); the other
+four stop showing once each value is closed before its data URI. In `fuzz.py`'s 20,000, the walk alone
+fixed none (14), the prefix step fixed three (12988, 7968 and 17113: the prefix rows' class) and the
+entry rules one (5011: the run-on row above). `fuzz2.py`'s 11 fixed texts weren't classified.
+
+### Commands and results
+
+All runs: `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"`, `UV_CACHE_DIR=$TMPDIR/uv-cache`, `unset PYTHONPATH`,
+scratch `$TMPDIR/sf-scrubop-fix2`, a new `--basetemp` with `pytest` in its last part. pytest ran as
+`uv run --no-sync --with 'pytest-xdist>=3.6' pytest -n 4 -p no:cacheprovider` unless named.
+
+| When (UTC) | Run | `df -H /` free; load (1 min) | Result |
+|---|---|---|---|
+| 23:17 | `uv sync --group dev` | 108 GB; 10.7 | ok (xdist isn't in the group; `--with` adds it) |
+| 23:19 | `probe.py` rows alone, 4890f0d60 | 108 GB; 10.1 | offsets above |
+| 23:35 | step 1: new tests on 4890f0d60's code (`-k "every_data_uri_run_on_past_a_reminder or body_matches_are_linear or reads_each_closer_once or (erased_key_step_only_adds_masks and r2-)"`) | 107 GB; 9.5 | **20 failed, 8 passed** in 18.7 s: 19 row ids at line 445 (`(len, True, None)`), the count at line 1000 (`('chained-blocks', 250, 31375)`); 7 superset ids and the closer test passed |
+| 23:35 | the same, `--tb=line` | 107 GB; 11.4 | 20 failed, 8 passed (the lines above) |
+| 23:36 | `bodycount.py`, `probe.py` edges, 4890f0d60 | — | counts and offsets above |
+| 23:39 | after the walk: `-k "alone or only_adds_masks or drawn or resolves or body_matches or closer_once or masked_to_its_line or held_unread or row_a"` | 107 GB; 8.5 | 4 failed (the prefix rows, line 445), 86 passed in 3.1 s |
+| 23:40 | `fuzz.py` 3,000 on both trees | — | 1 / 1 |
+| 23:41 | `fuzz.py` 20,000 on both trees | — | 14 / 14 (after the walk, before the prefix step) |
+| 23:42 | `fuzz.py` 20,000 on this head, after the prefix step, then after the entry rules | — | 11, then 10 |
+| 23:43 | after the prefix step and entry rules: the same `-k` plus `every_data_uri_run_on` | 106 GB; 6.9 | **102 passed** in 18.4 s |
+| 23:44 | seed 5011's row on 4890f0d60's code (`test_head_rows.py`, from the archive) | 106 GB; 6.8 | **3 failed** (alone, both edges), line 445 |
+| 23:45 | p1-1b, three runs | 106 GB; 7.1 | as above |
+| 23:47 | the four contract guard files (a check after the C-23.14 edit) | 106 GB; 8.9 | 437 passed in 21.8 s |
+| 23:48 | `fuzz2.py` 40,000 on both trees | — | 22 / 11 |
+| 23:50 | **final 1**: `-k "every_data_uri_run_on_past_a_reminder or body_matches_are_linear or reads_each_closer_once or erased_key_step_only_adds_masks"` | 106 GB; 8.7 | **66 passed** in 32.6 s (22 + 1 + 1 + 42) |
+| 23:51 | **final 2a**: the growth test, 7 shapes | 106 GB; 10.5 | **7 passed** in 5.9 s |
+| 23:51 | **final 2b**: the rest of the module (`-k "not (linear_in_the_blocks and not body_matches)"`) | 106 GB; 10.5 (27.6 at its end) | **355 passed** in 344.9 s |
+| see the final answer | **final 3**: `tests/fake/test_state_contract.py tests/unit/test_invariants_index.py tests/unit/test_test_module_names.py tests/unit/test_handler_refusals.py` | — | see the final answer |
+
+Collect: 362 tests in `tests/unit/test_sessions_handoff_excerpts.py`, the only test module in
+`git diff --name-only 53a7bac93...HEAD` (with `docs/acceptance-contract.md`, this report and
+`handoff.py`). Finals 2a and 2b ran it whole: 362 passed.
+
+### What didn't run, and deviations
+
+- **Not run:** the rest of the suite (CI runs it), including every `tests/unit/test_scrub*.py` file and
+  every other `tests/unit/test_sessions_*.py` file, which this PR doesn't touch; the mask dump against
+  a4aded885 and 289f15a5c; the rows at limits 0 and 40 on 4890f0d60 (alone at None and 2,048 only,
+  edges at None); `probe.py` on a4aded885 and 289f15a5c (the review's figures stand); a growth shape
+  for the data URI chain (the count test covers it instead); p1-1b against anything but the two
+  closer tests.
+- **The p1-1 target's text** is this head's (`kept` added to the `return`), not 4890f0d60's.
+- **One more row and entry rule.** The run-on row and the rule that starts the walk from release's data
+  URI past a block's end are beyond the brief (the fuzz's seed 5011); the kept reminders use release's
+  data URI layer to say where release's body runs on, rather than `_body_reaches`.
+- **The step-3 commit** holds both the prefix fix and the walk's entry rules, since the fuzz that
+  found seed 5011 ran on the prefix fix.
+- **The superset stub** returns four values from `282d23185` on, so with the head's test module the
+  superset test can't run on 4890f0d60's code; the step-1 commit's 7 `REVIEW_R2` superset ids passed
+  there, as the brief expects.
+- **Detached commits.** The workspace was a detached checkout, so the commits sit on no branch.
+- **Folders.** `$TMPDIR/sf-scrubop-fix2` held the 4890f0d60 archive, the p1-1b copy, the scripts
+  (`rows.py`, `probe.py`, `bodycount.py`, `pemcount.py`, `fuzz.py`, `fuzz2.py`, `mutate.py`), their
+  outputs and every `--basetemp`. It was removed at the end with a guarded `shutil.rmtree` (see the
+  final answer). The shared `$TMPDIR/uv-cache` stays.
+
+### Claims corrected
+
+- **C-23.14's data URI sentence** now covers what the step does: a prefix of any length, release's data
+  URI past a block's end, reminders whose opener the whole-text scrub may keep, and the shift down a
+  chain of data URIs until the two pairings agree.
+- **C-23.14's open-leak sentence** states seed 2075's leak plainly, in one sentence: no reminder, both
+  modes, limits None, 40 and 2,048, on a4aded885 and 289f15a5c too. Its issue number is the hub's.
+- **C-23.14's "never shows a value the whole block's hides"** now names the two open leaks there:
+  seed 2075's, and famA's, with its row. This section's fuzz and rows claim no more than that either:
+  the rows hide their values, and every remaining fuzz leak is seed 2075's class.
+- **The P3 wording.** "The windows read for it are bounded" is now "The windows the split step reads
+  are bounded", and the linear claim is its own sentence with three named parts, each with its test:
+  the split step's scans (the growth test), the erased-key walk's closer searches (the closer-once
+  test, every search) and the data URI step (the body-match count).
+- **Docstrings.** `_data_uri_run_ons` (its old "read each character a fixed number of times") and
+  `_body_reaches` (its old `_PREFIX_MAX`) are rewritten to what the code does, `_PrefixEnds` says why its
+  pass is linear, `_erased_keys`' return note names the kept reminders it now returns (its old note
+  also said only run-on blocks were returned; every block it may remove is), and `_split_masks`' names
+  the data URI step's reach.
+- **The 2026-11-17 change-log line** keeps its words, with a correction marker: its data URI sentence
+  holds only for a prefix of up to 512 characters, and misses kept reminders, release's data URI past a
+  block's end, and chains. A new 2026-11-25 line records this round.
+- **Fix round 1's "P0-5, data URIs" bullet above** says `_body_reaches` reads "body characters back to a
+  data URI prefix, within a window": the prefix look-back read 512 characters, not a window. This
+  section supersedes that bullet's description of the step.
+
+### PR #331 body sentences this round makes false
+
+Besides those fix round 1's section lists (its "Data URIs get no new mask" sentence among them):
+
+- "It works out which reminders the whole-text scrub keeps. For each private key opener inside a kept
+  reminder, it walks …": the reminder step now also masks data URI bodies past kept reminders and down
+  chains of data URIs, and `_erased_keys` returns the kept reminders for it.
+- "A superset test over 22 rows" (now 42).
+- "Each of four mutants failed a test" (this round: p1-1b, killed by the closer-once test).
+- "One change-log entry records both" (C-23.14 now has three entries for this PR: 2026-11-15, 2026-11-17
+  and 2026-11-25).
+- "The contract, invariant-index and module-name tests passed on the hub (63)": this round ran four
+  guard files, 437 tests.
+- "Report: … section "Reminder-erased openers (issue #325)"": the fix rounds' two sections follow it.
+
+Built head: see the final answer.
