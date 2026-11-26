@@ -244,6 +244,8 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     "turn-manifest": ("turn job has no turn manifest", "the dispatcher creates turn jobs"),
     "turn-guard": ("a Codex turn needs the verified never-rules guard", None),
     "api-key-home": ("API-key home refused", "log this lane into a subscription account"),
+    "auth-json-unreadable": ("lane auth.json is unreadable", "log this lane in again"),
+    "auth-json-not-object": ("lane auth.json is not an object", "log this lane in again"),
     "credential-env-inherited": ("lane environment credential names a variable every launch inherits",
                                  "store the lane OAuth token under a daemon variable no launch inherits"),
     "credential-env": ("could not resolve lane environment credential",

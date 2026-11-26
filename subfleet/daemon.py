@@ -4169,9 +4169,9 @@ class Daemon:
         if not parsed:
             # Raised here, not in the handler: the parser's error keeps the whole document,
             # the lane's tokens, and would ride along as this error's context.
-            raise AdapterError("lane auth.json is unreadable", fix="log this lane in again")
+            raise AdapterError("lane auth.json is unreadable", fix="log this lane in again", reason="auth-json-unreadable")
         if not isinstance(auth, dict):
-            raise AdapterError("lane auth.json is not an object", fix="log this lane in again")
+            raise AdapterError("lane auth.json is not an object", fix="log this lane in again", reason="auth-json-not-object")
         if auth.get("OPENAI_API_KEY") or auth.get("auth_mode") in ("api_key", "apikey"):
             raise AdapterError("API-key home refused", fix="log this lane into a subscription account", reason="api-key-home")
 
