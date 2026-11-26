@@ -98,7 +98,8 @@ def test_c18_6_daemon_usage_dispatch_is_read_only(daemon, monkeypatch):
 def test_c18_5_show_exposes_usage_in_the_metadata_object(monkeypatch, capsys):
     """C-18.5: each shown attempt carries raw and normalized usage with missing fields null."""
     measured = parse_usage([LINE], "codex")
-    row = {"job": {"job_id": JOB, "state": "failed"}, "artifacts": [],
+    # A succeeded job: the bare form exits 1 for a failed one (C-12.6), which isn't under test here.
+    row = {"job": {"job_id": JOB, "state": "succeeded"}, "artifacts": [],
            "attempts": [{"seq": 1, "evidence_json": json.dumps({"usage": measured})},
                         {"seq": 2, "evidence_json": "{}"}]}
     monkeypatch.setattr(cli, "_client", lambda args: SimpleNamespace(call=lambda op, args: row))
