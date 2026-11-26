@@ -1747,6 +1747,8 @@ Other commands:
 - **The ultracode note** asks for a Workflow. A headless run gets no completion
   notice, so the work stayed inline.
 - **`uptime` and `df -H /`** weren't recorded before runs 4, 7, 8 and 10.
+- **Scratch reached 339 MB**, over the 200 MB cap, mostly basetemps (see
+  "Folders").
 - One reading, not checked: the head's split follower runs spent their extra
   wall time waiting, since their CPU matched bb118f63d's.
 
