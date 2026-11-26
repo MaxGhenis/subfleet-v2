@@ -919,19 +919,35 @@ def test_retention_never_prunes_other_registrations(world):
     assert (w.repo / ".git" / "worktrees" / "other-tree").is_dir()
 
 
-def test_discarding_a_broken_allocation_removes_only_its_own_registration(world):
+def test_discarding_a_broken_allocation_removes_only_its_own_registration(tmp_path, monkeypatch):
+    """The daemon's proof keeps unrelated missing registrations; no remote writes are needed."""
+    import logging
+    from types import SimpleNamespace
     from subfleet.daemon import Daemon
-    w = world
-    other = w.base / "elsewhere" / "other"
+    from subfleet import procs
+    repo, root = tmp_path / "repo", tmp_path / "state"
+    repo.mkdir()
+    root.mkdir()
+    git(repo, "init", "-b", "feature")
+    (repo / "tracked").write_text("baseline")
+    git(repo, "add", "tracked")
+    git(repo, "commit", "-m", "baseline")
+    head = git(repo, "rev-parse", "HEAD")
+    other = tmp_path / "elsewhere" / "other"
     other.parent.mkdir()
-    git(w.repo, "worktree", "add", "--quiet", "--detach", str(other), "HEAD")
+    git(repo, "worktree", "add", "--quiet", "--detach", str(other), head)
     shutil.rmtree(other)
-    broken = w.root / "worktrees" / "broken"
-    git(w.repo, "worktree", "add", "--quiet", "--detach", str(broken), "HEAD")
-    Daemon._discard_worktree(str(w.repo), str(broken), 30)
+    broken = root / "worktrees" / "broken"
+    git(repo, "worktree", "add", "--quiet", "--detach", str(broken), head)
+    core = object.__new__(Daemon)
+    core.root, core.log = root, logging.getLogger("test-discard-proof")
+    core.store = SimpleNamespace(get_job=lambda _: {"job_id": "broken", "workdir": str(repo), "workdir_head": head})
+    core._recorded_common = lambda _: str(repo / ".git")
+    monkeypatch.setattr(procs, "containment", lambda *args, **kwargs: procs.Containment())
+    core._discard_worktree(str(repo), str(broken), 30)
     assert not broken.exists()
-    assert not (w.repo / ".git" / "worktrees" / "broken").exists()
-    assert (w.repo / ".git" / "worktrees" / "other").is_dir()
+    assert not (repo / ".git" / "worktrees" / "broken").exists()
+    assert (repo / ".git" / "worktrees" / "other").is_dir()
 
 
 @pytest.mark.parametrize("leftover", ["plain-directory", "detached-worktree"])

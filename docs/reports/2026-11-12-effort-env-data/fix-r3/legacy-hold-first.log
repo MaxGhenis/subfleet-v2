@@ -1,0 +1,112 @@
+# label: legacy-hold-first
+# start: 2026-11-17T14:20:39Z
+# command: uv run --no-sync --with pytest-xdist\>=3.6 pytest --basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T//sf-eff-fix3/pytest-legacy-hold-first-142039 -p no:cacheprovider -n 4 -q -rfE tests/unit/test_legacy_hold.py
+bringing up nodes...
+bringing up nodes...
+
+...................F....................................                 [100%]
+=================================== FAILURES ===================================
+______ test_resume_refuses_a_turn_source_and_a_conversation_bound_session ______
+[gw2] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpTzJTNR/bin/python
+
+world = <test_legacy_hold.World object at 0x1086e0c30>
+
+    def test_resume_refuses_a_turn_source_and_a_conversation_bound_session(world):
+        """C-26.3, C-26.13, D-17 (review M3): `resume` of a turn job would run `claude
+        --resume` on its conversation's session beside the conversation; it is
+        refused, as is resuming any job whose session a conversation is bound to, in
+        any spelling. On the desktop line the second is `submit`'s fence, checked
+        after C-6.2's retry lookup (`_refuse_conversation_session`). A session no
+        conversation binds resumes as before."""
+        world.run_pass()
+        svc, _ = service(world)
+        args = protocol.SubmitArgs(request_id="resume-1", kind="resume", workdir=str(world.workspace),
+                                   prompt_path=str(world.root / "prompt.md"), sandbox="read-only", parent_job_id="src")
+        attempt = {"attempt_id": "src/a1", "native_session_id": SESSION.upper(), "lane_id": "claude-1",
+                   "model_requested": "claude-opus-5-5", "evidence_json": "{}"}
+        try:
+            with pytest.raises(AdapterError) as turn:
+                Daemon._resume_submission(resume_daemon(world, svc, "turn", attempt), args)
+            assert turn.value.code == 7 and "is a conversation turn" in str(turn.value)
+            fake = resume_daemon(world, svc, "dispatch", attempt)
+            fake._conversation_binding = lambda session_id: Daemon._conversation_binding(fake, session_id)
+>           _, resume = Daemon._resume_submission(fake, args)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_legacy_hold.py:741: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = namespace(_job=<function resume_daemon.<locals>.<lambda> at 0x10864f270>, root=PosixPath('/private/var/folders/9l/_wzt...binding=<function test_resume_refuses_a_turn_source_and_a_conversation_bound_session.<locals>.<lambda> at 0x10864f950>)
+args = SubmitArgs(request_id='resume-1', kind='resume', workdir='/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-...e_reason=None, mcp_servers=[], pinned_provider=None, batch=None, push_branch=None, needs_shell=None, provider_qos=None)
+
+    def _resume_submission(self, args: protocol.SubmitArgs) -> tuple[protocol.SubmitArgs, dict]:
+        """Resolve the native session on its original lane before persisting a resume."""
+        if not args.parent_job_id:
+            raise protocol.ProtocolError("resume requires its source parent_job_id", reason="resume-parent")
+        source = self._job(args.parent_job_id)
+        if source["kind"] == "turn":
+            # C-26.3, C-26.13: a turn's session is its conversation's; the next
+            # turn, not a detached resume, is how it continues.
+            raise AdapterError(
+                f"resume refused: {source['job_id']} is a conversation turn, and a "
+                "conversation's session continues only in its conversation",
+                code=7, fix=CONVERSATION_FIX, reason="resume-conversation", details={"job_id": source['job_id']})
+        if source["state"] not in TERMINAL or self.store.one(
+                "SELECT 1 FROM attempts WHERE job_id=? AND state IN "
+                "('reserved','starting','running','finalizing','quarantined')", (source["job_id"],)):
+            raise AdapterError("source job is still active or quarantined",
+                               fix="wait for its completion or resolve containment before resuming", reason="resume-source-active")
+        if source["isolated_review"]:
+            raise AdapterError("isolated review cannot resume a contextual session",
+                               fix="submit a fresh isolated review job", reason="isolation-resume")
+        attempt = (self.store.get_attempt(source["accepted_attempt_id"])
+                   if source["accepted_attempt_id"] else self.store.one(
+                       "SELECT * FROM attempts WHERE job_id=? ORDER BY seq DESC LIMIT 1", (source["job_id"],)))
+        if not attempt:
+            raise AdapterError("source job has no provider attempt", fix="submit a fresh job", reason="resume-no-attempt")
+        native = attempt["native_session_id"] or self._legacy_resume_identity(attempt)
+        if not native:
+            raise AdapterError("source attempt has no recorded native session", fix="submit a fresh job", reason="resume-no-session")
+        # C-26.13: a detached job's session a person has since opened as a
+        # conversation (`conversation.open` with `native`) is the conversation's.
+        # `submit` refuses it, after C-6.2's retry check (`_accepted_request`).
+        # A continuation belongs to the source execution workspace, even when
+        # that was an allocated worktree containing uncommitted provider work.
+        # Independent allows continuing a cancelled source without reviving its
+        # parent's old cancellation request (C-7.3).
+        # C-12.9: a resume starts exactly the MCP servers its source did (none
+        # unless it named some); it cannot add, drop or swap one.
+        recorded = tuple(json.loads(source.get("mcp_servers") or "[]"))
+        try:
+            asked = claude_mcp.validate_names(args.mcp_servers or ())
+        except ValueError as exc:
+            raise protocol.ProtocolError(str(exc), reason="invalid-args") from exc
+        if asked and asked != recorded:
+            raise AdapterError(f"a resume starts its source's MCP servers ({', '.join(recorded) or 'none'}), "
+                               f"not {', '.join(asked)} (C-12.9)",
+                               fix="resume without --mcp, or submit a fresh job naming the servers it needs", reason="resume-mcp-mismatch")
+        source_manifest = self._read_json(self.root / "jobs" / source["job_id"] / "manifest.json") or {}
+        preamble = source_manifest.get("preamble")
+        if preamble is None:
+            # A source submitted before the manifest said: its prepared prompt did.
+            preamble = (self.root / "jobs" / source["job_id"] / "prompt.prepared.md").is_file()
+        # C-12.4: model IDs can have several policy aliases with different
+        # efforts (including none), so the source attempt's recorded alias is
+        # kept while it still names an entry at the attempt's provider model ID.
+        # Otherwise the resume pins that ID, as before the alias was kept: an
+        # attempt with no alias, an imported one whose alias is v1's own
+        # spelling (the importer resolved it without case and by scope), or an
+        # alias since removed or moved to another ID. The evidence is read in
+        # memory, never rewritten (C-23.32).
+        evidence = json.loads(attempt["evidence_json"] or "{}")
+>       pinned_model = _resume_pin(self.policy, evidence.get("model_short") if isinstance(evidence, dict) else None,
+                                   ^^^^^^^^^^^
+                                   attempt["model_requested"])
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'policy'
+
+subfleet/daemon.py:3752: AttributeError
+=========================== short test summary info ============================
+FAILED tests/unit/test_legacy_hold.py::test_resume_refuses_a_turn_source_and_a_conversation_bound_session
+1 failed, 55 passed in 98.09s (0:01:38)
+# end: 2026-11-17T14:22:29Z
+# exit: 1

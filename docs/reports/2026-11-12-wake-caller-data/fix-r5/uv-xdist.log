@@ -1,0 +1,4 @@
+Resolved 7 packages in 178ms
+Installed 2 packages in 37ms
+ + execnet==2.1.2
+ + pytest-xdist==3.8.0

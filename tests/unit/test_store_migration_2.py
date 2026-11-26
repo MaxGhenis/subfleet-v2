@@ -7,10 +7,10 @@ it moved — and the same code must produce an identical shape on a fresh store.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 import json
 from pathlib import Path
-import re
 
 import pytest
 
@@ -221,17 +221,18 @@ def _schema_before_migration(conn, migration):
         if version >= migration:
             for statement in reversed(statements):
                 parts = statement.split()
-                if parts[:6] == ['CREATE', 'TABLE', 'IF', 'NOT', 'EXISTS', 'caller_wake_sessions']:
-                    conn.execute('DROP TABLE IF EXISTS caller_wake_sessions')
-                    continue
-                assert parts[:2] == ['ALTER', 'TABLE'] and parts[3:5] == ['ADD', 'COLUMN']
-                # New columns can have indexes in today's schema. Remove those
-                # before reconstructing the historical table without the column.
-                for index in conn.execute(f'PRAGMA index_list("{parts[2]}")').fetchall():
-                    sql = conn.execute('SELECT sql FROM sqlite_master WHERE name=?', (index[1],)).fetchone()[0]
-                    if sql and re.search(r'\b' + re.escape(parts[5]) + r'\b', sql):
-                        conn.execute(f'DROP INDEX "{index[1]}"')
-                conn.execute(f'ALTER TABLE "{parts[2]}" DROP COLUMN "{parts[5]}"')
+                if parts[:2] == ['CREATE', 'TABLE'] and parts[2:5] == ['IF', 'NOT', 'EXISTS']:
+                    conn.execute(f'DROP TABLE "{parts[5]}"')
+                else:
+                    assert parts[:2] == ['ALTER', 'TABLE'] and parts[3:5] == ['ADD', 'COLUMN']
+                    # An index naming the column came with it: the schema file builds
+                    # the newest indexes after migrating (C-3.1), so the old store had none.
+                    for index, sql in conn.execute(
+                            "SELECT name,sql FROM sqlite_master WHERE type='index' AND tbl_name=? "
+                            "AND sql IS NOT NULL", (parts[2],)).fetchall():
+                        if re.search(rf'\b{re.escape(parts[5])}\b', sql):
+                            conn.execute(f'DROP INDEX "{index}"')
+                    conn.execute(f'ALTER TABLE "{parts[2]}" DROP COLUMN "{parts[5]}"')
     conn.execute("INSERT INTO schema_version VALUES (?,'2026-10-14T00:00:00Z')", (migration - 1,))
 
 

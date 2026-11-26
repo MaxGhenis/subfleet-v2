@@ -1,0 +1,15 @@
+# label: guards-a
+# start: 2026-11-17T14:39:44Z
+# command: uv run --no-sync --with pytest-xdist\>=3.6 pytest --basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T//sf-eff-fix3/pytest-guards-a-143944 -p no:cacheprovider -n 4 -q -rfE tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py tests/unit/test_handler_refusals.py
+bringing up nodes...
+bringing up nodes...
+
+........................................................................ [ 17%]
+........................................................................ [ 35%]
+........................................................................ [ 52%]
+........................................................................ [ 70%]
+........................................................................ [ 87%]
+..................................................                       [100%]
+410 passed in 122.26s (0:02:02)
+# end: 2026-11-17T14:41:51Z
+# exit: 0

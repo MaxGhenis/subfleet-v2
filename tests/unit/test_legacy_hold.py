@@ -714,6 +714,8 @@ def resume_daemon(world: World, svc: ConversationService, kind: str, attempt: di
               "sandbox": "read-only", "task": None, "tier": None, "allow_desktop": 0, "exclusions": "[]"}
     return types.SimpleNamespace(
         _job=lambda job_id: source, root=world.root, conversations=svc,
+        # C-12.4: the policy decides whether a recorded alias is kept (review r3 of #310).
+        policy=load_policy(DEFAULT_POLICY_PATH),
         store=types.SimpleNamespace(one=lambda sql, params=(): None, get_attempt=lambda aid: attempt),
         _legacy_resume_identity=lambda attempt: None, _read_json=Daemon._read_json,
         _source_launch_prefix=lambda source, attempt, manifest: None)

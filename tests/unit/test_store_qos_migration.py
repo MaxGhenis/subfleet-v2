@@ -19,7 +19,7 @@ from subfleet.store import SCHEMA_VERSION, Store, job_flags, shell_flags
 from test_store_migration_2 import _migration_adding, _schema_before_migration
 
 
-def test_d_qos_booked1_the_column_is_its_numbered_migration():
+def test_d_qos_booked1_the_column_has_a_numbered_migration():
     step = _migration_adding("provider_qos")
     assert step == store_module.PROVIDER_QOS_MIGRATION <= SCHEMA_VERSION
     assert store_module.MIGRATIONS[step] == (
@@ -56,8 +56,8 @@ def test_d_qos_booked1_an_old_store_opens_and_its_jobs_read_as_utility(tmp_path)
         assert {job["provider_qos"] for job in store.list_jobs()} == {"utility"}
         migrated = [row["data_json"] for row in store.query(
             "SELECT data_json FROM events WHERE kind='schema.migrated' ORDER BY event_id")]
-        assert migrated == [f'{{"version":{version}}}'
-                            for version in range(_migration_adding("provider_qos"), SCHEMA_VERSION + 1)]
+        assert migrated == [f'{{"version":{version}}}' for version in
+                            range(store_module.PROVIDER_QOS_MIGRATION, SCHEMA_VERSION + 1)]
     with Store(path) as store:                       # reopening changes nothing
         assert store.get_job("old-dispatch")["provider_qos"] == "utility"
         assert [row["version"] for row in store.query("SELECT version FROM schema_version ORDER BY version")][-1] == SCHEMA_VERSION
@@ -95,7 +95,7 @@ def test_d_qos_booked1_attempt_rows_gain_no_job_field(tmp_path, read_only):
                      "'2026-10-27T00:00:00Z')")
     with Store(path, read_only=read_only) as store:
         version = store.one("SELECT MAX(version) AS v FROM schema_version")["v"]
-        assert version == (_migration_adding("provider_qos") - 1 if read_only else SCHEMA_VERSION)
+        assert version == (store_module.PROVIDER_QOS_MIGRATION - 1 if read_only else SCHEMA_VERSION)
         assert store.get_job("old-dispatch")["provider_qos"] == "utility"
         assert "provider_qos" not in store.get_attempt("old-dispatch/a1")
         assert [row for row in store.list_attempts("old-dispatch") if "provider_qos" in row] == []

@@ -1,0 +1,175 @@
+bringing up nodes...
+bringing up nodes...
+
+.FFFFFFFFFFFFFFF.                                                        [100%]
+=================================== FAILURES ===================================
+_______________ test_crash_in_first_ledger_write_wedges_offload ________________
+[gw2] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpKctm4f/bin/python
+tests/unit/test_retention_offload_r2.py:202: in test_crash_in_first_ledger_write_wedges_offload
+    assert [n for n in os.listdir(outside) if n.startswith(".owner.")] == []
+E   AssertionError: assert ['.owner.1336...74610000.tmp'] == []
+E     
+E     Left contains one more item: '.owner.13369.1794936372774610000.tmp'
+E     Use -v to get more diff
+__ test_a_crash_in_the_first_ledger_write_leaves_a_temporary_the_rerun_clears __
+[gw2] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpKctm4f/bin/python
+tests/unit/test_retention_offload_r2.py:221: in test_a_crash_in_the_first_ledger_write_leaves_a_temporary_the_rerun_clears
+    assert outcomes(offload(env)) == {name: "offloaded"}
+E   AssertionError: assert {'job-1': 'failed'} == {'job-1': 'offloaded'}
+E     
+E     Differing items:
+E     {'job-1': 'failed'} != {'job-1': 'offloaded'}
+E     Use -v to get more diff
+_____ test_a_target_below_a_folder_named_subfleet_archive_keeps_its_modes ______
+[gw3] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpKctm4f/bin/python
+tests/unit/test_retention_offload_r2.py:257: in test_a_target_below_a_folder_named_subfleet_archive_keeps_its_modes
+    assert {p.name: oct(stat.S_IMODE(p.stat().st_mode)) for p in (user, inner)} == \
+E   AssertionError: assert {'subfleet-ar...ner': '0o700'} == {'subfleet-ar...ner': '0o755'}
+E     
+E     Differing items:
+E     {'inner': '0o700'} != {'inner': '0o755'}
+E     {'subfleet-archive': '0o700'} != {'subfleet-archive': '0o755'}
+E     Use -v to get more diff
+__________ test_copying_resume_must_not_replace_good_external_bundle ___________
+[gw1] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpKctm4f/bin/python
+tests/unit/test_retention_offload_r2.py:107: in test_copying_resume_must_not_replace_good_external_bundle
+    assert good in (sha(inside_bundle), sha(outside_bundle)), "no location keeps the good bundle"
+E   AssertionError: no location keeps the good bundle
+E   assert '11d1ea188c502a7358b9e73ecd9045181d6e7789a86d178cd5a6ca31bd38cfd9' in (None, '9794e00ab40d7de590f7e56154ec2e007722096d860b451d2c8743041d39ed9c')
+______ test_a_resumed_copy_from_a_damaged_internal_bundle_stops_naming_it ______
+[gw0] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpKctm4f/bin/python
+tests/unit/test_retention_offload_r2.py:145: in test_a_resumed_copy_from_a_damaged_internal_bundle_stops_naming_it
+    assert outcomes(report) == {name: "failed"}
+E   AssertionError: assert {'job-1': 'offloaded'} == {'job-1': 'failed'}
+E     
+E     Differing items:
+E     {'job-1': 'offloaded'} != {'job-1': 'failed'}
+E     Use -v to get more diff
+____________ test_every_program_folders_parent_is_flushed_on_resume ____________
+[gw3] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpKctm4f/bin/python
+tests/unit/test_retention_offload_r2.py:289: in test_every_program_folders_parent_is_flushed_on_resume
+    assert [str(p) for p in folders if _identity(p) not in flushed] == [], "DIR or a program folder never flushed"
+E   AssertionError: DIR or a program folder never flushed
+E   assert ['/private/va...ol-a/backups'] == []
+E     
+E     Left contains one more item: '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ao-fix2/bt/pytest-r2-red2-172551/popen-gw3/test_every_program_folders_par0/env-xapu8ip4/vol-a/backups'
+E     Use -v to get more diff
+___________ test_a_copying_archive_whose_target_is_gone_is_recalled ____________
+[gw0] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpKctm4f/bin/python
+tests/unit/test_retention_offload_r2.py:167: in test_a_copying_archive_whose_target_is_gone_is_recalled
+    assert outcomes(report) == {name: "recalled"}, report
+E   AssertionError: {'results': [{'archive': 'job-1', 'outcome': 'failed', 'error': 'commits.bundle: offload.json records no checksum; external copy kept'}], 'skipped': []}
+E   assert {'job-1': 'failed'} == {'job-1': 'recalled'}
+E     
+E     Differing items:
+E     {'job-1': 'failed'} != {'job-1': 'recalled'}
+E     Use -v to get more diff
+___ test_a_resumed_offload_after_a_remount_with_new_device_number[verified] ____
+[gw3] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpKctm4f/bin/python
+tests/unit/test_retention_offload_r2.py:320: in test_a_resumed_offload_after_a_remount_with_new_device_number
+    assert outcomes(report) == {name: "offloaded"}, report
+E   AssertionError: {'dry_run': False, 'keep_internal': False, 'target': {'dir': '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T...ups', 'under': 'backups', 'uuid': '6A1E0F7C-0FF1-4AD5-9C3B-5D2B7E0A1B2C', 'name': 'Backup ☃', ...}, 'refused': [], ...}
+E   assert {'job-1': 'failed'} == {'job-1': 'offloaded'}
+E     
+E     Differing items:
+E     {'job-1': 'failed'} != {'job-1': 'offloaded'}
+E     Use -v to get more diff
+______ test_the_copying_stub_records_the_bundle_checksum_before_any_copy _______
+[gw1] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpKctm4f/bin/python
+tests/unit/test_retention_offload_r2.py:127: in test_the_copying_stub_records_the_bundle_checksum_before_any_copy
+    assert seen["stub"]["state"] == "copying" and seen["stub"]["bundle_sha256"] == good
+E   AssertionError: assert ('copying' == 'copying'
+E     
+E       copying and None == '11d1ea188c502a7358b9e73ecd9045181d6e7789a86d178cd5a6ca31bd38cfd9')
+____________ test_never_offloaded_archive_through_a_symlinked_root _____________
+[gw3] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpKctm4f/bin/python
+tests/unit/test_retention_offload_r2.py:351: in test_never_offloaded_archive_through_a_symlinked_root
+    assert checked["ok"] and "offloaded_to" not in checked, checked.get("offloaded_to")
+E   AssertionError: /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ao-fix2/bt/pytest-r2-red2-172551/popen-gw3/test_never_offloaded_archive_t0/env-mhzn2bzw/state/archive/job-2
+E   assert (True and 'offloaded_to' not in {'archive': 'job-2', 'ok': True, 'problems': [], 'manifest': {'created_at': '2026-11-17T17:26:12Z', 'git': {'admin': None, 'common': None, 'object_format': None}, 'job_id': 'job-2', 'regenerable': [], ...}, ...})
+_________ test_a_state_root_with_a_new_device_number_keeps_its_source __________
+[gw0] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpKctm4f/bin/python
+tests/unit/test_retention_offload_r2.py:332: in test_a_state_root_with_a_new_device_number_keeps_its_source
+    assert rof._source(env.root) == source
+E   AssertionError: assert 'd2d85eb10006...23487a5a8a83c' == 'd31e37be69f9...7f6f0010aaf1f'
+E     
+E     - d31e37be69f9d5b9314343b3765ed9a62f103b32561a377760d7f6f0010aaf1f
+E     + d2d85eb100064e037ee17f85e24db73b97606ae48206f4e591523487a5a8a83c
+_____________________ test_remount_with_new_device_number ______________________
+[gw2] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpKctm4f/bin/python
+tests/unit/test_retention_offload_r2.py:301: in test_remount_with_new_device_number
+    assert rarch.check_archive(env.root, name)["ok"]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/retention_archive.py:2276: in check_archive
+    return _check_archive(root, name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/retention_archive.py:2284: in _check_archive
+    base = rof.contents(root, name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/retention_offload.py:673: in contents
+    _ownership(folder_fd, stub, create=False)
+subfleet/retention_offload.py:511: in _ownership
+    raise Failed("the external folder belongs to another archive or source")
+E   subfleet.retention_offload.Failed: the external folder belongs to another archive or source
+___ test_a_resumed_offload_after_a_remount_with_new_device_number[removing] ____
+[gw1] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpKctm4f/bin/python
+tests/unit/test_retention_offload_r2.py:320: in test_a_resumed_offload_after_a_remount_with_new_device_number
+    assert outcomes(report) == {name: "offloaded"}, report
+E   AssertionError: {'dry_run': False, 'keep_internal': False, 'target': {'dir': '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T...ups', 'under': 'backups', 'uuid': '6A1E0F7C-0FF1-4AD5-9C3B-5D2B7E0A1B2C', 'name': 'Backup ☃', ...}, 'refused': [], ...}
+E   assert {'job-1': 'failed'} == {'job-1': 'offloaded'}
+E     
+E     Differing items:
+E     {'job-1': 'failed'} != {'job-1': 'offloaded'}
+E     Use -v to get more diff
+____ test_a_resumed_offload_after_a_remount_with_new_device_number[copied] _____
+[gw2] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpKctm4f/bin/python
+tests/unit/test_retention_offload_r2.py:320: in test_a_resumed_offload_after_a_remount_with_new_device_number
+    assert outcomes(report) == {name: "offloaded"}, report
+E   AssertionError: {'dry_run': False, 'keep_internal': False, 'target': {'dir': '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T...ups', 'under': 'backups', 'uuid': '6A1E0F7C-0FF1-4AD5-9C3B-5D2B7E0A1B2C', 'name': 'Backup ☃', ...}, 'refused': [], ...}
+E   assert {'job-1': 'failed'} == {'job-1': 'offloaded'}
+E     
+E     Differing items:
+E     {'job-1': 'failed'} != {'job-1': 'offloaded'}
+E     Use -v to get more diff
+____________ test_a_damaged_ownership_marker_fails_naming_the_file _____________
+[gw0] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpKctm4f/bin/python
+tests/unit/test_retention_offload_r2.py:369: in test_a_damaged_ownership_marker_fails_naming_the_file
+    rarch.check_archive(env.root, name)
+subfleet/retention_archive.py:2276: in check_archive
+    return _check_archive(root, name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/retention_archive.py:2284: in _check_archive
+    base = rof.contents(root, name)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/retention_offload.py:673: in contents
+    _ownership(folder_fd, stub, create=False)
+subfleet/retention_offload.py:507: in _ownership
+    data = json.loads(b"".join(chunks))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/json/__init__.py:371: in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/json/decoder.py:358: in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/json/decoder.py:374: in raw_decode
+    obj, end = self.scan_once(s, idx)
+               ^^^^^^^^^^^^^^^^^^^^^^
+E   json.decoder.JSONDecodeError: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_offload_r2.py::test_crash_in_first_ledger_write_wedges_offload
+FAILED tests/unit/test_retention_offload_r2.py::test_a_crash_in_the_first_ledger_write_leaves_a_temporary_the_rerun_clears
+FAILED tests/unit/test_retention_offload_r2.py::test_a_target_below_a_folder_named_subfleet_archive_keeps_its_modes
+FAILED tests/unit/test_retention_offload_r2.py::test_copying_resume_must_not_replace_good_external_bundle
+FAILED tests/unit/test_retention_offload_r2.py::test_a_resumed_copy_from_a_damaged_internal_bundle_stops_naming_it
+FAILED tests/unit/test_retention_offload_r2.py::test_every_program_folders_parent_is_flushed_on_resume
+FAILED tests/unit/test_retention_offload_r2.py::test_a_copying_archive_whose_target_is_gone_is_recalled
+FAILED tests/unit/test_retention_offload_r2.py::test_a_resumed_offload_after_a_remount_with_new_device_number[verified]
+FAILED tests/unit/test_retention_offload_r2.py::test_the_copying_stub_records_the_bundle_checksum_before_any_copy
+FAILED tests/unit/test_retention_offload_r2.py::test_never_offloaded_archive_through_a_symlinked_root
+FAILED tests/unit/test_retention_offload_r2.py::test_a_state_root_with_a_new_device_number_keeps_its_source
+FAILED tests/unit/test_retention_offload_r2.py::test_remount_with_new_device_number
+FAILED tests/unit/test_retention_offload_r2.py::test_a_resumed_offload_after_a_remount_with_new_device_number[removing]
+FAILED tests/unit/test_retention_offload_r2.py::test_a_resumed_offload_after_a_remount_with_new_device_number[copied]
+FAILED tests/unit/test_retention_offload_r2.py::test_a_damaged_ownership_marker_fails_naming_the_file
+15 failed, 2 passed in 29.11s

@@ -1,0 +1,75 @@
+{
+  "files": [
+    {
+      "file": "tests/fake/test_sessions_end_to_end.py",
+      "count": 6,
+      "reason": "workdir is under /tmp",
+      "classification": "temp-root guard",
+      "representative_reproduced_on_baseline": true
+    },
+    {
+      "file": "tests/process/test_provider_shell_environment.py",
+      "count": 2,
+      "reason": "sandbox-exec: sandbox_apply: Operation not permitted; empty command output",
+      "classification": "host nested sandbox restriction",
+      "representative_reproduced_on_baseline": true
+    },
+    {
+      "file": "tests/fake/test_canonical_identity.py",
+      "count": 1,
+      "reason": "expected newer-job alias lease, found empty set",
+      "classification": "baseline-existing mismatch; environmental cause not established",
+      "representative_reproduced_on_baseline": true
+    },
+    {
+      "file": "tests/unit/test_importer.py",
+      "count": 41,
+      "reason": "session-not-continuable/tmp-workspace; no imported conversations",
+      "classification": "temp-root guard",
+      "representative_reproduced_on_baseline": true
+    },
+    {
+      "file": "tests/unit/test_publish_rule_round7.py",
+      "count": 6,
+      "reason": "five shell variants fail taskpolicy control; one Codex sandbox control cannot push local bare ref",
+      "classification": "host taskpolicy/nested sandbox restrictions",
+      "representative_reproduced_on_baseline": true
+    },
+    {
+      "file": "tests/unit/test_legacy_hold.py",
+      "count": 46,
+      "reason": "no imported conversations / tmp-workspace",
+      "classification": "temp-root guard",
+      "representative_reproduced_on_baseline": true
+    },
+    {
+      "file": "tests/unit/test_retention_archive.py",
+      "count": 6,
+      "reason": "scratch path masks object-store/archive expectation",
+      "classification": "temp-root guard",
+      "representative_reproduced_on_baseline": true
+    }
+  ],
+  "baseline_import": "/private/tmp/sf-wc-b1/baseline/subfleet/daemon.py",
+  "baseline_result": "7 failed in 6.63s, rc1; same representative failures as affected-n4",
+  "baseline_log": "/private/tmp/sf-wc-b1/baseline-clusters.log",
+  "baseline_command": [
+    "python3",
+    "/private/tmp/sf-wc-b1/run.py",
+    "baseline-clusters",
+    "pytest",
+    "-q",
+    "-o",
+    "pythonpath=/private/tmp/sf-wc-b1/baseline",
+    "-p",
+    "sf_baseline_verify",
+    "tests/fake/test_sessions_end_to_end.py::test_a_revive_records_the_requested_model_substitution",
+    "tests/process/test_provider_shell_environment.py::test_codex_exec_and_resume_commands_see_neither_dummy",
+    "tests/fake/test_canonical_identity.py::test_two_legacy_alias_holders_oldest_exports_and_releases",
+    "tests/unit/test_importer.py::test_terminal_messages_become_history_of_one_legacy_conversation",
+    "tests/unit/test_publish_rule_round7.py::test_each_spelling_is_refused_in_each_providers_real_shell[codex-zsh -c]",
+    "tests/unit/test_legacy_hold.py::test_a_message_the_hold_withheld_can_still_be_withdrawn[turn.interrupt]",
+    "tests/unit/test_retention_archive.py::test_borrowed_or_shallow_object_store_is_scratch[alternates]"
+  ],
+  "source_verification_deviation": "First verifier rejected worktree imports (rc3) before tests. Eager baseline package import in scratch plugin then verified baseline daemon source before collection."
+}

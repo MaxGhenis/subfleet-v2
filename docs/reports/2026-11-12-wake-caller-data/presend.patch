@@ -1,0 +1,176 @@
+--- a/subfleet/notify_push.py
++++ b/subfleet/notify_push.py
+@@ -56,6 +56,10 @@
+ #: a headless lane has no inbox socket, and the daemon knows its own lane
+ #: sessions. `refuse_session` lets the caller supply that set.
+ DEFAULT_TIMEOUT_S = 5.0
++
++
++class BeforeSendError(OSError):
++    """The inbox connection failed before any message bytes were attempted."""
+ 
+ 
+ def claude_dir() -> Path:
+@@ -294,7 +298,10 @@
+     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+     client.settimeout(timeout)
+     try:
+-        client.connect(socket_path)
++        try:
++            client.connect(socket_path)
++        except OSError as exc:
++            raise BeforeSendError(*exc.args) from exc
+         client.sendall(payload)
+         try:
+             client.shutdown(socket.SHUT_WR)
+@@ -353,6 +360,11 @@
+         send_to_socket(entry["socket"], token,
+                        envelope(body, from_name=from_name, mode_class=declared),
+                        timeout=timeout)
++    except BeforeSendError as exc:
++        cause = exc.__cause__ or exc
++        result["reason"] = f"send-failed: {cause.__class__.__name__}: {cause}"
++        result["retryable"] = True
++        return result
+     except (OSError, ValueError) as exc:
+         result["reason"] = f"send-failed: {exc.__class__.__name__}: {exc}"
+         return result
+--- a/subfleet/caller_wakes.py
++++ b/subfleet/caller_wakes.py
+@@ -222,8 +222,11 @@
+                                        [(row["notice_id"],) for row in claimed])
+                     result["delivered"] += len(claimed)
+                 else:
+-                    reason = outcome.get("reason")
+-                    safe = reason in PREFLIGHT_FAILURES or reason in CLOSED_FAILURES
++                    retryable = outcome.get("retryable") is True
++                    # Connect failures prove no message bytes were attempted.
++                    # Persist fixed words, never the transport exception text.
++                    reason = "inbox-unavailable" if retryable else outcome.get("reason")
++                    safe = retryable or reason in PREFLIGHT_FAILURES or reason in CLOSED_FAILURES
+                     with self.store.transaction("notice.wake_unsent") as tx:
+                         for row in claimed:
+                             tx.execute("UPDATE notices SET state=?,transport=?,wake_state=?,wake_reason=? "
+@@ -239,5 +242,5 @@
+                                        (previous_clock.get("wake_streak") or 0, previous_clock.get("last_wake_at"),
+                                         session, now))
+                     if safe:
+-                        self._failure(claimed, reason, now, retry=reason in PREFLIGHT_FAILURES)
++                        self._failure(claimed, reason, now, retry=retryable or reason in PREFLIGHT_FAILURES)
+         return result
+--- a/tests/unit/test_notify_push.py
++++ b/tests/unit/test_notify_push.py
+@@ -408,3 +408,42 @@
+         rows("pending", "acknowledged", "offered"),
+         push=lambda session, body, **kwargs: {"delivered": True})
+     assert [item["notice_id"] for item in results] == [1, 2, 3]
++
++@pytest.mark.parametrize("stage", ["connect", "sendall"])
++def test_c15_9_only_a_proved_connection_failure_is_retryable(monkeypatch, stage):
++    """A failed connect sent no message; sendall may have sent a partial one."""
++    class InboxFailure:
++        def __init__(self):
++            self.sends = []
++            self.closed = False
++
++        def settimeout(self, _timeout):
++            pass
++
++        def connect(self, _path):
++            if stage == "connect":
++                raise ConnectionRefusedError("PRIVATE-CONNECT-DETAIL")
++
++        def sendall(self, payload):
++            self.sends.append(payload)
++            raise BrokenPipeError("PRIVATE-SENDALL-DETAIL")
++
++        def close(self):
++            self.closed = True
++
++    inbox = InboxFailure()
++    monkeypatch.setattr(notify_push.socket, "socket", lambda *_args: inbox)
++    monkeypatch.setattr(notify_push, "find_session", lambda _sid: {
++        "pid": 42, "socket": "/fake/inbox.sock", "name": "fixture",
++        "alive": True, "socket_present": True,
++    })
++    monkeypatch.setattr(notify_push, "peer_token", lambda _pid: "fixture-peer-token")
++    monkeypatch.setattr(notify_push, "resolve_mode_class", lambda *_args: "prompting")
++    result = notify_push.push_to_session(SESSION, "job finished")
++    assert result["delivered"] is False
++    assert result.get("retryable", False) is (stage == "connect")
++    error = "ConnectionRefusedError" if stage == "connect" else "BrokenPipeError"
++    assert result["reason"].startswith(f"send-failed: {error}:")
++    assert len(inbox.sends) == (0 if stage == "connect" else 1)
++    assert inbox.closed
++
+--- a/tests/fake/test_caller_notice_wakes.py
++++ b/tests/fake/test_caller_notice_wakes.py
+@@ -529,3 +529,68 @@
+     callers.now += 1
+     callers.pass_once()
+     assert callers.counts()[notice] == 1
++
++def test_c15_9_proved_connect_failure_retries_after_store_reopen_without_raw_reason(callers, monkeypatch):
++    """A stale inbox address retries across restart without persisting exception text."""
++    sid = "connect-restart"
++    private = "PRIVATE-CONNECT-EXCEPTION-DETAIL"
++    callers.register(sid)
++    notice = callers.finish(sid)
++
++    def refused(session, body, **_kwargs):
++        callers.attempts.append((session, body))
++        return {"delivered": False, "session_id": session, "retryable": True,
++                "reason": f"send-failed: ConnectionRefusedError: {private}"}
++
++    monkeypatch.setattr(notify_push, "push_to_session", refused)
++    callers.pass_once()
++    row = callers.row(notice)
++    assert row["state"] == "pending" and row["wake_state"] is None
++    assert row["wake_reason"] == "inbox-unavailable"
++    assert row["wake_attempts"] == 1 and row["wake_next_at"] > callers.now
++    assert private not in json.dumps(row)
++    assert not callers.daemon.store.query("SELECT 1 FROM events WHERE data_json LIKE ?", (f"%{private}%",))
++    clock = callers.daemon.store.one("SELECT * FROM caller_wake_sessions WHERE session_id=?", (sid,))
++    assert clock["wake_streak"] == 0 and clock["last_wake_at"] is None
++    callers.restart(reopen=True)
++    assert callers.row(notice) == row
++    monkeypatch.setattr(notify_push, "push_to_session", callers.push)
++    callers.now = row["wake_next_at"]
++    callers.pass_once()
++    assert callers.counts()[notice] == 1
++    assert callers.row(notice)["wake_state"] == "delivered"
++    callers.restart(reopen=True)
++    callers.now += COOLDOWN_S
++    callers.pass_once()
++    assert callers.counts()[notice] == 1
++
++
++@pytest.mark.parametrize("retryable", [False, None, "true"])
++def test_c15_9_sendall_failure_stays_consumed_after_store_restart(callers, monkeypatch, retryable):
++    """A possible partial write cannot be replayed; only boolean True proves pre-send."""
++    sid = "sendall-unknown"
++    private = "PRIVATE-SENDALL-EXCEPTION-DETAIL"
++    callers.register(sid)
++    notice = callers.finish(sid)
++
++    def uncertain(session, body, **_kwargs):
++        callers.attempts.append((session, body))
++        return {"delivered": False, "session_id": session, "retryable": retryable,
++                "reason": f"send-failed: BrokenPipeError: {private}"}
++
++    monkeypatch.setattr(notify_push, "push_to_session", uncertain)
++    callers.pass_once()
++    row = callers.row(notice)
++    assert row["state"] == "surfaced" and row["wake_state"] == "undeliverable"
++    assert row["wake_reason"] == "send-uncertain" and row["wake_next_at"] is None
++    assert private not in json.dumps(row)
++    assert not callers.daemon.store.query("SELECT 1 FROM events WHERE data_json LIKE ?", (f"%{private}%",))
++    attempts = len(callers.attempts)
++    callers.restart(reopen=True)
++    monkeypatch.setattr(notify_push, "push_to_session", callers.push)
++    callers.now += COOLDOWN_S
++    callers.pass_once()
++    assert len(callers.attempts) == attempts
++    assert callers.counts()[notice] == 0
++    assert callers.row(notice)["wake_state"] == "undeliverable"
++

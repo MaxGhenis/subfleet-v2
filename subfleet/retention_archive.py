@@ -338,6 +338,11 @@ def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
+def _wall_now() -> float:
+    """The wall clock, which file times are on (a test fixes it)."""
+    return time.time()
+
+
 def _canonical(value: Any) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
 
@@ -2109,7 +2114,15 @@ class _Builder:
         info: dict[str, Any] = {}
         remotes = rgit.network_remotes(common, cancel=self.ctx.cancel)
         held = rgit.held_arguments(remotes)
-        objects = rgit.admin_objects(reg.admin, fmt, cancel=self.ctx.cancel) if reg is not None else rgit.no_objects()
+        try:
+            objects = (rgit.admin_objects(reg.admin, fmt, cancel=self.ctx.cancel) if reg is not None
+                       else rgit.no_objects())
+        except rfs.TreeError as exc:
+            # The pass catches Defer, not TreeError: an admin directory that
+            # cannot be walked (now also one listed but not searched,
+            # D-SURVEY-EACCES1) defers the job as the manifest walk does.
+            seconds = DEFER_CHANGED_S if exc.reason in ("changed", "swapped") else DEFER_PERMANENT_S
+            raise Defer(exc.reason, seconds, f"admin: {exc.detail}") from exc
         extra = [s["commit"] for s in j["salvage"]]
         baseline = j.get("baseline")
         if baseline and rgit.classify(common, [baseline], cancel=self.ctx.cancel)["commit"]:
@@ -2146,7 +2159,7 @@ class _Builder:
             self._over_the_limit(bundle, common, held)
         else:
             temporary = self.dir / "commits.bundle.tmp"
-            temporary.unlink(missing_ok=True)
+            self._clear_bundle_leftovers(temporary)
             fd = os.open(self.dir, rfs.O_DIR)
             try:
                 if rfs.free_bytes(fd) < rfs.LOW_SPACE_FLOOR:
@@ -2164,6 +2177,54 @@ class _Builder:
                         "size": bundle.stat().st_size})
         info.update(bundle="commits.bundle", bundle_heads=expected, bundle_bytes=bundle.stat().st_size)
         return info
+
+    #: How old git's `commits.bundle.tmp.lock` must be, by its modification
+    #: time, before a pass removes it as an earlier attempt's leftover
+    #: (D-RET-STALE-LOCK1, the hub's ruling). A `git bundle create` still
+    #: running, such as one a hard-killed daemon left in its own session,
+    #: keeps writing the lock, so its time stays fresh: a younger lock defers
+    #: the job ("bundle lock in use") and the step removes nothing.
+    BUNDLE_LOCK_STALE_S = 600
+
+    def _clear_bundle_leftovers(self, temporary: Path) -> None:
+        """Remove what an earlier bundle attempt left: `commits.bundle.tmp`
+        and the `commits.bundle.tmp.lock` git writes beside it and leaves when
+        it is killed (a timeout, a cancel, a reboot; D-RET-STALE-LOCK1). Git
+        refuses to start while the lock exists, so a leftover one blocked the
+        job's bundle for good. Only the pass holding the job's retention lease
+        writes this folder; every bundle is read back (`verify_bundle`) before
+        it counts.
+
+        The lock goes only once it is `BUNDLE_LOCK_STALE_S` old (a time in
+        the future is young). A younger one raises `Defer` naming the lock,
+        its age and size, before anything here is removed. Either way the
+        lock's size and age are logged; a removal also goes into the
+        progress notes. A directory at the lock path defers for inspection,
+        preserving it and the temporary bundle."""
+        lock = temporary.with_name(temporary.name + ".lock")
+        try:
+            found = os.lstat(lock)
+        except FileNotFoundError:
+            found = None
+        if found is not None:
+            age = _wall_now() - found.st_mtime
+            directory = stat.S_ISDIR(found.st_mode)
+            stale = not directory and age >= self.BUNDLE_LOCK_STALE_S
+            age_seconds = int(age)  # never round a young lock up to the stale boundary
+            logging.getLogger(__name__).warning(
+                "Retention %s the bundle lock of %s: %d bytes, %d s old (removed at %d s)",
+                "removes" if stale else "keeps", self.r.job_id, found.st_size, age_seconds, self.BUNDLE_LOCK_STALE_S)
+            if directory:
+                raise Defer("bundle lock in use", DEFER_BUSY_S,
+                            f"{lock.name} is a directory, {age_seconds} s old ({found.st_size} bytes): "
+                            "inspect it before retrying the bundle")
+            if not stale:
+                raise Defer("bundle lock in use", DEFER_BUSY_S,
+                            f"{lock.name} is {age_seconds} s old, under {self.BUNDLE_LOCK_STALE_S} s "
+                            f"({found.st_size} bytes): a git may still be writing it")
+            lock.unlink()                # unlink never follows a link
+            self._note({"k": "bundle-lock", "size": found.st_size, "age_s": round(age, 1), "removed_at": _now()})
+        temporary.unlink(missing_ok=True)
 
     def _over_the_limit(self, bundle: Path, common: Path, held: list[str]) -> None:
         """The bundle decides (N1): one over `remote_less_history_bytes` for a
@@ -2253,7 +2314,21 @@ def list_archives(root: Path) -> list[dict[str, Any]]:
         except (OSError, ValueError):
             out.append({"archive": name, "error": "summary unreadable"})
             continue
-        out.append({"archive": name, **summary, "added_bytes": added_bytes(base / name, summary)})
+        listed = {"archive": name, **summary, "added_bytes": added_bytes(base / name, summary)}
+        # C-8.8: an offloaded archive's files are on another volume; say which.
+        from . import retention_offload as rof
+        try:
+            stub = rof.read_stub(root, name)
+        except (OSError, ValueError):
+            listed["offload"] = {"error": "offload.json unreadable"}
+        else:
+            if stub is not None:
+                listed["offload"] = {"state": stub["state"], "volume_name": stub["volume"].get("name"),
+                                     "volume_uuid": stub["volume"].get("uuid"), "path": stub["path"],
+                                     "removing": bool(stub.get("removing")), "files": stub.get("files"),
+                                     "bytes": stub.get("bytes"), "bundle_bytes": stub.get("bundle_bytes"),
+                                     "describe": rof.describe(stub)}
+        out.append(listed)
     return out
 
 
@@ -2262,9 +2337,22 @@ class RestoreError(Exception):
 
 
 def check_archive(root: Path, name: str) -> dict[str, Any]:
-    """Re-verify a published archive: every stored file, the bundle's heads."""
-    base = root / "archive" / name
-    manifest = json.loads(rfs.read_regular(base / "manifest.json", limit=4 << 30))
+    """Re-verify a published archive: every stored file, the bundle's heads.
+
+    Under the archive's lock (C-8.8), reading the files and the bundle from
+    where `retention_offload.contents` says they are: the archive itself, or
+    the volume an offloaded archive's files are on."""
+    from . import retention_offload as rof
+    with rof.ArchiveLock(root, name):
+        return _check_archive(root, name)
+
+
+def _check_archive(root: Path, name: str, base: Path | None = None) -> dict[str, Any]:
+    from . import retention_offload as rof
+    meta = root / "archive" / name
+    manifest = json.loads(rfs.read_regular(meta / "manifest.json", limit=4 << 30))
+    if base is None:
+        base = rof.contents(root, name)
     problems: list[str] = []
     fd = rfs.open_dir(base / "files")
     try:
@@ -2297,7 +2385,12 @@ def check_archive(root: Path, name: str) -> dict[str, Any]:
                     problems.append(f"bundle lacks {ref}")
         except rgit.GitError as exc:
             problems.append(f"bundle: {exc}")
-    return {"archive": name, "ok": not problems, "problems": problems, "manifest": manifest}
+    result = {"archive": name, "ok": not problems, "problems": problems, "manifest": manifest}
+    # Resolved on both sides: a state root reached through a link (/var is
+    # /private/var) is still the archive itself.
+    if os.path.realpath(base) != os.path.realpath(meta):
+        result["offloaded_to"] = str(base)
+    return result
 
 
 def restore(root: Path, name: str, *, to: Path | None = None, repository: Path | None = None) -> dict[str, Any]:
@@ -2309,17 +2402,29 @@ def restore(root: Path, name: str, *, to: Path | None = None, repository: Path |
     ``to/admin``. Omitted files come from the source repository, or from
     `repository` (any clone of the same project), each checked against its blob
     id. The bundle's objects are fetched into the repository used.
+
+    Under the archive's lock (C-8.8: its lock file in the archive folder's
+    parent is the one other thing it writes), with the files and the bundle
+    read from where `retention_offload.contents` says they are.
     """
-    checked = check_archive(root, name)
+    from . import retention_offload as rof
+    with rof.ArchiveLock(root, name):
+        base = rof.contents(root, name)
+        return _restore(root, name, base, to=to, repository=repository)
+
+
+def _restore(root: Path, name: str, base: Path, *, to: Path | None, repository: Path | None) -> dict[str, Any]:
+    checked = _check_archive(root, name, base)
     if not checked["ok"]:
         raise RestoreError("archive failed verification: " + "; ".join(checked["problems"][:5]))
     manifest = checked["manifest"]
-    base = root / "archive" / name
     git = manifest.get("git", {})
     fmt = git.get("object_format") or "sha1"
     sources = [p for p in (repository, Path(git["common"]) if git.get("common") else None) if p]
     source = next((p for p in sources if p.exists()), None)
     report: dict[str, Any] = {"archive": name, "restored": {}, "fetched": None, "refs": {}}
+    if "offloaded_to" in checked:
+        report["offloaded_to"] = checked["offloaded_to"]
     if source is not None and (git.get("bundle") or manifest.get("salvage")):
         target = _git_dir(source)
         prefix = f"refs/subfleet-restored/{manifest['job_id']}/"

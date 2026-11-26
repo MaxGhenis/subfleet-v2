@@ -1,0 +1,250 @@
+label r3-mutant2 start 23:03:47 bound 585s basetemp /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T//sf-ao-fix3/bt/pytest-r3-mutant2-230347
+uptime-start:  0:03  up 4 days, 11:24, 1 user, load averages: 12.71 18.41 30.54
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   3996G     14G    109G    12%    487k  1.1G    0%   /
+args: -n 4 -rA tests/unit/test_retention_offload_r2.py::test_a_damaged_ownership_marker_fails_naming_the_file tests/unit/test_retention_offload_r3.py
+============================= test session starts ==============================
+platform darwin -- Python 3.15.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/maxghenis/.subfleet/worktrees/20261125-232725-ao-fix-r3
+configfile: pyproject.toml
+plugins: xdist-3.8.0, timeout-2.4.0, hypothesis-6.168.1
+timeout: 1200.0s
+timeout method: signal
+timeout func_only: False
+created: 4/4 workers
+4 workers [8 items]
+
+F.FF.FF.                                                                 [100%]
+=================================== FAILURES ===================================
+_____________ test_a_changed_internal_file_still_needs_the_volume ______________
+[gw3] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpLpEy2R/bin/python
+
+archives = <tests.unit.test_retention_offload.Archives object at 0x10a23acf0>
+env = Env(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ao-fix3/bt/pytest-r3-mutant2-230347/po...e_s0/env-yec4h0_n/vol-a'), fstype='apfs', local=True, owners=True, readonly=False, free=1000000000000, encrypted=True))
+volumes = <tests.unit.test_retention_offload.Volumes object at 0x10a7d17f0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10a2bcd60>
+
+    def test_a_changed_internal_file_still_needs_the_volume(archives, env, volumes, monkeypatch):
+        """A crash at `removing`, then one internal stored file changes: it fails
+        to verify, so the internal copy is not complete."""
+        name = install(archives.build(RICH), env)
+        _interrupted(env, name, monkeypatch, "removing")
+        found = rof.plan(env.root, name)
+        store = sorted(found.stores)[0]
+        path = env.archive(name) / "files" / store
+        mode = path.stat().st_mode
+        os.chmod(path, mode | 0o200)
+        data = bytearray(path.read_bytes())
+        data[-1:] = bytes([data[-1] ^ 0xFF]) if data else b"x"
+        path.write_bytes(bytes(data))
+        os.chmod(path, mode)
+>       _unchanged_failure(env, name, volumes, why="changed file")
+
+tests/unit/test_retention_offload_r3.py:183: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+env = Env(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ao-fix3/bt/pytest-r3-mutant2-230347/po...e_s0/env-yec4h0_n/vol-a'), fstype='apfs', local=True, owners=True, readonly=False, free=1000000000000, encrypted=True))
+name = 'job-1'
+volumes = <tests.unit.test_retention_offload.Volumes object at 0x10a7d17f0>
+why = 'changed file'
+
+    def _unchanged_failure(env, name: str, volumes, *, why: str) -> None:
+        outside = _outside(env, name)
+        internal_before, external_before = tree_state(env.archive(name)), tree_state(outside)
+        files_before = (env.archive(name) / "files").exists()
+        stub_before = rof.stub_path(env.root, name).read_bytes()
+        volumes.unmount(EXT_UUID)
+        for drop in (False, True):
+            report = rof.recall(env.root, name, drop_external=drop)
+            assert outcomes(report) == {name: "failed"}, (why, report)
+>           assert NOT_MOUNTED in report["results"][0]["error"], why
+E           AssertionError: changed file
+E           assert "volume 'Backup ☃' (6A1E0F7C-0FF1-4AD5-9C3B-5D2B7E0A1B2C), which is not mounted" in 'files/100000e-c4cdd850-94-18eb6c301c899de6-18eb6c301c899de6 is there and is not the archived file; left as it is'
+
+tests/unit/test_retention_offload_r3.py:122: AssertionError
+_________ test_a_stub_without_a_bundle_checksum_still_needs_the_volume _________
+[gw3] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpLpEy2R/bin/python
+
+archives = <tests.unit.test_retention_offload.Archives object at 0x10a23acf0>
+env = Env(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ao-fix3/bt/pytest-r3-mutant2-230347/po...e_c0/env-vkizxmje/vol-a'), fstype='apfs', local=True, owners=True, readonly=False, free=1000000000000, encrypted=True))
+volumes = <tests.unit.test_retention_offload.Volumes object at 0x10a8911d0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108944a70>
+
+    def test_a_stub_without_a_bundle_checksum_still_needs_the_volume(archives, env, volumes, monkeypatch):
+        """An authoritative stub that records no bundle checksum (an earlier
+        build's) counts as failing: its internal bundle cannot be verified."""
+        name = install(archives.build(RICH), env)
+        _interrupted(env, name, monkeypatch, "removing")
+        path = rof.stub_path(env.root, name)
+        stub = json.loads(path.read_text())
+        assert stub["bundle"] and stub["bundle_sha256"]
+        stub["bundle_sha256"] = None
+        path.write_text(json.dumps(stub))
+>       _unchanged_failure(env, name, volumes, why="no bundle checksum")
+
+tests/unit/test_retention_offload_r3.py:196: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+env = Env(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ao-fix3/bt/pytest-r3-mutant2-230347/po...e_c0/env-vkizxmje/vol-a'), fstype='apfs', local=True, owners=True, readonly=False, free=1000000000000, encrypted=True))
+name = 'job-1'
+volumes = <tests.unit.test_retention_offload.Volumes object at 0x10a8911d0>
+why = 'no bundle checksum'
+
+    def _unchanged_failure(env, name: str, volumes, *, why: str) -> None:
+        outside = _outside(env, name)
+        internal_before, external_before = tree_state(env.archive(name)), tree_state(outside)
+        files_before = (env.archive(name) / "files").exists()
+        stub_before = rof.stub_path(env.root, name).read_bytes()
+        volumes.unmount(EXT_UUID)
+        for drop in (False, True):
+            report = rof.recall(env.root, name, drop_external=drop)
+            assert outcomes(report) == {name: "failed"}, (why, report)
+>           assert NOT_MOUNTED in report["results"][0]["error"], why
+E           AssertionError: no bundle checksum
+E           assert "volume 'Backup ☃' (6A1E0F7C-0FF1-4AD5-9C3B-5D2B7E0A1B2C), which is not mounted" in 'commits.bundle: offload.json records no checksum; external copy kept'
+
+tests/unit/test_retention_offload_r3.py:122: AssertionError
+____________ test_a_damaged_ownership_marker_fails_naming_the_file _____________
+[gw0] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpLpEy2R/bin/python
+
+archives = <tests.unit.test_retention_offload.Archives object at 0x10a3c6e40>
+env = Env(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ao-fix3/bt/pytest-r3-mutant2-230347/po...rke0/env-tw30ec8m/vol-a'), fstype='apfs', local=True, owners=True, readonly=False, free=1000000000000, encrypted=True))
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10a439a70>
+capsys = <_pytest.capture.CaptureFixture object at 0x10a985a90>
+
+    def test_a_damaged_ownership_marker_fails_naming_the_file(archives, env, monkeypatch, capsys):
+        from subfleet import cli
+        name = install(archives.build(RICH), env)
+        assert outcomes(offload(env)) == {name: "offloaded"}
+        outside = _outside(env, name)
+        (outside / rof.OWNER).write_text("{not json")
+        internal_before, external_before = tree_state(env.archive(name)), tree_state(outside)
+    
+        with pytest.raises(rof.Failed, match=r"\.owner\.json"):
+            rarch.check_archive(env.root, name)
+        report = rof.recall(env.root, name, drop_external=True)
+        assert outcomes(report) == {name: "failed"} and rof.OWNER in report["results"][0]["error"]
+        monkeypatch.setenv("SUBFLEET_HOME", str(env.root))
+        assert cli.main(["retention", "restore", name, "--check", "--json"]) == 1
+        assert cli.main(["retention", "recall", name]) == 1
+        output = capsys.readouterr()
+        assert rof.OWNER in output.out + output.err
+        assert tree_state(outside) == external_before
+>       assert tree_state(env.archive(name)) == internal_before
+E       AssertionError: assert {'files': ('d...2697730), ...} == {'manifest.js...831840791638)}
+E         
+E         Omitting 4 identical items, use -vv to show
+E         Left contains 1 more item:
+E         {'files': ('d', 448, None, None)}
+E         Use -v to get more diff
+
+tests/unit/test_retention_offload_r2.py:391: AssertionError
+___________ test_a_missing_entry_is_found_before_any_internal_change ___________
+[gw2] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpLpEy2R/bin/python
+
+archives = <tests.unit.test_retention_offload.Archives object at 0x10bfaacf0>
+env = Env(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ao-fix3/bt/pytest-r3-mutant2-230347/po...nd_0/env-8dpct4sd/vol-a'), fstype='apfs', local=True, owners=True, readonly=False, free=1000000000000, encrypted=True))
+volumes = <tests.unit.test_retention_offload.Volumes object at 0x10c4ee210>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10bfde210>
+
+    def test_a_missing_entry_is_found_before_any_internal_change(archives, env, volumes, monkeypatch):
+        """A crash at `removing`, then the last stored file goes and the first
+        one's mode changes. Recall must find the gap by reading and fail on the
+        volume before it gives the first file its recorded mode back: without
+        the check up front it reaches the first file, restores its mode, and
+        only then finds the volume gone."""
+        name = install(archives.build(RICH), env)
+        _interrupted(env, name, monkeypatch, "removing")
+        stores = sorted(rof.plan(env.root, name).stores)
+        assert len(stores) >= 2, stores
+        folder = env.archive(name) / "files"
+        first, last = folder / stores[0], folder / stores[-1]
+        folder_mode = stat.S_IMODE(folder.stat().st_mode)
+        os.chmod(folder, folder_mode | 0o700)
+        last.unlink()
+        os.chmod(folder, folder_mode)
+        os.chmod(first, stat.S_IMODE(first.stat().st_mode) ^ 0o040)
+>       _unchanged_failure(env, name, volumes, why="missing last file, first file's mode changed")
+
+tests/unit/test_retention_offload_r3.py:166: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+env = Env(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ao-fix3/bt/pytest-r3-mutant2-230347/po...nd_0/env-8dpct4sd/vol-a'), fstype='apfs', local=True, owners=True, readonly=False, free=1000000000000, encrypted=True))
+name = 'job-1'
+volumes = <tests.unit.test_retention_offload.Volumes object at 0x10c4ee210>
+why = "missing last file, first file's mode changed"
+
+    def _unchanged_failure(env, name: str, volumes, *, why: str) -> None:
+        outside = _outside(env, name)
+        internal_before, external_before = tree_state(env.archive(name)), tree_state(outside)
+        files_before = (env.archive(name) / "files").exists()
+        stub_before = rof.stub_path(env.root, name).read_bytes()
+        volumes.unmount(EXT_UUID)
+        for drop in (False, True):
+            report = rof.recall(env.root, name, drop_external=drop)
+            assert outcomes(report) == {name: "failed"}, (why, report)
+            assert NOT_MOUNTED in report["results"][0]["error"], why
+>           assert tree_state(env.archive(name)) == internal_before, why
+E           AssertionError: missing last file, first file's mode changed
+E           assert {'commits.bun...9909746), ...} == {'commits.bun...9909746), ...}
+E             
+E             Omitting 25 identical items, use -vv to show
+E             Differing items:
+E             {'files/100000e-c4cdd809-94-18eb6c301a9f96b0-18eb6c301a9f96b0': ('f', 384, b'/private/var/folders/9l/_wztzgbx7mgc7l1r0.../T/sf-ao-fix3/bt/pytest-r3-mutant2-230347/popen-gw2/offload-world0/state/worktrees/job-1/.git\n', 1795647830298171056)} != {'files/100000e-c4cdd809-94-18eb6c301a9f96b0-18eb6c301a9f96b0': ('f', 416, b'/private/var/folders/9l/_wztzgbx7mgc7l1r0.../T/sf-ao-fix3/bt/pytest-r3-mutant2-230347/popen-gw2/offload-world0/state/worktrees/job-1/.git\n', 1795647830298171056)}
+E             Use -v to get more diff
+
+tests/unit/test_retention_offload_r3.py:123: AssertionError
+________ test_an_offloaded_recall_with_the_volume_gone_changes_nothing _________
+[gw1] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpLpEy2R/bin/python
+
+archives = <tests.unit.test_retention_offload.Archives object at 0x10c802cf0>
+env = Env(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ao-fix3/bt/pytest-r3-mutant2-230347/po...th_0/env-fpclsj2x/vol-a'), fstype='apfs', local=True, owners=True, readonly=False, free=1000000000000, encrypted=True))
+volumes = <tests.unit.test_retention_offload.Volumes object at 0x10cd46210>
+
+    def test_an_offloaded_recall_with_the_volume_gone_changes_nothing(archives, env, volumes):
+        name = install(archives.build(RICH), env)
+        assert outcomes(offload(env)) == {name: "offloaded"}
+        assert not (env.archive(name) / "files").exists()
+>       _unchanged_failure(env, name, volumes, why="offloaded")
+
+tests/unit/test_retention_offload_r3.py:133: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+env = Env(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ao-fix3/bt/pytest-r3-mutant2-230347/po...th_0/env-fpclsj2x/vol-a'), fstype='apfs', local=True, owners=True, readonly=False, free=1000000000000, encrypted=True))
+name = 'job-1'
+volumes = <tests.unit.test_retention_offload.Volumes object at 0x10cd46210>
+why = 'offloaded'
+
+    def _unchanged_failure(env, name: str, volumes, *, why: str) -> None:
+        outside = _outside(env, name)
+        internal_before, external_before = tree_state(env.archive(name)), tree_state(outside)
+        files_before = (env.archive(name) / "files").exists()
+        stub_before = rof.stub_path(env.root, name).read_bytes()
+        volumes.unmount(EXT_UUID)
+        for drop in (False, True):
+            report = rof.recall(env.root, name, drop_external=drop)
+            assert outcomes(report) == {name: "failed"}, (why, report)
+            assert NOT_MOUNTED in report["results"][0]["error"], why
+>           assert tree_state(env.archive(name)) == internal_before, why
+E           AssertionError: offloaded
+E           assert {'files': ('d...4095550), ...} == {'manifest.js...831832686380)}
+E             
+E             Omitting 4 identical items, use -vv to show
+E             Left contains 1 more item:
+E             {'files': ('d', 448, None, None)}
+E             Use -v to get more diff
+
+tests/unit/test_retention_offload_r3.py:123: AssertionError
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED tests/unit/test_retention_offload_r3.py::test_a_half_removed_internal_copy_still_needs_the_volume
+PASSED tests/unit/test_retention_offload_r3.py::test_an_offloaded_archive_whose_recall_put_everything_back_is_recalled_without_the_volume
+PASSED tests/unit/test_retention_offload_r3.py::test_recall_after_a_crash_at_removing_with_the_volume_gone
+FAILED tests/unit/test_retention_offload_r3.py::test_a_changed_internal_file_still_needs_the_volume
+FAILED tests/unit/test_retention_offload_r3.py::test_a_stub_without_a_bundle_checksum_still_needs_the_volume
+FAILED tests/unit/test_retention_offload_r2.py::test_a_damaged_ownership_marker_fails_naming_the_file
+FAILED tests/unit/test_retention_offload_r3.py::test_a_missing_entry_is_found_before_any_internal_change
+FAILED tests/unit/test_retention_offload_r3.py::test_an_offloaded_recall_with_the_volume_gone_changes_nothing
+========================= 5 failed, 3 passed in 6.29s ==========================
+rc=1 end 23:03:54
+uptime-end:  0:03  up 4 days, 11:24, 1 user, load averages: 13.69 18.43 30.40
