@@ -574,7 +574,9 @@ def test_a_task_hold_that_commits_while_the_look_is_under_way_takes_the_job(stat
     daemon, harness = state_daemon
     close_every_lane(daemon)
     job_id = submit(daemon, harness, repo, task="build", tier="standard")
-    with look_under_way(daemon, monkeypatch, "_capacity_wait"):
+    # Stopped as the wait's rollback guard is entered, before it takes the writer lock (C-6.10,
+    # #339), so the hold commits beside the pass at the same point as before: ahead of the wait.
+    with look_under_way(daemon, monkeypatch, "_capacity_wait_rollback"):
         hold(daemon, "build", after(3600))
     job = daemon.store.get_job(job_id)
     assert (job["state"], job["wait_reason"]) == ("waiting", "task-held"), dict(job)
