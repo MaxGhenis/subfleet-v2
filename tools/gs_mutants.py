@@ -1,8 +1,8 @@
 """Mutants of the guard sync r2's hook edit (the two Axiom blocks and the Claude prefilter line), of its fix
 r1 (the git config pin, the batched reads and the blocks' parsing, plus review r1's M3), of its fix r2 (each
-folder resolved before git runs, the time budget, raw staged names, --no-relative) and of its fix r3 (a linear
-cd parse, a cd target's `..` by name beside its physical spelling, the cap on pairs examined), each to be
-killed by a named test.
+folder resolved before git runs, the time budget, raw staged names, --no-relative) and of its fix r3 (each cd
+splitting only its own words, a cd target's `..` by name beside its physical spelling, the cap on pairs
+examined), each to be killed by a named test.
 
     python tools/gs_mutants.py --scratch <dir containing /sf->
 
@@ -129,7 +129,7 @@ MUTATIONS = {
     # the fix r3 (2026-11-26): each of its changes reverted alone
     "15-join-splits-the-folder-again": ("both blocks' join back to the fix r2's, which splits the stored folder again "
                                         "at every cd (the physical spelling's walk is quadratic again)",
-                                        f"{SYNC}::test_a_long_cd_chain_costs_cpu_near_linear_in_its_length"
+                                        f"{SYNC}::test_a_long_cd_chain_stays_within_its_cpu_bound"
                                         "[hand-cd_a-4000-overlay]"),
     "16-no-logical-dotdot": ("a cd target's `..` kept for cd -P again, in both blocks (cur = join, not cdl)",
                              f"{SYNC}::test_a_cd_through_a_link_and_dotdot_is_judged_where_the_shell_lands"),
@@ -139,7 +139,7 @@ MUTATIONS = {
                        f"{SYNC}::test_too_many_folder_and_command_pairs_are_refused"),
     "19-dotdot-spelling-split-again": ("the physical spelling of a target holding `..` normalized by splitting the "
                                        "whole path again (norm(pcur \"/\" v)), in both blocks",
-                                       f"{SYNC}::test_a_long_cd_chain_costs_cpu_near_linear_in_its_length"
+                                       f"{SYNC}::test_a_long_cd_chain_stays_within_its_cpu_bound"
                                        "[hand-cd_a..-4000-overlay]"),
 }
 

@@ -1103,7 +1103,7 @@ CHAIN_CPU_BOUND = {
 @pytest.mark.parametrize("side", ["overlay", "claude"])
 @pytest.mark.parametrize("block,word,count", CHAIN_ROWS,
                          ids=[f"{b}-{w.strip(' ;').replace(' ', '_').replace('/', '')}-{n}" for b, w, n in CHAIN_ROWS])
-def test_a_long_cd_chain_costs_cpu_near_linear_in_its_length(block, word, count, side, tmp_path):
+def test_a_long_cd_chain_stays_within_its_cpu_bound(block, word, count, side, tmp_path):
     """Fix r3 (review r3's P1): every stored folder is kept normalized as the words are read, so a `cd` normalizes
     only its own words and appends them to a folder already in that form; nothing re-splits a stored folder. The
     hook's CPU (its children's included) stays within CHAIN_CPU_BOUND on each row, on the overlay and on the

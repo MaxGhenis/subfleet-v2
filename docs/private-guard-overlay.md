@@ -756,7 +756,7 @@ cwd, `$HOME`, each `cd` or `pushd` target and the one before it) in `norm`'s for
 words, and `join` splits only the new word and appends it, so a `cd` costs its own words and one
 copy of its folder, and no stored folder is split again. On review r3's rows (4,000 and 8,000
 `cd a; `, and 4,000 `cd a/..; `, before a commit or a `subfleet run`) the hook now takes 0.11 to
-0.47 s of CPU on either side; `test_a_long_cd_chain_costs_cpu_near_linear_in_its_length` bounds
+0.47 s of CPU on either side; `test_a_long_cd_chain_stays_within_its_cpu_bound` bounds
 each row at 10 times the fix r1's CPU, never under 1 s.
 
 Each `git … commit` and each `subfleet run` is still judged from every folder met before it, so
