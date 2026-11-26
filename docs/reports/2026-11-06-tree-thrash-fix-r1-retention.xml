@@ -1,0 +1,1 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="0" skipped="0" tests="0" time="533.499" timestamp="2026-11-11T13:47:49.309433-05:00" hostname="MacBook-Pro-1306.local"><testcase time="1.378" /><testcase time="1.011" /><testcase time="0.562" /><testcase time="3.528" /></testsuite></testsuites>

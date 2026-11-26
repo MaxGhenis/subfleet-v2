@@ -1,0 +1,23 @@
+{
+  "label": "mutant-6-second-settings",
+  "command": [
+    "uv",
+    "--cache-dir",
+    "/private/tmp/sf-eff-b1/uv-cache",
+    "run",
+    "--no-sync",
+    "--with",
+    "pytest-xdist>=3.6",
+    "python",
+    "/Users/maxghenis/.subfleet/worktrees/20261111-122612-eff-build-r1s/docs/reports/2026-11-12-effort-env-data/run-tests.py",
+    "--inner",
+    "mutant-6-second-settings",
+    "tests/unit/test_effort_env.py::test_property_job_effort_pins_settings_and_preserves_argv",
+    "-q",
+    "-x",
+    "--tb=short"
+  ],
+  "rc": 1,
+  "basetemp": "/private/tmp/sf-eff-b1/mutant-6-second-settings",
+  "seconds": 13.65
+}

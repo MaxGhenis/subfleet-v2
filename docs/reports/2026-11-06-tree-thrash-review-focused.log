@@ -1,0 +1,186 @@
+Focused review run: interrupted (exit 130), 4 failed, 3 passed in 1344.21s.
+All four failed cases logged git rev-parse exceeding the existing 60-second cap during submit.
+PATH=/usr/bin:/bin:/opt/homebrew/bin
+Command: uv run --no-sync --with pytest-xdist>=3.6 pytest -n 4 -q tests/fake/test_admission_tree_thrash.py -k 'reopening_the_original_lane or closure_race_with_a_desktop_lane or fresh_waiter_runs_no_git or failing_workspace_reaches' --basetemp $TMPDIR/tree-thrash-review-focused --durations=10
+The pytest traceback stream exceeded the tool output cap. These complete isolated-daemon logs preserve the cause.
+
+===== popen-gw1/test_reopening_the_original_la0/fleet-0/daemon.log =====
+open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+reset credits: automatic redemption off; no-reset marker absent
+submit could not inspect /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-review-focused/popen-gw1/test_reopening_the_original_la0/repo: SalvageError: git rev-parse timed out after 60 s
+
+===== popen-gw3/test_a_failing_workspace_reach0/fleet-0/daemon.log =====
+open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+reset credits: automatic redemption off; no-reset marker absent
+submit could not inspect /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-review-focused/popen-gw3/test_a_failing_workspace_reach0/repo: SalvageError: git rev-parse timed out after 60 s
+
+===== popen-gw2/test_a_fresh_waiter_runs_no_gi1/fleet-0/daemon.log =====
+open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+reset credits: automatic redemption off; no-reset marker absent
+submit could not inspect /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-review-focused/popen-gw2/test_a_fresh_waiter_runs_no_gi1/repo: SalvageError: git rev-parse timed out after 60 s
+
+===== popen-gw3/test_a_failing_workspace_reach1/fleet-0/daemon.log =====
+open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+reset credits: automatic redemption off; no-reset marker absent
+job 20261106-082731-astra workspace preparation deferred 1/8, next check in 5 s: TimeoutExpired: git rev-parse timed out after 60 s
+submit could not inspect /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-review-focused/popen-gw3/test_a_failing_workspace_reach1/repo: SalvageError: git rev-parse timed out after 60 s
+conversations lock released after 2.2 s by MainThread (8272273792). Where it was held:
+  File "<string>", line 1, in <module>
+    import sys;exec(eval(sys.stdin.readline()))
+  File "<string>", line 8, in <module>
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/execnet/gateway_base.py", line 1806, in serve
+    WorkerGateway(io=io, id=id, _startcount=2).serve()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/execnet/gateway_base.py", line 1273, in serve
+    self._execpool.integrate_as_primary_thread()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/execnet/gateway_base.py", line 389, in integrate_as_primary_thread
+    self._perform_spawn(reply)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/execnet/gateway_base.py", line 411, in _perform_spawn
+    reply.run()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/execnet/gateway_base.py", line 341, in run
+    self._result = func(*args, **kwargs)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/execnet/gateway_base.py", line 1291, in executetask
+    exec(co, loc)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/xdist/remote.py", line 427, in <module>
+    config.hook.pytest_cmdline_main(config=config)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/_pytest/main.py", line 377, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/_pytest/main.py", line 330, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/_pytest/main.py", line 384, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/xdist/remote.py", line 206, in pytest_runtestloop
+    self.run_one_test()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/xdist/remote.py", line 227, in run_one_test
+    self.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/_pytest/runner.py", line 118, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/_pytest/runner.py", line 144, in runtestprotocol
+    reports.append(call_and_report(item, "teardown", log, nextitem=nextitem))
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/_pytest/runner.py", line 249, in call_and_report
+    call = CallInfo.from_call(
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/_pytest/runner.py", line 361, in from_call
+    result: TResult | None = func()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/_pytest/runner.py", line 250, in <lambda>
+    lambda: runtest_hook(item=item, **kwds),
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/_pytest/runner.py", line 199, in pytest_runtest_teardown
+    item.session._setupstate.teardown_exact(nextitem)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/_pytest/runner.py", line 568, in teardown_exact
+    fin()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/_pytest/fixtures.py", line 1156, in finish
+    fin()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/_pytest/fixtures.py", line 1014, in _teardown_yield_fixture
+    next(it)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/tests/fake/test_admission_tree_thrash.py", line 109, in fleet_factory
+    service.close()
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/daemon.py", line 12905, in close
+    self.conversations.close()
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/conversations/service.py", line 262, in close
+    self.store.close()
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/conversations/store.py", line 447, in close
+    with self._writes, self._lock:
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/lockwatch.py", line 139, in __exit__
+    self.release()
+conversation-files lock released after 4.8 s by MainThread (8272273792). Where it was held:
+  File "<string>", line 1, in <module>
+    import sys;exec(eval(sys.stdin.readline()))
+  File "<string>", line 8, in <module>
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/execnet/gateway_base.py", line 1806, in serve
+    WorkerGateway(io=io, id=id, _startcount=2).serve()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/execnet/gateway_base.py", line 1273, in serve
+    self._execpool.integrate_as_primary_thread()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/execnet/gateway_base.py", line 389, in integrate_as_primary_thread
+    self._perform_spawn(reply)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/execnet/gateway_base.py", line 411, in _perform_spawn
+    reply.run()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/execnet/gateway_base.py", line 341, in run
+    self._result = func(*args, **kwargs)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/execnet/gateway_base.py", line 1291, in executetask
+    exec(co, loc)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/xdist/remote.py", line 427, in <module>
+    config.hook.pytest_cmdline_main(config=config)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/_pytest/main.py", line 377, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/_pytest/main.py", line 330, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/_pytest/main.py", line 384, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/xdist/remote.py", line 206, in pytest_runtestloop
+    self.run_one_test()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/xdist/remote.py", line 227, in run_one_test
+    self.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/_pytest/runner.py", line 118, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/_pytest/runner.py", line 144, in runtestprotocol
+    reports.append(call_and_report(item, "teardown", log, nextitem=nextitem))
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/_pytest/runner.py", line 249, in call_and_report
+    call = CallInfo.from_call(
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/_pytest/runner.py", line 361, in from_call
+    result: TResult | None = func()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/_pytest/runner.py", line 250, in <lambda>
+    lambda: runtest_hook(item=item, **kwds),
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/_pytest/runner.py", line 199, in pytest_runtest_teardown
+    item.session._setupstate.teardown_exact(nextitem)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/_pytest/runner.py", line 568, in teardown_exact
+    fin()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/_pytest/fixtures.py", line 1156, in finish
+    fin()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/_pytest/fixtures.py", line 1014, in _teardown_yield_fixture
+    next(it)
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/tests/fake/test_admission_tree_thrash.py", line 109, in fleet_factory
+    service.close()
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/daemon.py", line 12905, in close
+    self.conversations.close()
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/conversations/service.py", line 262, in close
+    self.store.close()
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/conversations/store.py", line 447, in close
+    with self._writes, self._lock:
+  File "/Users/maxghenis/.subfleet/worktrees/20261106-044747-tree-thrash-build/subfleet/lockwatch.py", line 139, in __exit__
+    self.release()

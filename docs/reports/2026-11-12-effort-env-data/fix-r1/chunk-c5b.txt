@@ -1,0 +1,7 @@
+tests/frontend/test_core_store.py
+tests/fake/test_daemon_launch.py
+tests/frontend/test_core_draft.py
+tests/unit/test_claude_mcp_launch.py
+tests/unit/test_turn_attachment_replay.py
+tests/unit/test_codex_ca_bundle_provider.py
+tests/fake/test_launch_env_helper_scope.py

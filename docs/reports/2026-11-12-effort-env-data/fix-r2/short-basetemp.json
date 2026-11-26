@@ -1,0 +1,4 @@
+{
+  "outside_primary_scratch": "/private/tmp/sf-eff-fix2-201115200058",
+  "reason": "isolate AF_UNIX path length using a new short pytest basetemp"
+}

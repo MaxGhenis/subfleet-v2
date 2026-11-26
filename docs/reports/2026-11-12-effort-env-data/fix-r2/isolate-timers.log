@@ -1,0 +1,10 @@
+..F                                                                      [100%]
+=================================== FAILURES ===================================
+E   OSError: AF_UNIX path too long
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4462250368:daemon.py:996 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4462250368:daemon.py:1087 reset credits: automatic redemption on (only for a job waiting on the lane, one at a time, C-23.16); no-reset marker absent
+/Users/maxghenis/.subfleet/worktrees/20261115-100031-eff-fix-r2/tests/fake/test_timers_end_to_end.py:205: OSError: AF_UNIX path too long
+=========================== short test summary info ============================
+FAILED tests/fake/test_timers_end_to_end.py::test_socket_timer_status - OSErr...
+1 failed, 2 passed in 52.50s
