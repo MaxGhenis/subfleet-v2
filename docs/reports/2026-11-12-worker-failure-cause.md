@@ -1009,9 +1009,13 @@ values in tests and probes are made up; no environment value was printed.
     `://` follows, as `_linear_sub` does.
   - `_masked_password` masks each piece between the earlier masks and the
     shell metacharacters (`_SHELL_META`), and keeps those.
+  - Fix round 4: these three are gone; the password is found on the request
+    as submitted, and only it is masked. See "Fix round 4 (rework)".
   - The other rules (PEM, JWT, token, `Bearer`) keep their refusal.
   - Review r3's URL is now `redis://:[masked url-password, 32 chars]&[masked url-password, 6 chars]@me`.
     Round 2's is `https://alice:[masked url-password, 1 chars][masked url-password, 25 chars]@host.test`.
+  - Fix round 4: no longer so; review r3's password is 15 characters and the
+    rest shows, and round 2's password is `p`, its host `ss`. See "Fix round 4 (rework)".
   - Each head span's length and SHA-256 describe original characters, not a
     mask. `approval.get` calls `mask_approval` (`service.py:1627`), so it gets
     the same result. Its `reveal` path is unchanged.
@@ -1021,12 +1025,18 @@ values in tests and probes are made up; no environment value was printed.
   says an approval never hides a shell metacharacter. I kept IR-20.
   - So a password's `&`, `;`, `|`, `` ` ``, `$(`, `>` or `<` stays in view. Every
     other password character is masked.
+  - Fix round 4: the hub reversed this for approvals; inside quotes an operator
+    is masked with the password, and unquoted it ends the authority. See "Fix round 4 (rework)".
   - Masking them would let a command hide `;<command>;` inside a "password"
     from the person approving it.
+  - Fix round 4: false; review r4 showed this rule masked the command between
+    the `;`s and kept only the `;`s. See "Fix round 4 (rework)".
   - A password of shell metacharacters only (`https://u:;@host`) gives no
     span.
   - If the hub rules the other way, H6 shows the change: `_PASSWORD_KEPT_RE`
     drops its metacharacters. IR-20's text then needs amending.
+  - Fix round 4: H4 to H6 are retired with this code, and IR-20's test passes
+    unchanged. See "Fix round 4 (rework)".
 - Tests, in `tests/unit/test_worker_failure_r3_properties.py`:
   - `test_r3_review_urls_mask_their_whole_password`: both review URLs, each in
     `curl "…"`, `curl …` and bare.
@@ -1040,9 +1050,12 @@ values in tests and probes are made up; no environment value was printed.
     metacharacters, then what followed the password or a suffix of it, so no
     password character but a metacharacter shows. Every shell metacharacter
     of the command is shown, in order.
+  - Fix round 4: renamed `test_an_approval_masks_exactly_the_password_a_client_is_sent`;
+    it now asserts the exact display against an oracle. See "Fix round 4 (rework)".
 - Shown: before, both failed (run 5); the generator's first failure was
   `curl "https://:222222@host.test?x=2&owner=@me"`. After, both passed. H4,
   H5 and H6 (one per part) are each killed.
+- Fix round 4: H4 to H6 are retired with the code they anchored on. See "Fix round 4 (rework)".
 
 **P2, `daemon_log.py:876`: an invisible key split across follower feeds.**
 - Cause: two gaps in `LogFollower`.
@@ -1067,6 +1080,8 @@ values in tests and probes are made up; no environment value was printed.
 - Limit: the follower checks new lines against at most `FOLLOW_CONTEXT`
   (8,192) characters of what it wrote. A key further back than that isn't
   read; that was already so for keys without invisible characters.
+- Fix round 4: stated loosely; only whole lines within those characters are
+  read, so a key ending a longer line is lost even when its value comes next. See "Fix round 4 (rework)".
 - Tests, in `tests/unit/test_worker_failure_r3_properties.py`:
   - `test_r3_an_invisible_key_split_across_feeds_is_still_a_password`: the
     review's three steps, with and without an earlier line.
@@ -1105,6 +1120,8 @@ should now say is below.
     what it hides fed whole.
   - An approval masks a URL's whole password. It reads through release's
     mask, and around shell metacharacters, which stay in view (IR-20).
+  - Fix round 4: no longer true; the hub rewrites the PR body from "Fix
+    round 4 (rework)".
   - C-5.10 and its change-log line amended.
 - Current counts: fix r3's runs below. CI runs the whole suite.
 
@@ -1130,6 +1147,8 @@ H2's named test passed under it; the property killed it. My reading, not
 checked: with no context check, the settle change still holds
 `pass\u200bword:` back until its value arrives, so the review's three steps are
 written together.
+
+Fix round 4: H4 to H6 are retired, and a named test now kills H2 too. See "Fix round 4 (rework)".
 
 The run outlasted the tool's 600 s limit, which moved it to the background,
 and `timeout 590` stopped it during its final `guarded_rmtree`, after H6's
@@ -1175,9 +1194,11 @@ Run 14's failures:
   inputs (`four_mib`: frames and three assignments) hold no control or format
   character, so the change adds one regex scan to them. Review r3 saw two
   one-second timing failures on `bb118f63d` as well.
+  - Fix round 4: the record's guard is now CPU time. See "Fix round 4 (rework)".
 - `test_no_daemon_module_logs_a_caught_exception_raw`: names
   `subfleet/daemon.py:5568` and three more. This round didn't change
   `daemon.py`; review r3 reports this lint failing identically before fix r2.
+  - Fix round 4: fixed; `failure_class` joins the lint's scrubbers. See "Fix round 4 (rework)".
 
 Run 12's two unfinished tests are both in `test_daemon_log_trailing_reminders`:
 `test_no_tag_is_left_in_what_is_resolved` and
@@ -1211,8 +1232,10 @@ Other commands:
 ### Deviations
 
 - Shell metacharacters in a URL password stay in view (IR-20). See P1 above.
+  - Fix round 4: reversed by the hub's ruling for approvals. See "Fix round 4 (rework)".
 - The contract's new sentences sit in C-5.10, as in fixes r1 and r2. C-27.1
   and C-23.14 aren't amended. C-5.10 now states the approval rule.
+  - Fix round 4: C-5.10 now states fix r4's approval rule instead. See "Fix round 4 (rework)".
 - The new property tests' generators make each part's first choice the
   review's shape (one of two branches). Plain generators found nothing in 60
   examples (run 2).
@@ -1239,3 +1262,521 @@ No live state, credential store or caller file was read or changed.
 Head built: the commit holding this section's last edit, on top of `ee4f86a07`
 (code, tests, runner and contract). Finished at 06:40 UTC, 2 h 31 min after the
 start.
+
+## Fix round 4 (rework)
+
+Round 4's rework of review r4 (`review-r4.md`, head `13b12da6d`), which the hub
+ruled a rework at the round cap. Start: `2026-11-25 23:19:45 UTC` (`date -u`,
+first command), where `git rev-parse HEAD` printed `13b12da6d`'s full id and
+`git status --porcelain --untracked-files=no` was empty. Load was 7 to 37 on 18
+cores. All values in tests and probes are made up, every host is a `.test` host
+and every path `/nonexistent`; no environment value was printed.
+
+### Merge of release/217
+
+- **Commit.** `08add0934`, parents `13b12da6d0ff9788cd96ca827a994be91fcfa91e`
+  and `53a7bac93d01afd9165588bcaf789dae75540757` (`git log -1 --format=%P`).
+  `git merge --no-ff --no-commit 53a7bac93…` started it; git refused nothing.
+  `tests/unit/test_daemon_settle.py` merged cleanly.
+- **`subfleet/daemon.py`, one hunk** (`_schedule`'s `done()`, `except Exception
+  as exc:`). Resolved as the brief says: release's `if key == "admission":` and
+  `self._wake_admission()          # C-5.10 alone paces failures`, then the PR's
+  two C-5.10 comment lines; release's old "log the error type only" comment
+  goes. `git hash-object` printed `fccb1de6e0012803ed9317ac04edacd1cb6c3263`.
+- **`docs/acceptance-contract.md`.** `python3
+  ~/reviews/subfleet-hub/host-runs/merge_contract.py HEAD 53a7bac93…`: exit 0,
+  "merged against a4aded885: 257 clauses, none duplicated". `git hash-object`
+  printed `2b7e38fd0ac6ed6384fa01e4561b5ae3261eab3c`.
+- **Checks.** `grep -c '^<<<<<<<\|^>>>>>>>'` printed 0 for both files.
+  `git diff --stat 12068c621… HEAD` listed only the two files (1 insertion, 9
+  deletions: the trial tree's conflict markers). `git diff --check HEAD^2 HEAD`
+  was clean; against `HEAD^1` it listed only release's data logs under
+  `docs/reports/` and `docs/reports/2026-11-18-retention-delete-step.md`, left
+  as they are.
+- **The contract, checked** (`check_contract.py` in scratch, reading
+  `git show` of `a4aded885`, `13b12da6d` and `53a7bac93`, and the result; the
+  same output on the committed `08add0934`). Its output, entries cut to their
+  start:
+
+  ```
+  file lines: base 851 ours 852 theirs 867 merged 868 expected 868
+  change log entries: base 352 ours 353 theirs 368 merged 369 expected 369
+  ours' new entries: 1 ['- C-5.10 (2026-11-14, 2026-11-15 and 202']
+  theirs' new entries: 16 ['- C-8.7 (2026-11-18, d3085 und', '- C-5.5, C-25.6 (2026-11-14, P', …, '- C-23.25 (2026-09-30, a false']
+  merged top is ours then theirs in order: True
+  base entries kept in order (positions): True differing: 1
+    base entry 66: merged takes theirs: - C-5.12 (2026-10-22, D-KILL3 / PR #223 integration): counted expiry a
+  entries of any version missing from merged (other than edited ones): 0
+  duplicates in base: 1 ['- C-20.6, C-23.28 (2026-10-15, D-ST1, PR #198 round 8): defi']
+  duplicates in ours: 1 (the same)
+  duplicates in theirs: 1 (the same)
+  duplicates in merged: 1 (the same)
+  entries after a blank line: base 67 ours 67 theirs 67 merged 67
+  clause headings in base: 262, duplicated: 0
+  clause headings in ours: 262, duplicated: 0
+  clause headings in theirs: 262, duplicated: 0
+  clause headings in merged: 262, duplicated: 0
+  ours: replaced base lines [487] other edits [('insert', 8, 8, 1)]
+  theirs: replaced base lines [89, 468, 472, 481, 489, 506, 537, 540, 560, 590, 737, 794, 795] other edits [('insert', 8, 8, 16)]
+  both sides replaced a base line: []
+  base lines whose merged line differs from the side that changed it (or the base): []
+  merged non-replacement edits: [('insert', 8, 8, 17)]
+  ```
+
+  The replaced lines are 0-based: the PR's is C-5.10 (base line 488);
+  release's are the C-5.12 change-log entry (90), the D-WALL1 line (469), C-4.5,
+  C-5.5, C-5.12, C-6.10, C-8.4, the paragraph under C-8.7 (541), C-9.3, C-11.10,
+  C-23.25, C-25.6 and C-25.7. The duplicate `C-20.6, C-23.28` entry is in every
+  version and was left. Headings counted with `^- \*\*C-\d+\.\d+[a-z]?\b`; the
+  script's 257 leaves out C-5.8a, C-6.4a, C-11.7a, C-8.5 and C-8.7.
+- **Fixture follow-up, `316445e50`.** On the merge commit,
+  `test_worker_failure_cause.py` gave **13 failed, 58 passed**, each failure
+  `AttributeError: 'Daemon' object has no attribute '_admission_pace_lock'`
+  from `_admission_ready` (`daemon.py:7611`): the ten
+  `test_hostile_exception_cause_never_escapes_or_skips_handler[worker-…]`
+  cases, `test_exception_message_notes_chain_and_source_are_scrubbed[worker]`,
+  `test_paced_cause_and_exact_summary_cadence` and
+  `test_done_notifies_only_for_store_generation_and_always_releases_key`.
+  `core()` now sets `_admission_pace_lock`, `_admission_wake_seq`,
+  `_admission_capacity_revision`, `_admission_rest_until`,
+  `_admission_closure_due`, `_admission_policy_seen` and `_admission_thread` as
+  `Daemon.__init__` does (merged `daemon.py:1256-1262`). After: that file and
+  `test_worker_failure_url_and_terminal.py`, **241 passed**. No failure was
+  left to run at `13b12da6d`.
+
+### Findings and changes
+
+**P1, `redact.py`: an approval masked commands and the real host.**
+- Cause: fix r3's `_APPROVAL_URL_PASSWORD_RE` ran from the user's `:` to the
+  last `@` before whitespace or `://`, on release's output, and
+  `_masked_password` kept only the shell metacharacters in view. So review r4's
+  commands between them, the text after an empty password, and the host before
+  a later `@` were masked.
+- The hub's ruling: for approvals, C-27.1 ("the display includes every field
+  that changes what is granted") wins over secrecy, and the display shows what
+  a client is sent.
+- Change: `subfleet/conversations/redact.py`. `handoff.py` and
+  `scrub_release.py` are unchanged.
+  - `_url_password` reads a URL's authority from just after `://` to the first
+    `/`, `?`, `#` or whitespace, an unquoted shell operator (`;`, `&`, `|`,
+    `<`, `>`, `(`, `)`, a newline), or a `$`, backtick or backslash outside
+    single quotes, leaving out quote marks. The userinfo ends at its last `@`,
+    and the password is the userinfo after the user's first `:`. With no `@`,
+    no `:` or an empty password, nothing is masked.
+  - `_quoting` is a small scanner that gives each character a kind: unquoted,
+    in single quotes, in double quotes, a quote mark, a comment, or unknown. It
+    follows backslash escapes outside single quotes (and `\"`, `\\`, `\$`,
+    `` \` `` inside double quotes), a `#` that starts a word as a comment to
+    the line's end, and `${name}` (`${IFS}`) as a plain expansion. Inside
+    quotes an operator is a password character, and so are `$`, a backtick
+    and a backslash inside single quotes.
+  - Where the scanner can't follow the shell, every later character is unknown
+    and every operator and expansion ends the authority: from a quote left
+    open, a heredoc or here-string (`<<`), a backtick, or a `$(`, `$'`, `$"` or
+    `${…}` that isn't a plain name. Each of those can hold quoting of its own;
+    read past it, an unquoted `;` could be read as quoted and a command masked
+    as password text, which is the P1 again. Positions before it keep their
+    kinds.
+  - `_password_positions` tries `_url_password` once from each run of scheme
+    characters that `://` follows, as `handoff._linear_sub` does.
+  - `mask_approval` passes the head the request as submitted and release's
+    output: `_head_mask_approval(request, released)`. Alone,
+    `_head_mask_approval(request)` is the head alone on `request` (`MODES` in
+    `test_scrub_release_first.py` calls it so); `COMPOSED["mask_approval"]`
+    passes the request too.
+  - The password is found on the request, never on release's output.
+    `_aligned` reads release's output as the request with masks in place: each
+    `[masked <rule>, N chars]` stands for N request characters and every other
+    character for itself. A mask-shaped text that the request holds at that
+    point is the request's own text: no pass masks a run that starts with `[`
+    and could also read as a mask (release's URL password can start with `[`,
+    but then the text after it is `@`, which no mask text has there).
+  - The head's token rules (PEM, JWT, token, `Bearer`) still run first, on
+    release's output, and keep their metacharacter refusal. Their masks are
+    read the same way: `_shown_at` composes two alignments, request to
+    release's output and release's output to the head's, so a password
+    character under either kind of mask is not masked again
+    (`test_r4_a_token_rule_s_mask_inside_a_password_is_not_masked_again`).
+  - `url_passwords` masks each run of the password's characters still in view,
+    one span per run. Its length and SHA-256 describe request characters only.
+  - The brief's two additions are kept: quote marks and backslashes are never
+    inside a mask the head writes (`_NEVER_MASKED`), and a backslash outside
+    single quotes ends the authority.
+  - `_PASSWORD_KEPT_RE`'s shell-metacharacter list is gone. What replaces it:
+    an unquoted operator, or a `$`, backtick or backslash outside single
+    quotes, ends the authority (`_SHELL_OPERATORS` and the kinds from
+    `_quoting`), so it never sits inside a password; inside quotes it is a
+    password character and is masked with it.
+  - **Fail closed, never expected.** If release's output can't be aligned with
+    the request (`_aligned` returns None), or isn't the request's shape, the
+    head masks that whole string as one span. That hides the command, which
+    C-27.1 protects, so it must not be reachable: release only replaces a span
+    with a counted mask, and `_aligned` reads a mask-shaped text the request
+    already holds as text. The approver sees one mask and can reveal it.
+    `test_r4_a_release_output_that_is_not_the_request_with_masks_is_masked_whole`
+    calls it with a mismatched pair as data.
+  - `_head_mask_approval`'s docstring now says the password is found on the
+    request as submitted, and operators inside quotes are password characters.
+- Displays now (`mask_approval` and `approval.get` agree on each):
+  - review r4's table: each shows the command as written, `p` masked by
+    release, or nothing (`spans == []`) for the empty password;
+  - `curl "redis://:[masked url-password, 15 chars]@cache.test/x?x=2&owner=@me"`;
+  - `curl https://u:[masked url-password, 5 chars]@evil.test@good.test` and
+    `curl https://u:[masked url-password, 5 chars]@cc@host.test/x`: release's
+    output, unchanged;
+  - `curl https://u:[masked url-password, 1 chars][masked url-password, 2 chars]@host.test`;
+  - `curl "https://deploy:[masked url-password, 5 chars]@host.test/x"` (`ab;cd`,
+    one span), and `ab&cd|ef` as 8 characters, in either quotes;
+  - review r2's `https://alice:[masked url-password, 1 chars]@ss/FGHIJKLMNPQ@host.test`:
+    the authority is `alice:p@ss`, so the password is `p`, the host `ss`, and
+    the path shows.
+- Tests:
+  - New module `tests/unit/test_worker_failure_r4_rework.py`. Each named case
+    runs through `redact.mask_approval` and through `approval.get`'s handler
+    (`svc`, `conversation` and `submit` imported from
+    `test_conversation_service.py`, `set_state(mid, "running")` and
+    `svc._person` set as in the model test), and asserts the two agree.
+    - `test_r4_an_approval_shows_the_real_host_and_every_command`: review r4's
+      four cases, then `;`, `|`, `>`, `$(…)`, a backtick and `&&` after the
+      host, each followed by a command (brace expansion, no `/` or `$`, so
+      only the operator ends the authority) and a later `@x.test`.
+    - `test_r4_an_approval_masks_exactly_the_password_a_client_is_sent`:
+      review r3's redis URL, release's two crossing cases, `u:p@q@host.test`,
+      review r4's P2 passwords in double and single quotes, and a quoted
+      password inside an unquoted URL (`deploy:"ab;cd"@host`), each with its
+      exact display and spans.
+    - `test_r4_release_alone_masks_the_cases_it_crosses_the_authority_in`.
+    - `test_r4_an_operator_the_scanner_cannot_read_as_quoted_ends_the_authority`:
+      an apostrophe in a comment, in a heredoc, inside `$(…)`, an open quote,
+      and an escaped quote. A scanner that paired those quotes would read the
+      `;` after the host as quoted and mask a command.
+    - `test_r4_a_token_rule_s_mask_inside_a_password_is_not_masked_again` and
+      `test_r4_a_release_output_that_is_not_the_request_with_masks_is_masked_whole`.
+  - `tests/unit/test_worker_failure_r3_properties.py`: `_masked_whole` now
+    asserts the exact display: the command with exactly the password's
+    characters replaced by masks standing for its length, every other
+    character as written. `REVIEW_URLS`' review r2 entry is `p`, then
+    `@ss/FGHIJKLMNPQ@host.test`; `test_r3_review_urls_mask_their_whole_password`
+    adds `curl '…'` and asserts that what follows the password shows. The
+    module docstring says so.
+  - The property, renamed
+    `test_an_approval_masks_exactly_the_password_a_client_is_sent` (150
+    examples, derandomized). `password_urls` joins pieces with
+    `@ / ? # & ; | : $`, wraps in `curl "…"`, `curl '…'`, `curl …`, bare or
+    `git clone … && echo done`, draws users empty, plain or holding `@`,
+    queries and fragments that may hold `@`, and a command after the host
+    (review r4's table shapes) or none. Each part but the user is review r4's
+    P2 shape or review r3's redis URL, or any choice, one of two branches.
+  - The oracle, `client_password`, never calls the code under test:
+    `urllib.parse.urlsplit("http://" + w).password`, where `w` is the text
+    after `://` up to the first character that ends the authority by the
+    wrap's quoting, its quote characters removed.
+  - With a non-empty password the property asserts the exact display, a span,
+    and none of the password's pieces shown. With none it asserts the display
+    is release's output. Release masked past the authority in 1 of the 150
+    generated cases:
+    `curl "redis://alice:E4UBKXB6Z?29CMENXF8@db.test/main|{sh,-c,id}|echo@x.test?x=2&owner=@me#@top"`
+    shows `alice:[masked url-password, 19 chars]@db.test/…`, though the
+    authority ends at `?` and has no password. Three explicit examples pin more
+    (`#`, `$` in double quotes, `?` in single quotes).
+  - IR-20 (`test_approval_masking_hides_tokens_but_never_a_command`) passes
+    unchanged.
+- Shown (runs 3 and 4 below): on `316445e50` (the merge and the fixture,
+  `redact.py` as merged) 29 of the new and changed tests failed and 4 passed.
+  The 4 are the exempt `curl https://u:p@q@host.test` case (fix r3 gives the
+  same display), H2's named test (step 3, not this rule), and two unchanged
+  `test_scrub_release_first.py` tests the `-k` filter picked up. The
+  review URL test's first failure was review r2's URL,
+  `curl "https://alice:[masked url-password, 1 chars][masked url-password, 15 chars]@host.test"`;
+  the property's counterexamples included
+  `curl "redis://:222222@cache.test?x=2&owner=@me"`, shown as
+  `[masked url-password, 21 chars]&[masked url-password, 6 chars]@me`. After:
+  33 passed.
+- Callers (`git grep -nw`, in `subfleet`, `tests` and the mutant runner):
+  - `_APPROVAL_URL_PASSWORD_RE`, `_PASSWORD_KEPT_RE`, `_masked_password` and
+    `redact._MASK`: none left.
+  - `_MASK_RE`, `_SHELL_OPERATORS`, `_NEVER_MASKED`, `_UNQUOTED_SPECIAL_RE`,
+    `_DOUBLE_QUOTED_SPECIAL_RE`, `_PLAIN_PARAMETER_RE`, `_WORD_BREAK`,
+    `_quoting`, `_double_quoted_end`, `_url_password`, `_password_positions`,
+    `_aligned`, `_through` and `_shown_at`: only `redact.py` itself, and the
+    runner's I1 to I6 anchors.
+  - `url_passwords`: only `_head_mask_approval`'s `mask_text`.
+  - `mask_approval`: `service.op_approval_get` (`service.py:1624`, `:1628`),
+    `test_conversation_redact.py:88`, `test_scrub_inline_headers.py:24`, `:187`
+    and `:199`, `test_scrub_release_first.py` (`MODES`, `:320`), the r3 and r4
+    modules; `scrub_release.mask_approval` is release's own, unchanged.
+  - `_head_mask_approval`: `mask_approval`, `test_scrub_release_first.py:112`,
+    `:123` and `:320`, `test_worker_failure_r4_rework.py:171` and `:185`.
+  - `_SHELL_META`: now only the token rules' refusal (`redact.py:384`), and
+    release's own copy.
+  - The log, terminal and follower routes still use `handoff._URL_PASSWORD_RE`
+    (`handoff.py:115`, `_linear_sub` and the scrub table) and keep their wide
+    mask; neither it nor `scrub_release` was touched.
+- Stated cost: the rule reads every string of a request as a shell command, so
+  a non-command field (a `url` field, say) holding a raw unquoted `;` in a
+  password shows that password, as C-27.1 wins.
+- Cost (`probe_cost.py`, CPU of `mask_approval`, 256 KiB and 1 MiB of 11
+  repeated shapes, 53a7bac93 against the head, load 15 to 20): every shape grew
+  3.7 to 4.5 times from 256 KiB to 1 MiB at the head, and about as much at
+  53a7bac93. At 1 MiB the head took 0.09 to
+  0.80 s and 53a7bac93 0.10 to 0.78 s; the quoted shapes `a://b:'x;'@` and
+  `a://b:"x;"@`, which only the head masks (95,325 spans), took 0.65 and 0.75 s
+  against 0.41 and 0.46 s. `test_inline_headers_and_bearer_keep_scrubbing_linear`
+  passed (run 6).
+
+**P1, the raw-exception lint.**
+- Cause: `test_no_daemon_module_logs_a_caught_exception_raw` read
+  `failure_class(exc)` as passing the exception raw, at four sites (merged
+  `daemon.py:5647`, `:5660`, `:5956` and `:12850`; `:5568`, `:5581`, `:5877`
+  and `:12534` at `13b12da6d`).
+- Change: `failure_class` (merged `daemon.py:692`) returns only the class
+  name, so `"failure_class"` joins `SCRUBBERS` in
+  `tests/unit/test_daemon_log_sites.py`. A new case of
+  `test_the_site_lint_tells_raw_from_scrubbed`:
+  `log.error('%s', failure_class(exc))` in an `except Exception as exc:` is not
+  raw.
+- Shown: before, both failed (run 9: "Left contains 4 more items, first extra
+  item: 'subfleet/daemon.py:5647 passes exc raw'", and the new case); after,
+  the whole file passed, 84 (run 11).
+
+**P3s.**
+- **H2's named test.**
+  `test_r4_a_follower_started_on_a_split_key_hides_the_value_fed_next`:
+  `LogFollower("pass\u200bword:\n").feed("FGHIJKLMNPQSUVWX\n")`, then a flush,
+  hides the value. It is in H2's list in the runner, and H2 is killed by it and
+  by the split property (2 failed).
+- **`TIME_BOUND_S`.** `best_of_three` takes a clock, and
+  `test_a_four_mib_record_is_written_bounded_and_scrubbed_within_the_time_bound`
+  times the record in `time.process_time()`, as
+  `handler_cpu_beyond_formatting` does. It passed at load 21 to 29 with four
+  workers (run 12). `test_a_short_line_waits_for_a_four_mib_record_no_longer_than_the_bound`
+  times a wait, which CPU time can't measure, so it stays wall time.
+- **The follower's limit.** `_context_of` keeps only whole lines within the
+  last `FOLLOW_CONTEXT` (8,192) characters. C-5.10 now says so: a key that ends
+  a line longer than `FOLLOW_CONTEXT` is lost, even when its value comes next.
+  Probed: `LogFollower("x" * 16400 + " password:\n")` fed the value shows it;
+  after a 100-character line it is hidden. The code is unchanged.
+- **`_terminal_safe`'s `around`.** Measured below; no slowdown reproduced. The
+  code is unchanged.
+
+**The PR body** is the hub's to rewrite.
+
+### Contract
+
+- C-5.10's approval sentence is replaced. It states the rule: the password a
+  client is sent, found on the request as submitted, never on release's
+  output; the authority's ends; inside quotes an operator is a password
+  character; where the quoting can't be followed, every operator ends the
+  authority. It also says only the password is masked, never a quote mark or
+  backslash and never over release's mask, so `https://alice:p@ss/x@host` has
+  the password `p` and the host `ss`; and that C-27.1 wins over secrecy for
+  approvals, while the log, terminal and follower routes keep the wide rule.
+- C-5.10's follower sentence states the limit exactly (P3 above).
+- The change-log entry adds 2026-11-26 and review r4. Its fix r3 clause now
+  says the approval masked to that `@` and kept metacharacters in view, and
+  that fix r4 replaced it. A fix r4 sentence follows, dated.
+- The rule sits in C-5.10, as fixes r1 to r3 put theirs; C-27.1 and C-23.14
+  aren't amended.
+
+### Release's frozen URL rule (for the hub's issue)
+
+`probe_overreach.py` ran each case through `redact.mask_approval` with the
+root's `subfleet` first on the path: a copy of `53a7bac93`'s `subfleet/`
+(`git archive`), and the head. Both gave the same display and spans on every
+case: release's frozen pass masks, and the head adds nothing, as by fix r4's
+rule there is no password. "Release reads" is the host after the `@` that ends
+the password release masks; "a client reads" is the URL as fix r4's rule
+reads it.
+
+| Command | Display (both) | Release reads | A client reads |
+|---|---|---|---|
+| `curl https://evil.test:443?@good.test/x` | `https://evil.test:[masked url-password, 4 chars]@good.test/x` | host `good.test` | host `evil.test`, port `443`, query `?@good.test/x` |
+| `curl https://u:aa#bb@evil.test@good.test` | `https://u:[masked url-password, 5 chars]@evil.test@good.test` | `evil.test` | host `u`, fragment `#bb@evil.test@good.test` |
+| `curl https://u:aa?bb@cc@host.test/x` | `https://u:[masked url-password, 5 chars]@cc@host.test/x` | `cc` | host `u`, query `?bb@cc@host.test/x` |
+| `curl https://u:p#@evil.test` | `https://u:[masked url-password, 2 chars]@evil.test` | `evil.test` | host `u`, fragment `#@evil.test` |
+| `curl https://u:x?q=@evil.test` | `https://u:[masked url-password, 4 chars]@evil.test` | `evil.test` | host `u`, query `?q=@evil.test` |
+| `curl 'https://u:p#x@evil.test@good.test'` | `'https://u:[masked url-password, 3 chars]@evil.test@good.test'` | `evil.test` | host `u`, fragment `#x@evil.test@good.test` |
+| `curl "https://alice:AAAAAA$BBBBBB@host.test"` | `"https://alice:[masked url-password, 13 chars]@host.test"` | `host.test` | `$BBBBBB` is expanded by the shell; the mask hides that it is there |
+| `curl https://u:a\b@host.test` | `https://u:[masked url-password, 3 chars]@host.test` | `host.test` | the shell drops the backslash (`u:ab@host.test`); the mask hides it |
+
+In the first six the display names a host the client is never sent. Release's
+rule (`scrub_release.py:72`) ends a password at its first `@` but crosses `?`,
+`#`, `$`, quotes and backslashes. Release-first is unchanged (C-23.14).
+
+### Mutants
+
+`.venv/bin/python docs/reports/2026-11-12-worker-failure-mutants.py --scratch
+"$S/mutants" --out "$S/mutants/mutants.json" --budget 420 H2… I6`, under
+`timeout 590`, 23:50:50 to 23:51:05 UTC. Results:
+`docs/reports/2026-11-12-worker-failure-mutants-r4.json`; every restored hash
+matched. An anchor check (`anchor_check.py` in scratch) built all 38 listed
+mutants: each anchor was found once and each result parsed. H4 to H6 are
+retired: they anchored on fix r3's approval rule, which this round replaced.
+
+| Mutant | Killed by | Result | Seconds | Load |
+|---|---|---|---:|---|
+| H2 the follower's context not read | the split property and `test_r4_a_follower_started_on_a_split_key_hides_the_value_fed_next` | 2 failed, 1 passed | 4.1 | 9.8 → 11.1 |
+| I1 the authority not ended at an unquoted operator | the table's `semicolon`, `pipe`, `redirect`, `and-list`, and the property | 5 failed, 6 passed | 2.6 | 11.1 → 11.1 |
+| I2 not ended at a `$` or backtick | the table's `backtick`, and the property | 2 failed, 9 passed | 2.2 | 11.1 → 10.9 |
+| I3 the userinfo split at its first `@` | `release-then-head`, and the property | 2 failed, 8 passed | 1.9 | 10.9 → 10.9 |
+| I4 quotes not read (every character unquoted) | the four P2 cases, `quoted-inside-the-url`, and the property | 6 failed, 4 passed | 1.3 | 10.9 → 10.9 |
+| I5 the password found on release's output, a mask read as password text (fix r3's reading) | `release-crosses-hash`, `release-crosses-query`, `release-then-head` | 3 failed, 6 passed | 1.2 | 10.9 → 10.9 |
+| I6 release's masks not aligned (read as literal text) | `release-then-head` | 1 failed, 8 passed | 1.1 | 10.9 → 10.9 |
+
+I2's `$(…)` case is not among its kills: under I2 the `(` after `$` still ends
+the authority. Not re-run: B1 to B7, F1 to F16, G1 to G6, H1 and H3.
+
+### `_terminal_safe` timings
+
+`timing_follow.py` in scratch, one process per run, under `timeout 600`, run
+with `.venv/bin/python -I` and the root first on the path (each run printed
+which `daemon_log.py` it imported). Input: `LogFollower("")` fed the first line
+`-----BEGIN RSA PRIV\u200bATE KEY-----\n` (split: U+200B inside `PRIVATE`) or
+`-----BEGIN RSA PRIVATE KEY-----\n` (unsplit); then 16,384 body lines of 64
+characters (1 MiB), line `i` the base64 alphabet (`A`–`Z`, `a`–`z`, `0`–`9`,
+`+`, `/`) rotated left by `i` mod 64; then `-----END RSA PRIVATE KEY-----\n`.
+1,065,023 characters split (1,065,022 unsplit), fed in 17 pieces of 65,536
+characters, then `flush()`. `bb118f63d`'s `subfleet/` came from `git
+archive bb118f63d355fd56efa93766418a02cce490b806 subfleet`. Runs alternated
+head and bb118f63d, 23:53:15 to 23:55:17 UTC.
+
+| Run | Head split | bb118f63d split | Head unsplit | bb118f63d unsplit |
+|---|---|---|---|---|
+| 1 | 3.76 s CPU, 13.93 s wall, load 24.1 → 26.0 | 3.65, 10.39, 26.0 → 25.6 | 3.54, 10.17, 25.6 → 26.4 | 3.13, 10.47, 26.4 → 27.8 |
+| 2 | 3.43, 13.25, 27.8 → 28.1 | 3.32, 10.99, 28.1 → 29.0 | 3.84, 10.44, 27.1 → 24.2 | 3.97, 9.79, 24.2 → 21.8 |
+| 3 | 4.94, 7.69, 21.8 → 21.5 | 4.74, 6.60, 21.5 → 26.5 | 4.67, 5.42, 26.5 → 36.8 | 4.76, 6.23, 36.8 → 35.8 |
+
+Two warm-up runs at the head before them: unsplit 4.49 s CPU, 9.90 s wall
+(load 13.4 → 14.9); split 3.57 s, 13.59 s (14.9 → 18.1).
+
+- CPU is the same on both heads, split or not (3.1 to 4.9 s). The head's split
+  runs took 1.1 to 3.5 s more wall time than bb118f63d's, with CPU within
+  0.2 s, so the gap was time spent waiting, not computing. Review r4's 54.8 s
+  did not reproduce; its finding stays unproven.
+- In every run, at both heads, all 16,384 body lines were written in view, as
+  review r4 (question 4) reports: the hold is bounded by `FOLLOW_HOLD_MAX`.
+  Pre-existing; not changed here.
+
+### Commands and results
+
+Every pytest run set `TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)`,
+`UV_CACHE_DIR=$TMPDIR/uv-cache`, `-p no:cacheprovider`, `-m "not real_lsof and
+not real_cwd"` and a new `--basetemp=$S/pytest-NN`, with
+`S=$TMPDIR/sf-wcp-fix4`. The prefix was `uv run --no-sync --with
+'pytest-xdist>=3.6' python -m pytest … -n 4` (CPython 3.15.2), except runs 7, 8,
+9 and 10: `uv run --no-sync python -m pytest`, one worker. `uptime` and
+`df -H /` were recorded before each but runs 4, 7, 8 and 10, which I started
+without them (the runs on either side show load 8.4 to 9.7 and 106 GB free);
+free disk was 105 to 108 GB. Times are UTC.
+
+| # | When | Files | Result | Load |
+|---|---|---|---|---|
+| 0 | 23:28 | `uv sync --group dev` (no `.venv` in the workspace) | installed | 11.7 |
+| 1 | 23:28 | `test_worker_failure_cause.py`, the merge commit | **13 failed, 58 passed** (fixture, above) | 11.7 → 10.8 |
+| 2 | 23:28 | `test_worker_failure_cause.py`, `_url_and_terminal.py`, after the fixture | **241 passed** | 10.2 |
+| 3, 4 | 23:39 | new and changed approval tests (`-k "approval or r4 or review_urls or mask_approval"`), before the change | **29 failed, 4 passed** | 8.4 |
+| 5 | 23:40 | the same, after | **33 passed** | 6.9 |
+| 6 | 23:46 | approvals and redaction: `test_worker_failure_r4_rework`, `_r3_properties`, `test_conversation_redact`, `test_scrub_release_first`, `test_scrub_release_frozen`, `test_scrub_inline_headers`, `test_conversation_service` | **459 passed**, 36 s | 8.6 → 9.6 |
+| 7 | 23:46 | the property, `--hypothesis-show-statistics` | passed; 19% no password, none crossing | – |
+| 8 | 23:47 | `_r3_properties` and `_r4_rework`, after the property's users and examples, with statistics | **35 passed**; 14% no password, 0.4% crossing | – |
+| 9 | 23:48 | `test_daemon_log_sites.py`, the lint and the lint cases, before | **2 failed, 19 passed** | 9.6 |
+| 10 | 23:48 | the lint alone, its sites | 4 sites, above | – |
+| 11 | 23:49 | `test_daemon_log_sites.py`, after | **84 passed** | 9.7 |
+| 12 | 23:57 | daemon log: `test_daemon_log_cut_windows`, `_first_pass`, `_handler`, `_mutation_tool`, `_reminders`, `_scrubbing`, `_sites`, `_tail`, `_trailing_reminders`, the margin test deselected | **676 passed**, 38 s | 29.5 → 21.3 |
+| 13 | 23:58 | the PR's test files and release's tests of the merged hunk: `tests/fake/test_admission_visibility`, `test_idle_admission_self_wake`, `test_admission_route_isolation`; `tests/unit/test_daemon_inspection_load`, `test_daemon_settle`, `test_worker_failure_cause`, `_handler`, `_url_and_terminal` | **495 passed**, 14 s | 17.0 → 15.9 |
+| 14 | 23:58 | `tests/fake/test_state_contract`, `tests/unit/test_invariants_index`, `test_test_module_names`, `test_handler_refusals` | **437 passed**, 21 s | 15.3 → 13.2 |
+
+The PR's other test files (`test_daemon_log_handler`, `test_worker_failure_r3_properties`)
+ran in runs 6 and 12. Every run's failures are this round's own before-and-after
+cases; no other test failed, so none needed a run at `13b12da6d` or
+`53a7bac93`.
+
+Other commands:
+- `git merge`, `git hash-object`, the merge script, `git diff`, `git log`,
+  `git show`, `git grep` and `git archive` of `53a7bac93`'s and `bb118f63d`'s
+  `subfleet/` into scratch;
+- `.venv/bin/python -I` probes from scratch scripts: the contract check, the
+  property's case count (`count_property.py`: 0 crossing cases in 150, 400
+  and 1,000 examples before users were drawn uniformly, 1 of 150 after), the
+  overreach probe, the cost probe, the follower timings, the follower-limit
+  check, and the anchor check;
+- commits, by named files only:
+  - `08add0934`: the merge;
+  - `316445e50`: the fixture;
+  - `f2def1f43`: the approval rule and its tests;
+  - `d8f5f4a31`: the property's users and explicit examples;
+  - `32a80c72c`: the lint;
+  - `39c443cf8`: the mutant runner;
+  - `5d270bffe`: the CPU-time guard and the mutant results;
+  - `e70bf1b86`: the contract;
+  - this report's commit.
+
+### Did not run
+
+- `tests/unit/test_sessions_handoff_excerpts.py`, whose heavy property never
+  finished in earlier rounds; this round doesn't change `handoff.py`;
+- `test_a_margin_file_ending_in_a_reminder_is_refused_only_where_the_masks_differ`,
+  deselected as the brief says;
+- anything that runs `git push` (`test_host_push*`, the `retention_world`
+  files), `tests/process/` and `tests/e2e/`, and anything else that runs a
+  write-shaped command;
+- mutants other than H2 and I1 to I6;
+- the whole suite. CI runs it.
+
+### Deviations
+
+- **The scanner stops following the shell** at a heredoc, a backtick, or a
+  `$(`, `$'`, `$"` or `${…}` other than a plain name, as well as at an open
+  quote. From there every operator ends the authority, so a quoted password
+  holding an operator after such a construct is shown. The brief's fallback
+  names only unbalanced quotes; those constructs hold quoting of their own,
+  and reading past them can turn an unquoted `;` into a quoted one, which
+  would mask a command (the P1).
+- **Comments.** A `#` that starts a word is read as a comment, so an
+  apostrophe in it opens no quote. The brief doesn't name comments.
+- **The fail-closed branch** masks the whole string where release's output
+  can't be aligned with the request. It is never expected (above).
+- **The property's users** are drawn uniformly, not "review shape first":
+  with the empty user first, no generated case reached release's overreach in
+  1,000 examples. Three explicit examples pin it too.
+- **Review r4's table shapes after the host** use brace expansion
+  (`{rm,-rf,nonexistent.d}`) and no `/` or `$`, so only the operator ends the
+  authority and each case kills I1 or I2 alone.
+- **The contract's rule** sits in C-5.10, not C-27.1, as fixes r1 to r3 put
+  theirs.
+- **The ultracode note** asks for a Workflow. A headless run gets no completion
+  notice, so the work stayed inline.
+- **`uptime` and `df -H /`** weren't recorded before runs 4, 7, 8 and 10.
+- One reading, not checked: the head's split follower runs spent their extra
+  wall time waiting, since their CPU matched bb118f63d's.
+
+### Folders
+
+Scratch `$TMPDIR/sf-wcp-fix4` (`S`) held the scripts, the run outputs, the
+extracts of `bb118f63d`'s and `53a7bac93`'s `subfleet/`, the mutant runner's
+folder and the basetemps. It reached 339 MB, over the brief's 200 MB cap: the
+basetemps took most of it (`pytest-06`, the approvals run with
+`test_conversation_service.py`, 125 MB; `pytest-13`, the PR's files, 80 MB),
+and I didn't check its size between runs. Total churn, with the 17 MB `.venv`,
+stayed under 1 GB.
+
+Deleted at 00:05 UTC, one at a time, with a guarded `shutil.rmtree` that asserts
+`sf-wcp-fix4` is in the real path and that the folder is inside `S`:
+`pytest-01` to `pytest-14`; `mutants` (its seven `pytest-<mutant>` basetemps
+and `mutants.json`; the runner had removed its own `mutant-copy-*`);
+`bb118f63d`; `release-53a7bac93`; then `S` itself, which then held only the
+scripts and outputs, after asserting it is named `sf-wcp-fix4`. It no longer
+exists.
+
+Left, and why:
+- `.venv` in the workspace (17 MB), which `uv sync --group dev` built;
+- the shared `$TMPDIR/uv-cache`, which existed before;
+- 18 `sf-test-homes-*` folders in `$TMPDIR` (`tests/conftest.py`'s): the same
+  18 before my first run and after my last, dated 22:01 to 22:58 UTC, before
+  this job started. None is new, and none is mine.
+
+No process of mine is left. No live state, credential store or caller file was
+read or changed, and nothing was pushed or fetched.
+
+Head built: the commit holding this section's last edit, on top of
+`e70bf1b86`. Finished at 00:06 UTC, 47 minutes after the start.
