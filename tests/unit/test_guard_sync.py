@@ -42,6 +42,12 @@ Two changes, each held to an invariant below:
   work at a 15 s budget and denies. It also read git's quoted staged names, so a non-ASCII rule name got through; it now reads them raw
   (``-z``), and with ``--no-relative``. The fix r1 text is kept under ``claude-blocks/fix-r1/`` for the undo
   chain.
+* Fix r3 (2026-11-26, review r3 of #303): fix r2's `join` split the whole path again at every `cd`, so a relative
+  `cd` chain cost the square of its length (13 s of CPU at 4,000 `cd a; `), and past the 60 s timeout the hook
+  allows. Both blocks keep each stored folder normalized and split only the new word. A `cd` target's `..` is
+  taken off by name, as bash and zsh do, beside its physical spelling, so `cd link/../rs` is judged where the
+  shell lands. Each block refuses past 4,096 (folder, command) pairs examined. The fix r2 text is kept under
+  ``claude-blocks/fix-r2/``.
 
 Invariants:
 
@@ -73,13 +79,19 @@ I5 (no configured command runs) Neither hook makes git run a repository's ``core
    index read and the unpinned Claude block as controls that write it).
 I6 (bounded work) The hand-authored-rulespec block's git processes do not grow with the staged files
    (``test_the_staged_file_count_…``). Both blocks resolve each folder before they use it, so every
-   spelling of one checkout or brief is checked once (``test_one_checkout_spelled_…``,
-   ``test_one_brief_spelled_…``) and a folder that is not there starts no git process
-   (``test_a_folder_that_is_not_there_…``). The hand block checks its first two folders in full and starts
-   no git call for a later one once 15 s have passed, then denies
+   spelling that resolves to one folder or brief is checked once (``test_one_checkout_spelled_…``,
+   ``test_one_brief_spelled_…``); that holds per folder, and a subfolder of a checkout is a folder of its
+   own. A folder that is not there starts no git process (``test_a_folder_that_is_not_there_…``). The hand
+   block checks its first two folders in full (the first two distinct keys that exist, in its awk's order)
+   and starts no git call for a later one once 15 s have passed, then denies
    (``test_the_hand_block_denies_when_its_time_budget_…``); either block refuses more than 64
    paths to resolve, and the brief block more than 16 distinct briefs (``test_too_many_places_…``). Since
-   fix r2 the bound is time, not a count of path strings.
+   fix r2 the git work's bound is time, not a count of path strings. Since fix r3 the parse is bounded too:
+   a `cd` costs its own words and one copy of its folder (``test_a_long_cd_chain_…``, by CPU), and each
+   block refuses past 4,096 (folder, command) pairs examined (``test_too_many_folder_and_command_pairs_…``).
+I9 (where the shell lands) A `cd` or `pushd` target is judged where a logical shell lands, its `..` taken off by
+   name (``test_a_cd_through_a_link_and_dotdot_…``), and where a shell that resolves links first lands, its
+   `..` kept for `cd -P` (``test_the_physical_spelling_of_a_cd_target_…``); `-C` keeps `..` as git does.
 I8 (every staged name) The hand-authored-rulespec block reads staged names raw, so a name under the anchor is
    checked with its own bytes, whatever they are, and one it cannot look up is denied
    (``test_same_decisions_axiom_hand_authored_rulespec``, fix r2's rows;
@@ -965,7 +977,10 @@ def test_too_many_places_to_check_is_refused(tmp_path):
     block reads at most 16 distinct briefs; past either bound both sides refuse, never allow. Spellings that
     differ by `..` stay apart until resolved, so 65 of them are refused even for one folder; that bounds the
     resolving, and the hand block's git work is bounded by its time budget
-    (test_the_hand_block_denies_when_its_time_budget_is_spent)."""
+    (test_the_hand_block_denies_when_its_time_budget_is_spent). Since fix r3 a `cd il/..` target's logical
+    spelling is the folder it started from, which is already counted, while its physical spelling (`..` kept for
+    `cd -P`) is new at each hop: the cwd and 64 of them are 65 paths, refused, and 63 hops give 64, allowed. The
+    `-p` spellings keep `..` as written, as subfleet resolves them."""
     fix = AxiomFixture(tmp_path)
     hops = "; ".join("cd il/.." for _ in range(64))
     reason = fix.same("hand-authored-rulespec", f"{hops}; git commit -m x", fix.rulespec)

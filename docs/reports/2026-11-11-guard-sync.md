@@ -727,9 +727,9 @@ As in fix round 1: the overlay is changed here, and the Claude hook's text is th
     - If `pwd -P` fails, the path as written is kept.
     - A folder `cd -P` cannot enter is skipped. `git -C` would fail there too.
   - Keys are compared whole, in bash arrays: (folder, `--git-dir`) for the hand block, the resolved file for the brief block. An earlier draft kept a newline-delimited string of keys. I dropped it because a physical path can hold a newline or `\037`, and that could make a real checkout look already seen.
-  - Either block refuses more than 64 paths to resolve. This only bounds the parse and the resolving forks, and it denies, never allows. The brief block still refuses more than 16 distinct briefs, now counted after resolving.
+  - Either block refuses more than 64 paths to resolve. This bounds the resolving forks, and it denies, never allows. It did not bound the parse: review r3 found that the `cd` walk split the whole path at every `cd`, so its CPU grew with the square of the chain, before any count was reached (corrected in fix round 3, which bounds it). The brief block still refuses more than 16 distinct briefs, now counted after resolving.
 - **The budget (hand block): 15 s.**
-  - It never counts the first two folders: the payload cwd and the one a command names.
+  - It never counts the first two folders: the first two distinct (resolved folder, `--git-dir`) keys that exist, in the order the awk meets them. The awk takes each `git … commit` in command order and, for each, every folder met before it (the payload cwd, then each `cd` or `pushd` target in order), with that commit's `-C` words applied. A folder that is not there is skipped and not counted. These are not always the payload cwd and the folder a command names (corrected in fix round 3; see below).
   - Before each git call for a third or later folder, the block denies with its own reason once 15 s have passed since it began. It never allows a folder it did not check.
   - The clock is `$SECONDS` minus its value at the block's start. bash 3.2 imports `SECONDS` from the environment, so only the difference is used.
 - **How I chose the number** (hook timings in scratch checkouts with 3,000 staged rule files and their manifests):
@@ -740,15 +740,17 @@ As in fix round 1: the overlay is changed here, and the Claude hook's text is th
   - With the 15 s budget counted from the block's start and checked before every call, the harness row "companion test alone allowed" was refused, alone, at a load of about 320.
   - That row is one checkout with one staged file. The parse and the forks alone took 15 s.
   - 13 of the first 20 hand rows failed the same way in a `-n 4` run at a load of 320-354.
-  - A command that commits from one checkout names at most two folders: the payload cwd and the `cd` or `-C` target. Exempting two keeps load alone from refusing a normal commit.
+  - Exempting two keeps load alone from refusing the common commit: from the payload cwd, or from one `cd` or `-C` target. It does not cover every commit from one checkout, as this line first said. A folder met before the checkout, or a subfolder of it, is a key of its own. So `cd a && cd b && git commit` has three folders (the cwd, `a` and `b`), and under load the budget can refuse it (review r3's case 1; corrected in fix round 3).
 - **What the bound guarantees.**
-  - Spellings of one checkout cost what one `cd` costs.
+  - Spellings that resolve to one folder cost what one `cd` costs. This holds per folder, not per checkout: a subfolder of a checkout is a folder of its own, with its own git processes (corrected in fix round 3).
   - Folders that are not there cost no git process.
   - Past the first two folders, the block starts no git call once 15 s have passed since it began. So the block's git work ends within the larger of 15 s and the first two folders' cost, plus one git call.
 - **What it leaves open.**
   - One or two checkouts whose index alone outlasts the timeout. At a load of 250, one 3,000-file checkout plus the stash rule took the whole hook 44.5 s with 4 git processes.
   - One git call that runs long after the last check.
-  - A pathological command that holds 64 lexically distinct `..` spellings pays 64 resolving forks, then is refused.
+  - A pathological command that holds 64 lexically distinct `..` spellings pays 64 resolving forks, then is refused. Each block can pay up to 64 `cd -P` forks, each a fork with no exec (not measured).
+  - Added in fix round 3, from review r3: the parse. Its CPU grew with the square of a relative `cd` chain, with no bound before the awk ended (fix round 3 bounds it).
+  - Added in fix round 3, from review r3: the brief block's reads, up to 16 regular files, each read by up to two `grep`s, with no time bound (not measured).
 - **Brief block.** It gets the same resolved keys, and its 16-brief refusal now counts distinct resolved briefs.
 - **Tests.**
   - (a) `test_one_checkout_spelled_many_ways_is_checked_once`.

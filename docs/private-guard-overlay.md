@@ -712,17 +712,28 @@ r1's bound of 16 places counted path strings: `cd .; cd ./.; …` gave 16 keys f
 each costing three git processes and a pass over the whole index, and with 3,000 staged files the
 review's command took 128 to 150 s, past the 60 s hook timeout, which allows. Both Axiom blocks
 now drop `.` and empty components from each path and resolve each folder (`cd -P`, `pwd -P`)
-before they use it, comparing the resolved keys whole, so every spelling of one checkout or brief
-is checked once, and a folder that is not there starts no git process. Either block refuses more
-than 64 paths to resolve, and the brief block more than 16 distinct briefs. The hand block checks
-its first two folders in full, the payload cwd and the one a command names; before each git call
-for a later folder it denies once 15 s have passed since it began, and it never allows a folder it
-did not check. The bound is when the block starts its last git call, not how long the first two
+before they use it, comparing the resolved keys whole, so every spelling that resolves to one
+folder or brief is checked once, and a folder that is not there starts no git process. That holds
+per folder, not per checkout: a subfolder of a checkout is a folder of its own, with its own git
+processes. (Review r3 found that a `cd` target holding `..` after a link resolved where no shell
+lands; since the fix r3 below such a target names two folders, and both are checked.) Either block
+refuses more than 64 paths to resolve, and the brief block more than 16 distinct briefs. The hand
+block checks its first two folders in full: the first two distinct (resolved folder, `--git-dir`)
+keys that exist, in the order its awk meets them. The awk takes each `git … commit` in command
+order and, for each, every folder met before it (the payload cwd, then each `cd` or `pushd` target
+in order) with that commit's `-C` words applied; a folder that is not there is skipped and not
+counted. These are not always the payload cwd and the folder a command names: in `cd a && cd b &&
+git commit` the folders are the cwd, `a` and `b`, so `b` is the third, and under load the budget
+can refuse that commit from one checkout (review r3's case 1). Before each git call for a later
+folder the block denies once 15 s have passed since it began, and it never allows a folder it did
+not check. The bound is when the block starts its last git call, not how long the first two
 folders or that call take: one or two checkouts with a large index under heavy load can still
 carry the hook past 60 s. At a load of 250 to 285, one `cat-file --batch-check` over 6,000
 manifests took 7 to 31 s for 0.4 s of CPU, and the whole hook took 44.5 s for one 3,000-file
 checkout. At a load of about 320, a budget that also covered the first folder refused a commit
-from one checkout with one staged file, so the first two are exempt.
+from one checkout with one staged file, so the first two are exempt. The fix r2 bounded neither
+the parse nor the brief block's reads: review r3 found that its `cd` walk cost the square of the
+chain's length (the fix r3 below).
 
 The block also read git's quoted names. `git diff --cached --name-only` quotes a name holding a
 non-ASCII byte, a double quote, a backslash or a control character, the anchor never matched the
@@ -733,6 +744,59 @@ staged, and a checkout's `diff.relative` no longer hides files from a subfolder.
 same block edits in the Claude hook (`<rule>.sh`); the fix r1's text stays as
 `claude-blocks/fix-r1/<rule>.sh`. Its rollback is the fix r1 pair: undoing its step gives that
 hook and TRUST byte for byte (`test_fix_r2_undoing_its_step_gives_the_fix_r1_pair`).
+
+### The guard sync fix r3 (2026-11-26)
+
+Review r3 of #303 found that the fix r2's `join` split and rebuilt the whole path at every `cd`, so
+a relative `cd` chain cost the square of its length: 13 s of CPU at 4,000 `cd a; ` on the overlay,
+against the fix r1's 0.24 s, and the brief block alone did not finish 3,000 in 200 s. A hook
+killed at its 60 s timeout allows, and nothing bounded that work: the 64-path refusal counts keys,
+and the budget covers only git calls. Both Axiom blocks now keep every stored folder (the payload
+cwd, `$HOME`, each `cd` or `pushd` target and the one before it) in `norm`'s form as they read the
+words, and `join` splits only the new word and appends it, so a `cd` costs its own words and one
+copy of its folder, and no stored folder is split again. On review r3's rows (4,000 and 8,000
+`cd a; `, and 4,000 `cd a/..; `, before a commit or a `subfleet run`) the hook now takes 0.11 to
+0.47 s of CPU on either side; `test_a_long_cd_chain_costs_cpu_near_linear_in_its_length` bounds
+each row at 10 times the fix r1's CPU, never under 1 s.
+
+Each `git … commit` and each `subfleet run` is still judged from every folder met before it, so
+2,000 `cd` and then 2,000 commits that each name one absolute `-C` cost four million path joins
+while giving one key, which the 64 never counts: without a bound that took 13.8 to 30 s of CPU and
+was allowed. Each block now counts every (folder, command) pair it examines, once more for each
+`-C` (and, in the brief block, `-p`) word applied to it, and refuses past 4,096, the 64-folder
+bound squared, so 64 folders can still each meet 64 commands; it never allows past the cap
+(`test_too_many_folder_and_command_pairs_are_refused`). At the cap, with 64 folders of about
+20 KB each, either block took 0.06 to 0.15 s.
+
+Review r3 also found that the blocks resolved a `cd` target physically (`cd -P`), while bash and
+zsh resolve it logically by default: from `a/`, with `a/link` → `x/y`, `cd link/../rs` lands in
+`a/rs`, and the block checked `x/rs`, which was not there, and allowed. Each block now takes a `cd`
+or `pushd` target's `..` off by name, as a logical `cd` does, before `cd -P`. Where the target's
+physical spelling (`..` kept) differs, that folder is checked too, so a shell that resolves links
+first (`cd -P`, bash's `set -P`, zsh's CHASE_LINKS or CHASE_DOTS, none of which the blocks parse)
+is still judged where it lands; both spellings count toward the 64. `-C`, `--git-dir`, `GIT_DIR=`
+and `subfleet run`'s `-C` and `-p` keep `..` as written, since git and subfleet resolve them
+physically (`subfleet/cli.py` opens the brief, then calls `resolve()`).
+
+What the fix r3 leaves open:
+
+- The parse's bound: a `cd` costs its own words and one copy of its folder, and a command's
+  (folder, command) pairs stop at 4,096. A folder grows with the chain, so a long relative chain
+  still costs more than linear time in bytes copied, as the fix r1's did: on the overlay, 1.8 s of
+  CPU at 16,000 `cd a; ` (96 KB) and 5.5 s at 32,000 (192 KB), against the fix r1's 1.1 and 4.2 s.
+  A command of several hundred KB of `cd` could still reach the timeout (extrapolated, not
+  measured).
+- One or two checkouts whose index alone outlasts the timeout, and one git call that runs long
+  after the last budget check, as in the fix r2.
+- Up to 64 `cd -P` forks in each block (each a fork with no exec) before git runs or a brief is
+  read; not measured.
+- The brief block's reads: up to 16 regular files, each read by up to two `grep`s, with no time
+  bound; not measured.
+
+The hub makes the same block edits in the Claude hook (`<rule>.sh`); the fix r2's text stays as
+`claude-blocks/fix-r2/<rule>.sh`. Its rollback is the pair after the merge of release/217 (hook
+`7c96811e…`, TRUST `2e16c035…`): undoing its step gives both byte for byte
+(`test_fix_r3_undoing_its_step_gives_the_merged_pair`).
 
 | File | SHA-256 |
 | --- | --- |
@@ -748,7 +812,8 @@ root and swapped in; `tests/unit/test_guard_subfleet_root.py` states and checks 
 invariants against the original hook, and `docs/reports/2026-10-24-guard-subfleet-root.md`
 holds the install steps, the live checks, the known limits and the rollback, which restores
 hook `a60d1c51…` with TRUST `b3193b97…`. D-CODEX-0169 (below) then moved `codex_version` to
-`codex-cli 0.169.1` and appended one more dated sentence.
+`codex-cli 0.169.1` and appended one more dated sentence, and the guard sync fix r3 appended one
+after it.
 
 ### Codex pin 0.169.1 (D-CODEX-0169, 2026-11-17)
 
