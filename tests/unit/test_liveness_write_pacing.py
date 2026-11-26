@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from subfleet import daemon as daemon_module, procs
+from subfleet import daemon as daemon_module, procs, protocol
 from subfleet.store import Store
 from tests.unit.test_daemon_settle import (  # noqa: F401
     ATTEMPT, EMPTY, JOB, STARTED, attempt, daemon, publish_receipt, with_launch,
@@ -232,13 +232,14 @@ def test_liveness_first_fresh_observation_after_restart_writes(daemon, monkeypat
     assert len(liveness_events(daemon)) == 1
 
 
-def test_failed_liveness_commit_retries_the_same_table_and_observation(daemon, monkeypatch):
+def test_failed_liveness_commit_retries_the_same_table_with_a_new_timestamp(daemon, monkeypatch):
     clock = Clock(monkeypatch)
     daemon._record_owned(attempt(daemon), table())
     original_pace = dict(daemon._last_observed_alive_write)
     saved = evidence(daemon)
     snapshot = table()
     clock.set(60)
+    failed_try = clock.stamp()
     real_transaction = daemon.store.transaction
 
     @contextmanager
@@ -257,8 +258,11 @@ def test_failed_liveness_commit_retries_the_same_table_and_observation(daemon, m
     assert daemon._last_observed_alive_write == original_pace
     assert daemon._counted_tables[ATTEMPT] is not snapshot
     monkeypatch.setattr(daemon.store, "transaction", real_transaction)
+    clock.set(60.9)  # The retry runs later, on the same table.
     daemon._record_owned(a, snapshot)
     assert evidence(daemon)["last_observed_alive_at"] == clock.stamp()
+    assert evidence(daemon)["last_observed_alive_at"] != failed_try
+    assert daemon._last_observed_alive_write[ATTEMPT] == 60.9
     assert len(liveness_events(daemon)) == 1
     assert daemon._counted_tables[ATTEMPT] is snapshot
 
@@ -344,6 +348,48 @@ def test_liveness_pace_starts_at_observation_before_a_slow_successful_commit(dae
     assert daemon._running_s(JOB) == 120
 
 
+@pytest.mark.parametrize(
+    ("kind", "changed", "key", "pid"),
+    [("attempt.processes_recorded", {"extra_owned": True}, "owned_identities", "4250"),
+     ("attempt.counted_recorded", {"escaped": (4400, 4401)}, "counted_identities", "4401")],
+    ids=["owned", "counted"],
+)
+def test_folded_identity_write_paces_from_its_observation_not_its_commit(
+        daemon, monkeypatch, kind, changed, key, pid):
+    clock = Clock(monkeypatch)
+    daemon.inspect_interval_s = 1
+    daemon._record_owned(attempt(daemon), table())
+    real_transaction = daemon.store.transaction
+    delayed = False
+
+    @contextmanager
+    def slow_commit(event_kind="state.changed", **kwargs):
+        nonlocal delayed
+        with real_transaction(event_kind, **kwargs) as tx:
+            yield tx
+            if event_kind == kind and not delayed:
+                delayed = True
+                clock.set(70)  # Observed at 60, committed at 70.
+
+    monkeypatch.setattr(daemon.store, "transaction", slow_commit)
+    clock.set(60)
+    daemon._record_owned(attempt(daemon), table(**changed))
+    assert delayed
+    assert pid in evidence(daemon)[key]
+    assert not liveness_events(daemon)
+    assert saved_liveness_age(daemon, clock) == 10
+    assert daemon._last_observed_alive_write[ATTEMPT] == 60
+
+    ages = []
+    for seconds in range(71, 130):
+        clock.set(seconds)
+        daemon._record_owned(attempt(daemon), table(**changed))
+        ages.append(saved_liveness_age(daemon, clock))
+    assert max(ages) == 59
+    assert len(liveness_events(daemon)) == 1  # The paced write at 120.
+    assert saved_liveness_age(daemon, clock) == 9
+
+
 def test_replacing_commit_latency_is_included_in_saved_observation_age(daemon, monkeypatch):
     clock = Clock(monkeypatch)
     daemon.inspect_interval_s = 1
@@ -423,6 +469,30 @@ def test_ended_attempts_leave_no_liveness_pacing_entry(daemon, monkeypatch, endi
     daemon._forget_paced({"still-live/a1"})
     assert daemon._last_observed_alive_write["still-live/a1"] == 1.0
     assert ATTEMPT not in daemon._last_observed_alive_write
+
+
+@pytest.mark.parametrize("ending", ["unlaunched", "quarantine-resolved"])
+def test_unlaunched_and_resolved_attempts_drop_their_liveness_pacing_entry(
+        daemon, monkeypatch, ending):
+    Clock(monkeypatch)
+    daemon._record_owned(attempt(daemon), table())
+    assert ATTEMPT in daemon._last_observed_alive_write
+    daemon._last_observed_alive_write["still-live/a1"] = 1.0
+    if ending == "unlaunched":
+        daemon.store.update_attempt(ATTEMPT, state="starting")
+        daemon._unlaunched(attempt(daemon), "starting-no-receipt", census=EMPTY)
+        assert attempt(daemon)["state"] == "failed"
+    else:
+        # Set the state directly because _quarantine drops the entry itself.
+        daemon.store.update_job(JOB, state="lost")
+        daemon.store.update_attempt(ATTEMPT, state="quarantined")
+        daemon._contain = lambda a: EMPTY
+        daemon._salvage = lambda job, a, **kw: ([], None, {})
+        daemon._resolve_quarantine(attempt(daemon), protocol.KillArgs(
+            job_id=JOB, confirm_dead=True, operator_note="pace test"))
+        assert attempt(daemon)["state"] == "lost"
+    assert ATTEMPT not in daemon._last_observed_alive_write
+    assert daemon._last_observed_alive_write["still-live/a1"] == 1.0
 
 
 def test_terminal_attempt_worker_also_drops_liveness_pacing_entry(daemon, monkeypatch):
