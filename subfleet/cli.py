@@ -50,7 +50,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from . import capacity, descriptors, ids, protocol, render, task_holds
+from . import capacity, descriptors, ids, protocol, refusals, render, task_holds
 from .client import (
     LOG_NAME,
     SOCKET_NAME,
@@ -92,7 +92,7 @@ RETIRED_MODELS = {"sol": "astra"}
 LEGACY_TASK_CLASSES = {"review": "review", "build": "build", "sweep": "sweep"}
 LEGACY_MODEL_CLASSES = {"fable": "fable"}
 
-MODEL_CHOICES = ("fable", "opus", "sonnet", "haiku", "astra", "terra", "luna", "sol61", "sol")
+MODEL_CHOICES = ("fable", "opus", "sonnet", "haiku", "astra", "terra", "luna", "sol61", "sol62", "sol")
 TASK_CHOICES = ("lookup", "research", "sweep", "review", "build",
                 "authored-prose", "strategy", "adjudication")
 TIER_CHOICES = ("trivial", "easy", "standard", "hard")
@@ -1061,11 +1061,9 @@ def _prepare_submit(args: argparse.Namespace,
         return None, _protocol_failure(exc)
     marker = inside_subfleet_job() if getattr(args, "allow_same_family", False) else None
     if marker or getattr(args, "allow_same_family", False) and getattr(args, "parent", None):
-        # C-6.23: consent to a same-family review is a person's. The daemon
-        # refuses it on a parented submission too; this refuses it earlier.
-        return None, fail(Exit.REFUSED, "run: --allow-same-family is refused inside a Subfleet job "
-                          f"({marker or '--parent'} is set); a person gives that consent from their own session",
-                          "submit the review without --allow-same-family, or ask a person to submit it")
+        # Check the marker or explicit parent before any submission goes out (C-6.23).
+        message, fix = refusals.HANDLER_MESSAGES["same-family-consent"]
+        return None, fail(Exit.REFUSED, f"same-family-consent: {message} ({marker or '--parent'} is set)", fix)
     workdir, error = _validate_run(args)
     if error is not None:
         return None, error
@@ -1427,8 +1425,7 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
 
     client, root = _client(args), _root(args)
     try:
-        for _, submit in prepared:
-            _require_review_capability(client, submit)
+        _require_review_capability(client, *(submit for _, submit in prepared))
     except DaemonUnavailable as exc:
         return _daemon_down(exc)
     except DaemonError as exc:
@@ -1839,15 +1836,36 @@ def _push_unsupported(client: Client, verb: str) -> int | None:
                 f"would drop the branch and never push; it is older than this CLI", RESTART_DAEMON)
 
 
-def _require_review_capability(client: Client, submit: protocol.SubmitArgs) -> None:
-    """C-25.1: an older daemon must never silently discard review metadata."""
-    if all(value is None for value in (submit.review_subject, submit.review_round, submit.caller_family)):
+def _require_review_capabilities(client: Client, *, subject: bool = False, family: bool = False,
+                                 known: frozenset[str] | None = None) -> None:
+    """C-25.1: check that the daemon supports the review semantics the request uses."""
+    if not (subject or family):
         return
-    if protocol.REVIEW_SUBJECT_CAPABILITY not in _daemon_capabilities(client):
+    capabilities = _daemon_capabilities(client) if known is None else known
+    missing_subject = subject and protocol.REVIEW_SUBJECT_CAPABILITY not in capabilities
+    if family and protocol.REVIEW_FAMILY_CAPABILITY not in capabilities:
+        missing = f"`{protocol.REVIEW_FAMILY_CAPABILITY}`"
+        if missing_subject:
+            missing += f" or `{protocol.REVIEW_SUBJECT_CAPABILITY}`"
+        raise ProtocolError(
+            f"this daemon does not advertise {missing}. "
+            "Restart it to use family-aware review routing and caller session identity",
+            Exit.DAEMON_UNAVAILABLE, RESTART_DAEMON, reason="refused-args")
+    if missing_subject:
         raise ProtocolError(
             f"this daemon does not advertise `{protocol.REVIEW_SUBJECT_CAPABILITY}`; "
             "it is older than this CLI and would discard the review subject, round or caller family",
             Exit.DAEMON_UNAVAILABLE, RESTART_DAEMON, reason="refused-args")
+
+
+def _require_review_capability(client: Client, *submits: protocol.SubmitArgs,
+                                known: frozenset[str] | None = None) -> None:
+    subject = any(submit.review_subject is not None or submit.review_round is not None
+                  or submit.caller_family is not None for submit in submits)
+    family = any(submit.allow_same_family or submit.caller_session_kind is not None
+                 or (submit.caller_family is not None and (submit.task == "review" or submit.kind == "resume"))
+                 for submit in submits)
+    _require_review_capabilities(client, subject=subject, family=family, known=known)
 
 
 def _listed(row: dict[str, Any], *, kind: str | None, include_turns: bool) -> bool:
@@ -2368,8 +2386,11 @@ def cmd_resume(args: argparse.Namespace) -> int:
         family = caller_family(getattr(args, "caller_family", None))
     except ValueError as exc:
         return fail(Exit.INVALID_INPUT, f"resume: {exc}")
+    caller_session, caller_session_kind = session_source(family=family)
+    family_aware = family is not None or caller_session_kind is not None
     try:
         client = _client(args)
+        _require_review_capabilities(client, subject=family_aware, family=family_aware)
         source = client.call("show", _asdict(protocol.ShowArgs(job_id=args.id)))
     except DaemonUnavailable as exc:
         return _daemon_down(exc)
@@ -2417,8 +2438,8 @@ def cmd_resume(args: argparse.Namespace) -> int:
         name=source.get("name"),
         parent_job_id=args.id,
         independent=True,  # a continuation may follow an explicitly cancelled job
-        caller_session=session_id(family=family),
-        caller_session_kind=session_kind(family=family),
+        caller_session=caller_session,
+        caller_session_kind=caller_session_kind,
         caller_family=family,
         caller_pid=caller_pid(family=family),
         review_subject=source.get("review_subject"),
@@ -2426,7 +2447,8 @@ def cmd_resume(args: argparse.Namespace) -> int:
     )
     minted = not args.request_id
     try:
-        _require_review_capability(client, submit)
+        if not family_aware:
+            _require_review_capability(client, submit)
         result = client.call_settled("submit", _asdict(submit), request_id=request_id,
                                      minted=minted, on_lost=_resubmitting("resume", request_id))
     except OutcomeUnknown as exc:
@@ -2437,6 +2459,8 @@ def cmd_resume(args: argparse.Namespace) -> int:
     except DaemonUnavailable as exc:
         return _daemon_down(exc)
     except DaemonError as exc:
+        if exc.reason == "review-same-family":
+            return fail(exc.code, str(exc), refusals.RESUME_SAME_FAMILY_FIX)
         return _daemon_error(exc)
     except ProtocolError as exc:
         return _protocol_failure(exc)
@@ -2718,15 +2742,20 @@ def cmd_why(args: argparse.Namespace) -> int:
     if args.task and not args.tier:
         return fail(Exit.INVALID_INPUT, "why: --tier is required with --task")
     try:
-        family = caller_family(getattr(args, "caller_family", None)) if not args.id else None
+        family = _review_caller_family(args.task, getattr(args, "caller_family", None)) if not args.id else None
     except ValueError as exc:
         return fail(Exit.INVALID_INPUT, f"why: {exc}")
+    except ProtocolError as exc:
+        return _protocol_failure(exc)
     why = protocol.WhyArgs(job_id=args.id, task=args.task, tier=args.tier,
                            pinned_model=args.m, exclusions=list(args.exclude or []),
                            allow_desktop=bool(args.allow_desktop), caller_family=family,
                            allow_same_family=bool(getattr(args, "allow_same_family", False)))
     try:
-        result = _client(args).call("why", _asdict(why))
+        client = _client(args)
+        _require_review_capabilities(
+            client, family=not args.id and (why.allow_same_family or (args.task == "review" and family is not None)))
+        result = client.call("why", _asdict(why))
     except DaemonUnavailable as exc:
         return _daemon_down(exc)
     except DaemonError as exc:

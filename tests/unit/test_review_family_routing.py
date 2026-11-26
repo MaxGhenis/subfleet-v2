@@ -57,7 +57,7 @@ def test_i1_every_tier_family_and_chain_chooses_the_other_provider(chain, tier, 
                                   if policy["models"][name]["provider"] != family))
     # Fix round 1 (d2937 item 3): the family's default reviewer comes first at
     # every tier, then the chain's other-family models from the tier upward.
-    expected = list(dict.fromkeys([{"claude": "sol61", "codex": "opus"}[family], *eligible]))
+    expected = list(dict.fromkeys([{"claude": "sol62", "codex": "opus"}[family], *eligible]))
     assert scheduler.prepare(policy, snapshot, spec)["chain"] == expected
     assert scheduler.demand_models(policy, spec) == frozenset(expected)
     assert scheduler.pin_provider(policy, spec) == policy["models"][expected[0]]["provider"]
@@ -123,7 +123,7 @@ def test_i4_build_keeps_a2_chain_for_every_tier(family):
         assert outcome(scheduler.evaluate, policy, snapshot, spec) == outcome(before["evaluate"], policy, snapshot, spec)
 
 
-@pytest.mark.parametrize("family,default,override", [("claude", "sol61", "terra"),
+@pytest.mark.parametrize("family,default,override", [("claude", "sol62", "terra"),
                                                      ("codex", "opus", "sonnet")])
 def test_i5_absent_policy_key_uses_code_default_and_explicit_key_overrides(tmp_path, family, default, override):
     raw = json.loads(DEFAULT_POLICY_PATH.read_text())
@@ -167,11 +167,11 @@ def test_old_same_family_pin_cannot_bypass_the_scheduler_guard(family, model):
     assert scheduler.evaluate(policy, snapshot, {**spec, "allow_same_family": True}).chosen_model == model
 
 
-@pytest.mark.parametrize("family,default", [("claude", "sol61"), ("codex", "opus")])
+@pytest.mark.parametrize("family,default", [("claude", "sol62"), ("codex", "opus")])
 def test_i1_repurposed_default_name_never_selects_the_callers_provider(family, default):
     policy = load_policy(DEFAULT_POLICY_PATH)
     policy.pop("review_family_defaults")
-    policy["models"][default]["provider"] = family
+    policy["models"][default] = {"id": "synthetic-review-model", "provider": family}
     policy["chains"]["review"] = [default] * 4
     snapshot = view([lane(), lane("codex-1")])
     spec = job(task="review", tier="hard", caller_family=family)

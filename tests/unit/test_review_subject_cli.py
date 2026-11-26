@@ -19,7 +19,7 @@ def _submitted(request):
 
 
 def _capabilities(request):
-    return {"capabilities": [protocol.REVIEW_SUBJECT_CAPABILITY]}
+    return {"capabilities": [protocol.REVIEW_SUBJECT_CAPABILITY, protocol.REVIEW_FAMILY_CAPABILITY]}
 
 
 def test_the_daemon_advertises_review_subjects_beside_release_task_capabilities():

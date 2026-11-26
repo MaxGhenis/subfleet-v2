@@ -4,17 +4,21 @@ import json
 
 import pytest
 
-from subfleet import cli
+from subfleet import cli, protocol
 from subfleet.contracts import Exit
 
 
 JOB = "20261113-120000-review"
 
 
+def capabilities(_request):
+    return {"capabilities": [protocol.REVIEW_SUBJECT_CAPABILITY, protocol.REVIEW_FAMILY_CAPABILITY]}
+
+
 @pytest.mark.parametrize("marker,family", [(None, None), ("CLAUDECODE", "claude"),
                                          ("CODEX_THREAD_ID", "codex")])
 def test_why_detects_caller_exactly_as_run(daemon, monkeypatch, marker, family):
-    server = daemon({"why": lambda request: {"decision": None}})
+    server = daemon({"why": lambda request: {"decision": None}, "capabilities": capabilities})
     if marker:
         monkeypatch.setenv(marker, "fixture")
     assert cli.main(["why", "--task", "review", "--tier", "hard"]) == 0
@@ -23,7 +27,7 @@ def test_why_detects_caller_exactly_as_run(daemon, monkeypatch, marker, family):
 
 
 def test_why_explicit_family_overrides_environment(daemon, monkeypatch):
-    server = daemon({"why": lambda request: {"decision": None}})
+    server = daemon({"why": lambda request: {"decision": None}, "capabilities": capabilities})
     monkeypatch.setenv("SUBFLEET_CALLER_FAMILY", "claude")
     monkeypatch.setenv("CLAUDECODE", "1")
     assert cli.main(["why", "--task", "review", "--tier", "hard",
@@ -48,9 +52,8 @@ def test_why_existing_job_uses_its_recorded_family(daemon, monkeypatch):
 
 @pytest.mark.parametrize("allowed", [False, True])
 def test_run_forwards_same_family_authorization(daemon, workdir, allowed):
-    # #314's fix: a submission carrying a caller family needs `review.subject.v1`.
     server = daemon({"submit": lambda request: {"job_id": JOB, "created": True, "state": "queued"},
-                     "capabilities": lambda request: {"capabilities": ["review.subject.v1"]}})
+                     "capabilities": capabilities})
     argv = ["run", "--task", "review", "--tier", "hard", "--caller-family", "codex",
             "-C", str(workdir), "-d", "review"]
     if allowed:

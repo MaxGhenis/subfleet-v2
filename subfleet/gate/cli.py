@@ -11,12 +11,14 @@ from pathlib import Path
 from typing import Sequence
 
 from ..client import Client, DaemonError, DaemonUnavailable, state_root
+from ..contracts import Exit
 from ..protocol import ProtocolError
 from .errors import GateError
 
 EXIT_CODES = {0: "agreement/completion", 1: "operational error", 2: "invalid input",
               3: "changes requested", 4: "blocked/invalid review",
-              5: "failed, unverified, or queued merge action"}
+              5: "failed, unverified, or queued merge action",
+              int(Exit.DAEMON_UNAVAILABLE): "daemon lacks family routing"}
 MANAGED = ("CLAUDE_CODE_MANAGED_SETTINGS_PATH", "CLAUDE_CODE_REMOTE_SETTINGS_PATH",
            "CLAUDE_CODE_MOCK_REMOTE_SETTINGS")
 
@@ -102,9 +104,10 @@ def run(args, *, client=None, runner=subprocess.run, root: Path | None = None,
         client = client or Client(root)
         payload = {k: v for k, v in vars(args).items() if k not in {"handler", "command", "version"}}
         if args.gate_command != "continue":
-            from ..cli import caller_family
+            from ..cli import _require_review_capabilities, caller_family
             payload["caller_family"] = caller_family()
             payload["workdir"] = str(Path(args.workdir or Path.cwd()).expanduser().resolve())
+            _require_review_capabilities(client, family=True)
         # Files named by the caller are read by the daemon from absolute paths.
         for key in ("brief", "response"):
             if payload.get(key):
@@ -125,6 +128,8 @@ def run(args, *, client=None, runner=subprocess.run, root: Path | None = None,
         print(f"subfleet gate: {exc}", file=sys.stderr)
         if getattr(exc, "fix", None):
             print(f"  fix: {exc.fix}", file=sys.stderr)
+        if isinstance(exc, ProtocolError) and exc.code == Exit.DAEMON_UNAVAILABLE:
+            return int(Exit.DAEMON_UNAVAILABLE)
         return 1
     except KeyboardInterrupt:
         print("subfleet gate: interrupted; the peer job remains in the daemon store", file=sys.stderr)

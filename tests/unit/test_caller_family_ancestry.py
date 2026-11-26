@@ -4,7 +4,7 @@ from subprocess import CompletedProcess
 
 import pytest
 
-from subfleet import cli
+from subfleet import cli, protocol
 from subfleet.contracts import Exit
 
 
@@ -50,7 +50,8 @@ def _nested_env(monkeypatch, family):
 
 def _handlers():
     return {"submit": lambda request: {"job_id": "20261113-120000-synthetic", "created": True},
-            "capabilities": lambda request: {"capabilities": ["review.subject.v1"]}}
+            "capabilities": lambda request: {
+                "capabilities": [protocol.REVIEW_SUBJECT_CAPABILITY, protocol.REVIEW_FAMILY_CAPABILITY]}}
 
 
 def test_nested_codex_submission_uses_its_own_thread_identity(daemon, root, workdir, monkeypatch):
@@ -107,7 +108,6 @@ def test_resume_explicit_family_resolves_ambiguous_ancestry(daemon, root, workdi
 
 
 def test_ambiguous_review_session_submission_requires_an_explicit_family(daemon, root, monkeypatch):
-    from subfleet import protocol
     from subfleet.sessions.client import Sessions
     server = daemon(_handlers())
     _nested_env(monkeypatch, None)

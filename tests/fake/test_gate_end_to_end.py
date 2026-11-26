@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from subfleet import cli, protocol
+from subfleet.conversations.service import CAPABILITIES
 from subfleet.gate import cli as gate_cli
 from subfleet.gate.certificate import write_bytes
 from subfleet.gate.service import dispatch, GateService
@@ -58,6 +59,8 @@ class FakeClient:
 
     def call(self, op, args, **kwargs):
         self.calls.append(op)
+        if op == "capabilities":
+            return {"capabilities": list(CAPABILITIES)}
         result = dispatch(self.core, op, args)
         if result.get("code") is None and result.get("job_id") not in self.jobs:
             self.jobs.append(result["job_id"])

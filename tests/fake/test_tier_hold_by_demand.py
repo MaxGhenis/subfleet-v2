@@ -188,9 +188,9 @@ def test_c6_9_a_full_fleet_stops_the_pass(fleet):
 
 @pytest.mark.parametrize("job,expected", [
     ({"pinned_model": "fable"}, {"fable"}),
-    ({"task": "review", "tier": "standard"}, {"opus", "astra"}),
-    ({"task": "review", "tier": None}, {"opus", "astra"}),                       # no tier is `standard`
-    ({"task": "review", "tier": "trivial"}, {"haiku", "sonnet", "opus", "astra"}),
+    ({"task": "review", "tier": "standard"}, {"opus", "sol62"}),
+    ({"task": "review", "tier": None}, {"opus", "sol62"}),                       # no tier is `standard`
+    ({"task": "review", "tier": "trivial"}, {"haiku", "sonnet", "opus", "sol62"}),
     ({"task": "authored-prose", "tier": "hard"}, {"fable"}),
     ({"task": "review", "tier": "standard", "pinned_lane": "claude-3"}, {"opus"}),   # a pinned job walks one model
     ({"task": "sweep", "tier": "hard", "pinned_lane": "codex-1"}, {"astra"}),

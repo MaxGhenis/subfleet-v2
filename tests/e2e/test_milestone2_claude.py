@@ -224,7 +224,7 @@ def test_a_credential_that_belongs_to_another_account_yields_no_capacity(e2e):
                           if line.startswith("claude-1 ")][0]
 
     # C-11.2: not a candidate, and `why` says which rule rejected it.
-    why = e2e.cli("why", "--task", "review", "--tier", "standard")
+    why = e2e.cli("why", "--task", "review", "--tier", "standard", "--caller-family", "codex")
     assert why.rc == 0, why
     rejected = [line for line in why.stdout.splitlines()
                 if "claude-1" in line and "identity-mismatch" in line]

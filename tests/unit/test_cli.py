@@ -27,7 +27,7 @@ def submit_ok(request: protocol.Request) -> dict:
 
 
 def review_capabilities(request: protocol.Request) -> dict:
-    return {"capabilities": [protocol.REVIEW_SUBJECT_CAPABILITY]}
+    return {"capabilities": [protocol.REVIEW_SUBJECT_CAPABILITY, protocol.REVIEW_FAMILY_CAPABILITY]}
 
 
 def terminal(state: str = "succeeded", **extra) -> dict:
@@ -1625,6 +1625,8 @@ class GateClient(cli.Client):
 
     def _call_once(self, op, args, *, request_id, timeout, stated):
         from subfleet.client import DaemonError
+        if op == "capabilities":
+            return {"capabilities": [protocol.REVIEW_FAMILY_CAPABILITY]}
         if op == "gate.start":
             return {"gate_id": "gate-1", "job_id": "job-1", "code": None}
         self.polls += 1

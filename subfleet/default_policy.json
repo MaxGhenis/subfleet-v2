@@ -27,7 +27,7 @@
       "haiku",
       "sonnet",
       "opus",
-      "astra"
+      ["sol62", "opus"]
     ],
     "build": [
       "haiku",
@@ -61,7 +61,7 @@
     ]
   },
   "review_family_defaults": {
-    "claude": "sol61",
+    "claude": "sol62",
     "codex": "opus"
   },
   "fallback": "upward-only",
@@ -111,6 +111,11 @@
     "sol61": {
       "provider": "codex",
       "id": "gpt-6.1-sol"
+    },
+    "sol62": {
+      "provider": "codex",
+      "id": "gpt-6.2-sol",
+      "effort": "ultra"
     }
   },
   "retired": {

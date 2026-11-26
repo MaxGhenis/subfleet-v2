@@ -33,6 +33,7 @@ from typing import Any, Sequence
 
 from ..contracts import Exit
 from ..ids import request_id_arg as validate_request_id
+from ..protocol import ProtocolError
 from . import handoff as handoff_module
 from . import mirror as mirror_module
 from . import nudge as nudge_module
@@ -118,12 +119,27 @@ def _stage(args: argparse.Namespace, request_id: str):
     return lambda text: cli.stage_prompt(text, request_id, root)
 
 
+def _handoff_source(args: argparse.Namespace, sessions: Sessions) -> tuple[str | None, str | None]:
+    """Identify the caller and check the daemon before a family-aware handoff uses it."""
+    cli = _cli()
+    task = getattr(args, "task", None)
+    try:
+        if getattr(args, "dry_run", False):
+            return cli.session_source()
+        family = cli._review_caller_family(task)
+        session, kind = cli.session_source(family=family)
+    except ValueError as exc:
+        raise ProtocolError(str(exc), reason="caller-family") from exc
+    if kind is not None or (task == "review" and family is not None):
+        sessions.require_handoff_capabilities(attributed=family is not None)
+    return session, kind
+
+
 def _guard(handler):
     """The error block every daemon-touching verb repeats (C-17.3)."""
     def wrapped(args: argparse.Namespace) -> int:
         cli = _cli()
         from ..client import DaemonError, DaemonUnavailable, OutcomeUnknown
-        from ..protocol import ProtocolError
         try:
             return handler(args)
         except OutcomeUnknown as exc:
@@ -335,11 +351,13 @@ def _continue_cold(args: argparse.Namespace) -> int:
     both write somebody else's worktree.
     """
     sessions = _sessions(args)
+    handoff_source = _handoff_source(args, sessions) if getattr(args, "handoff", False) else None
     policy = _policy(args)
     named = _named(args)
     candidates = revive_module.cold_candidates(sessions, policy, only=named)
-    if getattr(args, "handoff", False):
-        return _continue_cold_by_handoff(args, sessions, policy, candidates, named)
+    if handoff_source is not None:
+        return _continue_cold_by_handoff(args, sessions, policy, candidates, named,
+                                         caller=handoff_source)
     opt_in = bool(getattr(args, "revive", False))
     cap = getattr(args, "max", None)
     batch = int(cap if cap is not None
@@ -390,7 +408,8 @@ def _continue_cold(args: argparse.Namespace) -> int:
 
 
 def _continue_cold_by_handoff(args: argparse.Namespace, sessions, policy,
-                              candidates, named: Sequence[str] = ()) -> int:
+                              candidates, named: Sequence[str],
+                              *, caller: tuple[str | None, str | None]) -> int:
     """`--scope cold --handoff --to <model>`: one brief per cold session.
 
     The recovery plan decision 7 calls the default, made explicit. Each brief is
@@ -405,6 +424,7 @@ def _continue_cold_by_handoff(args: argparse.Namespace, sessions, policy,
     session; the rest of the batch still goes.
     """
     cli = _cli()
+    caller_session, caller_session_kind = caller
     cap = getattr(args, "max", None)
     batch = int(cap if cap is not None
                 else policy.get("sessions", {}).get("revive_max_batch", 8))
@@ -436,7 +456,8 @@ def _continue_cold_by_handoff(args: argparse.Namespace, sessions, policy,
                 sessions, policy, session_id=candidate.session_id, last=False,
                 model=args.target, stage_prompt=_stage(args, request_id),
                 workdir=candidate.cwd, task=getattr(args, "task", None),
-                tier=getattr(args, "tier", None), caller_session=cli.session_id(),
+                tier=getattr(args, "tier", None), caller_session=caller_session,
+                caller_session_kind=caller_session_kind,
                 caller_pid=cli.caller_pid(), request_id=request_id, minted=True,
                 lane_ids=lane_ids, conversation_ids=conversation_ids,
                 dry_run=bool(getattr(args, "dry_run", False)))
@@ -644,6 +665,7 @@ def _mirror_list(args: argparse.Namespace, engine: "mirror_module.Mirror") -> in
 def cmd_handoff(args: argparse.Namespace) -> int:
     cli = _cli()
     sessions = _sessions(args)
+    caller_session, caller_session_kind = _handoff_source(args, sessions)
     policy = _policy(args)
     request_id = getattr(args, "request_id", None) or str(uuid.uuid4())
     facts = sessions.state([])
@@ -657,7 +679,8 @@ def cmd_handoff(args: argparse.Namespace) -> int:
         task=getattr(args, "task", None),
         tier=getattr(args, "tier", None),
         sandbox=getattr(args, "s", None),
-        caller_session=cli.session_id(),
+        caller_session=caller_session,
+        caller_session_kind=caller_session_kind,
         caller_pid=cli.caller_pid(),
         out_path=(str(Path(args.o).expanduser().absolute())
                   if getattr(args, "o", None) else None),

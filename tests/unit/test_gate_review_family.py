@@ -69,9 +69,10 @@ def test_gate_cli_detects_and_sends_caller_family(tmp_path, monkeypatch, family)
     class Client:
         def call(self, op, payload, **kwargs):
             calls.append((op, payload))
+            if op == "capabilities":
+                return {"capabilities": ["review.family.v1"]}
             return {"status": "completed", "code": 0}
 
     assert gate_cli.run(arguments(plan), root=tmp_path / "state", client=Client()) == 0
-    assert len(calls) == 1
-    assert calls[0][0] == "gate.start"
-    assert calls[0][1]["caller_family"] == family
+    assert [op for op, _ in calls] == ["capabilities", "gate.start"]
+    assert calls[1][1]["caller_family"] == family

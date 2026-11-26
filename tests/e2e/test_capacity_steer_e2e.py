@@ -32,6 +32,9 @@ def test_c9_5_a_refused_hard_review_runs_next_on_its_chains_next_model(e2e):
     e2e.policy_update(lambda policy: policy["chains"].update(
         review=["haiku", "sonnet", ["astra", "opus"], ["astra", "opus"]]))
     e2e.start(scenario="success-allowed", env=CODEX_REFUSES)
+    # This scenario exercises a generic cross-provider fallback.
+    e2e.env.pop("CLAUDECODE")
+    e2e.env.pop("CLAUDE_CODE_SESSION_ID")
     result = e2e.cli("run", "--task", "review", "--tier", "hard", "-s", "read-only", "-C", e2e.workdir,
                      "-p", e2e.prompt, "--allow-tmp", "--wait", timeout=180)
     identity = submitted(result)

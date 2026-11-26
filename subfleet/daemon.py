@@ -696,12 +696,6 @@ def abandoned_detail(receipt: Any, default: str = "starting-no-receipt") -> str:
     return reason if isinstance(reason, str) and reason else default
 
 
-#: C-6.5, C-6.23: what `submit` records about the caller beside the job row, and
-#: what `show` returns: the kind of session id it carried, a declared family the
-#: id contradicts, and who gave a same-family consent.
-CALLER_ATTRIBUTION_KEYS = ("caller_session_kind", "caller_family_disagreement", "same_family_consent")
-
-
 def caller_attribution(args: Any) -> dict[str, Any]:
     """C-6.5, C-6.23: the caller record a submission adds to `job.submitted`."""
     kind, family = getattr(args, "caller_session_kind", None), getattr(args, "caller_family", None)
@@ -3110,11 +3104,6 @@ class Daemon:
         if args.caller_session_kind is not None and (type(args.caller_session_kind) is not str or
                                                      args.caller_session_kind not in ("claude", "codex")):
             raise protocol.ProtocolError("caller_session_kind must be claude, codex or null", reason="invalid-args")
-        if args.allow_same_family and args.parent_job_id and args.kind != "resume":
-            # C-6.23: same-family consent is a person's, from their own session.
-            # A submission that carries a parent job comes from inside a job.
-            message, fix = refusals.HANDLER_MESSAGES["same-family-consent"]
-            raise AdapterError(message, code=7, fix=fix, reason="same-family-consent")
         if ((args.review_subject is not None or args.review_round is not None) and args.task != "review"
                 or args.review_round is not None and args.review_subject is None):
             raise protocol.ProtocolError(refusals.HANDLER_MESSAGES["review-fields"][0], reason="review-fields")
@@ -3313,11 +3302,6 @@ class Daemon:
                                            + ", ".join(self.policy["models"]), code=7,
                                            fix="pin a model from the live policy",
                                            reason="unknown-pinned-model", details={"model": model}) from exc
-                    if (args.task == "review" and args.caller_family is not None
-                            and self.policy["models"][model]["provider"] == args.caller_family
-                            and not args.allow_same_family):
-                        message, fix = refusals.HANDLER_MESSAGES["review-same-family"]
-                        raise AdapterError(message, code=7, fix=fix, reason="review-same-family")
                 if args.needs_shell is not None and type(args.needs_shell) is not bool:
                     raise ValueError("needs_shell must be true or false")
                 if args.provider_qos is not None and (type(args.provider_qos) is not str
@@ -3333,23 +3317,63 @@ class Daemon:
                 # C-12.9: the MCP servers first, so the pin and the chain below see
                 # a job that runs only where a launch starts them, on Claude.
                 mcp_servers = claude_mcp.validate_names(args.mcp_servers or ())
-                # C-11.2: resolved as admission resolves it (same lanes, and the
-                # job's provider narrows a name two providers share), then kept as
-                # the lane id, so no later roster change can make it ambiguous.
-                if (args.task == "review" and model is None and args.pinned_lane
-                        and args.caller_family in ("claude", "codex")
-                        and self._pin_family(args) == args.caller_family):
-                    # C-6.23: a lane of the caller's own family is a same-family
-                    # review; --allow-same-family lifts it only beside -m.
-                    message, fix = refusals.HANDLER_MESSAGES["review-same-family"]
-                    raise AdapterError(message, code=7, fix=fix, reason="review-same-family")
-                lane = self._resolve_pin(args, model, reason) if args.pinned_lane else None
+                caps = self.policy["caps"]
+                max_attempts = args.max_attempts if args.max_attempts is not None else caps["max_attempts"]
+                max_wall_s = args.max_wall_s if args.max_wall_s is not None else caps["max_wall_s"]
+                if not isinstance(max_attempts, int) or not 1 <= max_attempts <= caps["max_attempts"]:
+                    raise ValueError("max_attempts must be positive and within policy caps")
+                if not isinstance(max_wall_s, (int, float)) or not 0 < max_wall_s <= caps["max_wall_s"]:
+                    raise ValueError("max_wall_s must be positive and within policy caps")
+                # C-6.2: hash ordinary pins as written. Reserve authorization
+                # is bound to an enrolled lane id and always includes a model.
+                lane = self._resolve_pin(args, model, reason) if reason is not None else None
+                digest_pin = lane.lane_id if lane else args.pinned_lane
+                digest = ids.payload_digest(prompt, workdir=str(workdir), workdir_head=head,
+                    task=args.task, tier=args.tier, pinned_model=model, pinned_lane=digest_pin,
+                    sandbox=sandbox.value, exclusions=args.exclusions, out_path=out,
+                    allow_desktop=args.allow_desktop, policy_hash=self.policy_digest,
+                    isolated_review=args.isolated_review, review_root=review_root,
+                    round_lease=args.round_lease, resume=resume,
+                    unmeasured_reserve_reason=reason, mcp_servers=mcp_servers,
+                    push_branch=args.push_branch, push_remote=push_remote, needs_shell=needs_shell,
+                    provider_qos=args.provider_qos, review_subject=args.review_subject, review_round=args.review_round,
+                    allow_same_family=args.allow_same_family)
+                if turn is not None:
+                    # C-6.2 for turns: the message digest, not HEAD or the policy
+                    # hash, so a restart can always re-bind the job (review IR-1).
+                    digest = turn["digest"]
+                # Caller attribution is outside the digest (C-6.21). Resolve
+                # a replay before applying the family rules for new jobs (C-6.23).
+                existing = self.store.one("SELECT * FROM jobs WHERE request_id=?", (args.request_id,))
+                if existing:
+                    if existing["payload_digest"] != digest:
+                        # Named, so a caller settling a lost answer (C-16.3) learns
+                        # which job holds the id without another round trip.
+                        raise protocol.ProtocolError("request id already used with a different "
+                                                     f"payload by job {existing['job_id']}", reason="different-payload",
+                                                     details={"job_id": existing['job_id']})
+                    return {"job_id": existing["job_id"], "request_id": args.request_id, "created": False,
+                            **self._where_it_writes(existing["job_id"], existing["sandbox"])}
+                if args.allow_same_family and args.parent_job_id and args.kind != "resume":
+                    # C-6.23: a resume uses its parent field for the source job.
+                    message, fix = refusals.HANDLER_MESSAGES["same-family-consent"]
+                    raise AdapterError(message, code=7, fix=fix, reason="same-family-consent")
+                if args.task == "review" and args.caller_family is not None:
+                    if model is None:
+                        # A bare lane pin needs a model as well as consent to
+                        # authorize a review in the caller's own family.
+                        same_family = bool(args.pinned_lane) and self._pin_family(args) == args.caller_family
+                    else:
+                        same_family = (self.policy["models"][model]["provider"] == args.caller_family
+                                       and not args.allow_same_family)
+                    if same_family:
+                        message, fix = refusals.HANDLER_MESSAGES["review-same-family"]
+                        raise AdapterError(message, code=7, fix=fix, reason="review-same-family")
+                # C-11.2: resolve new lane pins as admission would, then store
+                # the id so a roster change cannot make the pin ambiguous.
+                if lane is None and args.pinned_lane:
+                    lane = self._resolve_pin(args, model, reason)
                 pinned_lane = lane.lane_id if lane else None
-                # The request digest keeps the pin as the caller wrote it, so a
-                # retry is compared with what it asked for, also across a roster
-                # change or this upgrade. Operator authorization was always bound
-                # to the enrolled lane's immutable id, and its digest still is.
-                digest_pin = pinned_lane if reason is not None else args.pinned_lane
                 if model:
                     task_model = model
                 elif args.task:
@@ -3379,27 +3403,6 @@ class Daemon:
                 if lane:
                     self._validate_home(lane)
                 mcp_found = self._mcp_entries(args, mcp_servers, workdir, resume) if mcp_servers else None
-                caps = self.policy["caps"]
-                max_attempts = args.max_attempts if args.max_attempts is not None else caps["max_attempts"]
-                max_wall_s = args.max_wall_s if args.max_wall_s is not None else caps["max_wall_s"]
-                if not isinstance(max_attempts, int) or not 1 <= max_attempts <= caps["max_attempts"]:
-                    raise ValueError("max_attempts must be positive and within policy caps")
-                if not isinstance(max_wall_s, (int, float)) or not 0 < max_wall_s <= caps["max_wall_s"]:
-                    raise ValueError("max_wall_s must be positive and within policy caps")
-                digest = ids.payload_digest(prompt, workdir=str(workdir), workdir_head=head,
-                    task=args.task, tier=args.tier, pinned_model=model, pinned_lane=digest_pin,
-                    sandbox=sandbox.value, exclusions=args.exclusions, out_path=out,
-                    allow_desktop=args.allow_desktop, policy_hash=self.policy_digest,
-                    isolated_review=args.isolated_review, review_root=review_root,
-                    round_lease=args.round_lease, resume=resume,
-                    unmeasured_reserve_reason=reason, mcp_servers=mcp_servers,
-                    push_branch=args.push_branch, push_remote=push_remote, needs_shell=needs_shell,
-                    provider_qos=args.provider_qos, review_subject=args.review_subject, review_round=args.review_round,
-                    allow_same_family=args.allow_same_family)
-                if turn is not None:
-                    # C-6.2 for turns: the message digest, not HEAD or the policy
-                    # hash, so a restart can always re-bind the job (review IR-1).
-                    digest = turn["digest"]
                 # C-8.4, C-6.5: the workdir is recorded in its one spelling, as far as each
                 # name in it can be looked up now (a name that cannot stays as typed). Retention's
                 # `worktree-in-use` pin compares recorded strings in SQL, so a queued job
@@ -3419,16 +3422,6 @@ class Daemon:
                 # An argument refusal: the wire reads its template (C-25.7); the
                 # words stay with the exception for its direct callers.
                 raise protocol.ProtocolError(str(exc), reason="invalid-args") from exc
-            existing = self.store.one("SELECT * FROM jobs WHERE request_id=?", (args.request_id,))
-            if existing:
-                if existing["payload_digest"] != digest:
-                    # Named, so a caller settling a lost answer (C-16.3) learns
-                    # which job holds the id without another round trip.
-                    raise protocol.ProtocolError("request id already used with a different "
-                                                 f"payload by job {existing['job_id']}", reason="different-payload",
-                                                 details={"job_id": existing['job_id']})
-                return {"job_id": existing["job_id"], "request_id": args.request_id, "created": False,
-                        **self._where_it_writes(existing["job_id"], existing["sandbox"])}
             if fence and accepted:
                 # The accepted job is gone (retention pruned it since the check
                 # above), so this request makes a new job after all.
@@ -4481,7 +4474,7 @@ class Daemon:
                    if job.get("mcp_servers") not in (None, "[]") else None)
             submitted = self._submitted(a.job_id)
             return {"job": job, "batch": submitted.get("batch"), "mcp": mcp,
-                    **{key: submitted[key] for key in CALLER_ATTRIBUTION_KEYS if key in submitted},
+                    **{key: submitted[key] for key in protocol.CALLER_ATTRIBUTION_KEYS if key in submitted},
                     "uncommitted": submitted.get("uncommitted"),
                     "cancel": self._cancel_info(a.job_id),
                     "workspace": ({"at": workspace["ts"], "event": workspace["kind"],

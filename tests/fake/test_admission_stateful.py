@@ -238,7 +238,8 @@ def walked_models(policy, job) -> frozenset[str] | None:
         if job["pinned_model"]:
             return frozenset({resolve_model(policy, job["pinned_model"], note=False)})
         if job["task"] in policy["chains"]:
-            chain = policy["chains"][job["task"]][policy["tiers"].index(tier_of(policy, job)):]
+            suffix = policy["chains"][job["task"]][policy["tiers"].index(tier_of(policy, job)):]
+            chain = [model for entry in suffix for model in (entry if isinstance(entry, list) else (entry,))]
             return frozenset(chain[:1] if job["pinned_lane"] else chain)
     except (PolicyError, ValueError, KeyError):
         return None

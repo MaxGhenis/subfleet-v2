@@ -174,25 +174,25 @@ families' markers, the nearest Claude or Codex ancestor selects the native
 family and session; an unresolved review requires `--caller-family`.
 
 Reviews with a known caller family try only the other family's models: that
-family's default reviewer first at every tier (`sol61` for a Claude caller,
+family's default reviewer first at every tier (`sol62` for a Claude caller,
 `opus` for a Codex caller), then the review chain's other models of that family
-from the chosen tier upward. With the shipped chain a Claude caller's review
-walks `sol61 -> astra`; a Codex caller's walks `opus`, then `haiku` and `sonnet`
-at the lower tiers. Optional policy
-`"review_family_defaults": {"claude": "sol61", "codex": "opus"}` overrides these
-by caller family; older policies need no new key. A code default the policy
-cannot serve (no such model) is dropped with a `daemon.log` warning, and a review
-left with no other-family reviewer waits, naming the family. Without
-other-family capacity the review waits. An explicit same-family model pin, or a
+from the chosen tier upward. The shipped chain gives Codex callers `haiku` and
+`sonnet` as alternatives at the lower tiers.
+An unattributed hard review tries `sol62` and then `opus`. The optional
+`review_family_defaults` policy key overrides either family's first reviewer.
+Policy load drops a code default the policy cannot serve and logs a warning
+only when a tier has no other-family reviewer left. A review at that tier
+waits and names the family it needs. A review also waits when that family has
+no capacity. An explicit same-family model pin, or a
 pin to a lane of the caller's family without `-m`, is refused
 (`review-same-family`) unless `-m` and `--allow-same-family` are both passed;
 the flag also permits the original chain as fallback after independent choices.
 The flag is refused inside a Subfleet job (`SUBFLEET_JOB`, `SUBFLEET_ATTEMPT`,
-`SUBFLEET_TURN_JOB`, or a parent job); `runs show` names the session that gave
-it. It does not stop a desktop session from consenting. `why` also accepts the
-flag. The Codex writer exemption follows the kind of session id a submission
-carries (a Codex thread id), not `--caller-family`. Null caller identity and
-other tasks retain their routing. Gates use recorded caller identity when
+`SUBFLEET_TURN_JOB`, or a parent job). `runs show` names the session that gave
+consent. A desktop session can consent. `why` also accepts the flag. The Codex
+writer exemption uses the native Codex session kind and a declared caller
+family that agrees or is absent. Unattributed reviews and other tasks use
+their configured policy chains. Gates use recorded caller identity when
 available, requiring a peer from the other family even without `--main-model`.
 
 Writable detached Claude jobs start with no MCP servers. Opt one job into the

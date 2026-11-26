@@ -61,6 +61,9 @@ TASKS_SANDBOX_CAPABILITY = "tasks.sandbox.v1"
 #: Older daemons ignore these fields, so callers discover support before sending them.
 REVIEW_SUBJECT_CAPABILITY = "review.subject.v1"
 
+#: C-6.23/24: family-aware review routing, consent, session identity and gate starts.
+REVIEW_FAMILY_CAPABILITY = "review.family.v1"
+
 OPS = (
     "submit", "list", "show", "wait", "kill", "lanes", "readings", "why",
     "notice.pending", "notice.ack", "notice.mark", "notice.list", "notice.withdraw", "ping", "daemon.status",
@@ -287,6 +290,10 @@ class ListArgs:
 @dataclass
 class ShowArgs:
     job_id: str
+
+
+# C-6.5, C-6.23: caller attribution read from job.submitted by both show paths.
+CALLER_ATTRIBUTION_KEYS = ("caller_session_kind", "caller_family_disagreement", "same_family_consent")
 
 
 @dataclass
@@ -622,13 +629,12 @@ def refuse(req_id: str, error: BaseException, *, reason: str = "invalid-args") -
     if type(code) not in (int, Exit) or code not in tuple(Exit):
         code = Exit.INVALID_INPUT
     # `details` is not a generic reflection channel. Only a checked hold can
-    # cross it. The review cap carries its fixed public reason without details;
-    # exception prose and every other detail remain excluded.
-    from .refusals import task_hold_condition_details
+    # cross it. Review refusals carry their fixed public reasons without details.
+    from .refusals import PUBLIC_REVIEW_REFUSALS, task_hold_condition_details
     error_reason = getattr(error, "reason", None)
     condition = error_reason == "task-hold-condition"
     hold_details = task_hold_condition_details(getattr(error, "details", None)) if condition else None
     public_reason = "task-hold-condition" if condition else None
-    if type(error_reason) is str and error_reason == "review-round-limit":
-        public_reason = "review-round-limit"
+    if type(error_reason) is str and error_reason in PUBLIC_REVIEW_REFUSALS:
+        public_reason = error_reason
     return fail(req_id, code, message, fix, reason=public_reason, details=hold_details)

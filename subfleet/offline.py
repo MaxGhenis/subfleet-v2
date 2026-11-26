@@ -23,6 +23,7 @@ from .alerts import LATCH_QUERY, active_alerts, load_latches
 from .client import same_process
 from .contracts import READING_TTL_S, Exit, JobState
 from . import task_holds
+from .protocol import CALLER_ATTRIBUTION_KEYS
 from .quota_projection import weekly_projections
 from .status_json import closure_row, decision_rows
 from .store import SCHEMA_VERSION as KNOWN_SCHEMA_VERSION
@@ -278,9 +279,13 @@ class Offline:
             submitted = conn.execute("SELECT data_json FROM events WHERE job_id=? AND +kind='job.submitted' "
                                      "ORDER BY event_id LIMIT 1", (job_id,)).fetchone()
             try:
-                job["uncommitted"] = json.loads(submitted["data_json"] or "{}").get("uncommitted") if submitted else None
-            except (json.JSONDecodeError, TypeError, AttributeError):
-                job["uncommitted"] = None
+                submission = json.loads(submitted["data_json"] or "{}") if submitted else {}
+            except (json.JSONDecodeError, TypeError):
+                submission = {}
+            if not isinstance(submission, dict):
+                submission = {}
+            job["uncommitted"] = submission.get("uncommitted")
+            job.update({key: submission[key] for key in CALLER_ATTRIBUTION_KEYS if key in submission})
             job["pushes"] = ([dict(item) for item in conn.execute(
                 "SELECT * FROM job_pushes WHERE job_id=?", (job_id,))]
                 if conn.execute("SELECT 1 FROM sqlite_master WHERE name='job_pushes'").fetchone() else [])

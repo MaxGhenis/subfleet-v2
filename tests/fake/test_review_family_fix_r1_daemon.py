@@ -8,9 +8,11 @@ lane pin is `review-same-family` at submit.
 """
 from __future__ import annotations
 
+import json
+
 import pytest
 
-from subfleet import protocol
+from subfleet import policy, protocol, scheduler
 from subfleet.adapters.base import AdapterError
 from tests.fake.test_routing_end_to_end import claude_lane  # noqa: F401
 from tests.fake.test_state_contract import state_daemon  # noqa: F401
@@ -101,6 +103,7 @@ def test_a_review_with_no_other_family_reviewer_is_accepted_and_waits(state_daem
     """P2 policy.py:77: never `pinned_model: unknown model 'sol61'`."""
     service, harness = state_daemon
     service.policy.pop("review_family_defaults", None)
+    service.policy["models"].pop("sol62", None)
     service.policy["models"].pop("sol61", None)
     service.policy["chains"]["review"] = ["haiku", "sonnet", "opus", "opus"]
     reply = service.dispatch("submit", harness.submit_args(task="review", tier="standard", caller_family="claude",
@@ -110,6 +113,29 @@ def test_a_review_with_no_other_family_reviewer_is_accepted_and_waits(state_daem
     why = service.dispatch("why", {"job_id": reply["job_id"]})
     text = str(why)
     assert "policy names no codex reviewer" in text and "unknown model" not in text
+
+
+def test_bare_other_family_lane_pin_preserves_empty_review_chain(state_daemon, tmp_path):
+    service, harness = state_daemon
+    raw = json.loads(policy.DEFAULT_POLICY_PATH.read_text())
+    raw.pop("review_family_defaults")
+    raw["models"].pop("sol62", None)
+    raw["models"].pop("sol61", None)
+    raw["chains"]["review"][-1] = "opus"
+    path = tmp_path / "policy.json"
+    path.write_text(json.dumps(raw))
+    service.policy = policy.load_policy(path)
+    reply = service.dispatch("submit", harness.submit_args(
+        task="review", tier="standard", caller_family="claude", pinned_model=None,
+        pinned_lane="codex-1"))
+    assert reply["created"]
+    job = service.store.get_job(reply["job_id"])
+    assert scheduler.demand_models(service.policy, job) == frozenset()
+    assert scheduler.pin_provider(service.policy, job) is None
+    why = service.dispatch("why", {"job_id": reply["job_id"]})
+    decision = why["decision"]
+    assert not decision["chain"] and decision["chosen_lane"] is None, decision["reason"]
+    assert "waiting for other-family reviewer: policy names no codex reviewer" in decision["reason"]
 
 
 @pytest.mark.parametrize("allow", [False, True])

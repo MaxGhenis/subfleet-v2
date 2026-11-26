@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from subfleet.policy import DEFAULT_POLICY_PATH, load_policy
+from subfleet.policy import DEFAULT_POLICY_PATH, flatten_chain, load_policy
 from tests.unit.test_app_cutover_daemon import accepted, create_args
 from tests.unit.test_conversation_service import svc, conversation, write_catalog  # noqa: F401
 
@@ -33,7 +33,8 @@ def test_codex_default_follows_loaded_hard_tier_policy(svc, tmp_path, short, mod
     policy["models"][short] = {"provider": "codex", "id": model_id}
     hard = policy["tiers"].index("hard")
     for chain in policy["chains"].values():
-        if policy["models"][chain[hard]]["provider"] == "codex":
+        if any(policy["models"][name]["provider"] == "codex"
+               for name in flatten_chain(chain[hard:hard + 1])):
             chain[hard] = short
     path = tmp_path / "loaded-policy.json"
     path.write_text(json.dumps(policy))

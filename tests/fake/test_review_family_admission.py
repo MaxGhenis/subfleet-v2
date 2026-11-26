@@ -46,11 +46,8 @@ def test_i2_admission_waits_without_other_family_and_override_permits_same_famil
     why = service.dispatch("why", {"job_id": waiting})
     assert why["decision"]["chosen_lane"] is None
     assert f"missing {missing} capacity" in why["text"]
-    # Today's hard-tier chain has Codex only. A Claude caller can permit an
-    # explicit Claude pin; a Codex caller can permit the old-chain fallback.
-    overrides = {"pinned_model": "opus"} if family == "claude" else {}
     allowed = service.dispatch("submit", review_args(harness, caller_family=family,
-                               allow_same_family=True, **overrides))["job_id"]
+                               allow_same_family=True))["job_id"]
     service._admit()
     assert service.store.get_job(allowed)["allow_same_family"] == 1
     assert [row["lane_id"] for row in service.store.list_attempts(allowed)] == [f"{family}-1"]

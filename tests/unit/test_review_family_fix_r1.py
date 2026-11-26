@@ -24,12 +24,11 @@ TIERS = ("trivial", "easy", "standard", "hard")
 #: review chain's other Codex models; Opus first for a Codex caller, then the
 #: chain's other Claude models, each from the job's tier upward.
 EXPECTED = {
-    "claude": {"trivial": ["sol61", "astra"], "easy": ["sol61", "astra"],
-               "standard": ["sol61", "astra"], "hard": ["sol61", "astra"]},
+    "claude": dict.fromkeys(TIERS, ["sol62"]),
     "codex": {"trivial": ["opus", "haiku", "sonnet"], "easy": ["opus", "sonnet"],
               "standard": ["opus"], "hard": ["opus"]},
-    None: {"trivial": ["haiku", "sonnet", "opus", "astra"], "easy": ["sonnet", "opus", "astra"],
-           "standard": ["opus", "astra"], "hard": ["astra"]},
+    None: {"trivial": ["haiku", "sonnet", "opus", "sol62"], "easy": ["sonnet", "opus", "sol62"],
+           "standard": ["opus", "sol62"], "hard": ["sol62", "opus"]},
 }
 
 
@@ -48,59 +47,115 @@ def review_job(family, tier, **changes):
             "pinned_model": None, "caller_family": family, **changes}
 
 
-def test_p2_sol_first_routing_matrix(capsys):
-    """P2 policy.py:90: the shipped policy's review chain for each caller family, and
-    the model `evaluate` chooses with both families' lanes up."""
+@pytest.mark.parametrize("closed", [None, "claude", "codex", "sol62"])
+def test_probe_routing_matrix(capsys, closed):
+    """The shipped chain and first viable model at every tier and caller family."""
     shipped = load_policy(DEFAULT_POLICY)
     assert shipped["_review_family_warnings"] == []
-    shipped["reserve"]["models"] = []       # no fable reserve on the synthetic Claude lane
-    view = view_of(lanes_up(), NOW)
+    shipped["reserve"]["models"] = []
+    store = lanes_up()
+    if closed in ("claude", "codex"):
+        store["lanes"] = [lane for lane in store["lanes"] if lane["provider"] != closed]
+    if closed == "sol62":
+        close_model(store, "gpt-6.2-sol")
+    view = view_of(store, NOW)
     rows = []
     for tier_index, tier in enumerate(TIERS):
         for family in ("claude", "codex", None):
             chain = routing_chain(shipped, "review", tier_index, caller_family=family)
             chosen = scheduler.evaluate(shipped, view, review_job(family, tier)).chosen_model
-            rows.append(f"| {tier} | {family or 'unknown'} | {' -> '.join(chain)} | {chosen} |")
-            assert chain == EXPECTED[family][tier], (tier, family)
-            assert chosen == chain[0]
+            rows.append(f"| {tier} | {family or 'unknown'} | {' -> '.join(chain)} | {chosen or 'wait'} |")
+            expected = EXPECTED[family][tier]
+            assert chain == expected, (tier, family)
+            assert chosen == next((model for model in expected if model != closed
+                                   and shipped["models"][model]["provider"] != closed), None)
     with capsys.disabled():
-        print("\n| Tier | Caller | Review chain | Chosen |\n| --- | --- | --- | --- |\n" + "\n".join(rows))
+        print(f"\nClosed {closed or 'none'}\n| Tier | Caller | Review chain | Chosen |\n"
+              "| --- | --- | --- | --- |\n" + "\n".join(rows))
 
 
-def test_p2_astra_is_reached_only_when_sol_cannot_take_the_job():
-    """P2 policy.py:90: with Sol's lane closed to it, a Claude caller's review walks on to Astra."""
-    shipped = load_policy(DEFAULT_POLICY)
-    store = lanes_up()
-    store["closures"] = [{"closure_id": 1, "lane_id": "codex-1", "scope": shipped["models"]["sol61"]["id"],
+def close_model(store, model_id):
+    store["closures"] = [{"closure_id": 1, "lane_id": "codex-1", "scope": model_id,
                           "until_at": (NOW + timedelta(hours=1)).isoformat().replace("+00:00", "Z"),
                           "reason": "provider-limit", "clock_source": "reported", "source_event": "x",
                           "created_at": NOW.isoformat().replace("+00:00", "Z"), "released_at": None}]
-    decision = scheduler.evaluate(shipped, view_of(store, NOW), review_job("claude", "trivial"))
-    assert decision.chain == ("sol61", "astra") and decision.chosen_model == "astra"
+
+
+@pytest.mark.parametrize("variant", ["a", "b", "c", "d"])
+def test_live_policy_variants_as_implemented(tmp_path, variant, capsys):
+    """The reviewer's four policy variants, with Sol 6.2 blocked in a second pass."""
+    raw = json.loads(DEFAULT_POLICY.read_text())
+    if variant != "d":
+        raw.pop("review_family_defaults", None)
+    sol62 = {"provider": "codex", "id": "gpt-6.2-sol", "effort": "ultra"}
+    if variant in ("b", "c"):
+        raw["models"]["sol62"] = sol62
+    if variant == "c":
+        raw["chains"]["review"][-1] = "sol62"
+    path = tmp_path / "policy.json"
+    path.write_text(json.dumps(raw))
+    loaded = load_policy(path)
+    assert loaded["models"].get("sol62") == sol62
+    assert {"sol61", "astra"} <= loaded["models"].keys()
+    store = lanes_up()
+    open_view = view_of(store, NOW)
+    close_model(store, sol62["id"])
+    closed_view = view_of(store, NOW)
+    choices = []
+    for tier_index, tier in enumerate(TIERS):
+        spec = review_job("claude", tier)
+        chain = routing_chain(loaded, "review", tier_index, caller_family="claude")
+        first = scheduler.evaluate(loaded, open_view, spec)
+        blocked = scheduler.evaluate(loaded, closed_view, spec)
+        assert chain == ["sol62"]
+        assert first.chosen_model == "sol62"
+        assert blocked.chosen_model is None and blocked.chosen_lane is None
+        assert "missing codex capacity" in blocked.reason
+        choices.append((first.chosen_model, blocked.chosen_model))
+    with capsys.disabled():
+        first, blocked = choices[0]
+        print(f"Variant {variant}, all four tiers: {first}; Sol closed: {blocked or 'wait'}")
+
+
+def test_fully_steered_review_explains_what_happened():
+    shipped = load_policy(DEFAULT_POLICY)
+    reviewers = routing_chain(shipped, "review", TIERS.index("hard"), caller_family="claude")
+    now = "2026-01-01T00:00:00Z"
+    until = "2026-01-01T00:00:10Z"
+    steer = {shipped["models"][name]["id"]: until for name in reviewers}
+    decision = scheduler.evaluate(shipped, {"now": now, "lanes": []},
+                                  review_job("claude", "hard", capacity_steer=steer))
+    assert decision.chosen_lane is None and decision.chain == ()
+    for name in reviewers:
+        assert f"{name}: at capacity for this job until {until}, skipped by capacity steer" in decision.reason
+    assert "policy names no codex reviewer" not in decision.reason
+    assert scheduler.waiting_metadata(decision, now, rechecks=20, capacity_steer=steer)["next_check_at"] == until
 
 
 def policy_without_codex_reviewer():
-    """An operator policy with no `review_family_defaults` key, no `sol61`, and a
+    """An operator policy with no `review_family_defaults` key, no default Sol, and a
     review chain with no Codex model: Claude callers have no reviewer at all."""
     loaded = copy.deepcopy(BASE_POLICY)
     loaded.pop("review_family_defaults", None)
-    del loaded["models"]["sol61"]
+    loaded["models"].pop("sol62", None)
+    loaded["models"].pop("sol61", None)
     loaded["chains"]["review"] = ["haiku", "sonnet", "opus", "opus"]
     return loaded
 
 
 def test_p2_code_defaults_are_checked_at_load_and_a_policy_without_a_reviewer_loads(tmp_path):
-    """P2 policy.py:77/:560: the code default `sol61` gets the explicit key's checks;
+    """The code default `sol62` gets the explicit key's checks;
     a policy that cannot serve it still loads, with a warning naming the family."""
     raw = json.loads(DEFAULT_POLICY.read_text())
     raw.pop("review_family_defaults")
-    del raw["models"]["sol61"]
+    raw["models"].pop("sol62", None)
+    raw["models"].pop("sol61", None)
     raw["chains"]["review"] = ["haiku", "sonnet", "opus", "opus"]
     path = tmp_path / "policy.json"
     path.write_text(json.dumps(raw))
     loaded = load_policy(path)
     [warning] = loaded["_review_family_warnings"]
-    assert "review_family_defaults.claude" in warning and "'sol61'" in warning
+    assert "review_family_defaults.claude" in warning and "'sol62'" in warning
     assert "no codex reviewer" in warning and "wait" in warning
     assert policy_module.review_family_defaults(loaded) == {"claude": None, "codex": "opus"}
     assert all(routing_chain(loaded, "review", index, caller_family="claude") == [] for index in range(4))
@@ -112,7 +167,9 @@ def test_p2_code_defaults_are_checked_at_load_and_a_policy_without_a_reviewer_lo
 def test_p2_a_policy_without_sol_but_with_astra_routes_claude_callers_to_astra():
     loaded = copy.deepcopy(BASE_POLICY)
     loaded.pop("review_family_defaults", None)
-    del loaded["models"]["sol61"]
+    loaded["models"].pop("sol62", None)
+    loaded["models"].pop("sol61", None)
+    loaded["chains"]["review"][-1] = "astra"
     assert policy_module.review_family_warnings(loaded) == []
     assert [routing_chain(loaded, "review", index, caller_family="claude") for index in range(4)] == [["astra"]] * 4
 
@@ -128,14 +185,18 @@ def test_p2_explicit_same_family_or_unknown_default_still_fails_load(tmp_path):
 
 
 @pytest.mark.parametrize("tier", TIERS)
-def test_p2_a_review_with_no_other_family_reviewer_waits_naming_the_family(tier):
-    """P2: never `pinned_model: unknown model 'sol61'`, never a same-family fallback."""
+@pytest.mark.parametrize("pinned_lane", [None, "claude-1", "codex-1"],
+                         ids=["unpinned", "same-family-lane", "other-family-lane"])
+def test_p2_a_review_with_no_other_family_reviewer_waits_naming_the_family(tier, pinned_lane):
+    """An attributed review with no configured other-family reviewer waits."""
     loaded = policy_without_codex_reviewer()
-    decision = scheduler.evaluate(loaded, view_of(lanes_up(), NOW), review_job("claude", tier))
+    spec = review_job("claude", tier, pinned_lane=pinned_lane)
+    decision = scheduler.evaluate(loaded, view_of(lanes_up(), NOW), spec)
     assert decision.chosen_lane is None and decision.chain == ()
     assert "waiting for other-family reviewer: policy names no codex reviewer" in decision.reason
-    assert "sol61" not in decision.reason
-    assert scheduler.demand_models(loaded, review_job("claude", tier)) == frozenset()
+    assert "unknown model" not in decision.reason
+    assert scheduler.demand_models(loaded, spec) == frozenset()
+    assert scheduler.pin_provider(loaded, spec) is None
 
 
 @pytest.mark.parametrize("allow", [False, True])

@@ -805,19 +805,19 @@ def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dic
     if authorization_reason and selected and pin != selected["lane_id"]:
         raise RouteError("unmeasured_reserve_reason: pinned_lane must be the canonical lane id")
     family = job.get("caller_family")
-    if (selected and task == "review" and not job.get("pinned_model")
-            and family in OTHER_FAMILY and selected["provider"] == family):
+    reviewer = required_review_family(job)
+    if not chain and reviewer:
+        # C-6.23: the policy names no other-family reviewer from this tier up.
+        # Keep the chain empty even if an existing job names a lane.
+        pass
+    elif (selected and task == "review" and not job.get("pinned_model")
+          and family in OTHER_FAMILY and selected["provider"] == family):
         # C-6.23: a lane pin of the caller's own family is a same-family review.
         # `--allow-same-family` does not lift it: a pinned job walks only its
         # chain's first model, and that is the other family's reviewer.
         raise RouteError(f"review-same-family: caller family {family} requires a {OTHER_FAMILY[family]} "
                          f"reviewer and lane {pin!r} is a {family} lane; a same-family lane pin also needs "
                          f"-m naming a {family} model and --allow-same-family")
-    reviewer = required_review_family(job)
-    if not chain and reviewer and not (selected and selected["provider"] == reviewer):
-        # C-6.23: the policy names no other-family reviewer from this tier up.
-        # The review waits for one; it never falls back to the caller's family.
-        pass
     elif not chain and selected:
         if job_mcp_servers(job) and selected["provider"] != MCP_PROVIDER:
             raise RouteError(f"mcp_servers: this job names MCP servers, which only a Claude launch starts, "
@@ -1347,7 +1347,7 @@ def decision_reason(evaluations: Iterable[Mapping[str, Any]], chosen_lane: str |
                 for short, until in (steered or {}).items()]
     messages += [row["reason"] for row in evaluations]
     if chosen_lane is None:
-        if required_review_family and not evaluations:
+        if required_review_family and not evaluations and not steered:
             messages.append(f"waiting for other-family reviewer: policy names no {required_review_family} "
                             "reviewer (review_family_defaults or chains.review) from this tier upward")
         elif required_review_family:

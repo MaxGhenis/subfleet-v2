@@ -5,6 +5,7 @@ import uuid
 
 import pytest
 
+from subfleet.policy import flatten_chain
 from tests.frontend.conftest import needs_swift, run_probe, write_json
 from tests.frontend.daemon_harness import ServiceHarness
 from tests.frontend.test_core_app_cutover_reading import conversation
@@ -43,7 +44,8 @@ def route_codex_hard(world, short="sol61", model_id="gpt-6.1-sol"):
     policy["models"][short] = {"provider": "codex", "id": model_id}
     hard = policy["tiers"].index("hard")
     for chain in policy["chains"].values():
-        if policy["models"][chain[hard]]["provider"] == "codex":
+        if any(policy["models"][name]["provider"] == "codex"
+               for name in flatten_chain(chain[hard:hard + 1])):
             chain[hard] = short
 
 

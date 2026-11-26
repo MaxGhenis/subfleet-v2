@@ -362,3 +362,145 @@ I made these folders outside scratch:
 The scratch root, `$(getconf DARWIN_USER_TEMP_DIR)sf-rva3-fix1`, held `arch/`, `red/`, `uv-cache`, every `pytest-*` basetemp, `scripts/make_fixture.py` and `route_check.pristine.py`. I moved the five checkout folders into `sf-rva3-fix1/checkout-cleanup/`, then deleted the scratch root with a `shutil.rmtree` that asserts `sf-rva3-fix1` is in the path.
 
 The deletion succeeded: all five checkout folders were moved, and the scratch root no longer exists. `ls -a` of the checkout shows only tracked entries (including the tracked `.coverage`), and no `__pycache__` folder remains. No process of mine is still running. I finished at 2026-11-17 06:42:47 UTC, within the three-hour limit.
+
+## Fix round 2
+
+Started 2026-11-26 at 11:26:52 UTC. The assigned checkout was clean and detached at `2cc36dc5e3ae`. Git could not create `index.lock` for the assigned worktree. The fixes and report are in the worktree for the hub to collect.
+
+| Finding | Cause and change | Red at `2cc36dc5e` and green with the fix |
+| --- | --- | --- |
+| P1.1 Empty chain with a lane pin | The scheduler substituted the pinned provider's first model when the policy supplied no independent reviewer. An empty independent chain now waits with the missing family in its reason, including with a stored bare lane pin. A new same-family bare pin still gets its admission refusal. | `test_bare_other_family_lane_pin_preserves_empty_review_chain` saw Astra in the baseline `why JOB` chain. It now sees an empty chain and the Codex policy reason. Eight scheduler cases cover stored bare pins across both lane families and all four tiers. |
+| P1.2 Matching replay | The model, consent and bare-lane rules ran before the request-id lookup. Submit now resolves matching replays and digest conflicts before those checks. The digest retains the consent bit and excludes caller identity. | `test_review_request_replay_uses_the_accepted_job` covers all three checks. The same requests return the original id with `created=false`, changed digests still conflict, and new ids are refused. |
+| P1.3 Codex handoff | Both handoff commands sent the session id without its kind. They now send both together through `Sessions.submit`. Revive uses the revived session's id and still enforces distinct-instance exclusion. | `test_native_codex_handoffs_keep_writer_fanout` ran the direct handoff and cold-continue commands. The baseline created the first job and refused the second as an unidentified writer. Both targets are admitted with kind `codex` on the fixed code. |
+| P1.4 Mixed-version CLI | `review.subject.v1` predated the family rules. `capabilities` now advertises `review.family.v1`. An affected run, batch, resume, handoff, review shape explanation or new gate start checks for it before sending the affected operation. Resume and handoff preflight before their source reads. | `test_review_family_boundary.py` and `test_handoff_requires_family_support_before_session_reads` exercise subject-only stand-ins. A missing capability yields exit 69 and sends only `capabilities`. The unattributed review control works on the older daemon. |
+| P1.5 Shipped models | The shipped defaults selected Sol 6.1 followed by Astra. Code and shipped policy now use `sol62` (`gpt-6.2-sol`, ultra) for Claude callers and Opus for Codex callers. Unattributed hard reviews try Sol 6.2 then Opus. Explicit pins and stored jobs can still resolve the `sol61` and `astra` model entries. | `test_probe_routing_matrix` and the four cases of `test_live_policy_variants_as_implemented` fail at baseline and pass with the fix. Results follow below. |
+| P1.6 E2E fixtures | The shared E2E CLI environment represents a Claude caller. The Claude identity and Haiku publish cases now declare a Codex caller, and the cross-provider capacity-steer case clears caller attribution. | The in-process replays `test_e2e_identity_route_names_rejected_claude_lane`, `test_e2e_publish_can_submit_haiku_review` and `test_e2e_generic_review_steers_between_providers` fail under the original fixture context. With the updated contexts, `why` names and skips the mismatched Claude lane, the Haiku review submits, and the synthetic Astra capacity refusal sends the next attempt to Opus. |
+| P2.1 Ambiguous `why` | Shape `why` resolved an ambiguous mixed caller to null. It now shares `run`'s family helper and refuses unresolved review callers with the `--caller-family` remedy. | `test_why_and_run_refuse_ambiguous_review_family` changes from exit 0 for `why` to exit 7 for both commands. |
+| P2.2 Steered chain | An empty result after steering used the missing-policy reason. The decision now names the steered models and their steer expiry. The next-check clock still uses that expiry. | `test_fully_steered_review_explains_what_happened` fails on the policy diagnosis at baseline and passes with the steer reason and clock. |
+| P2.3 Offline attribution | Offline `runs show` recovered the consent bit from the job row and skipped the related event keys. Both show paths now return the session kind, consent and disagreement from `job.submitted`. | `test_offline_show_keeps_the_online_review_attribution` fails on the absent fields at baseline and passes with matching metadata. |
+| P2.4 Resume remedy | Resume reused the model-pin advice from `run`. It now advises resuming from an other-family session or submitting a fresh review with consent. | `test_resume_same_family_refusal_suggests_a_fresh_review_or_other_session` fails on the old flags and passes with the new advice and exit 7. |
+| P3.1 Refusal names | The socket and client filtered away both reason names. They now preserve `review-same-family` and `same-family-consent`. Local consent refusal uses the same wording and names the reason. C-6.5 records the resume-source exception. | Both cases of `test_review_refusal_reason_crosses_the_socket` and `test_cli_consent_refusal_names_the_same_reason` fail at baseline and pass with the fix. |
+| P3.2 Load warning | The README implied that every unusable code default produced a warning. It now describes the tier whose chain has no other-family reviewer after the default is dropped. | `test_readme_limits_warning_to_empty_other_family_tier` detects the old wording. The legacy custom-policy control still finds no warning when a tier has an alternative. |
+
+### Shipped routing matrix
+
+Each cell lists the first viable model for a Claude caller, a Codex caller, and an unattributed review, in that order. The probe also checks the full chain at every tier.
+
+| Tier | Both families open | Claude unavailable | Codex unavailable | Only Sol 6.2 unavailable |
+| --- | --- | --- | --- | --- |
+| trivial | `sol62` / `opus` / `haiku` | `sol62` / wait / `sol62` | wait / `opus` / `haiku` | wait / `opus` / `haiku` |
+| easy | `sol62` / `opus` / `sonnet` | `sol62` / wait / `sol62` | wait / `opus` / `sonnet` | wait / `opus` / `sonnet` |
+| standard | `sol62` / `opus` / `opus` | `sol62` / wait / `sol62` | wait / `opus` / `opus` | wait / `opus` / `opus` |
+| hard | `sol62` / `opus` / `sol62` | `sol62` / wait / `sol62` | wait / `opus` / `opus` | wait / `opus` / `opus` |
+
+### Four policy variants
+
+The replay uses the reviewer's variant setup at every tier for a Claude caller. With Sol 6.2 closed the review waits for Codex capacity in all four variants.
+
+| Variant | Baseline first choice → fallback from the review | Fixed first choice → fallback |
+| --- | --- | --- |
+| a. Shipped with the family-default key removed | `sol61` → `astra` | `sol62` → wait |
+| b. Add `sol62`, keep the chain and omit the key | `sol61` → `astra` | `sol62` → wait |
+| c. As b, set the hard review slot to `sol62` | `sol61` → `sol62` | `sol62` → wait |
+| d. Shipped with its explicit family-default key | `sol61` → `astra` | `sol62` → wait |
+
+### PR body for the hub
+
+- The configured other-family default goes first at every tier, followed by eligible other-family models from that tier upward. The defaults are Sol 6.2 for Claude callers and Opus for Codex callers. The shipped unattributed hard route has an Opus fallback. See `subfleet/policy.py:74`, `subfleet/policy.py:136` and `subfleet/default_policy.json:26`, `subfleet/default_policy.json:63`, `subfleet/default_policy.json:115`.
+- Writer exemption follows a native Codex kind attached to the caller's session id, provided the declared family agrees or is absent. The daemon still enforces target conflicts, revive exclusion and configured caps. Both handoff commands carry the session kind. See `subfleet/daemon.py:714`, `subfleet/daemon.py:4114`, `subfleet/sessions/cli.py:460` and `subfleet/sessions/cli.py:683`.
+- Slot 13 adds the `allow_same_family` boolean after #314's slots 11 and 12. The column is presence-checked on writable open, including for a store already recorded at 13. See `subfleet/store.py:46`, `subfleet/store.py:149`, `subfleet/store.py:158` and `subfleet/store.py:501`.
+
+### Test commands and results
+
+I used `uv sync --group dev` for the missing development environment. Python was 3.15.2. The baseline probes ran from a `git archive` of `2cc36dc5e` with the probe files copied in. The routing tests reconstruct the review's matrix and four variants from the recorded setup. The E2E premise probes use the original caller context in the archive and the updated context in the worktree, with synthetic lanes and a synthetic capacity refusal.
+
+Each run used `uv run --project WORKTREE --no-sync --with 'pytest-xdist>=3.6' python -m pytest -p no:cacheprovider --basetemp "$scratch/pytest-$run" -n WORKERS -q --tb=short -r f` and the selectors below. Workers were four, except two for `red-corrected` and one for the frontend batch. `green` and the runs from `red-corrected` through `contract` used `-o tmp_path_retention_policy=failed`. The runs from `red-corrected` onward loaded a scratch-only plugin to keep failed harness roots and their pruning inside the job's scratch directory.
+
+| Run | Pytest selectors |
+| --- | --- |
+| `red` | `tests/unit/{test_review_family_fix_r1,test_review_family_routing,test_review_family_boundary}.py` and `tests/fake/{test_review_family_fix_r1_daemon,test_review_family_fix_r2_daemon}.py` |
+| `red-extra` | `tests/fake/test_rva3_fixture_replays.py`, `tests/unit/test_rva3_readme.py`, `tests/fake/test_tier_hold_by_demand.py::test_c6_9_demand_models_follow_the_chain_evaluate_walks`, `tests/fake/test_review_family_admission.py::test_i2_admission_waits_without_other_family_and_override_permits_same_family`, `tests/unit/test_gate_review_family.py` |
+| `red-fixtures-pins` | `tests/fake/test_rva3_fixture_replays.py tests/unit/test_review_family_fix_r1.py -k 'test_e2e or (waits_naming_the_family and (same-family-lane or other-family-lane))'` |
+| `red-handoff` | `tests/fake/test_review_family_fix_r2_daemon.py::test_handoff_requires_family_support_before_session_reads` |
+| `green` | The five `red` files, the fixture and README probes, `tests/fake/{test_tier_hold_by_demand,test_review_family_admission,test_admission_held_waiters,test_admission_properties,test_gate_end_to_end}.py`, and `tests/unit/{test_gate_review_family,test_pr124_fixes,test_caller_family_ancestry,test_cli,test_review_family_cli,test_review_subject_cli}.py` |
+| `red-corrected` | `tests/fake/test_review_family_fix_r1_daemon.py::test_bare_other_family_lane_pin_preserves_empty_review_chain`, `tests/fake/test_review_family_fix_r2_daemon.py::test_native_codex_handoffs_keep_writer_fanout`, `tests/unit/test_cli.py::test_wait_backs_off_when_the_long_poll_returns_at_once`, `'tests/unit/test_cli.py::test_ping_open_pipe_is_bounded[]'` |
+| `green-corrected` | The `red-corrected` selectors and `tests/fake/test_gate_end_to_end.py` |
+| `imports-*` | `-m 'not real_lsof and not real_cwd' @"$scratch/$run.args"`. Each args file contained its sorted batch of direct importers from `git grep -l` and a Python import parse, with the exclusions below. This covered 423 files in the importer batches. Store and contract importers were deferred to their named batches. |
+| `store` | `tests/unit/test_store_*.py` |
+| `contract` | `tests/fake/test_state_contract.py tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py tests/unit/test_handler_refusals.py` |
+| `followup-red` | `tests/unit/test_policy_ramp.py::test_shipped_policy_preserves_raw_hash_and_disabled_ramp_defaults`, `'tests/unit/test_provider_active_cap.py::test_missing_cap_preserves_bytes_and_hash[None]'`, and the `test_before_its_start_json_the_guardian_starts_nothing_that_carries_the_attempts_markers` and `test_a_relay_that_starts_a_process_before_start_json_fails_the_premise` nodes in `tests/unit/test_quar_start1_census.py` |
+| `followup-green` | The two policy hash nodes from `followup-red`, `tests/unit/test_scheduler.py::test_lane_pin_provider_absent_from_valid_policy_is_key_named_invalid_input`, `tests/unit/test_weekly_rank_vs_base.py`, `tests/fake/test_canonical_identity_fix5.py::test_resolver_propagates_nonmissing_errors`, and the two routing probes in `tests/unit/test_review_family_fix_r1.py` |
+
+The importer batches ran all eight frontend files in one run, four unit batches of 87, 87, 87 and 16 files, then four fake batches of 37, 37, 37 and 27 files. The four required contract files passed all 453 cases, and the store and migration batch passed all 346 cases.
+
+The first head run exposed harness issues in the new probes involving the empty tuple returned by in-process `why`, conversation state in the handoff stand-in, and capability discovery in the gate stand-in. The corrected probes isolated the expected baseline failures and passed with the fixes. Both CLI timing cases from the first head run passed in `green-corrected`, and the long-poll case also failed on the baseline under load. The three guardian cases in `test_quar_start1_census.py` failed on both trees because the sandbox could not obtain the macOS boot identity. The two canonical-identity teardown errors came from pytest's scratch retention cleanup calling a patched `lstat`. Both passed with normal retention in `followup-green`.
+
+The code paths outside the original PR diff are needed by the fixes. The client allowlist carries the refusal names through decoding and lost-answer handling. The sessions helper and client carry handoff kind and discovery through the normal call path. Offline show reads the submission event. Outside the original test diff, capability stand-ins advertise the new capability, historical routing fixtures keep their original overlap or scalar-tier premise, the stateful oracle handles a tier with alternatives, and policy hash fixtures use the shipped bytes. The late fixture updates were checked in the importer runs or `followup-green`. Fixtures that preserve an existing premise are positive controls. The contract has one change-log entry for the round.
+
+| Run | UTC start–end | `df -H /` free / capacity | `uptime` load at start → end | Passed / failed / skipped / deselected reported | Basetemp |
+| --- | --- | --- | --- | --- | --- |
+| `red` | 11:38:50–11:42:22 (late end sample) | 77G / 16% | 66.45, 76.96, 74.82 → 60.92, 68.18, 71.20 | 57 / 33 / 0 / 0 | 12M |
+| `red-extra` | 11:42:26–11:44:44 | 77G / 16% | 60.92, 68.18, 71.20 → 79.85, 72.88, 72.57 | 17 / 8 / 0 / 0 (3 errors) | 3.8M |
+| `red-fixtures-pins` | 11:45:41–11:47:23 | 77G / 16% | 39.81, 62.79, 68.83 → 20.87, 48.81, 62.63 | 0 / 11 / 0 / 0 | 1.7M |
+| `red-handoff` | 11:47:43–11:48:49 | 77G / 16% | 21.21, 47.06, 61.68 → 27.57, 43.78, 59.35 | 0 / 4 / 0 / 0 | 0B |
+| `green` | 11:50:54–11:58:45 | 77G / 16% | 56.87, 48.14, 58.81 → 34.06, 43.89, 53.96 | 536 / 10 / 1 / 0 (1 xfailed) | 38M |
+| `red-corrected` | 12:02:27–12:04:16 | 79G / 15% | 63.72, 46.06, 51.75 → 81.39, 57.37, 55.50 | 1 / 4 / 0 / 0 | 1.7M |
+| `green-corrected` | 12:05:55–12:07:23 | 75G / 16% | 105.16, 70.62, 60.76 → 41.98, 60.30, 57.90 | 15 / 0 / 1 / 0 | 0B |
+| `imports-frontend-01` | 12:08:22–12:11:00 | 73G / 16% | 41.95, 56.72, 56.71 → 28.86, 47.15, 52.92 | 129 / 0 / 0 / 0 | 15M |
+| `imports-unit-01` | 12:11:00–12:18:43 | 72G / 17% | 28.86, 47.15, 52.92 → 25.43, 31.88, 42.33 | 4604 / 0 / 10 / 0 (8 xfailed) | 59M |
+| `imports-unit-02` | 12:18:52–12:22:23 | 70G / 17% | 25.56, 31.79, 42.24 → 20.87, 27.02, 37.97 | 3407 / 1 / 9 / 0 (60 xfailed) | 15M |
+| `imports-unit-03` | 12:22:25–12:33:24 | 71G / 17% | 20.87, 27.02, 37.97 → 19.16, 20.52, 27.72 | 3976 / 5 / 4 / 0 (16 xfailed) | 52M |
+| `imports-unit-04` | 12:33:25–12:35:19 | 71G / 17% | 19.16, 20.52, 27.72 → 9.38, 16.72, 25.32 | 491 / 6 / 0 / 0 | 0B |
+| `imports-fake-01` | 12:35:19–12:37:17 | 71G / 17% | 9.38, 16.72, 25.32 → 8.39, 14.44, 23.37 | 757 / 0 / 9 / 0 (2 errors, 10 xfailed) | 323M |
+| `imports-fake-02` | 12:37:20–12:38:07 | 71G / 17% | 8.04, 14.27, 23.25 → 8.37, 13.50, 22.50 | 721 / 0 / 7 / 0 | 69M |
+| `imports-fake-03` | 12:38:08–12:39:21 | 71G / 17% | 8.37, 13.50, 22.50 → 8.30, 12.43, 21.34 | 624 / 0 / 8 / 0 | 104K |
+| `imports-fake-04` | 12:39:21–12:40:07 | 71G / 17% | 8.30, 12.43, 21.34 → 7.48, 11.63, 20.58 | 597 / 0 / 1 / 0 | 71M |
+| `store` | 12:40:07–12:40:40 | 71G / 17% | 7.48, 11.63, 20.58 → 5.66, 10.73, 19.90 | 346 / 0 / 0 / 0 | 0B |
+| `contract` | 12:40:40–12:41:01 | 71G / 17% | 5.66, 10.73, 19.90 → 4.61, 10.16, 19.48 | 453 / 0 / 0 / 0 | 0B |
+| `followup-red` | 12:41:20–12:41:22 | 71G / 17% | 3.81, 9.62, 19.07 → 3.81, 9.62, 19.07 | 0 / 5 / 0 / 0 | 8.0K |
+| `followup-green` | 12:41:22–12:41:29 | 71G / 17% | 3.81, 9.62, 19.07 → 3.83, 9.43, 18.89 | 39 / 0 / 0 / 0 | 28K |
+
+All `df -H /` samples reported 3996G total and 14G used. Counts are as reported by pytest. Under xdist, worker-side deselections may be absent from the summary. The first red run finished pytest but hit zsh's read-only `status` variable before recording end uptime. Its end sample and basetemp size were recorded during recovery. The three setup errors in `red-extra` came from a missing fixture import in the scratch replay and were superseded by the three behavioral failures in `red-fixtures-pins`.
+
+### Scope and deviations
+
+- All review findings assigned to this round have a passing probe. The three guardian boot-identity cases remain blocked in this sandbox and failed with the same error on the starting revision.
+- E2E and process files and the whole-suite run were left to CI. The E2E premises ran in process.
+- The importer run excluded real process-listing or cwd-inspection markers, four `test_gate_service.py` cases that invoke merge, the GraphQL transport case `test_batched_gh_query_reads_all_targets_once_and_does_not_treat_partial_checks_as_finished`, and the two keychain launch cases `test_probes_detect_a_launch_that_is_not_refused` and `test_python_child_of_the_session_is_guarded_from_import`.
+- The importer run omitted `tests/unit/test_host_push_{admission,build,mutations,restart,storage_recovery,validated_top}.py`. It selected command-as-data or state-only nodes in the other host-push importer files, omitting the local-push setup, fake transport timeout push, and direct push cases as applicable.
+- The initial archive included the full docs directory and briefly exceeded the 200 MB scratch target. I removed that directory from the archive and restored only the acceptance contract. The first fake importer batch also exceeded that target while the stateful tests retained temporary state. Its basetemp measured 323M and was deleted after the run. The unit 03 basetemp contained read-only fixture directories. I restored owner permissions within that basetemp and retried the guarded deletion.
+- The sandbox denied creating scratch at the Darwin temp root. I used the job-provided temp directory and its job-local uv cache. The initial pytest runs used the repository's default failed-harness pruning hook. The subsequent runs redirected it to scratch. No pruning outside scratch was reported.
+
+### Cleanup
+
+The job temp directory was `/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261126-122333-rva3-fix-r2-a1-eg508r4o`. Its `sf-rva3-fix2` scratch directory held the baseline archive, temporary probes, test logs, and each `pytest-<run>` basetemp listed above. The harnesses removed their short-lived `/tmp/sf-*` state directories.
+
+The following remaining directories are relative to that job temp directory. I recorded them before moving them under `sf-rva3-fix2` for guarded removal.
+
+- `pytest-of-maxghenis/`
+- `sf-64b4175f-753o5x0y/`
+- `sf-64b4175f-h0gw6kmb/`
+- `sf-64b4175f-rwa4wmi0/`
+- `sf-f3bffcea-3e75a71g/`
+- `sf-f3bffcea-4tf7mk6r/`
+- `sf-f3bffcea-avtkigu8/`
+- `sf-f3bffcea-hbdq__kt/`
+- `sf-f3bffcea-la77zir7/`
+- `sf-f3bffcea-qzul4t9a/`
+- `sf-f3bffcea-x8v3u59k/`
+- `sf-test-homes-1_d2hwsw/`
+- `sf-test-homes-38z2ivvs/`
+- `sf-test-homes-kktzfnrl/`
+- `sf-test-homes-lncri6n2/`
+- `sf-test-homes-n6f0c1ec/`
+- `sf-test-homes-nkvmebxh/`
+- `sf-test-homes-rynvdcyx/`
+- `sf-test-homes-v72dfjly/`
+- `sf-test-homes-vxezre98/`
+- `uv-cache/`
+
+Generated checkout directories moved into scratch for the same cleanup were `.venv/`, `build/`, `subfleet/__pycache__/`, `subfleet/adapters/__pycache__/`, `subfleet/conversations/__pycache__/`, `subfleet/gate/__pycache__/`, `subfleet/sessions/__pycache__/`.
+
+Guarded removal succeeded. Finished 2026-11-26 at 12:45:08 UTC, within the job budget. The assigned checkout's Git head is still `2cc36dc5e3ae1f0454cbcb8d6038f6a356c8852e`.
+
+no commit. The sandbox denied Git's `index.lock`.

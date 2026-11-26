@@ -71,7 +71,7 @@ def flatten_chain(chain: Sequence[str | list[str]], tier_index: int = 0) -> list
 #: C-6.23: each caller family's first reviewer, from the other family, at every
 #: tier (Max, d2937 item 3: "a Claude caller gets Sol first"). Older operator
 #: policies need no new key; `load_policy` checks these as it checks the key.
-REVIEW_FAMILY_DEFAULTS = {"claude": "sol61", "codex": "opus"}
+REVIEW_FAMILY_DEFAULTS = {"claude": "sol62", "codex": "opus"}
 OTHER_FAMILY = {"claude": "codex", "codex": "claude"}
 
 
@@ -1028,7 +1028,7 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     value["push"] = settings
 
     # C-6.23: the code defaults get the explicit key's checks. One the policy
-    # cannot serve is dropped, not fatal: an operator's policy without `sol61`
+    # cannot serve is dropped, not fatal: an operator's policy without `sol62`
     # still loads, and the families it leaves without a reviewer are named.
     value["_review_family_warnings"] = review_family_warnings(value)
     if value["_review_family_warnings"]:

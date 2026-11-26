@@ -71,6 +71,8 @@ def iso(seconds: float) -> str:
 
 def policy(floor=0.0, reserve_models=()):
     rules = copy.deepcopy(load_policy(DEFAULT_POLICY_PATH))
+    # The historical scheduler accepts one model per tier.
+    rules["chains"]["review"][-1] = "astra"
     rules["headroom_floor"] = floor
     rules["reserve"]["models"] = list(reserve_models)
     return rules
