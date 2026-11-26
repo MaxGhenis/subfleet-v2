@@ -1,0 +1,28 @@
+{
+  "chunk-01": {
+    "reported_progress_outcomes": {
+      "passed": 190,
+      "failed": 5,
+      "errors": 4,
+      "skipped": 5,
+      "xfailed": 1,
+      "xpassed": 0
+    },
+    "worker_crashes": 5,
+    "complete_pytest_summary": false,
+    "exit_code": 130
+  },
+  "chunk-02": {
+    "reported_progress_outcomes": {
+      "passed": 381,
+      "failed": 4,
+      "errors": 0,
+      "skipped": 15,
+      "xfailed": 0,
+      "xpassed": 0
+    },
+    "worker_crashes": 2,
+    "complete_pytest_summary": false,
+    "exit_code": 130
+  }
+}

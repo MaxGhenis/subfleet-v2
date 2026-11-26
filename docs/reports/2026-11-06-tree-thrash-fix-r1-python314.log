@@ -1,0 +1,14 @@
+Using CPython 3.14.7 interpreter at: /opt/homebrew/opt/python@3.14/bin/python3.14
+Creating virtual environment at: /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/tree-thrash-r1/py314-env
+Resolved 10 packages in 1.74s
+Prepared 1 package in 7.66s
+Installed 9 packages in 1.91s
+ + hypothesis==6.168.1
+ + iniconfig==2.3.0
+ + packaging==26.3
+ + pluggy==1.6.0
+ + pygments==2.21.0
+ + pytest==9.1.1
+ + pytest-timeout==2.4.0
+ + sortedcontainers==2.4.0
+ + subfleet==2.0.0a0 (from file:///Users/maxghenis/.subfleet/worktrees/20261107-112016-tt-fix-r1)

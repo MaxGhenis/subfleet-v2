@@ -1,0 +1,10 @@
+# label: resume-contract
+# start: 2026-11-17T14:28:36Z
+# command: uv run --no-sync --with pytest-xdist\>=3.6 pytest --basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T//sf-eff-fix3/pytest-resume-contract-142836 -p no:cacheprovider -n 4 -q -rfE tests/fake/test_resume_contract.py
+bringing up nodes...
+bringing up nodes...
+
+......................................                                   [100%]
+38 passed in 155.44s (0:02:35)
+# end: 2026-11-17T14:31:38Z
+# exit: 0

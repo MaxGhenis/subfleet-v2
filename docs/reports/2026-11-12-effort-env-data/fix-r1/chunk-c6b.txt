@@ -1,0 +1,6 @@
+tests/fake/test_canonical_identity_fix2.py
+tests/unit/test_review_publish_env_round8.py
+tests/unit/test_claude_v1_parity.py
+tests/fake/test_folder_spelling.py
+tests/unit/test_conversation_state_reads.py
+tests/unit/test_claude_conversation_mcp_scope.py
