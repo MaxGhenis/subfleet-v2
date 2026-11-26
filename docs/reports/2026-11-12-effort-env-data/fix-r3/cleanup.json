@@ -1,0 +1,19 @@
+{
+ "finished": "2026-11-17T14:54:26+00:00",
+ "moved": {
+  "/Users/maxghenis/.subfleet/worktrees/20261117-083629-eff-fix-r3/.hypothesis": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-eff-fix3/outside/.hypothesis",
+  "/Users/maxghenis/.subfleet/worktrees/20261117-083629-eff-fix-r3/.venv": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-eff-fix3/outside/.venv"
+ },
+ "outside": [
+  "/Users/maxghenis/.subfleet/worktrees/20261117-083629-eff-fix-r3/.venv",
+  "/Users/maxghenis/.subfleet/worktrees/20261117-083629-eff-fix-r3/.hypothesis"
+ ],
+ "remaining": {
+  "/Users/maxghenis/.subfleet/worktrees/20261117-083629-eff-fix-r3/.hypothesis": false,
+  "/Users/maxghenis/.subfleet/worktrees/20261117-083629-eff-fix-r3/.venv": false,
+  "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-eff-fix3": false
+ },
+ "scratch": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-eff-fix3",
+ "started": "2026-11-17T14:53:59+00:00",
+ "uv_cache_kept": true
+}

@@ -243,6 +243,9 @@ def test_c6_10_known_operator_reset_still_beats_the_long_clock(held_fleet, unpre
 
 
 def test_c6_10_long_wait_commits_at_most_six_times_per_hour_per_job(held_fleet):
+    """Count committed next_check_at changes per job because C-3.8 silences
+    the audit events of looks that only move an unchanged wait's clock.
+    """
     service, harness, _, advance = held_fleet
     jobs = [submit(service, harness, pinned_model="terra") for _ in range(4)]
     service._admit()
@@ -250,12 +253,23 @@ def test_c6_10_long_wait_commits_at_most_six_times_per_hour_per_job(held_fleet):
         service._capacity_waits[job] = {**service._capacity_waits[job], "rechecks": 9}
         make_due(service, job)
     service._admit()
-    before = service.store.one("SELECT count(*) n FROM events")["n"]
+    initial_event = service.store.one("SELECT max(event_id) n FROM events")["n"]
+    clocks = {job: service.store.get_job(job)["next_check_at"] for job in jobs}
+    committed = dict.fromkeys(jobs, 0)
     for _ in range(360):
         advance(10)
         service._admit()
-    committed = service.store.one("SELECT count(*) n FROM events")["n"] - before
-    assert committed == len(jobs) * 3600 / 600
+        for job in jobs:
+            clock = service.store.get_job(job)["next_check_at"]
+            if clock != clocks[job]:
+                committed[job] += 1
+                clocks[job] = clock
+    assert committed == {job: 3600 // 600 for job in jobs}
+    for job in jobs:
+        assert service.store.one(
+            "SELECT count(*) n FROM events WHERE event_id>? AND job_id=? "
+            "AND kind IN ('job.capacity_waiting', 'attempt.reserved')",
+            (initial_event, job))["n"] == 0
 
 
 @pytest.mark.parametrize("elapsed", [0, 29, 31, 299, 599])

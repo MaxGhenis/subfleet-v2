@@ -1,0 +1,140 @@
+{
+  "harvested_at": "2026-11-06T15:47:33.273922+00:00",
+  "runs": {
+    "primary": {
+      "xml": "docs/reports/2026-11-06-tree-thrash-review-frozen.xml",
+      "log": "docs/reports/2026-11-06-tree-thrash-review-frozen.log",
+      "completed": [
+        {
+          "name": "test_a_fresh_waiter_runs_no_git_and_writes_no_tree[no-slot]",
+          "time_s": "260.900",
+          "status": "passed"
+        },
+        {
+          "name": "test_reopening_the_original_lane_during_preparation_reuses_its_original_evaluation",
+          "time_s": "254.484",
+          "status": "passed"
+        },
+        {
+          "name": "test_a_lane_closed_after_evaluation_is_rechecked_before_cutting_a_tree",
+          "time_s": "253.941",
+          "status": "passed"
+        },
+        {
+          "name": "test_a_fresh_waiter_runs_no_git_and_writes_no_tree[lease]",
+          "time_s": "190.141",
+          "status": "passed"
+        },
+        {
+          "name": "test_a_closure_race_with_a_desktop_lane_never_refreshes_the_registry_under_the_store_lock",
+          "time_s": "182.918",
+          "status": "passed"
+        },
+        {
+          "name": "test_the_one_cut_whose_lane_closes_between_evaluation_and_reservation_is_given_back",
+          "time_s": "468.529",
+          "status": "passed"
+        },
+        {
+          "name": "test_a_fresh_waiter_runs_no_git_and_writes_no_tree[disk]",
+          "time_s": "163.940",
+          "status": "passed"
+        },
+        {
+          "name": "test_the_placement_reuses_one_evaluation_and_pins_the_submitted_head",
+          "time_s": "572.143",
+          "status": "passed"
+        },
+        {
+          "name": "test_a_failing_workspace_reaches_the_job_when_capacity_first_allows_placement[False]",
+          "time_s": "146.066",
+          "status": "passed"
+        },
+        {
+          "name": "test_a_fresh_waiter_runs_no_git_and_writes_no_tree[retention]",
+          "time_s": "126.013",
+          "status": "passed"
+        },
+        {
+          "name": "test_i2_i5_generated_reservations_holds_and_capacity_clocks_equal_the_base",
+          "time_s": "701.165",
+          "status": "passed"
+        },
+        {
+          "name": "test_i1_generated_lane_changes_bound_cuts_by_reservations_and_the_labelled_race",
+          "time_s": "543.443",
+          "status": "passed"
+        },
+        {
+          "name": "test_a_failing_workspace_reaches_the_job_when_capacity_first_allows_placement[True]",
+          "time_s": "270.076",
+          "status": "passed"
+        },
+        {
+          "name": "test_i6_generated_workspace_failures_keep_the_original_retry_limit",
+          "time_s": "300.366",
+          "status": "passed"
+        }
+      ],
+      "suites": [
+        {
+          "name": "pytest",
+          "errors": "0",
+          "failures": "0",
+          "skipped": "0",
+          "tests": "14",
+          "time": "3485.722",
+          "timestamp": "2026-11-06T09:41:05.943621-05:00",
+          "hostname": "MacBook-Pro-1306.local"
+        }
+      ],
+      "command_elapsed_from_log_creation_s": 4059.381,
+      "exit_code": 1,
+      "log_elapsed_s": 3717.594
+    },
+    "head": {
+      "xml": "docs/reports/2026-11-06-tree-thrash-head-only.xml",
+      "log": "docs/reports/2026-11-06-tree-thrash-head-only.log",
+      "completed": [],
+      "command_elapsed_from_log_creation_s": 2652.952,
+      "exit_code": 130,
+      "log_elapsed_s": 2673.481,
+      "suites": [
+        {
+          "name": "pytest",
+          "errors": "0",
+          "failures": "0",
+          "skipped": "0",
+          "tests": "0",
+          "time": "2481.714",
+          "timestamp": "2026-11-06T10:03:55.558762-05:00",
+          "hostname": "MacBook-Pro-1306.local"
+        }
+      ]
+    }
+  },
+  "partial_counts": [
+    {
+      "run": "base-first",
+      "fleet": "fleet-0",
+      "jobs": 20,
+      "reservations": 12,
+      "give_backs": 40,
+      "trees_present": 18
+    },
+    {
+      "run": "head-only",
+      "fleet": "fleet-0",
+      "jobs": 42,
+      "reservations": 32,
+      "give_backs": 0,
+      "trees_present": 32
+    }
+  ],
+  "primary_incomplete": [
+    "test_measured_shape_twenty_two_start_rounds_cut_only_the_forty_placed_trees",
+    "test_a_hold_after_the_second_reservation_stops_later_cuts_in_this_pass",
+    "test_i3_generated_head_movements_keep_the_submitted_tree_and_baseline"
+  ],
+  "all_sessions_stopped": true
+}

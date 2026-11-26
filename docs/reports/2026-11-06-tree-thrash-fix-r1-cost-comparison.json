@@ -1,0 +1,161 @@
+{
+  "old_python": "3.14.7",
+  "new_python": "3.15.2 (main, Oct 26 2026, 13:59:33) [Clang 23.1.3 ]",
+  "old_percent": {
+    "closed": {
+      "instructions": -5.635731182172954,
+      "wall_s": -13.47927674705003,
+      "thread_cpu_s": -0.8097324900924185,
+      "store_read_calls": 0.0,
+      "store_rows": 0.0
+    },
+    "controller": {
+      "instructions": -1.4171358386533828,
+      "wall_s": 3.7811683459479495,
+      "thread_cpu_s": -1.2188272124287303,
+      "store_read_calls": 0.2525832376578663,
+      "store_rows": 0.15305412550439268
+    },
+    "open": {
+      "instructions": 27.49161535305622,
+      "wall_s": 20.12323590454692,
+      "thread_cpu_s": 25.627363901122013,
+      "store_read_calls": 36.63817031197958,
+      "store_rows": 20.31522568089974
+    }
+  },
+  "new_first_pairs_percent": {
+    "closed": {
+      "instructions": 15.704871022913004,
+      "wall_s": 48.6467476457481,
+      "thread_cpu_s": 6.310438021166176,
+      "store_read_calls": 0.0,
+      "store_rows": 0.0
+    },
+    "controller": {
+      "instructions": 2.124415000732305,
+      "wall_s": 128.20889073617258,
+      "thread_cpu_s": 14.49186674980536,
+      "store_read_calls": 0.2525832376578663,
+      "store_rows": 0.15305412550439268
+    },
+    "open": {
+      "instructions": 22.745448716146388,
+      "wall_s": -47.85931854316745,
+      "thread_cpu_s": 29.239576162388992,
+      "store_read_calls": 36.63817031197958,
+      "store_rows": 20.31522568089974
+    }
+  },
+  "old_open_delta": {
+    "instructions": 4582336866,
+    "wall_s": 43.62917312499485,
+    "thread_cpu_s": 0.5626886249999998,
+    "store_read_calls": 3300,
+    "store_rows": 46350
+  },
+  "new_open_delta": {
+    "instructions": 3726453150,
+    "wall_s": -139.99412462493638,
+    "thread_cpu_s": 0.7299587090000004,
+    "store_read_calls": 3300,
+    "store_rows": 46350
+  },
+  "note": "Current matched base/head percentages compare Python3.15.2; old costs used3.14.7. Both closed pairs are retained and medians use both, with no favorable sample selection. Closed source/opcodes before preparation are identical but current measured cost increased.",
+  "new_closed_pair_samples": [
+    {
+      "label": "base",
+      "sample": 0,
+      "scenario": "closed",
+      "jobs": 300,
+      "workspace": "synthetic",
+      "wall_s": 36.80142162501579,
+      "thread_cpu_s": 0.22006066700000004,
+      "instructions": 927913886,
+      "cuts": 0,
+      "workspace_calls": 0,
+      "evaluations": 0,
+      "store_read_calls": 607,
+      "store_rows": 303,
+      "reservations": 0
+    },
+    {
+      "label": "head",
+      "sample": 0,
+      "scenario": "closed",
+      "jobs": 300,
+      "workspace": "synthetic",
+      "wall_s": 54.704116332984995,
+      "thread_cpu_s": 0.2339474589999999,
+      "instructions": 1073641565,
+      "cuts": 0,
+      "workspace_calls": 0,
+      "evaluations": 0,
+      "store_read_calls": 607,
+      "store_rows": 303,
+      "reservations": 0
+    },
+    {
+      "label": "base",
+      "sample": 0,
+      "scenario": "closed",
+      "jobs": 300,
+      "workspace": "synthetic",
+      "wall_s": 37.91552775003947,
+      "thread_cpu_s": 0.3322346249999999,
+      "instructions": 1034563042,
+      "cuts": 0,
+      "workspace_calls": 0,
+      "evaluations": 0,
+      "store_read_calls": 607,
+      "store_rows": 303,
+      "reservations": 0
+    },
+    {
+      "label": "head",
+      "sample": 0,
+      "scenario": "closed",
+      "jobs": 300,
+      "workspace": "synthetic",
+      "wall_s": 41.49143491702853,
+      "thread_cpu_s": 0.350248125,
+      "instructions": 1061104894,
+      "cuts": 0,
+      "workspace_calls": 0,
+      "evaluations": 0,
+      "store_read_calls": 607,
+      "store_rows": 303,
+      "reservations": 0
+    }
+  ],
+  "new_closed_medians": {
+    "base": {
+      "instructions": 981238464.0,
+      "wall_s": 37.35847468752763,
+      "thread_cpu_s": 0.27614764599999997,
+      "store_read_calls": 607.0,
+      "store_rows": 303.0
+    },
+    "head": {
+      "instructions": 1067373229.5,
+      "wall_s": 48.09777562500676,
+      "thread_cpu_s": 0.29209779199999997,
+      "store_read_calls": 607.0,
+      "store_rows": 303.0
+    }
+  },
+  "new_closed_median_percent": {
+    "instructions": 8.778168473835946,
+    "wall_s": 28.74662583872707,
+    "thread_cpu_s": 5.77594856629704,
+    "store_read_calls": 0.0,
+    "store_rows": 0.0
+  },
+  "new_closed_repeat_percent": {
+    "instructions": 2.5655132575284956,
+    "wall_s": 9.431247246678055,
+    "thread_cpu_s": 5.421921330445345,
+    "store_read_calls": 0.0,
+    "store_rows": 0.0
+  }
+}
