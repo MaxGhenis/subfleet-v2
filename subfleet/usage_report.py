@@ -36,7 +36,8 @@ def _instant(value: str) -> datetime:
 def parse_since(since: str, *, now: datetime | None = None) -> datetime:
     """C-18.6: positive durations (`24h`, `7d`) or an ISO clock, in UTC."""
     if not isinstance(since, str) or not since.strip():
-        raise ProtocolError("usage: since must be a duration such as 24h or 7d, or an ISO timestamp")
+        raise ProtocolError("usage: since must be a duration such as 24h or 7d, or an ISO timestamp",
+                            reason="usage-since")
     now = (now or datetime.now(UTC)).astimezone(UTC)
     value = since.strip()
     duration = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)([smhdw])", value)
@@ -48,7 +49,8 @@ def parse_since(since: str, *, now: datetime | None = None) -> datetime:
             return now - timedelta(seconds=seconds)
         return _instant(value)
     except (ValueError, OverflowError):
-        raise ProtocolError("usage: since must be a positive duration such as 24h or 7d, or an ISO timestamp") from None
+        raise ProtocolError("usage: since must be a positive duration such as 24h or 7d, or an ISO timestamp",
+                            reason="usage-since-positive") from None
 
 
 def _object(value: Any) -> dict:
@@ -176,9 +178,9 @@ def build_report(store, root: Path, *, since: str = "24h", by: str = "lane", bac
     native session id, isolating an unbound attempt instead of merging strangers.
     """
     if by not in GROUPS:
-        raise ProtocolError("usage: by must be lane, conversation or session")
+        raise ProtocolError("usage: by must be lane, conversation or session", reason="usage-by")
     if not isinstance(backfill, bool):
-        raise ProtocolError("usage: backfill must be true or false")
+        raise ProtocolError("usage: backfill must be true or false", reason="usage-backfill")
     # The budget covers the whole answer from here, its queries included (C-16.4).
     stop_reading = clock_s() + budget_s
     now = (now or datetime.now(UTC)).astimezone(UTC)
