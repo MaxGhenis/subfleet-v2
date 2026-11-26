@@ -6015,12 +6015,12 @@ class Daemon:
         """C-8.7: the delete path has a job or a journal due, and retention is not dormant."""
         return os.environ.get(RETENTION_DORMANT_ENV) != "1" and self._retention_delete.pending()
 
-    def _retention_delete_turn(self) -> bool:
-        """C-8.7 (d2660): one step of the operator's delete path (one job, after
-        any journal a restart left), when one is due and the hourly pass is not.
+    def _retention_delete_turn(self) -> str | None:
+        """C-8.7 (d2660): one ready step of the operator's delete path (one job,
+        after every restart journal due).
         It runs on the retention key under `_unrun_lock`, so it never overlaps a
-        pass, and a due pass goes first; it leaves the pass's clock alone. A
-        step that raises what the path did not expect ends the request.
+        pass, and a due pass normally goes first. The step leaves the pass's
+        clock alone. An unexpected exception from the path ends the request.
 
         d3085: a pass that left retention due (a catch-up, a holder-scan failure
         with a job waiting for its check 2, a pass that reached its deadline
@@ -6028,17 +6028,23 @@ class Daemon:
         before the next pass even though that pass is due. A pass that raises
         leaves the hourly clock untouched, so through a run of them the pass
         was due at every turn and the path never took a step; a catch-up leaves
-        a 5 s window, which a busy worker pool can miss."""
+        a 5 s window, which a busy worker pool can miss.
+
+        One clock reading after readiness decides both admission and the
+        answer. Return None for no step, "owed" for a step while the pass is
+        due, or "free" for a step before the pass is due."""
         if not self._retention_delete_ready():
-            return False
-        if time.monotonic() - self._last_maintenance >= RETENTION_INTERVAL_S and not self._retention_delete_owed:
-            return False
+            return None
+        due = time.monotonic() - self._last_maintenance >= RETENTION_INTERVAL_S
+        if due and not self._retention_delete_owed:
+            return None
         self._retention_delete_owed = False
         budget = {**RETENTION_DEFAULTS, **(self.policy.get("retention") or {})}
         try:
             with self._unrun_lock:
                 self._retention_delete.step(pins=self._retention_pins,
                                             turn_keep_s=float(budget["turn_keep_days"]) * 86400,
+                                            notice_keep_s=float(budget["notice_keep_days"]) * 86400,
                                             remote_less_history_bytes=int(budget["remote_less_history_bytes"]),
                                             cancel=self.timers.cancel)
         except Exception as exc:
@@ -6046,16 +6052,16 @@ class Daemon:
             self._retention_delete.fail(f"step: {type(exc).__name__}")
         if self._unrun_dirty:
             self._sweep_unrun_worktrees()
-        return True
+        return "owed" if due else "free"
 
     def _retention(self):
-        due = time.monotonic() - self._last_maintenance >= RETENTION_INTERVAL_S
-        if self._retention_delete_turn():
+        turn = self._retention_delete_turn()
+        if turn is not None:
             # d3085: a step taken while the pass is due is the step a pass that
             # left retention due owed. It is neither that pass's success nor its
             # failure (C-5.10), so the key keeps its failure count: consecutive
-            # failing passes still back off, with one step in each wait.
-            return DEFERRED if due else None
+            # failing passes still back off, with one step after each wait.
+            return DEFERRED if turn == "owed" else None
         # d3085: until this pass sets the hourly clock, it leaves retention due and
         # owes the delete path its next step (C-8.7). Each branch below that rearms
         # the hour settles the debt; a catch-up, a scan failure with a job waiting

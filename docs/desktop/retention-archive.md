@@ -1,5 +1,8 @@
 # Job retention by archive
 
+Revision 9, 2026-11-26: section 18's pins gate reads notice_keep_days, and the
+owed step's readiness and settlement are stated (#328, #336).
+
 Revision 8, 2026-11-09: section 18, the operator's delete path for the trees
 the pass keeps for good (d2660, C-8.7).
 
@@ -1372,7 +1375,11 @@ turn no hourly pass claims, so a step never overlaps a pass or the
 unused-tree sweep and never moves the pass's clock. A pass that left
 retention due (a catch-up, a holder-scan failure with a job waiting for its
 check 2, a deadline after progress, a raise) owes the path one step, taken in
-the turn before the next pass (d3085). A dormant daemon
+the turn before the next pass (d3085). The step runs only when the path is
+ready, with a running request or a restart journal whose retry time has come.
+Taking it settles the debt, as a pass that sets the hourly clock does, so a
+due pass buys one step. A step resumes every due journal before its job, so
+it can take longer than one job's delete. A dormant daemon
 (`SUBFLEET_RETENTION_DORMANT=1`) starts nothing.
 
 **The gates.** Twelve gates, in order, each read just before the job's turn:
@@ -1384,7 +1391,10 @@ holds the leases. Exclusion input checks run before reused path helpers;
 the complete exclusion proof runs before classification invokes Git.
 Unresolved legacy dependency discovery keeps the candidate rather than
 dropping a possible pin. Pins come again just before the rename and just
-before the removal. C-8.7 and the module's docstring give each gate's exact test.
+before the removal. Pins are C-8.4's, read with the policy's `turn_keep_days`
+and `notice_keep_days`, so an unread notice keeps a tree only until
+`notice_keep_days` after it was written, as it keeps a job from a pass.
+C-8.7 and the module's docstring give each gate's exact test.
 
 **The commit-keeping rule.** Before anything moves, every commit that the
 tree alone holds gets a home outside it:

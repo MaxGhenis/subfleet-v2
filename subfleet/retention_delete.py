@@ -33,7 +33,8 @@ classification:
    plain local configuration and Git metadata pass the read boundary;
 7. class: the survey's own detection (`retention_survey.job_info`) still says
    `nested-linked-worktree` or `remote-less-history`;
-8. pins: `retention._pin_reasons(only=job)` with exclusion-aware registration
+8. pins: `retention._pin_reasons(only=job)` with the step's `turn_keep_s` and
+   `notice_keep_s`, at the path's clock, and with exclusion-aware registration
    reads for hosted jobs, then the reads `retention._Pass._start` makes in
    its selecting transaction (turn rows on or inside the tree, jobs that need a
    place in it, `worktree:` leases inside it); retention's own fence for the
@@ -948,6 +949,7 @@ class DeletePath:
         self.pins: Callable[[], Iterable[str]] | None = None
         self.explicit: set[str] = set()
         self.turn_keep_s = 0.0
+        self.notice_keep_s = 0.0
         self.remote_less: int | None = None
         self.cancel: threading.Event | None = None
 
@@ -1232,10 +1234,11 @@ class DeletePath:
     # --- one step ----------------------------------------------------------------------
 
     def step(self, *, pins: Callable[[], Iterable[str]] | None = None, explicit: Iterable[str] = (),
-             turn_keep_s: float = 0, remote_less_history_bytes: int | None = None,
+             turn_keep_s: float = 0, notice_keep_s: float = 0, remote_less_history_bytes: int | None = None,
              cancel: threading.Event | None = None) -> dict[str, Any]:
         """Resume what a killed daemon left, then do one job of the running request."""
         self.pins, self.explicit, self.turn_keep_s = pins, set(explicit), turn_keep_s
+        self.notice_keep_s = notice_keep_s
         self.remote_less, self.cancel = remote_less_history_bytes, cancel
         report: dict[str, Any] = {"resumed": []}
         now = self.clock()
@@ -1736,6 +1739,7 @@ class DeletePath:
         except (rgit.GitError, OSError) as exc:
             return f"dependency-incomplete: {exc}"
         reason = ret._pin_reasons(self.store, self.explicit, None, pins=self.pins, turn_keep_s=self.turn_keep_s,
+                                  notice_keep_s=self.notice_keep_s, now=self.now(),
                                   only=job_id, hosted=hosted, root=self.root, legacy=legacy).get(job_id)
         if reason is not None:
             return reason

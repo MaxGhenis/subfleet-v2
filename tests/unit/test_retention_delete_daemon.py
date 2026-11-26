@@ -14,6 +14,7 @@ the path one step, which runs before the next pass; a pass that sets the
 hourly clock owes nothing. So between two passes that run while retention is
 due, the path always takes a step. A step taken while the pass is due returns
 `DEFERRED`, so the retention key keeps its C-5.10 failure count.
+The turn's answer and its gate use one clock reading taken after the readiness check.
 """
 from __future__ import annotations
 
@@ -21,6 +22,7 @@ import concurrent.futures
 import logging
 import threading
 import time
+from collections.abc import Callable
 from types import SimpleNamespace
 
 import pytest
@@ -119,12 +121,14 @@ def test_the_retention_worker_has_a_turn_when_the_pass_or_a_delete_step_is_due(m
 
 def test_a_delete_step_runs_alone_in_its_turn_under_the_lock_and_leaves_the_pass_clock(no_pass):
     path = FakePath()
-    d = partial(path, policy={"retention": {"turn_keep_days": 2, "remote_less_history_bytes": 123}})
+    d = partial(path, policy={"retention": {"turn_keep_days": 2, "notice_keep_days": 3,
+                                          "remote_less_history_bytes": 123}})
     clock = d._last_maintenance
     d._retention()
     assert len(path.steps) == 1 and path.held == [True] and no_pass == []
     assert d._last_maintenance == clock
-    assert path.steps[0] == {"pins": d._retention_pins, "turn_keep_s": 2 * 86400.0, "remote_less_history_bytes": 123,
+    assert path.steps[0] == {"pins": d._retention_pins, "turn_keep_s": 2 * 86400.0,
+                             "notice_keep_s": 3 * 86400.0, "remote_less_history_bytes": 123,
                              "cancel": d.timers.cancel}
     assert path.failed == [] and d.swept == 0
 
@@ -132,28 +136,29 @@ def test_a_delete_step_runs_alone_in_its_turn_under_the_lock_and_leaves_the_pass
 def test_a_delete_step_takes_retentions_budget_from_its_defaults():
     path = FakePath()
     d = partial(path)
-    assert d._retention_delete_turn() is True
+    assert d._retention_delete_turn() == "free"
     assert path.steps[0]["turn_keep_s"] == float(RETENTION_DEFAULTS["turn_keep_days"]) * 86400
+    assert path.steps[0]["notice_keep_s"] == float(RETENTION_DEFAULTS["notice_keep_days"]) * 86400
     assert path.steps[0]["remote_less_history_bytes"] == int(RETENTION_DEFAULTS["remote_less_history_bytes"])
 
 
 def test_a_due_pass_goes_first_and_the_step_waits():
     path = FakePath()
     d = partial(path, due=True)
-    assert d._retention_delete_turn() is False and path.steps == []
+    assert d._retention_delete_turn() is None and path.steps == []
 
 
 def test_dormant_retention_never_steps_the_delete_path(monkeypatch):
     monkeypatch.setenv(RETENTION_DORMANT_ENV, "1")
     path = FakePath()
     d = partial(path)
-    assert d._retention_delete_turn() is False and path.steps == []
+    assert d._retention_delete_turn() is None and path.steps == []
 
 
 def test_nothing_due_takes_no_step():
     path = FakePath(pending=False)
     d = partial(path)
-    assert d._retention_delete_turn() is False and path.steps == []
+    assert d._retention_delete_turn() is None and path.steps == []
 
 
 def test_a_step_that_raises_ends_the_request_and_the_turn_still_sweeps(caplog, no_pass):
@@ -329,7 +334,7 @@ def test_a_dormant_daemon_takes_no_owed_step_and_its_pass_settles_the_debt(monke
     d._retention()
     monkeypatch.setenv(RETENTION_DORMANT_ENV, "1")
     make_due(d)
-    assert d._retention_delete_turn() is False and path.steps == []
+    assert d._retention_delete_turn() is None and path.steps == []
     d._retention_dormant_logged = True          # the dormant warning, logged once, is not under test
     d._retention()                              # the dormant pass sets the hourly clock
     assert d._retention_delete_owed is False and len(calls) == 1
@@ -401,6 +406,43 @@ def test_a_catch_up_leaves_a_window_whose_step_settles_the_debt(monkeypatch):
     make_due(d)
     d._retention()                              # nothing owed: the due pass goes first
     assert len(calls) == 2 and len(path.steps) == 1
+
+
+class BeforePendingPath(FakePath):
+    """Runs a one-shot hook while the worker checks delete readiness."""
+
+    before: Callable[[], None] | None = None
+
+    def pending(self) -> bool:
+        before, self.before = self.before, None
+        if before is not None:
+            before()
+        return super().pending()
+
+
+def test_an_owed_step_is_deferred_when_the_pass_becomes_due_during_pending(monkeypatch):
+    path = BeforePendingPath()
+    d, calls = passing(path, monkeypatch, [{"pruned": ["j1"], "more": True}, {"pruned": ["j2"]}])
+    d._retention()
+    assert d._retention_delete_owed
+    assert time.monotonic() - d._last_maintenance < RETENTION_INTERVAL_S
+
+    path.before = lambda: make_due(d)
+    assert d._retention() is daemon_module.DEFERRED
+    assert len(path.steps) == 1 and len(calls) == 1
+    assert not d._retention_delete_owed
+
+    d._retention()
+    assert len(calls) == 2 and len(path.steps) == 1
+
+
+def test_a_pass_that_becomes_due_during_pending_goes_first_without_a_debt(monkeypatch):
+    path = BeforePendingPath()
+    d, calls = passing(path, monkeypatch, [{"pruned": ["j1"]}], due=False)
+    path.before = lambda: make_due(d)
+
+    d._retention()
+    assert path.steps == [] and len(calls) == 1
 
 
 class Inline:

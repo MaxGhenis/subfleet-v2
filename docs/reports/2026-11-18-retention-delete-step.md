@@ -24,7 +24,7 @@ A pass that leaves retention due now owes the delete path one step, which runs b
 - **Setting it.** `_retention` sets the flag when a pass starts, after the delete-turn check and before the sweeps.
 - **Clearing it.** `_retention` clears the flag at each of the five branches that set the hourly clock: dormant, cancelled, scan failed with nothing waiting, deadline before progress, and normal completion. A catch-up, a scan failure with a job waiting for check 2, a deadline after progress and a raise all leave it set.
 - **Stepping.** `_retention_delete_turn` steps when the path is ready and either no pass is due or a step is owed. It clears the flag before the step, so a step that raises still settles the debt. The existing handler still fails the request.
-- **The return value.** `_retention` returns `DEFERRED` for a step taken while the pass is due. `_schedule` counts that as neither a success nor a failure (C-5.10, C-5.11): it keeps the key's failure count and ends the retry wait. So consecutive failing passes still back off as before, with one step slotted into each wait, and the step never runs the pass sooner than it would have run.
+- **The return value.** `_retention` uses the gate's clock reading and returns `DEFERRED` for a step taken while the pass is due. `_schedule` holds the whole retention key through the retry wait, so the owed step runs when the wait ends. From the eighth failure in a row, the ready step waits 60 s. `_schedule` counts `DEFERRED` as neither a success nor a failure (C-5.10, C-5.11). It keeps the key's failure count and clears the retry time, so the daemon can offer the next pass as soon as the step finishes. Consecutive failing passes still back off as before, with one step after each wait.
   - A step in a catch-up window, or in the hour, returns `None` as before.
   - Without this, the step's normal return cleared the count. A pass that fails at once would then be retried every 0.5 s, and logged each time, for as long as a request was pending.
 - **Unchanged.** The step still runs under the unused-tree sweep lock and leaves the pass's clock alone. A step and a pass never share a turn.
@@ -39,9 +39,9 @@ Text changes:
 
 Through a run of deadline-ended passes, the path gets one step per retry cycle. Each cycle is the 180 s pass plus a retry delay that reaches 60 s from the eighth failure in a row, so about one step every 3 to 4 minutes. During catch-ups nothing changes, unless the pool misses the window: then the owed step runs before the next pass instead of being lost.
 
-Each step adds one job's delete time before the next pass. These rates come from the code and the log's cycle times, not from a measurement. The install verification should read them from `retention.delete` lines in `daemon.log`.
+Each step first resumes every restart journal whose retry time has come, then does one job. It adds that recovery time plus one job's delete time before the next pass. These rates come from the code and the log's cycle times. The install verification should read the `retention delete:` job-result lines in `daemon.log`. A step that only resumes journals writes no such line.
 
-Nothing changes when retention isn't due, when the path has no request, or while retention is dormant. In each of those cases `_retention_delete_ready` is false or no pass is due, and the flag has no effect.
+Nothing changes when retention isn't due, when the path has no request and no restart journal due, or while retention is dormant. In each of those cases `_retention_delete_ready` is false or no pass is due, and the flag has no effect. A daemon with two due recovery journals and no request replays both in one owed step, which delays the next pass and logs no job-result line.
 
 ## Tests
 
@@ -62,7 +62,7 @@ Nothing changes when retention isn't due, when the path has no request, or while
   - a due-leaving pass is always followed by exactly one step, and an hourly pass never is;
   - a step's turn runs no pass;
   - the number of steps equals the number of due-leaving passes before the last one.
-  
+
   At most three turns are allowed per pass, so a debt that never clears fails the test instead of hanging it.
 
 Results (venv `daemon-quiet/.venv`, serial, private basetemp):
@@ -96,6 +96,16 @@ CI runs the whole suite in 7 shards on the PR.
 ## Not done here
 
 - The review from the other model family, on a lane.
-- The install. release/217 at its head carries this change and the 15 merges after the installed pin 85769b826. The kit for that install is separate work, with its own review.
+- The install, built from d6db9da85 (#335's merge commit; its parent 4aed7a3c9 is release/217 just before #177, 14 merges past the installed pin 85769b826). The kit for that install is separate work, with its own review.
 - Measuring the live step rate (see "What it changes on the live daemon").
 - Measuring the time the path was starved on 11/16-17 (see the correction above).
+
+## Corrections (2026-11-26)
+
+Issue #336 prompted five corrections.
+
+- An owed step runs after the retry wait, and the turn's answer uses the gate's clock reading.
+- Step timing includes due journal recovery. Job results use the `retention delete:` prefix.
+- Due journals can make the path ready without a request. A step that only replays journals delays the next pass and logs no job result.
+- Removed the trailing spaces from the blank line in the test description.
+- Identified d6db9da85 as the install commit and counted 14 merges from the pin to its parent.
