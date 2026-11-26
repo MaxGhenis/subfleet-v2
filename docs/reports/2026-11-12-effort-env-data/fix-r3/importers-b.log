@@ -1,0 +1,10 @@
+# label: importers-b
+# start: 2026-11-17T14:36:36Z
+# command: uv run --no-sync --with pytest-xdist\>=3.6 pytest --basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T//sf-eff-fix3/pytest-importers-b-143635 -p no:cacheprovider -n 4 -q -rfE tests/fake/test_census_round3_interleavings.py
+bringing up nodes...
+bringing up nodes...
+
+.                                                                        [100%]
+1 passed in 167.18s (0:02:47)
+# end: 2026-11-17T14:39:35Z
+# exit: 0

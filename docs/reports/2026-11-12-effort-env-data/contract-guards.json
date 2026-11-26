@@ -1,0 +1,24 @@
+{
+  "label": "contract-guards",
+  "command": [
+    "uv",
+    "--cache-dir",
+    "/private/tmp/sf-eff-b1/uv-cache",
+    "run",
+    "--no-sync",
+    "--with",
+    "pytest-xdist>=3.6",
+    "python",
+    "/Users/maxghenis/.subfleet/worktrees/20261111-122612-eff-build-r1s/docs/reports/2026-11-12-effort-env-data/run-tests.py",
+    "--inner",
+    "contract-guards",
+    "tests/fake/test_state_contract.py",
+    "tests/unit/test_test_module_names.py",
+    "tests/unit/test_invariants_index.py",
+    "tests/unit/test_handler_refusals.py",
+    "-q",
+    "--tb=short"
+  ],
+  "rc": 0,
+  "seconds": 102.97
+}

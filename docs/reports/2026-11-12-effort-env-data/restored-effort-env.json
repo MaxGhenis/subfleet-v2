@@ -1,0 +1,22 @@
+{
+  "label": "restored-effort-env",
+  "command": [
+    "uv",
+    "--cache-dir",
+    "/private/tmp/sf-eff-b1/uv-cache",
+    "run",
+    "--no-sync",
+    "--with",
+    "pytest-xdist>=3.6",
+    "python",
+    "/Users/maxghenis/.subfleet/worktrees/20261111-122612-eff-build-r1s/docs/reports/2026-11-12-effort-env-data/run-tests.py",
+    "--inner",
+    "restored-effort-env",
+    "tests/unit/test_effort_env.py",
+    "-q",
+    "--hypothesis-show-statistics"
+  ],
+  "rc": 0,
+  "basetemp": "/private/tmp/sf-eff-b1/restored-effort-env",
+  "seconds": 19.01
+}

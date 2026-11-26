@@ -1,0 +1,808 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.15.2, pytest-9.1.1, pluggy-1.6.0 -- /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/builds-v0/.tmpY6YgO6/bin/python
+hypothesis profile 'default'
+rootdir: /Users/maxghenis/.subfleet/worktrees/20261115-100031-eff-fix-r2
+configfile: pyproject.toml
+plugins: xdist-3.8.0, timeout-2.4.0, hypothesis-6.168.1
+timeout: 90.0s
+timeout method: thread
+timeout func_only: False
+created: 2/2 workers
+2 workers [2856 items]
+
+scheduling tests via LoadScheduling
+
+tests/unit/test_launch_env_round8.py::test_i1_a_helper_scope_withholds_its_names_from_every_parent 
+tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-host-home] 
+[gw1] [  0%] PASSED tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-host-home] 
+tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-host-config] 
+[gw1] [  0%] PASSED tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-host-config] 
+tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-reset-hold] 
+[gw1] [  0%] PASSED tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-reset-hold] 
+tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-mirror-store] 
+[gw1] [  0%] PASSED tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-mirror-store] 
+tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-revive-store] 
+[gw1] [  0%] PASSED tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-revive-store] 
+tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-desktop-log] 
+[gw1] [  0%] PASSED tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-desktop-log] 
+tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-transcripts-home] 
+[gw1] [  0%] PASSED tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-transcripts-home] 
+tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-transcripts-projects] 
+[gw1] [  0%] PASSED tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-transcripts-projects] 
+tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-mirror-projects] 
+[gw1] [  0%] PASSED tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-mirror-projects] 
+tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-notify-home] 
+[gw1] [  0%] PASSED tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-notify-home] 
+tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-notify-sessions] 
+[gw1] [  0%] PASSED tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-notify-sessions] 
+tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-client-state] 
+[gw1] [  0%] PASSED tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-client-state] 
+tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-preflight-state] 
+[gw1] [  0%] PASSED tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-preflight-state] 
+tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-adapter-projects] 
+[gw1] [  0%] PASSED tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-adapter-projects] 
+tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-mcp-config] 
+[gw1] [  0%] PASSED tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-mcp-config] 
+tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-hook-settings] 
+[gw1] [  0%] PASSED tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-hook-settings] 
+tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-codex-app] 
+[gw1] [  0%] PASSED tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-codex-app] 
+tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-desktop-login] 
+[gw1] [  0%] PASSED tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-desktop-login] 
+tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-legacy-provider-home] 
+[gw1] [  0%] PASSED tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-legacy-provider-home] 
+tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-launchd-plist] 
+[gw1] [  0%] PASSED tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-launchd-plist] 
+tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-legacy-state] 
+[gw1] [  0%] PASSED tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-legacy-state] 
+tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-legacy-delegate] 
+[gw1] [  0%] PASSED tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-legacy-delegate] 
+tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-legacy-roster] 
+[gw1] [  0%] PASSED tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-legacy-roster] 
+tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-legacy-agents] 
+[gw1] [  0%] PASSED tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-legacy-agents] 
+tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-host-home] 
+[gw1] [  0%] PASSED tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-host-home] 
+tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-host-config] 
+[gw1] [  0%] PASSED tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-host-config] 
+tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-reset-hold] 
+[gw1] [  0%] PASSED tests/unit/test_live_store_guard.py::test_undo_restores_session_safe_path[delenv-missing-reset-hold] 
+tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[mirror-store] 
+[gw1] [  0%] PASSED tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[mirror-store] 
+tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[revive-store] 
+[gw1] [  1%] PASSED tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[revive-store] 
+tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[desktop-log] 
+[gw1] [  1%] PASSED tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[desktop-log] 
+tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[transcripts-home] 
+[gw1] [  1%] PASSED tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[transcripts-home] 
+tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[transcripts-projects] 
+[gw1] [  1%] PASSED tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[transcripts-projects] 
+tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[mirror-projects] 
+[gw1] [  1%] PASSED tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[mirror-projects] 
+tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[notify-home] 
+[gw1] [  1%] PASSED tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[notify-home] 
+tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[notify-sessions] 
+[gw1] [  1%] PASSED tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[notify-sessions] 
+tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[client-state] 
+[gw1] [  1%] PASSED tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[client-state] 
+tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[preflight-state] 
+[gw1] [  1%] PASSED tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[preflight-state] 
+tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[adapter-projects] 
+[gw1] [  1%] PASSED tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[adapter-projects] 
+tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[mcp-config] 
+[gw1] [  1%] PASSED tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[mcp-config] 
+tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[hook-settings] 
+[gw1] [  1%] PASSED tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[hook-settings] 
+tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[codex-app] 
+[gw1] [  1%] PASSED tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[codex-app] 
+tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[desktop-login] 
+[gw1] [  1%] PASSED tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[desktop-login] 
+tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[legacy-provider-home] 
+[gw1] [  1%] PASSED tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[legacy-provider-home] 
+tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[launchd-plist] 
+[gw1] [  1%] PASSED tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[launchd-plist] 
+tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[legacy-state] 
+[gw1] [  1%] PASSED tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[legacy-state] 
+tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[legacy-delegate] 
+[gw1] [  1%] PASSED tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[legacy-delegate] 
+tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[legacy-roster] 
+[gw1] [  1%] PASSED tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[legacy-roster] 
+tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[legacy-agents] 
+[gw1] [  1%] PASSED tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[legacy-agents] 
+tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[host-home] 
+[gw1] [  1%] PASSED tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[host-home] 
+tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[host-config] 
+[gw1] [  1%] PASSED tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[host-config] 
+tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[reset-hold] 
+[gw1] [  1%] PASSED tests/unit/test_live_store_guard.py::test_missing_override_refuses_fallback[reset-hold] 
+tests/unit/test_live_store_guard.py::test_test_override_wins[mirror-store] 
+[gw1] [  1%] PASSED tests/unit/test_live_store_guard.py::test_test_override_wins[mirror-store] 
+tests/unit/test_live_store_guard.py::test_test_override_wins[revive-store] 
+[gw1] [  1%] PASSED tests/unit/test_live_store_guard.py::test_test_override_wins[revive-store] 
+tests/unit/test_live_store_guard.py::test_test_override_wins[desktop-log] 
+[gw1] [  1%] PASSED tests/unit/test_live_store_guard.py::test_test_override_wins[desktop-log] 
+tests/unit/test_live_store_guard.py::test_test_override_wins[transcripts-home] 
+[gw1] [  1%] PASSED tests/unit/test_live_store_guard.py::test_test_override_wins[transcripts-home] 
+tests/unit/test_live_store_guard.py::test_test_override_wins[transcripts-projects] 
+[gw1] [  1%] PASSED tests/unit/test_live_store_guard.py::test_test_override_wins[transcripts-projects] 
+tests/unit/test_live_store_guard.py::test_test_override_wins[mirror-projects] 
+[gw1] [  1%] PASSED tests/unit/test_live_store_guard.py::test_test_override_wins[mirror-projects] 
+tests/unit/test_live_store_guard.py::test_test_override_wins[notify-home] 
+[gw1] [  2%] PASSED tests/unit/test_live_store_guard.py::test_test_override_wins[notify-home] 
+tests/unit/test_live_store_guard.py::test_test_override_wins[notify-sessions] 
+[gw1] [  2%] PASSED tests/unit/test_live_store_guard.py::test_test_override_wins[notify-sessions] 
+tests/unit/test_live_store_guard.py::test_test_override_wins[client-state] 
+[gw1] [  2%] PASSED tests/unit/test_live_store_guard.py::test_test_override_wins[client-state] 
+tests/unit/test_live_store_guard.py::test_test_override_wins[preflight-state] 
+[gw1] [  2%] PASSED tests/unit/test_live_store_guard.py::test_test_override_wins[preflight-state] 
+tests/unit/test_live_store_guard.py::test_test_override_wins[adapter-projects] 
+[gw1] [  2%] PASSED tests/unit/test_live_store_guard.py::test_test_override_wins[adapter-projects] 
+tests/unit/test_live_store_guard.py::test_test_override_wins[mcp-config] 
+[gw1] [  2%] PASSED tests/unit/test_live_store_guard.py::test_test_override_wins[mcp-config] 
+tests/unit/test_live_store_guard.py::test_test_override_wins[hook-settings] 
+[gw1] [  2%] PASSED tests/unit/test_live_store_guard.py::test_test_override_wins[hook-settings] 
+tests/unit/test_live_store_guard.py::test_test_override_wins[codex-app] 
+[gw1] [  2%] PASSED tests/unit/test_live_store_guard.py::test_test_override_wins[codex-app] 
+tests/unit/test_live_store_guard.py::test_test_override_wins[desktop-login] 
+[gw1] [  2%] PASSED tests/unit/test_live_store_guard.py::test_test_override_wins[desktop-login] 
+tests/unit/test_live_store_guard.py::test_test_override_wins[legacy-provider-home] 
+[gw1] [  2%] PASSED tests/unit/test_live_store_guard.py::test_test_override_wins[legacy-provider-home] 
+tests/unit/test_live_store_guard.py::test_test_override_wins[launchd-plist] 
+[gw1] [  2%] PASSED tests/unit/test_live_store_guard.py::test_test_override_wins[launchd-plist] 
+tests/unit/test_live_store_guard.py::test_test_override_wins[legacy-state] 
+[gw1] [  2%] PASSED tests/unit/test_live_store_guard.py::test_test_override_wins[legacy-state] 
+tests/unit/test_live_store_guard.py::test_test_override_wins[legacy-delegate] 
+[gw1] [  2%] PASSED tests/unit/test_live_store_guard.py::test_test_override_wins[legacy-delegate] 
+tests/unit/test_live_store_guard.py::test_test_override_wins[legacy-roster] 
+[gw1] [  2%] PASSED tests/unit/test_live_store_guard.py::test_test_override_wins[legacy-roster] 
+tests/unit/test_live_store_guard.py::test_test_override_wins[legacy-agents] 
+[gw1] [  2%] PASSED tests/unit/test_live_store_guard.py::test_test_override_wins[legacy-agents] 
+tests/unit/test_live_store_guard.py::test_test_override_wins[host-home] 
+[gw1] [  2%] PASSED tests/unit/test_live_store_guard.py::test_test_override_wins[host-home] 
+tests/unit/test_live_store_guard.py::test_test_override_wins[host-config] 
+[gw1] [  2%] PASSED tests/unit/test_live_store_guard.py::test_test_override_wins[host-config] 
+tests/unit/test_live_store_guard.py::test_test_override_wins[reset-hold] 
+[gw1] [  2%] PASSED tests/unit/test_live_store_guard.py::test_test_override_wins[reset-hold] 
+tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[mirror-store] 
+[gw1] [  2%] PASSED tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[mirror-store] 
+tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[revive-store] 
+[gw1] [  2%] PASSED tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[revive-store] 
+tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[desktop-log] 
+[gw1] [  2%] PASSED tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[desktop-log] 
+tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[transcripts-home] 
+[gw1] [  2%] PASSED tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[transcripts-home] 
+tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[transcripts-projects] 
+[gw1] [  2%] PASSED tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[transcripts-projects] 
+tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[mirror-projects] 
+[gw1] [  2%] PASSED tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[mirror-projects] 
+tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[notify-home] 
+[gw1] [  2%] PASSED tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[notify-home] 
+tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[notify-sessions] 
+[gw1] [  2%] PASSED tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[notify-sessions] 
+tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[client-state] 
+[gw1] [  2%] PASSED tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[client-state] 
+tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[adapter-projects] 
+[gw1] [  2%] PASSED tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[adapter-projects] 
+tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[mcp-config] 
+[gw1] [  3%] PASSED tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[mcp-config] 
+tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[hook-settings] 
+[gw1] [  3%] PASSED tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[hook-settings] 
+tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[codex-app] 
+[gw1] [  3%] PASSED tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[codex-app] 
+tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[desktop-login] 
+[gw1] [  3%] PASSED tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[desktop-login] 
+tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[legacy-provider-home] 
+[gw1] [  3%] PASSED tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[legacy-provider-home] 
+tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[launchd-plist] 
+[gw1] [  3%] PASSED tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[launchd-plist] 
+tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[legacy-state] 
+[gw1] [  3%] PASSED tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[legacy-state] 
+tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[legacy-delegate] 
+[gw1] [  3%] PASSED tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[legacy-delegate] 
+tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[legacy-roster] 
+[gw1] [  3%] PASSED tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[legacy-roster] 
+tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[legacy-agents] 
+[gw1] [  3%] PASSED tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[legacy-agents] 
+tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[host-home] 
+[gw1] [  3%] PASSED tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[host-home] 
+tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[host-config] 
+[gw1] [  3%] PASSED tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[host-config] 
+tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[reset-hold] 
+[gw1] [  3%] PASSED tests/unit/test_live_store_guard.py::test_empty_override_refuses_implicit_fallback[reset-hold] 
+tests/unit/test_live_store_guard.py::test_explicit_empty_environment_also_refuses[<lambda>-SUBFLEET_HOME] 
+[gw1] [  3%] PASSED tests/unit/test_live_store_guard.py::test_explicit_empty_environment_also_refuses[<lambda>-SUBFLEET_HOME] 
+tests/unit/test_live_store_guard.py::test_explicit_empty_environment_also_refuses[<lambda>-CLAUDE_CONFIG_DIR] 
+[gw1] [  3%] PASSED tests/unit/test_live_store_guard.py::test_explicit_empty_environment_also_refuses[<lambda>-CLAUDE_CONFIG_DIR] 
+tests/unit/test_live_store_guard.py::test_guard_never_evaluates_default[-SUBFLEET_UNDER_PYTEST] 
+[gw1] [  3%] PASSED tests/unit/test_live_store_guard.py::test_guard_never_evaluates_default[-SUBFLEET_UNDER_PYTEST] 
+tests/unit/test_live_store_guard.py::test_guard_never_evaluates_default[-PYTEST_CURRENT_TEST] 
+[gw1] [  3%] PASSED tests/unit/test_live_store_guard.py::test_guard_never_evaluates_default[-PYTEST_CURRENT_TEST] 
+tests/unit/test_live_store_guard.py::test_guard_never_evaluates_default[synthetic-test (call)-SUBFLEET_UNDER_PYTEST] 
+[gw1] [  3%] PASSED tests/unit/test_live_store_guard.py::test_guard_never_evaluates_default[synthetic-test (call)-SUBFLEET_UNDER_PYTEST] 
+tests/unit/test_live_store_guard.py::test_guard_never_evaluates_default[synthetic-test (call)-PYTEST_CURRENT_TEST] 
+[gw1] [  3%] PASSED tests/unit/test_live_store_guard.py::test_guard_never_evaluates_default[synthetic-test (call)-PYTEST_CURRENT_TEST] 
+tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[doctor-SUBFLEET_CLAUDE_SETTINGS] 
+[gw1] [  3%] PASSED tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[doctor-SUBFLEET_CLAUDE_SETTINGS] 
+tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[capacity-account-SUBFLEET_DESKTOP_LOGIN] 
+[gw1] [  3%] PASSED tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[capacity-account-SUBFLEET_DESKTOP_LOGIN] 
+tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[capacity-identity-SUBFLEET_DESKTOP_LOGIN] 
+[gw1] [  3%] PASSED tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[capacity-identity-SUBFLEET_DESKTOP_LOGIN] 
+tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[catalog-build-SUBFLEET_CODEX_APP_HOME] 
+[gw1] [  3%] PASSED tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[catalog-build-SUBFLEET_CODEX_APP_HOME] 
+tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[catalog-session-SUBFLEET_CODEX_APP_HOME] 
+[gw1] [  3%] PASSED tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[catalog-session-SUBFLEET_CODEX_APP_HOME] 
+tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[service-source-SUBFLEET_CODEX_APP_HOME] 
+[gw1] [  3%] PASSED tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[service-source-SUBFLEET_CODEX_APP_HOME] 
+tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[service-workspace-claude-CLAUDE_CONFIG_DIR] 
+[gw1] [  3%] PASSED tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[service-workspace-claude-CLAUDE_CONFIG_DIR] 
+tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[service-workspace-codex-SUBFLEET_CODEX_APP_HOME] 
+[gw1] [  3%] PASSED tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[service-workspace-codex-SUBFLEET_CODEX_APP_HOME] 
+tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[service-app-executables-HOME] 
+[gw1] [  3%] PASSED tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[service-app-executables-HOME] 
+tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[timers-identity-SUBFLEET_CODEX_APP_HOME] 
+[gw1] [  3%] PASSED tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[timers-identity-SUBFLEET_CODEX_APP_HOME] 
+tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[daemon-SUBFLEET_HOME] 
+[gw1] [  4%] PASSED tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[daemon-SUBFLEET_HOME] 
+tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[importer-SUBFLEET_HOME] 
+[gw1] [  4%] PASSED tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[importer-SUBFLEET_HOME] 
+tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[importer-home-SUBFLEET_PROVIDER_HOME] 
+[gw1] [  4%] PASSED tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[importer-home-SUBFLEET_PROVIDER_HOME] 
+tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[transfer-home-SUBFLEET_PROVIDER_HOME] 
+[gw1] [  4%] PASSED tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[transfer-home-SUBFLEET_PROVIDER_HOME] 
+tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[importer-state-SUBFLEET_V1_STATE] 
+[gw1] [  4%] PASSED tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[importer-state-SUBFLEET_V1_STATE] 
+tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[importer-delegate-SUBFLEET_DELEGATE_STATE] 
+[gw1] [  4%] PASSED tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[importer-delegate-SUBFLEET_DELEGATE_STATE] 
+tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[importer-roster-SUBFLEET_V1_ROSTER_DIR] 
+[gw1] [  4%] PASSED tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[importer-roster-SUBFLEET_V1_ROSTER_DIR] 
+tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[cockpit-state-SUBFLEET_V1_STATE] 
+[gw1] [  4%] PASSED tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[cockpit-state-SUBFLEET_V1_STATE] 
+tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[importer-cli-state-SUBFLEET_V1_STATE] 
+[gw1] [  4%] PASSED tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[importer-cli-state-SUBFLEET_V1_STATE] 
+tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[importer-cli-delegate-SUBFLEET_DELEGATE_STATE] 
+[gw1] [  4%] PASSED tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[importer-cli-delegate-SUBFLEET_DELEGATE_STATE] 
+tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[importer-cli-roster-SUBFLEET_V1_ROSTER_DIR] 
+[gw1] [  4%] PASSED tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[importer-cli-roster-SUBFLEET_V1_ROSTER_DIR] 
+tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[transfer-state-SUBFLEET_V1_STATE] 
+[gw1] [  4%] PASSED tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[transfer-state-SUBFLEET_V1_STATE] 
+tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[transfer-roster-SUBFLEET_V1_ROSTER_DIR] 
+[gw1] [  4%] PASSED tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[transfer-roster-SUBFLEET_V1_ROSTER_DIR] 
+tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[transfer-agents-SUBFLEET_V1_LAUNCH_AGENTS] 
+[gw1] [  4%] PASSED tests/unit/test_live_store_guard.py::test_consumers_cannot_bypass_refusal[transfer-agents-SUBFLEET_V1_LAUNCH_AGENTS] 
+tests/unit/test_live_store_guard.py::test_legacy_defaults_use_session_paths_after_undo 
+[gw1] [  4%] PASSED tests/unit/test_live_store_guard.py::test_legacy_defaults_use_session_paths_after_undo 
+tests/unit/test_live_store_guard.py::test_e2e_child_has_every_guard_variable 
+[gw0] [  4%] PASSED tests/unit/test_launch_env_round8.py::test_i1_a_helper_scope_withholds_its_names_from_every_parent 
+tests/unit/test_launch_env_round8.py::test_i2_outside_any_scope_build_environment_is_releases 
+[gw1] [  4%] PASSED tests/unit/test_live_store_guard.py::test_e2e_child_has_every_guard_variable 
+tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[fake-home-absent] 
+[gw1] [  4%] PASSED tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[fake-home-absent] 
+tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[fake-home-empty] 
+[gw0] [  4%] PASSED tests/unit/test_launch_env_round8.py::test_i2_outside_any_scope_build_environment_is_releases 
+tests/unit/test_launch_env_round8.py::test_i2_daemon_start_still_receives_every_lane_variable 
+[gw0] [  4%] PASSED tests/unit/test_launch_env_round8.py::test_i2_daemon_start_still_receives_every_lane_variable 
+tests/unit/test_launch_env_round8.py::test_i3_the_scope_reads_its_names_at_each_call 
+[gw0] [  4%] PASSED tests/unit/test_launch_env_round8.py::test_i3_the_scope_reads_its_names_at_each_call 
+tests/unit/test_launch_env_round8.py::test_i3_a_lane_held_after_the_scope_opened_is_withheld 
+[gw0] [  4%] PASSED tests/unit/test_launch_env_round8.py::test_i3_a_lane_held_after_the_scope_opened_is_withheld 
+tests/unit/test_launch_env_round8.py::test_a_scope_repeating_an_outer_scopes_source_reads_it_once_per_build 
+[gw0] [  4%] PASSED tests/unit/test_launch_env_round8.py::test_a_scope_repeating_an_outer_scopes_source_reads_it_once_per_build 
+tests/unit/test_launch_env_round8.py::test_i4_nested_scopes_restore_the_outer_names_even_through_an_exception 
+[gw0] [  4%] PASSED tests/unit/test_launch_env_round8.py::test_i4_nested_scopes_restore_the_outer_names_even_through_an_exception 
+tests/unit/test_launch_env_round8.py::test_i4_an_exception_inside_a_scope_leaks_no_names 
+[gw0] [  4%] PASSED tests/unit/test_launch_env_round8.py::test_i4_an_exception_inside_a_scope_leaks_no_names 
+tests/unit/test_launch_env_round8.py::test_i4_a_scope_on_one_thread_withholds_nothing_on_another 
+[gw0] [  4%] PASSED tests/unit/test_launch_env_round8.py::test_i4_a_scope_on_one_thread_withholds_nothing_on_another 
+tests/unit/test_launch_env_round8.py::test_each_daemon_scope_entry_withholds_the_daemons_names[conversation-resume] 
+[gw0] [  4%] PASSED tests/unit/test_launch_env_round8.py::test_each_daemon_scope_entry_withholds_the_daemons_names[conversation-resume] 
+tests/unit/test_launch_env_round8.py::test_each_daemon_scope_entry_withholds_the_daemons_names[daemon-dispatch] 
+[gw0] [  4%] PASSED tests/unit/test_launch_env_round8.py::test_each_daemon_scope_entry_withholds_the_daemons_names[daemon-dispatch] 
+tests/unit/test_launch_env_round8.py::test_each_daemon_scope_entry_withholds_the_daemons_names[daemon-worker] 
+[gw0] [  5%] PASSED tests/unit/test_launch_env_round8.py::test_each_daemon_scope_entry_withholds_the_daemons_names[daemon-worker] 
+tests/unit/test_launch_env_round8.py::test_each_daemon_scope_entry_withholds_the_daemons_names[gate-dispatch] 
+[gw0] [  5%] PASSED tests/unit/test_launch_env_round8.py::test_each_daemon_scope_entry_withholds_the_daemons_names[gate-dispatch] 
+[gw1] [  5%] PASSED tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[fake-home-empty] 
+tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[fake-home-absolute] 
+tests/unit/test_launch_env_round8.py::test_each_daemon_scope_entry_withholds_the_daemons_names[timers] 
+[gw0] [  5%] PASSED tests/unit/test_launch_env_round8.py::test_each_daemon_scope_entry_withholds_the_daemons_names[timers] 
+tests/unit/test_launch_env_round8.py::test_each_daemon_scope_entry_withholds_the_daemons_names[wakes-poll] 
+[gw0] [  5%] PASSED tests/unit/test_launch_env_round8.py::test_each_daemon_scope_entry_withholds_the_daemons_names[wakes-poll] 
+tests/unit/test_launch_env_round8.py::test_dispatch_and_the_control_loop_open_the_same_scope_as_the_workers 
+[gw0] [  5%] PASSED tests/unit/test_launch_env_round8.py::test_dispatch_and_the_control_loop_open_the_same_scope_as_the_workers 
+tests/unit/test_launch_env_round8.py::test_timers_withhold_the_stored_lanes_without_the_daemons_set 
+[gw0] [  5%] PASSED tests/unit/test_launch_env_round8.py::test_timers_withhold_the_stored_lanes_without_the_daemons_set 
+tests/unit/test_launch_env_round8.py::test_the_gate_under_daemon_dispatch_reads_the_lanes_once_per_build 
+[gw0] [  5%] PASSED tests/unit/test_launch_env_round8.py::test_the_gate_under_daemon_dispatch_reads_the_lanes_once_per_build 
+tests/unit/test_launch_env_round8.py::test_each_helper_family_withholds_the_daemons_names_under_its_scope[conversation-catalog] 
+[gw0] [  5%] PASSED tests/unit/test_launch_env_round8.py::test_each_helper_family_withholds_the_daemons_names_under_its_scope[conversation-catalog] 
+tests/unit/test_launch_env_round8.py::test_each_helper_family_withholds_the_daemons_names_under_its_scope[gate-merge] 
+[gw0] [  5%] PASSED tests/unit/test_launch_env_round8.py::test_each_helper_family_withholds_the_daemons_names_under_its_scope[gate-merge] 
+tests/unit/test_launch_env_round8.py::test_each_helper_family_withholds_the_daemons_names_under_its_scope[handoff] 
+[gw0] [  5%] PASSED tests/unit/test_launch_env_round8.py::test_each_helper_family_withholds_the_daemons_names_under_its_scope[handoff] 
+tests/unit/test_launch_env_round8.py::test_each_helper_family_withholds_the_daemons_names_under_its_scope[nudge] 
+[gw0] [  5%] PASSED tests/unit/test_launch_env_round8.py::test_each_helper_family_withholds_the_daemons_names_under_its_scope[nudge] 
+tests/unit/test_launch_env_round8.py::test_each_helper_family_withholds_the_daemons_names_under_its_scope[retention_git] 
+[gw0] [  5%] PASSED tests/unit/test_launch_env_round8.py::test_each_helper_family_withholds_the_daemons_names_under_its_scope[retention_git] 
+tests/unit/test_launch_env_round8.py::test_each_helper_family_withholds_the_daemons_names_under_its_scope[salvage] 
+[gw0] [  5%] PASSED tests/unit/test_launch_env_round8.py::test_each_helper_family_withholds_the_daemons_names_under_its_scope[salvage] 
+tests/unit/test_launch_env_round8.py::test_each_helper_family_withholds_the_daemons_names_under_its_scope[uncommitted-copy] 
+[gw0] [  5%] PASSED tests/unit/test_launch_env_round8.py::test_each_helper_family_withholds_the_daemons_names_under_its_scope[uncommitted-copy] 
+tests/unit/test_launch_env_round8.py::test_each_helper_family_withholds_the_daemons_names_under_its_scope[wakes] 
+[gw0] [  5%] PASSED tests/unit/test_launch_env_round8.py::test_each_helper_family_withholds_the_daemons_names_under_its_scope[wakes] 
+tests/unit/test_launch_env_round8.py::test_every_helper_scope_passes_the_daemons_withheld_names 
+[gw1] [  5%] PASSED tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[fake-home-absolute] 
+tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[fake-home-relative] 
+[gw1] [  5%] PASSED tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[fake-home-relative] 
+tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[fake-home-tilde] 
+[gw1] [  5%] PASSED tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[fake-home-tilde] 
+tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[fake-home-legacy-mcp] 
+[gw1] [  5%] PASSED tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[fake-home-legacy-mcp] 
+tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[fake-home-literal-tilde-home] 
+[gw1] [  5%] PASSED tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[fake-home-literal-tilde-home] 
+tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[fake home with spaces-absent] 
+[gw1] [  5%] PASSED tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[fake home with spaces-absent] 
+tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[fake home with spaces-empty] 
+[gw0] node down: Not properly terminated
+[gw0] [  5%] FAILED tests/unit/test_launch_env_round8.py::test_every_helper_scope_passes_the_daemons_withheld_names 
+
+worker gw0 crashed and worker restarting disabled
+[gw1] [  5%] PASSED tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[fake home with spaces-empty] 
+tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[fake home with spaces-absolute] 
+[gw1] [  5%] PASSED tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[fake home with spaces-absolute] 
+tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[fake home with spaces-relative] 
+[gw1] [  5%] PASSED tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[fake home with spaces-relative] 
+tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[fake home with spaces-tilde] 
+[gw1] [  5%] PASSED tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[fake home with spaces-tilde] 
+tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[fake home with spaces-legacy-mcp] 
+[gw1] [  5%] PASSED tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[fake home with spaces-legacy-mcp] 
+tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[fake home with spaces-literal-tilde-home] 
+[gw1] [  5%] PASSED tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[fake home with spaces-literal-tilde-home] 
+tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[~/fake-home-absent] 
+[gw1] [  6%] PASSED tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[~/fake-home-absent] 
+tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[~/fake-home-empty] 
+[gw1] [  6%] PASSED tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[~/fake-home-empty] 
+tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[~/fake-home-absolute] 
+[gw1] [  6%] PASSED tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[~/fake-home-absolute] 
+tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[~/fake-home-relative] 
+[gw1] [  6%] PASSED tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[~/fake-home-relative] 
+tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[~/fake-home-tilde] 
+[gw1] [  6%] PASSED tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[~/fake-home-tilde] 
+tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[~/fake-home-legacy-mcp] 
+[gw1] [  6%] PASSED tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[~/fake-home-legacy-mcp] 
+tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[~/fake-home-literal-tilde-home] 
+[gw1] [  6%] PASSED tests/unit/test_live_store_guard.py::test_outside_pytest_matches_release_217[~/fake-home-literal-tilde-home] 
+tests/unit/test_live_store_guard.py::test_keychain_after_undo_never_requests_native_command[SUBFLEET_UNDER_PYTEST] 
+[gw1] [  6%] PASSED tests/unit/test_live_store_guard.py::test_keychain_after_undo_never_requests_native_command[SUBFLEET_UNDER_PYTEST] 
+tests/unit/test_live_store_guard.py::test_keychain_after_undo_never_requests_native_command[PYTEST_CURRENT_TEST] 
+[gw1] [  6%] PASSED tests/unit/test_live_store_guard.py::test_keychain_after_undo_never_requests_native_command[PYTEST_CURRENT_TEST] 
+tests/unit/test_live_store_guard.py::test_every_keychain_reader_refuses_default_backend[SUBFLEET_UNDER_PYTEST-blob] 
+[gw1] [  6%] PASSED tests/unit/test_live_store_guard.py::test_every_keychain_reader_refuses_default_backend[SUBFLEET_UNDER_PYTEST-blob] 
+tests/unit/test_live_store_guard.py::test_every_keychain_reader_refuses_default_backend[SUBFLEET_UNDER_PYTEST-home-login] 
+[gw1] [  6%] PASSED tests/unit/test_live_store_guard.py::test_every_keychain_reader_refuses_default_backend[SUBFLEET_UNDER_PYTEST-home-login] 
+tests/unit/test_live_store_guard.py::test_every_keychain_reader_refuses_default_backend[SUBFLEET_UNDER_PYTEST-token] 
+[gw1] [  6%] PASSED tests/unit/test_live_store_guard.py::test_every_keychain_reader_refuses_default_backend[SUBFLEET_UNDER_PYTEST-token] 
+tests/unit/test_live_store_guard.py::test_every_keychain_reader_refuses_default_backend[SUBFLEET_UNDER_PYTEST-plan] 
+[gw1] [  6%] PASSED tests/unit/test_live_store_guard.py::test_every_keychain_reader_refuses_default_backend[SUBFLEET_UNDER_PYTEST-plan] 
+tests/unit/test_live_store_guard.py::test_every_keychain_reader_refuses_default_backend[SUBFLEET_UNDER_PYTEST-credential] 
+[gw1] [  6%] PASSED tests/unit/test_live_store_guard.py::test_every_keychain_reader_refuses_default_backend[SUBFLEET_UNDER_PYTEST-credential] 
+tests/unit/test_live_store_guard.py::test_every_keychain_reader_refuses_default_backend[PYTEST_CURRENT_TEST-blob] 
+[gw1] [  6%] PASSED tests/unit/test_live_store_guard.py::test_every_keychain_reader_refuses_default_backend[PYTEST_CURRENT_TEST-blob] 
+tests/unit/test_live_store_guard.py::test_every_keychain_reader_refuses_default_backend[PYTEST_CURRENT_TEST-home-login] 
+[gw1] [  6%] PASSED tests/unit/test_live_store_guard.py::test_every_keychain_reader_refuses_default_backend[PYTEST_CURRENT_TEST-home-login] 
+tests/unit/test_live_store_guard.py::test_every_keychain_reader_refuses_default_backend[PYTEST_CURRENT_TEST-token] 
+[gw1] [  6%] PASSED tests/unit/test_live_store_guard.py::test_every_keychain_reader_refuses_default_backend[PYTEST_CURRENT_TEST-token] 
+tests/unit/test_live_store_guard.py::test_every_keychain_reader_refuses_default_backend[PYTEST_CURRENT_TEST-plan] 
+[gw1] [  6%] PASSED tests/unit/test_live_store_guard.py::test_every_keychain_reader_refuses_default_backend[PYTEST_CURRENT_TEST-plan] 
+tests/unit/test_live_store_guard.py::test_every_keychain_reader_refuses_default_backend[PYTEST_CURRENT_TEST-credential] 
+[gw1] [  6%] PASSED tests/unit/test_live_store_guard.py::test_every_keychain_reader_refuses_default_backend[PYTEST_CURRENT_TEST-credential] 
+tests/unit/test_live_store_guard.py::test_keychain_explicit_runner_is_a_standin 
+[gw1] [  6%] PASSED tests/unit/test_live_store_guard.py::test_keychain_explicit_runner_is_a_standin 
+tests/unit/test_live_store_guard.py::test_native_keychain_command_is_never_a_standin[False-security] 
+[gw1] [  6%] PASSED tests/unit/test_live_store_guard.py::test_native_keychain_command_is_never_a_standin[False-security] 
+tests/unit/test_live_store_guard.py::test_native_keychain_command_is_never_a_standin[False-/usr/bin/security] 
+[gw1] [  6%] PASSED tests/unit/test_live_store_guard.py::test_native_keychain_command_is_never_a_standin[False-/usr/bin/security] 
+tests/unit/test_live_store_guard.py::test_native_keychain_command_is_never_a_standin[True-security] 
+[gw1] [  6%] PASSED tests/unit/test_live_store_guard.py::test_native_keychain_command_is_never_a_standin[True-security] 
+tests/unit/test_live_store_guard.py::test_native_keychain_command_is_never_a_standin[True-/usr/bin/security] 
+[gw1] [  6%] PASSED tests/unit/test_live_store_guard.py::test_native_keychain_command_is_never_a_standin[True-/usr/bin/security] 
+tests/unit/test_live_store_guard.py::test_implicit_agent_helper_lookup_is_isolated 
+[gw1] [  6%] PASSED tests/unit/test_live_store_guard.py::test_implicit_agent_helper_lookup_is_isolated 
+tests/unit/test_live_store_guard.py::test_doctor_default_plist_is_isolated 
+[gw1] [  6%] PASSED tests/unit/test_live_store_guard.py::test_doctor_default_plist_is_isolated 
+tests/unit/test_live_store_guard.py::test_unconfigure_restores_environment_and_expires_captured_child[missing] 
+[gw1] [  6%] PASSED tests/unit/test_live_store_guard.py::test_unconfigure_restores_environment_and_expires_captured_child[missing] 
+tests/unit/test_live_store_guard.py::test_unconfigure_restores_environment_and_expires_captured_child[empty] 
+[gw1] [  6%] PASSED tests/unit/test_live_store_guard.py::test_unconfigure_restores_environment_and_expires_captured_child[empty] 
+tests/unit/test_live_store_guard.py::test_unconfigure_restores_environment_and_expires_captured_child[configured] 
+[gw1] [  7%] PASSED tests/unit/test_live_store_guard.py::test_unconfigure_restores_environment_and_expires_captured_child[configured] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[recording-passthrough-credential] 
+[gw1] [  7%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[recording-passthrough-credential] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[recording-passthrough-blob] 
+[gw1] [  7%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[recording-passthrough-blob] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[recording-passthrough-home-login] 
+[gw1] [  7%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[recording-passthrough-home-login] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[recording-passthrough-token] 
+[gw1] [  7%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[recording-passthrough-token] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[recording-passthrough-plan] 
+[gw1] [  7%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[recording-passthrough-plan] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[selective-passthrough-credential] 
+[gw1] [  7%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[selective-passthrough-credential] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[selective-passthrough-blob] 
+[gw1] [  7%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[selective-passthrough-blob] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[selective-passthrough-home-login] 
+[gw1] [  7%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[selective-passthrough-home-login] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[selective-passthrough-token] 
+[gw1] [  7%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[selective-passthrough-token] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[selective-passthrough-plan] 
+[gw1] [  7%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[selective-passthrough-plan] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[lambda-credential] 
+[gw1] [  7%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[lambda-credential] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[lambda-blob] 
+[gw1] [  7%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[lambda-blob] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[lambda-home-login] 
+[gw1] [  7%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[lambda-home-login] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[lambda-token] 
+[gw1] [  7%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[lambda-token] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[lambda-plan] 
+[gw1] [  7%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[lambda-plan] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[partial-credential] 
+[gw1] [  7%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[partial-credential] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[partial-blob] 
+[gw1] [  7%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[partial-blob] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[partial-home-login] 
+[gw1] [  7%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[partial-home-login] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[partial-token] 
+[gw1] [  7%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[partial-token] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[partial-plan] 
+[gw1] [  7%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[partial-plan] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[partial-env-credential] 
+[gw1] [  7%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[partial-env-credential] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[partial-env-blob] 
+[gw1] [  7%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[partial-env-blob] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[partial-env-home-login] 
+[gw1] [  7%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[partial-env-home-login] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[partial-env-token] 
+[gw1] [  7%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[partial-env-token] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[partial-env-plan] 
+[gw1] [  7%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[partial-env-plan] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[mock-wraps-credential] 
+[gw1] [  7%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[mock-wraps-credential] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[mock-wraps-blob] 
+[gw1] [  7%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[mock-wraps-blob] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[mock-wraps-home-login] 
+[gw1] [  7%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[mock-wraps-home-login] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[mock-wraps-token] 
+[gw1] [  8%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[mock-wraps-token] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[mock-wraps-plan] 
+[gw1] [  8%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[mock-wraps-plan] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[magicmock-wraps-credential] 
+[gw1] [  8%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[magicmock-wraps-credential] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[magicmock-wraps-blob] 
+[gw1] [  8%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[magicmock-wraps-blob] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[magicmock-wraps-home-login] 
+[gw1] [  8%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[magicmock-wraps-home-login] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[magicmock-wraps-token] 
+[gw1] [  8%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[magicmock-wraps-token] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[magicmock-wraps-plan] 
+[gw1] [  8%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[magicmock-wraps-plan] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[popen-based-credential] 
+[gw1] [  8%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[popen-based-credential] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[popen-based-blob] 
+[gw1] [  8%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[popen-based-blob] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[popen-based-home-login] 
+[gw1] [  8%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[popen-based-home-login] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[popen-based-token] 
+[gw1] [  8%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[popen-based-token] 
+tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[popen-based-plan] 
+[gw1] [  8%] PASSED tests/unit/test_live_store_guard_round6.py::test_delegating_subprocess_patch_cannot_reach_keychain[popen-based-plan] 
+tests/unit/test_live_store_guard_round6.py::test_mock_patch_wraps_cannot_reach_keychain 
+[gw1] [  8%] PASSED tests/unit/test_live_store_guard_round6.py::test_mock_patch_wraps_cannot_reach_keychain 
+tests/unit/test_live_store_guard_round6.py::test_explicit_delegating_runner_cannot_reach_keychain[partial] 
+[gw1] [  8%] PASSED tests/unit/test_live_store_guard_round6.py::test_explicit_delegating_runner_cannot_reach_keychain[partial] 
+tests/unit/test_live_store_guard_round6.py::test_explicit_delegating_runner_cannot_reach_keychain[mock-wraps] 
+[gw1] [  8%] PASSED tests/unit/test_live_store_guard_round6.py::test_explicit_delegating_runner_cannot_reach_keychain[mock-wraps] 
+tests/unit/test_live_store_guard_round6.py::test_explicit_delegating_runner_cannot_reach_keychain[lambda] 
+[gw1] [  8%] PASSED tests/unit/test_live_store_guard_round6.py::test_explicit_delegating_runner_cannot_reach_keychain[lambda] 
+tests/unit/test_live_store_guard_round6.py::test_adapter_built_under_delegating_patch_is_refused_after_undo 
+[gw1] [  8%] PASSED tests/unit/test_live_store_guard_round6.py::test_adapter_built_under_delegating_patch_is_refused_after_undo 
+tests/unit/test_live_store_guard_round6.py::test_enrollment_runner_around_native_runner_cannot_reach_keychain 
+[gw1] [  8%] PASSED tests/unit/test_live_store_guard_round6.py::test_enrollment_runner_around_native_runner_cannot_reach_keychain 
+tests/unit/test_live_store_guard_round6.py::test_daemon_reenrolment_with_default_adapter_cannot_reach_keychain 
+[gw1] [  8%] PASSED tests/unit/test_live_store_guard_round6.py::test_daemon_reenrolment_with_default_adapter_cannot_reach_keychain 
+tests/unit/test_live_store_guard_round6.py::test_stripped_markers_keep_the_session_refusal[markers-native] 
+[gw1] [  8%] PASSED tests/unit/test_live_store_guard_round6.py::test_stripped_markers_keep_the_session_refusal[markers-native] 
+tests/unit/test_live_store_guard_round6.py::test_stripped_markers_keep_the_session_refusal[markers-delegating] 
+[gw1] [  8%] PASSED tests/unit/test_live_store_guard_round6.py::test_stripped_markers_keep_the_session_refusal[markers-delegating] 
+tests/unit/test_live_store_guard_round6.py::test_stripped_markers_keep_the_session_refusal[session-identity-native] 
+[gw1] [  8%] PASSED tests/unit/test_live_store_guard_round6.py::test_stripped_markers_keep_the_session_refusal[session-identity-native] 
+tests/unit/test_live_store_guard_round6.py::test_stripped_markers_keep_the_session_refusal[session-identity-delegating] 
+[gw1] [  8%] PASSED tests/unit/test_live_store_guard_round6.py::test_stripped_markers_keep_the_session_refusal[session-identity-delegating] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_early[//usr/bin/security-none] 
+[gw1] [  8%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_early[//usr/bin/security-none] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_early[//usr/bin/security-native] 
+[gw1] [  8%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_early[//usr/bin/security-native] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_early[/usr/bin/./security-none] 
+[gw1] [  8%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_early[/usr/bin/./security-none] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_early[/usr/bin/./security-native] 
+[gw1] [  8%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_early[/usr/bin/./security-native] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_early[/usr/bin/../bin/security-none] 
+[gw1] [  8%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_early[/usr/bin/../bin/security-none] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_early[/usr/bin/../bin/security-native] 
+[gw1] [  8%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_early[/usr/bin/../bin/security-native] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_early[/usr/../usr/bin/security-none] 
+[gw1] [  9%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_early[/usr/../usr/bin/security-none] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_early[/usr/../usr/bin/security-native] 
+[gw1] [  9%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_early[/usr/../usr/bin/security-native] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_early[/USR/BIN/SECURITY-none] 
+[gw1] [  9%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_early[/USR/BIN/SECURITY-none] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_early[/USR/BIN/SECURITY-native] 
+[gw1] [  9%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_early[/USR/BIN/SECURITY-native] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_early[/usr/bin/\u017fecurity-none] 
+[gw1] [  9%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_early[/usr/bin/\u017fecurity-none] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_early[/usr/bin/\u017fecurity-native] 
+[gw1] [  9%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_early[/usr/bin/\u017fecurity-native] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_early[volfs-none] 
+[gw1] [  9%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_early[volfs-none] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_early[volfs-native] 
+[gw1] [  9%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_early[volfs-native] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/usr/bin/security-subprocess.Popen] 
+[gw1] [  9%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/usr/bin/security-subprocess.Popen] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/usr/bin/security-os.exec] 
+[gw1] [  9%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/usr/bin/security-os.exec] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/usr/bin/security-os.posix_spawn] 
+[gw1] [  9%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/usr/bin/security-os.posix_spawn] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[//usr/bin/security-subprocess.Popen] 
+[gw1] [  9%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[//usr/bin/security-subprocess.Popen] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[//usr/bin/security-os.exec] 
+[gw1] [  9%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[//usr/bin/security-os.exec] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[//usr/bin/security-os.posix_spawn] 
+[gw1] [  9%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[//usr/bin/security-os.posix_spawn] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/usr/bin/./security-subprocess.Popen] 
+[gw1] [  9%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/usr/bin/./security-subprocess.Popen] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/usr/bin/./security-os.exec] 
+[gw1] [  9%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/usr/bin/./security-os.exec] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/usr/bin/./security-os.posix_spawn] 
+[gw1] [  9%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/usr/bin/./security-os.posix_spawn] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/usr/bin/../bin/security-subprocess.Popen] 
+[gw1] [  9%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/usr/bin/../bin/security-subprocess.Popen] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/usr/bin/../bin/security-os.exec] 
+[gw1] [  9%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/usr/bin/../bin/security-os.exec] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/usr/bin/../bin/security-os.posix_spawn] 
+[gw1] [  9%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/usr/bin/../bin/security-os.posix_spawn] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/usr/../usr/bin/security-subprocess.Popen] 
+[gw1] [  9%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/usr/../usr/bin/security-subprocess.Popen] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/usr/../usr/bin/security-os.exec] 
+[gw1] [  9%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/usr/../usr/bin/security-os.exec] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/usr/../usr/bin/security-os.posix_spawn] 
+[gw1] [  9%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/usr/../usr/bin/security-os.posix_spawn] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/USR/BIN/SECURITY-subprocess.Popen] 
+[gw1] [  9%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/USR/BIN/SECURITY-subprocess.Popen] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/USR/BIN/SECURITY-os.exec] 
+[gw1] [  9%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/USR/BIN/SECURITY-os.exec] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/USR/BIN/SECURITY-os.posix_spawn] 
+[gw1] [  9%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/USR/BIN/SECURITY-os.posix_spawn] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/usr/bin/\u017fecurity-subprocess.Popen] 
+[gw1] [  9%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/usr/bin/\u017fecurity-subprocess.Popen] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/usr/bin/\u017fecurity-os.exec] 
+[gw1] [  9%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/usr/bin/\u017fecurity-os.exec] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/usr/bin/\u017fecurity-os.posix_spawn] 
+[gw1] [ 10%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[/usr/bin/\u017fecurity-os.posix_spawn] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[volfs-subprocess.Popen] 
+[gw1] [ 10%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[volfs-subprocess.Popen] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[volfs-os.exec] 
+[gw1] [ 10%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[volfs-os.exec] 
+tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[volfs-os.posix_spawn] 
+[gw1] [ 10%] PASSED tests/unit/test_live_store_guard_round6.py::test_native_binary_spellings_are_refused_at_launch[volfs-os.posix_spawn] 
+tests/unit/test_live_store_guard_round6.py::test_the_folded_spelling_matches_without_the_file_identity[//usr/bin/security] 
+[gw1] [ 10%] PASSED tests/unit/test_live_store_guard_round6.py::test_the_folded_spelling_matches_without_the_file_identity[//usr/bin/security] 
+tests/unit/test_live_store_guard_round6.py::test_the_folded_spelling_matches_without_the_file_identity[/usr/bin/./security] 
+[gw1] [ 10%] PASSED tests/unit/test_live_store_guard_round6.py::test_the_folded_spelling_matches_without_the_file_identity[/usr/bin/./security] 
+tests/unit/test_live_store_guard_round6.py::test_the_folded_spelling_matches_without_the_file_identity[/usr/bin/../bin/security] 
+[gw1] [ 10%] PASSED tests/unit/test_live_store_guard_round6.py::test_the_folded_spelling_matches_without_the_file_identity[/usr/bin/../bin/security] 
+tests/unit/test_live_store_guard_round6.py::test_the_folded_spelling_matches_without_the_file_identity[/USR/BIN/SECURITY] 
+[gw1] [ 10%] PASSED tests/unit/test_live_store_guard_round6.py::test_the_folded_spelling_matches_without_the_file_identity[/USR/BIN/SECURITY] 
+tests/unit/test_live_store_guard_round6.py::test_the_folded_spelling_matches_without_the_file_identity[/usr/bin/\u017fecurity] 
+[gw1] [ 10%] PASSED tests/unit/test_live_store_guard_round6.py::test_the_folded_spelling_matches_without_the_file_identity[/usr/bin/\u017fecurity] 
+tests/unit/test_live_store_guard_round6.py::test_the_file_identity_matches_without_the_folded_spelling[/USR/BIN/SECURITY] 
+[gw1] [ 10%] PASSED tests/unit/test_live_store_guard_round6.py::test_the_file_identity_matches_without_the_folded_spelling[/USR/BIN/SECURITY] 
+tests/unit/test_live_store_guard_round6.py::test_the_file_identity_matches_without_the_folded_spelling[volfs] 
+[gw1] [ 10%] PASSED tests/unit/test_live_store_guard_round6.py::test_the_file_identity_matches_without_the_folded_spelling[volfs] 
+tests/unit/test_live_store_guard_round6.py::test_launch_target_is_found_as_the_launch_finds_it[call-path] 
+[gw1] [ 10%] PASSED tests/unit/test_live_store_guard_round6.py::test_launch_target_is_found_as_the_launch_finds_it[call-path] 
+tests/unit/test_live_store_guard_round6.py::test_launch_target_is_found_as_the_launch_finds_it[default-search-path] 
+[gw1] [ 10%] PASSED tests/unit/test_live_store_guard_round6.py::test_launch_target_is_found_as_the_launch_finds_it[default-search-path] 
+tests/unit/test_live_store_guard_round6.py::test_launch_target_is_found_as_the_launch_finds_it[child-cwd] 
+[gw1] [ 10%] PASSED tests/unit/test_live_store_guard_round6.py::test_launch_target_is_found_as_the_launch_finds_it[child-cwd] 
+tests/unit/test_live_store_guard_round6.py::test_launch_target_is_found_as_the_launch_finds_it[child-cwd-relative] 
+[gw1] [ 10%] PASSED tests/unit/test_live_store_guard_round6.py::test_launch_target_is_found_as_the_launch_finds_it[child-cwd-relative] 
+tests/unit/test_live_store_guard_round6.py::test_launch_target_is_found_as_the_launch_finds_it[bare-case-alias] 
+[gw1] [ 10%] PASSED tests/unit/test_live_store_guard_round6.py::test_launch_target_is_found_as_the_launch_finds_it[bare-case-alias] 
+tests/unit/test_live_store_guard_round6.py::test_launch_target_is_found_as_the_launch_finds_it[bare-name-with-empty-search] 
+[gw1] [ 10%] PASSED tests/unit/test_live_store_guard_round6.py::test_launch_target_is_found_as_the_launch_finds_it[bare-name-with-empty-search] 
+tests/unit/test_live_store_guard_round6.py::test_launch_target_is_found_as_the_launch_finds_it[unrelated-program] 
+[gw1] [ 10%] PASSED tests/unit/test_live_store_guard_round6.py::test_launch_target_is_found_as_the_launch_finds_it[unrelated-program] 
+tests/unit/test_live_store_guard_round6.py::test_launch_target_is_found_as_the_launch_finds_it[stand-in-first-on-call-path] 
+[gw1] [ 10%] PASSED tests/unit/test_live_store_guard_round6.py::test_launch_target_is_found_as_the_launch_finds_it[stand-in-first-on-call-path] 
+tests/unit/test_live_store_guard_round6.py::test_a_stub_never_launches_so_it_still_works 
+[gw1] [ 10%] PASSED tests/unit/test_live_store_guard_round6.py::test_a_stub_never_launches_so_it_still_works 
+tests/unit/test_live_store_guard_round6.py::test_probes_detect_a_launch_that_is_not_refused 
+[gw1] [ 10%] PASSED tests/unit/test_live_store_guard_round6.py::test_probes_detect_a_launch_that_is_not_refused 
+tests/unit/test_live_store_guard_round6.py::test_an_alias_uses_the_childs_path_even_with_the_bare_reader_rule 
+[gw1] [ 10%] PASSED tests/unit/test_live_store_guard_round6.py::test_an_alias_uses_the_childs_path_even_with_the_bare_reader_rule 
+tests/unit/test_live_store_guard_round6.py::test_installing_again_adds_no_second_hook 
+[gw1] [ 10%] PASSED tests/unit/test_live_store_guard_round6.py::test_installing_again_adds_no_second_hook 
+tests/unit/test_live_store_guard_round6.py::test_replacing_module_helpers_cannot_weaken_the_installed_hook 
+[gw1] [ 10%] PASSED tests/unit/test_live_store_guard_round6.py::test_replacing_module_helpers_cannot_weaken_the_installed_hook 
+tests/unit/test_live_store_guard_round6.py::test_python_child_of_the_session_is_guarded_from_import 
+[gw1] [ 10%] PASSED tests/unit/test_live_store_guard_round6.py::test_python_child_of_the_session_is_guarded_from_import 
+tests/unit/test_live_store_guard_round6.py::test_outside_pytest_the_guard_is_absent_and_inert 
+[gw1] [ 10%] PASSED tests/unit/test_live_store_guard_round6.py::test_outside_pytest_the_guard_is_absent_and_inert 
+tests/unit/test_live_store_guard_round6.py::test_after_session_cleanup_a_captured_child_guard_is_inert 
+[gw1] [ 10%] PASSED tests/unit/test_live_store_guard_round6.py::test_after_session_cleanup_a_captured_child_guard_is_inert 
+tests/unit/test_live_store_guard_st3.py::test_daemon_start_refuses_the_live_root_before_any_access[empty] 
+[gw1] [ 10%] PASSED tests/unit/test_live_store_guard_st3.py::test_daemon_start_refuses_the_live_root_before_any_access[empty] 
+tests/unit/test_live_store_guard_st3.py::test_daemon_start_refuses_the_live_root_before_any_access[path-only] 
+[gw1] [ 10%] PASSED tests/unit/test_live_store_guard_st3.py::test_daemon_start_refuses_the_live_root_before_any_access[path-only] 
+tests/unit/test_live_store_guard_st3.py::test_the_subfleetd_console_script_is_the_program_entry 
+[gw1] [ 11%] PASSED tests/unit/test_live_store_guard_st3.py::test_the_subfleetd_console_script_is_the_program_entry 
+tests/unit/test_live_store_guard_st3.py::test_production_state_root_refuses[empty] 
+[gw1] [ 11%] PASSED tests/unit/test_live_store_guard_st3.py::test_production_state_root_refuses[empty] 
+tests/unit/test_live_store_guard_st3.py::test_production_state_root_refuses[path-only] 
+[gw1] [ 11%] PASSED tests/unit/test_live_store_guard_st3.py::test_production_state_root_refuses[path-only] 
+tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[mirror-store-empty] 
+[gw1] [ 11%] PASSED tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[mirror-store-empty] 
+tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[mirror-store-path-only] 
+[gw1] [ 11%] PASSED tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[mirror-store-path-only] 
+tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[revive-store-empty] 
+[gw1] [ 11%] PASSED tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[revive-store-empty] 
+tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[revive-store-path-only] 
+[gw1] [ 11%] PASSED tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[revive-store-path-only] 
+tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[desktop-log-empty] 
+[gw1] [ 11%] PASSED tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[desktop-log-empty] 
+tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[desktop-log-path-only] 
+[gw1] [ 11%] PASSED tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[desktop-log-path-only] 
+tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[transcripts-home-empty] 
+[gw1] [ 11%] PASSED tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[transcripts-home-empty] 
+tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[transcripts-home-path-only] 
+[gw1] [ 11%] PASSED tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[transcripts-home-path-only] 
+tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[transcripts-projects-empty] 
+[gw1] [ 11%] PASSED tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[transcripts-projects-empty] 
+tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[transcripts-projects-path-only] 
+[gw1] [ 11%] PASSED tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[transcripts-projects-path-only] 
+tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[mirror-projects-empty] 
+[gw1] [ 11%] PASSED tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[mirror-projects-empty] 
+tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[mirror-projects-path-only] 
+[gw1] [ 11%] PASSED tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[mirror-projects-path-only] 
+tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[notify-home-empty] 
+[gw1] [ 11%] PASSED tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[notify-home-empty] 
+tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[notify-home-path-only] 
+[gw1] [ 11%] PASSED tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[notify-home-path-only] 
+tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[notify-sessions-empty] 
+[gw1] [ 11%] PASSED tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[notify-sessions-empty] 
+tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[notify-sessions-path-only] 
+[gw1] [ 11%] PASSED tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[notify-sessions-path-only] 
+tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[client-state-empty] 
+[gw1] [ 11%] PASSED tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[client-state-empty] 
+tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[client-state-path-only] 
+[gw1] [ 11%] PASSED tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[client-state-path-only] 
+tests/unit/test_live_store_guard_st3.py::test_every_resolver_refuses_its_default[preflight-state-empty] 
+
+=================================== FAILURES ===================================
+[gw0] darwin -- Python 3.15.2 /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/builds-v0/.tmpY6YgO6/bin/python
+worker 'gw0' crashed while running 'tests/unit/test_launch_env_round8.py::test_every_helper_scope_passes_the_daemons_withheld_names'
+worker 'gw0' crashed while running 'tests/unit/tes
+=========== xdist: worker gw0 crashed and worker restarting disabled ===========
+=========================== short test summary info ============================
+FAILED tests/unit/test_launch_env_round8.py::test_every_helper_scope_passes_the_daemons_withheld_names - worker 'gw0' crashed while running 'tests/unit/test_launch_env_round8.py::test_every_helper_scope_passes_the_daemons_withheld_names'
+================== 1 failed, 334 passed in 843.08s (0:14:03) ===================
+Traceback (most recent call last):
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/main.py", line 330, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+                         ~~~~^^^^^^^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/main.py", line 384, in _main
+    config.hook.pytest_runtestloop(session=session)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+           ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/pluggy/_callers.py", line 167, in _multicall
+    raise exception
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/pluggy/_callers.py", line 139, in _multicall
+    teardown.throw(exception)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/logging.py", line 816, in pytest_runtestloop
+    return (yield)  # Run all the tests.
+            ^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/pluggy/_callers.py", line 139, in _multicall
+    teardown.throw(exception)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/terminal.py", line 708, in pytest_runtestloop
+    result = yield
+             ^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/xdist/dsession.py", line 138, in pytest_runtestloop
+    self.loop_once()
+    ~~~~~~~~~~~~~~^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/xdist/dsession.py", line 154, in loop_once
+    eventcall = self.queue.get(timeout=2.0)
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/queue.py", line 210, in get
+    self.not_empty.wait(remaining)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/threading.py", line 370, in wait
+    gotit = waiter.acquire(True, timeout)
+KeyboardInterrupt
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 201, in _run_module_as_main
+  File "<frozen runpy>", line 87, in _run_code
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/pytest/__main__.py", line 9, in <module>
+    raise SystemExit(_console_main())
+                     ~~~~~~~~~~~~~^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/config/__init__.py", line 253, in _console_main
+    code = _main(prog=_get_prog_name(sys.argv))
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/config/__init__.py", line 229, in _main
+    ret: ExitCode | int = config.hook.pytest_cmdline_main(config=config)
+                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+           ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/pluggy/_callers.py", line 167, in _multicall
+    raise exception
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/main.py", line 377, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/main.py", line 344, in wrap_session
+    config.hook.pytest_keyboard_interrupt(excinfo=excinfo)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+           ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/pluggy/_callers.py", line 167, in _multicall
+    raise exception
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/terminal.py", line 1012, in pytest_keyboard_interrupt
+    self._keyboardinterrupt_memo = excinfo.getrepr(funcargs=True)
+                                   ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/_code/code.py", line 774, in getrepr
+    return fmt.repr_excinfo(self)
+           ~~~~~~~~~~~~~~~~^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/_code/code.py", line 1224, in repr_excinfo
+    reprtraceback = self.repr_traceback(excinfo_)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/_code/code.py", line 1150, in repr_traceback
+    self.repr_traceback_entry(entry, excinfo if last == entry else None)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/_code/code.py", line 1080, in repr_traceback_entry
+    source = self._getentrysource(entry)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/_code/code.py", line 916, in _getentrysource
+    source = entry.getsource(self.astcache)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/_code/code.py", line 302, in getsource
+    astnode, _, end = getstatementrange_ast(
+                      ~~~~~~~~~~~~~~~~~~~~~^
+        self.lineno, source, astnode=astnode
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/_code/source.py", line 195, in getstatementrange_ast
+    start, end = get_statement_startend2(lineno, astnode)
+                 ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261115-100031-eff-fix-r2-a2-vxzuixz_/sf-eff-fix2/uv-cache/archive-v0/xEMVwOIx5ZRN5hTA/lib/python3.15/site-packages/_pytest/_code/source.py", line 157, in get_statement_startend2
+    for x in ast.walk(node):
+             ~~~~~~~~^^^^^^
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/ast.py", line 432, in walk
+    todo.extend(iter_child_nodes(node))
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+KeyboardInterrupt

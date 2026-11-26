@@ -1,0 +1,7 @@
+tests/unit/test_claude_turn.py
+tests/unit/test_turn_runner.py
+tests/unit/test_conversation_titles.py
+tests/unit/test_conversation_handoff.py
+tests/unit/test_launch_env_vendor_shell.py
+tests/fake/test_turn_trees.py
+tests/fake/test_record_secrecy.py

@@ -1,0 +1,7 @@
+tests/unit/test_claude_adapter.py
+tests/unit/test_legacy_hold.py
+tests/frontend/test_core_steer.py
+tests/fake/test_sessions_end_to_end.py
+tests/unit/test_gate_admission.py
+tests/fake/test_resume_contract.py
+tests/unit/test_launch_env_allowlist.py
