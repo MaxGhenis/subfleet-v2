@@ -1,0 +1,299 @@
+[
+ {
+  "log": "c1.log",
+  "start": "2026-11-15T02:28:23Z load: 21:28  up 13:56, 1 user, load averages: 156.95 141.46 120.35",
+  "end": "2026-11-15T02:36:22Z load: 21:36  up 14:04, 1 user, load averages: 163.35 156.30 136.59",
+  "args": "-q -p no:randomly tests/unit/test_cli.py tests/unit/test_notify_push.py tests/unit/test_turn_replay.py tests/fake/test_frozen_stream_nonregular.py tests/fake/test_gate_end_to_end.py tests/unit/test_effort_env.py tests/unit/test_conversation_status.py tests/fake/test_turn_wait_reasons.py tests/unit/test_approval_commit.py tests/fake/test_fake_provider.py tests/frontend/test_core_idle.py",
+  "workers": "4",
+  "exit": "1",
+  "result": "2 failed, 518 passed, 8 skipped in 467.34s (0:07:47)",
+  "failed": [
+   "tests/fake/test_gate_end_to_end.py::test_plan_peer_process_finalizes_through_real_daemon",
+   "tests/unit/test_cli.py::test_suggest_open_pipe_is_bounded"
+  ]
+ },
+ {
+  "log": "c2a.log",
+  "start": "2026-11-15T02:36:45Z load: 21:36  up 14:04, 1 user, load averages: 171.39 158.70 138.02",
+  "end": "2026-11-15T02:41:23Z load: 21:41  up 14:09, 1 user, load averages: 172.97 168.50 148.54",
+  "args": "-q tests/unit/test_importer.py tests/unit/test_conversation_store.py tests/frontend/test_core_search.py tests/fake/test_launch_env_daemon.py tests/frontend/test_core_outbox.py tests/unit/test_lane_settings.py",
+  "workers": "4",
+  "exit": "0",
+  "result": "1383 passed in 269.70s (0:04:29)",
+  "failed": []
+ },
+ {
+  "log": "c2b.log",
+  "start": "2026-11-15T02:41:30Z load: 21:41  up 14:09, 1 user, load averages: 169.48 167.84 148.53",
+  "end": "2026-11-15T02:43:26Z load: 21:43  up 14:11, 1 user, load averages: 180.64 171.62 152.40",
+  "args": "-q tests/unit/test_policy_support.py tests/unit/test_conversation_connections.py tests/fake/test_probe_recovery.py tests/process/test_codex_isolation.py tests/unit/test_title_review_regressions.py tests/unit/test_attempt_tmpdir_sandboxes.py",
+  "workers": "4",
+  "exit": "0",
+  "result": "86 passed in 106.39s (0:01:46)",
+  "failed": []
+ },
+ {
+  "log": "c3a.log",
+  "start": "2026-11-15T02:43:42Z load: 21:43  up 14:11, 1 user, load averages: 184.19 172.88 153.18",
+  "end": "2026-11-15T02:51:47Z load: 21:51  up 14:19, 1 user, load averages: 110.30 138.46 146.75",
+  "args": "-q tests/unit/test_conversation_service.py tests/unit/test_policy.py tests/unit/test_retention_81_notes.py tests/frontend/test_core_timeline.py tests/unit/test_review_publish_guard.py tests/unit/test_codex_turn_completed.py tests/fake/test_canonical_identity.py",
+  "workers": "4",
+  "exit": "0",
+  "result": "615 passed, 4 warnings in 452.30s (0:07:32)",
+  "failed": []
+ },
+ {
+  "log": "c3b.log",
+  "start": "2026-11-15T02:52:11Z load: 21:52  up 14:20, 1 user, load averages: 118.45 138.11 146.39",
+  "end": "2026-11-15T02:54:27Z load: 21:54  up 14:22, 1 user, load averages: 99.33 125.89 140.47",
+  "args": "-q tests/unit/test_approval_resolution.py tests/fake/test_mcp_job_contract.py tests/unit/test_conversation_stream_assertion.py tests/fake/test_finalization_replay.py tests/unit/test_lane_settings_review_r1.py tests/fake/test_turn_relay_exit.py",
+  "workers": "4",
+  "exit": "0",
+  "result": "82 passed, 3 xfailed in 121.10s (0:02:01)",
+  "failed": []
+ },
+ {
+  "log": "c4a.log",
+  "start": "2026-11-15T02:54:39Z load: 21:54  up 14:22, 1 user, load averages: 99.34 125.04 139.99",
+  "end": "2026-11-15T02:57:17Z load: 21:57  up 14:25, 1 user, load averages: 172.95 137.28 141.77",
+  "args": "-q tests/unit/test_claude_adapter.py tests/unit/test_legacy_hold.py tests/frontend/test_core_steer.py tests/fake/test_sessions_end_to_end.py tests/unit/test_gate_admission.py tests/fake/test_resume_contract.py tests/unit/test_launch_env_allowlist.py",
+  "workers": "4",
+  "exit": "0",
+  "result": "393 passed in 142.45s (0:02:22)",
+  "failed": []
+ },
+ {
+  "log": "c4b.log",
+  "start": "2026-11-15T02:57:23Z load: 21:57  up 14:25, 1 user, load averages: 175.92 138.48 142.17",
+  "end": "2026-11-15T03:01:55Z load: 22:01  up 14:29, 1 user, load averages: 176.08 159.58 150.90",
+  "args": "-q tests/fake/test_codex_turn_completed_fake.py tests/fake/test_turn_relay_exit_recovery.py tests/frontend/test_core_protocol.py tests/fake/test_detached_cwd_pins.py tests/process/test_provider_shell_environment.py tests/fake/test_conversation_pools.py",
+  "workers": "4",
+  "exit": "0",
+  "result": "155 passed in 256.59s (0:04:16)",
+  "failed": []
+ },
+ {
+  "log": "c5a.log",
+  "start": "2026-11-15T03:02:11Z load: 22:02  up 14:30, 1 user, load averages: 184.38 162.22 151.99",
+  "end": "2026-11-15T03:06:08Z load: 22:06  up 14:33, 1 user, load averages: 166.53 166.10 156.32",
+  "args": "-q tests/unit/test_codex_adapter.py tests/e2e/test_conversations.py tests/unit/test_codex_turn.py tests/unit/test_ultracode_effort.py tests/fake/test_review_launch_permissions.py tests/process/test_claude_isolation.py tests/frontend/test_app_cutover_start.py",
+  "workers": "4",
+  "exit": "0",
+  "result": "370 passed, 15 skipped in 225.11s (0:03:45)",
+  "failed": []
+ },
+ {
+  "log": "c5b.log",
+  "start": "2026-11-15T03:06:13Z load: 22:06  up 14:34, 1 user, load averages: 168.33 166.48 156.51",
+  "end": "2026-11-15T03:08:58Z load: 22:08  up 14:36, 1 user, load averages: 167.79 164.66 157.27",
+  "args": "-q tests/frontend/test_core_store.py tests/fake/test_daemon_launch.py tests/frontend/test_core_draft.py tests/unit/test_claude_mcp_launch.py tests/unit/test_turn_attachment_replay.py tests/unit/test_codex_ca_bundle_provider.py tests/fake/test_launch_env_helper_scope.py",
+  "workers": "4",
+  "exit": "0",
+  "result": "64 passed in 160.81s (0:02:40)",
+  "failed": []
+ },
+ {
+  "log": "c6a.log",
+  "start": "2026-11-15T03:09:05Z load: 22:09  up 14:36, 1 user, load averages: 165.98 164.42 157.27",
+  "end": "2026-11-15T03:11:44Z load: 22:11  up 14:39, 1 user, load averages: 167.43 167.01 159.59",
+  "args": "-q tests/unit/test_claude_turn.py tests/unit/test_turn_runner.py tests/unit/test_conversation_titles.py tests/unit/test_conversation_handoff.py tests/unit/test_launch_env_vendor_shell.py tests/fake/test_turn_trees.py tests/fake/test_record_secrecy.py",
+  "workers": "4",
+  "exit": "0",
+  "result": "456 passed in 152.13s (0:02:32)",
+  "failed": []
+ },
+ {
+  "log": "c6b.log",
+  "start": "2026-11-15T03:11:51Z load: 22:11  up 14:39, 1 user, load averages: 167.13 166.99 159.67",
+  "end": "2026-11-15T03:12:47Z load: 22:12  up 14:40, 1 user, load averages: 182.54 171.05 161.62",
+  "args": "-q tests/fake/test_canonical_identity_fix2.py tests/unit/test_review_publish_env_round8.py tests/unit/test_claude_v1_parity.py tests/fake/test_folder_spelling.py tests/unit/test_conversation_state_reads.py tests/unit/test_claude_conversation_mcp_scope.py",
+  "workers": "4",
+  "exit": "0",
+  "result": "71 passed, 16 skipped in 49.94s",
+  "failed": []
+ },
+ {
+  "log": "m01-control.log",
+  "start": null,
+  "end": null,
+  "args": null,
+  "workers": null,
+  "exit": null,
+  "result": "13 passed in 34.38s",
+  "failed": []
+ },
+ {
+  "log": "mut-MH.log",
+  "start": null,
+  "end": null,
+  "args": null,
+  "workers": null,
+  "exit": null,
+  "result": "1 failed in 14.28s",
+  "failed": [
+   "tests/unit/test_effort_env.py::test_an_empty_effort_pins_nothing_on_any_path"
+  ]
+ },
+ {
+  "log": "mut-P1-parity-env-only.log",
+  "start": null,
+  "end": null,
+  "args": null,
+  "workers": null,
+  "exit": null,
+  "result": "1 failed in 16.32s",
+  "failed": [
+   "tests/unit/test_effort_env.py::test_v1_source_parity_runs_by_default_where_the_v1_runner_exists"
+  ]
+ },
+ {
+  "log": "mut-R1-resume-pin-dropped-p2.log",
+  "start": null,
+  "end": null,
+  "args": null,
+  "workers": null,
+  "exit": null,
+  "result": "1 failed in 16.22s",
+  "failed": [
+   "tests/unit/test_effort_env.py::test_resumed_attempt_pins_the_effort_its_fresh_launch_pins[read-only-build]"
+  ]
+ },
+ {
+  "log": "mut-R1-resume-pin-dropped.log",
+  "start": null,
+  "end": null,
+  "args": null,
+  "workers": null,
+  "exit": null,
+  "result": "1 failed in 21.05s",
+  "failed": [
+   "tests/unit/test_effort_env.py::test_property_resume_effort_pins_settings_and_preserves_argv"
+  ]
+ },
+ {
+  "log": "mut-R2-daemon-drops-resume-effort.log",
+  "start": null,
+  "end": null,
+  "args": null,
+  "workers": null,
+  "exit": null,
+  "result": "1 failed, 1 passed in 16.64s",
+  "failed": [
+   "tests/fake/test_resume_contract.py::test_c12_resume_invokes_native_launch_on_original_lane[codex-astra-medium]"
+  ]
+ },
+ {
+  "log": "mut-R3-resume-flag-dropped-p2.log",
+  "start": null,
+  "end": null,
+  "args": null,
+  "workers": null,
+  "exit": null,
+  "result": "1 failed in 15.63s",
+  "failed": [
+   "tests/unit/test_effort_env.py::test_resumed_attempt_pins_the_effort_its_fresh_launch_pins[read-only-build]"
+  ]
+ },
+ {
+  "log": "mut-R3-resume-flag-dropped.log",
+  "start": null,
+  "end": null,
+  "args": null,
+  "workers": null,
+  "exit": null,
+  "result": "1 failed in 16.70s",
+  "failed": [
+   "tests/unit/test_effort_env.py::test_property_resume_effort_pins_settings_and_preserves_argv"
+  ]
+ },
+ {
+  "log": "t01-effort-env.log",
+  "start": "2026-11-15T02:08:33Z load: 21:08  up 13:36, 1 user, load averages: 112.51 111.74 111.18",
+  "end": "2026-11-15T02:10:33Z load: 21:10  up 13:38, 1 user, load averages: 77.98 102.27 107.68",
+  "args": "-q tests/unit/test_effort_env.py",
+  "workers": "none",
+  "exit": "0",
+  "result": "11 passed, 8 skipped in 103.62s (0:01:43)",
+  "failed": []
+ },
+ {
+  "log": "t02-real-cli.log",
+  "start": "2026-11-15T02:10:50Z load: 21:10  up 13:38, 1 user, load averages: 67.72 98.75 106.33",
+  "end": "2026-11-15T02:12:31Z load: 21:12  up 13:40, 1 user, load averages: 67.50 86.74 100.59",
+  "args": "-q -rA -k real_claude tests/unit/test_effort_env.py",
+  "workers": "none",
+  "exit": "0",
+  "result": "8 passed, 11 deselected in 88.07s (0:01:28)",
+  "failed": []
+ },
+ {
+  "log": "t03-parity-skip.log",
+  "start": "2026-11-15T02:12:44Z load: 21:12  up 13:40, 1 user, load averages: 72.42 86.89 100.40",
+  "end": "2026-11-15T02:13:11Z load: 21:13  up 13:41, 1 user, load averages: 83.38 88.23 100.48",
+  "args": "-q -rs tests/unit/test_claude_v1_parity.py",
+  "workers": "none",
+  "exit": "0",
+  "result": "16 skipped in 14.15s",
+  "failed": []
+ },
+ {
+  "log": "t04-parity-synthetic.log",
+  "start": "2026-11-15T02:13:11Z load: 21:13  up 13:41, 1 user, load averages: 83.38 88.23 100.48",
+  "end": "2026-11-15T02:13:44Z load: 21:13  up 13:41, 1 user, load averages: 94.39 89.91 100.57",
+  "args": "-q tests/unit/test_claude_v1_parity.py",
+  "workers": "none",
+  "exit": "0",
+  "result": "16 passed in 25.19s",
+  "failed": []
+ },
+ {
+  "log": "t05-v1-default.log",
+  "start": "2026-11-15T02:14:56Z load: 21:14  up 13:42, 1 user, load averages: 77.41 85.99 98.27",
+  "end": "2026-11-15T02:15:14Z load: 21:15  up 13:43, 1 user, load averages: 93.30 89.22 99.15",
+  "args": "-q -k v1_source or empty_effort tests/unit/test_effort_env.py",
+  "workers": "none",
+  "exit": "0",
+  "result": "2 passed, 18 deselected in 10.71s",
+  "failed": []
+ },
+ {
+  "log": "t06-resume-contract.log",
+  "start": "2026-11-15T02:15:14Z load: 21:15  up 13:43, 1 user, load averages: 93.30 89.22 99.15",
+  "end": "2026-11-15T02:16:35Z load: 21:16  up 13:44, 1 user, load averages: 80.37 83.65 96.01",
+  "args": "-q tests/fake/test_resume_contract.py",
+  "workers": "none",
+  "exit": "0",
+  "result": "25 passed in 71.87s (0:01:11)",
+  "failed": []
+ },
+ {
+  "log": "t07-contract-guards.log",
+  "start": "2026-11-15T02:18:37Z load: 21:18  up 13:46, 1 user, load averages: 101.47 93.05 98.28",
+  "end": "2026-11-15T02:19:26Z load: 21:19  up 13:47, 1 user, load averages: 91.55 90.91 97.14",
+  "args": "-q tests/unit/test_invariants_index.py tests/unit/test_protocol_registry.py tests/unit/test_desktop_ledger.py tests/unit/test_retention_turn_contract.py tests/unit/test_test_module_names.py tests/unit/test_live_store_guard_round8.py::test_acceptance_contract_names_d_st1_boundary_and_trap_exclusions tests/unit/test_live_store_guard_round9.py::test_p3_4_docstring_and_contract_name_exactly_the_checked_programs tests/unit/test_live_store_guard_round10.py::test_contract_and_docstring_state_the_command_word_and_nesting_rule tests/unit/test_live_store_guard_round10.py::test_r2_p3_docstring_and_contract_list_the_same_out_of_scope_items",
+  "workers": "4",
+  "exit": "0",
+  "result": "40 passed in 38.09s",
+  "failed": []
+ },
+ {
+  "log": "t08-step3.log",
+  "start": "2026-11-15T03:13:04Z load: 22:13  up 14:40, 1 user, load averages: 180.27 171.19 161.89",
+  "end": "2026-11-15T03:14:52Z load: 22:14  up 14:42, 1 user, load averages: 184.11 175.42 164.63",
+  "args": "-q tests/fake/test_state_contract.py tests/unit/test_handler_refusals.py tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py",
+  "workers": "4",
+  "exit": "0",
+  "result": "425 passed in 98.26s (0:01:38)",
+  "failed": []
+ },
+ {
+  "log": "t09-c1-rerun.log",
+  "start": "2026-11-15T03:15:05Z load: 22:15  up 14:42, 1 user, load averages: 186.67 176.44 165.18",
+  "end": "2026-11-15T03:15:36Z load: 22:15  up 14:43, 1 user, load averages: 184.68 177.20 165.86",
+  "args": "-q tests/unit/test_cli.py::test_suggest_open_pipe_is_bounded tests/fake/test_gate_end_to_end.py::test_plan_peer_process_finalizes_through_real_daemon",
+  "workers": "none",
+  "exit": "0",
+  "result": "2 passed in 22.01s",
+  "failed": []
+ }
+]

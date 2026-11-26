@@ -1,0 +1,38 @@
+...ssss                                                                  [100%]
+============================ Hypothesis Statistics =============================
+tests/unit/test_effort_env.py::test_property_job_effort_pins_settings_and_preserves_argv:
+
+  - during generate phase (1.45 seconds):
+    - Typical runtimes: ~ 0-14 ms, of which < 1ms in data generation
+    - 120 passing, 0 failing, and 11 invalid test cases
+    - Events:
+      * 22.14%, Retried draw from fixed_dictionaries({'path': just('job'), 'sandbox': sampled_from(('read-only', 'workspace-write')), 'task': sampled_from(('build', 'review', None)), 'isolated': booleans(), 'effort': sampled_from((None, 'low', 'medium', 'high', 'xhigh', 'max')), 'tmp': booleans(), 'mcp': booleans()}).filter(lambda case: not case['isolated'] or case['sandbox'] == 'read-only') to satisfy filter
+      * 2.29%, gave up because: Aborted test because unable to satisfy fixed_dictionaries({'path': just('job'), 'sandbox': sampled_from(('read-only', 'workspace-write')), 'task': sampled_from(('build', 'review', None)), 'isolated': booleans(), 'effort': sampled_from((None, 'low', 'medium', 'high', 'xhigh', 'max')), 'tmp': booleans(), 'mcp': booleans()}).filter(lambda case: not case['isolated'] or case['sandbox'] == 'read-only')
+
+  - Stopped because settings.max_examples=120
+
+
+tests/unit/test_effort_env.py::test_property_turn_effort_pins_settings_and_preserves_argv:
+
+  - during generate phase (0.71 seconds):
+    - Typical runtimes: ~ 0-24 ms, of which ~ 0-5 ms in data generation
+    - 120 passing, 0 failing, and 0 invalid test cases
+
+  - Stopped because settings.max_examples=120
+
+
+tests/unit/test_effort_env.py::test_property_settings_merge_preserves_other_values:
+
+  - during generate phase (4.75 seconds):
+    - Typical runtimes: ~ 0-107 ms, of which ~ 0-89 ms in data generation
+    - 180 passing, 0 failing, and 31 invalid test cases
+    - Events:
+      * 9.95%, Retried draw from text(characters(codec='utf-8'), min_size=1, max_size=16).filter(lambda key: key != 'env').filter(not_yet_in_unique_list) to satisfy filter
+      * 9.48%, Retried draw from text(characters(codec='utf-8'), max_size=10).filter(not_yet_in_unique_list) to satisfy filter
+      * 8.06%, Retried draw from one_of(text(min_size=1, max_size=16), sampled_from(['CLAUDE_CODE_EFFORT_LEVEL', 'CLAUDE_CODE_RETRY_WATCHDOG'])).filter(not_yet_in_unique_list) to satisfy filter
+      * 1.90%, Draw for recursive(one_of(none(), booleans(), integers(min_value=-10, max_value=10), text(max_size=10)), lambda inner: st.one_of(st.lists(inner, max_size=3), st.dictionaries(st.text(max_size=10), inner, max_size=3)), min_leaves=None, max_leaves=10) exceeded max_leaves=10 and had to be retried
+
+  - Stopped because settings.max_examples=180
+
+
+3 passed, 4 skipped in 10.25s

@@ -1,0 +1,44 @@
+Installed 7 packages in 286ms
+bringing up nodes...
+bringing up nodes...
+
+s.sssssssssssssssss...sssss.sssss.ssss.................................. [  9%]
+........................................................................ [ 19%]
+........................................................................ [ 29%]
+........................................................................ [ 39%]
+........................................................................ [ 49%]
+....................x...xx.....x...x....x...x........................... [ 58%]
+........................................................................ [ 68%]
+........................................................................ [ 78%]
+........................................................................ [ 88%]
+........................................................................ [ 98%]
+.............                                                            [100%]
+============================= slowest 10 durations =============================
+93.40s call     tests/fake/test_census_round4_endings.py::test_r4_i6_every_ending_with_an_observer_leaves_one_reader_row_and_no_writer_key
+85.82s call     tests/unit/test_retention_repository_walk.py::test_salvage_search_finds_what_listing_every_repository_finds
+63.48s call     tests/unit/test_retention_repository_walk.py::test_complete_repository_walk_matches_old_census_and_is_deterministic
+42.81s call     tests/unit/test_attempt_tmpdir_leaks.py::test_t6_removal_ends_the_same_way_under_either_rename_rule
+35.97s call     tests/fake/test_census_round4_endings.py::test_r4_an_unlaunched_attempt_without_a_census_scans_the_worktree[ends-guardian-identity-unavailable]
+28.01s call     tests/fake/test_census_round4_endings.py::test_r4_a_job_ending_from_the_queue_keeps_its_worktree_as_one_reader_row[observer-kill]
+24.23s call     tests/fake/test_census_round4_endings.py::test_r4_an_unlaunched_attempt_without_a_census_scans_the_worktree[ends-reserved-no-launch]
+24.10s call     tests/fake/test_census_round4_endings.py::test_r4_a_job_ending_from_the_queue_keeps_its_worktree_as_one_reader_row[observer-cancelled-before-launch]
+22.89s call     tests/fake/test_census_round4_endings.py::test_r4_a_job_ending_from_the_queue_keeps_its_worktree_as_one_reader_row[observer-fail-queued]
+21.34s call     tests/fake/test_census_round4_endings.py::test_r4_an_unlaunched_attempt_without_a_census_scans_the_worktree[queued-again-cancelled-before-launch]
+=========================== short test summary info ============================
+SKIPPED [4] tests/fake/test_attempt_tmpdir_daemon.py:17: routing_state inspects unrelated live processes
+SKIPPED [12] tests/fake/test_attempt_tmpdir_daemon.py: routing_state inspects unrelated live processes
+SKIPPED [2] tests/fake/test_attempt_tmpdir_daemon.py:53: routing_state inspects unrelated live processes
+SKIPPED [2] tests/fake/test_attempt_tmpdir_daemon.py:137: routing_state inspects unrelated live processes
+SKIPPED [2] tests/fake/test_attempt_tmpdir_daemon.py:176: routing_state inspects unrelated live processes
+SKIPPED [2] tests/fake/test_attempt_tmpdir_daemon.py:214: routing_state inspects unrelated live processes
+SKIPPED [2] tests/fake/test_attempt_tmpdir_leaks_daemon.py:61: routing_state inspects unrelated live processes
+SKIPPED [4] tests/fake/test_attempt_tmpdir_leaks_daemon.py: routing_state inspects unrelated live processes
+SKIPPED [2] tests/fake/test_attempt_tmpdir_leaks_daemon.py:136: routing_state inspects unrelated live processes
+XFAIL tests/unit/test_census_round4_mutation.py::test_r4_the_export_conversion_in_a_second_transaction_fails_the_crash_probe - a crash leaves the export half released
+XFAIL tests/unit/test_census_round4_mutation.py::test_r4_the_cleanup_inside_the_transaction_fails_the_placement_probe - the census runs under the write lock, before commit
+XFAIL tests/unit/test_census_round4_mutation.py::test_r4_the_cleanup_before_the_transaction_fails_the_placement_probe - the attempt is still live: nothing is freed
+XFAIL tests/unit/test_census_round4_mutation.py::test_r4_the_loss_without_its_gate_fails_the_shared_table_pacing - a census on every early-expiring table
+XFAIL tests/unit/test_census_round4_mutation.py::test_r4_the_clock_from_the_due_time_alone_fails_the_slow_census_pacing - 90 censuses in 30 s, against 61
+XFAIL tests/unit/test_census_round4_mutation.py::test_r4_tmpdir_release_from_verified_empty_fails_the_verdict_regression - the observer holds the TMPDIR
+XFAIL tests/unit/test_census_round4_mutation.py::test_r4_a_fresh_cleanup_census_fails_the_census_counter - two censuses for one ending
+694 passed, 32 skipped, 7 xfailed in 614.60s (0:10:14)

@@ -1,0 +1,7 @@
+# label: hygiene-after
+# start: 2026-11-17T13:48:30Z
+# command: uv run --no-sync --with pytest-xdist\>=3.6 pytest --basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T//sf-eff-fix3/pytest-hygiene-after-134830 -p no:cacheprovider tests/frontend/test_visual_report_hygiene.py -q
+............................................................             [100%]
+60 passed in 27.29s
+# end: 2026-11-17T13:49:16Z
+# exit: 0

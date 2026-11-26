@@ -1,0 +1,9 @@
+Python 3.15.2
+......                                                                   [100%]
+============================= slowest 5 durations ==============================
+7.41s call     tests/unit/test_rte_walk_bundle.py::test_the_bundle_step_succeeds_whatever_an_earlier_attempt_left[neither]
+6.44s setup    tests/unit/test_rte_walk_bundle.py::test_the_bundle_step_succeeds_whatever_an_earlier_attempt_left[neither]
+5.82s call     tests/unit/test_rte_walk_bundle.py::test_the_bundle_step_succeeds_whatever_an_earlier_attempt_left[tmp]
+4.89s call     tests/unit/test_rte_walk_bundle.py::test_the_bundle_step_succeeds_whatever_an_earlier_attempt_left[lock]
+4.82s call     tests/unit/test_rte_walk_bundle.py::test_a_bundle_lock_under_ten_minutes_old_defers_and_changes_nothing
+6 passed in 48.86s
