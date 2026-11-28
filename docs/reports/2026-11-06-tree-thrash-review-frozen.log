@@ -1,0 +1,70 @@
+bringing up nodes...
+bringing up nodes...
+
+..............
+============================= slowest 20 durations =============================
+573.23s call     tests/fake/test_admission_tree_thrash.py::test_i2_i5_generated_reservations_holds_and_capacity_clocks_equal_the_base
+413.12s call     tests/fake/test_admission_tree_thrash.py::test_the_placement_reuses_one_evaluation_and_pins_the_submitted_head
+394.29s call     tests/fake/test_admission_tree_thrash.py::test_i1_generated_lane_changes_bound_cuts_by_reservations_and_the_labelled_race
+275.05s call     tests/fake/test_admission_tree_thrash.py::test_the_one_cut_whose_lane_closes_between_evaluation_and_reservation_is_given_back
+270.43s setup    tests/fake/test_admission_tree_thrash.py::test_i3_generated_head_movements_keep_the_submitted_tree_and_baseline
+253.85s setup    tests/fake/test_admission_tree_thrash.py::test_a_failing_workspace_reaches_the_job_when_capacity_first_allows_placement[True]
+229.69s setup    tests/fake/test_admission_tree_thrash.py::test_measured_shape_twenty_two_start_rounds_cut_only_the_forty_placed_trees
+228.23s setup    tests/fake/test_admission_tree_thrash.py::test_a_lane_closed_after_evaluation_is_rechecked_before_cutting_a_tree
+227.34s setup    tests/fake/test_admission_tree_thrash.py::test_a_fresh_waiter_runs_no_git_and_writes_no_tree[no-slot]
+227.18s setup    tests/fake/test_admission_tree_thrash.py::test_reopening_the_original_lane_during_preparation_reuses_its_original_evaluation
+220.51s setup    tests/fake/test_admission_tree_thrash.py::test_i6_generated_workspace_failures_keep_the_original_retry_limit
+188.46s setup    tests/fake/test_admission_tree_thrash.py::test_the_one_cut_whose_lane_closes_between_evaluation_and_reservation_is_given_back
+173.48s setup    tests/fake/test_admission_tree_thrash.py::test_a_closure_race_with_a_desktop_lane_never_refreshes_the_registry_under_the_store_lock
+170.25s setup    tests/fake/test_admission_tree_thrash.py::test_a_fresh_waiter_runs_no_git_and_writes_no_tree[lease]
+149.83s setup    tests/fake/test_admission_tree_thrash.py::test_the_placement_reuses_one_evaluation_and_pins_the_submitted_head
+145.09s setup    tests/fake/test_admission_tree_thrash.py::test_a_fresh_waiter_runs_no_git_and_writes_no_tree[disk]
+132.52s setup    tests/fake/test_admission_tree_thrash.py::test_i1_generated_lane_changes_bound_cuts_by_reservations_and_the_labelled_race
+120.04s setup    tests/fake/test_admission_tree_thrash.py::test_a_failing_workspace_reaches_the_job_when_capacity_first_allows_placement[False]
+94.17s setup    tests/fake/test_admission_tree_thrash.py::test_i2_i5_generated_reservations_holds_and_capacity_clocks_equal_the_base
+89.31s setup    tests/fake/test_admission_tree_thrash.py::test_a_fresh_waiter_runs_no_git_and_writes_no_tree[retention]
+14 passed in 3497.59s (0:58:17)
+Traceback (most recent call last):
+  File "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/builds-v0/.tmpesClxn/bin/pytest", line 10, in <module>
+    sys.exit(_console_main())
+             ~~~~~~~~~~~~~^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/_pytest/config/__init__.py", line 253, in _console_main
+    code = _main(prog=_get_prog_name(sys.argv))
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/_pytest/config/__init__.py", line 229, in _main
+    ret: ExitCode | int = config.hook.pytest_cmdline_main(config=config)
+                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+           ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/pluggy/_callers.py", line 167, in _multicall
+    raise exception
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/_pytest/main.py", line 377, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/_pytest/main.py", line 372, in wrap_session
+    config._ensure_unconfigure()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/_pytest/config/__init__.py", line 1217, in _ensure_unconfigure
+    self._cleanup_stack.close()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/contextlib.py", line 627, in close
+    self.__exit__(None, None, None)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/contextlib.py", line 619, in __exit__
+    raise exc
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/contextlib.py", line 604, in __exit__
+    if cb(*exc_details):
+       ~~^^^^^^^^^^^^^^
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/contextlib.py", line 482, in _exit_wrapper
+    callback(*args, **kwds)
+    ~~~~~~~~^^^^^^^^^^^^^^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/_pytest/capture.py", line 779, in stop_global_capturing
+    self._global_capturing.stop_capturing()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/uv-cache/archive-v0/PYfdi6pNlsJMU1XN/lib/python3.14/site-packages/_pytest/capture.py", line 692, in stop_capturing
+    raise ValueError("was already stopped")
+ValueError: was already stopped

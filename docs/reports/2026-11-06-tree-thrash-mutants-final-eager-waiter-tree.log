@@ -1,0 +1,61 @@
+F
+=================================== FAILURES ===================================
+_________ test_a_fresh_waiter_runs_no_git_and_writes_no_tree[no-slot] __________
+
+fleet_factory = <function fleet_factory.<locals>.make at 0x108c3da60>
+repo = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-mutant-tests/tree-thrash-mutant-5kbrxs3d/pytest/test_a_fresh_waiter_runs_no_gi0/repo')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108e7c510>
+immutable_source = None, reason = 'no-slot'
+
+    @pytest.mark.parametrize("reason", ["no-slot", "lease", "disk", "retention"])
+    def test_a_fresh_waiter_runs_no_git_and_writes_no_tree(
+            fleet_factory, repo, monkeypatch, immutable_source, reason):  # noqa: F811
+        """I4/I5: capacity, a path lease, the door, and retention precede tree work."""
+        service, harness, cuts = fleet_factory(slots=1, synthetic=True)
+        extra = {}
+        if reason == "no-slot":
+            running = submit(service, harness, repo)
+            service._admit()
+            assert service.store.list_attempts(running)
+            cuts.clear()
+        elif reason == "lease":
+            output = service.root / "answer.md"
+            extra["out_path"] = str(output)
+        elif reason == "disk":
+            from tests.fake.test_unrun_worktrees import disk
+            disk(service, monkeypatch, 39)
+        elif reason == "retention":
+            service.store.acquire_lease(folders.exclusive_key(str(repo)), "retention:test")
+        job = submit(service, harness, repo, **extra)
+        if reason == "lease":
+            service.store.acquire_lease(f"out:{output}", "another-job")
+        run = subprocess.run
+        calls = []
+    
+        def no_git(command, *args, **kwargs):
+            if Path(str(command[0])).name == "git":
+                calls.append(command)
+                pytest.fail(f"waiting fresh job ran git: {command}")
+            return run(command, *args, **kwargs)
+    
+        # Caching submit's immutable source inspection must not hide an accidental
+        # Git inspection in the waiting look itself, even before a subprocess runs.
+        for name in ("git_head", "git_toplevel", "git_common_dir", "_git_prefix"):
+            monkeypatch.setattr(daemon_module, name, lambda *args, _name=name, **kwargs: pytest.fail(
+                f"waiting fresh job invoked {_name}"))
+        monkeypatch.setattr(subprocess, "run", no_git)
+        service._admit()
+>       assert not cuts and not calls and not service.store.list_attempts(job)
+E       AssertionError: assert (not ['20261106-100255-astra'])
+
+tests/fake/test_admission_tree_thrash.py:411: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4444557664:daemon.py:998 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4444557664:daemon.py:1086 reset credits: automatic redemption off; no-reset marker absent
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4442230464:daemon.py:998 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4442230464:daemon.py:1086 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_admission_tree_thrash.py::test_a_fresh_waiter_runs_no_git_and_writes_no_tree[no-slot]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 77.83s (0:01:17)

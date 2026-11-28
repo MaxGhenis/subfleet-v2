@@ -1,0 +1,26 @@
+[
+ {
+  "path": "/Users/maxghenis/.subfleet/worktrees/20261115-142427-wcall-fix-r2/subfleet/__pycache__",
+  "files": 27
+ },
+ {
+  "path": "/Users/maxghenis/.subfleet/worktrees/20261115-142427-wcall-fix-r2/subfleet/adapters/__pycache__",
+  "files": 2
+ },
+ {
+  "path": "/Users/maxghenis/.subfleet/worktrees/20261115-142427-wcall-fix-r2/subfleet/sessions/__pycache__",
+  "files": 11
+ },
+ {
+  "path": "/Users/maxghenis/.subfleet/worktrees/20261115-142427-wcall-fix-r2/subfleet/conversations/__pycache__",
+  "files": 5
+ },
+ {
+  "path": "/Users/maxghenis/.subfleet/worktrees/20261115-142427-wcall-fix-r2/tests/__pycache__",
+  "files": 1
+ },
+ {
+  "path": "/Users/maxghenis/.subfleet/worktrees/20261115-142427-wcall-fix-r2/tests/fake/__pycache__",
+  "files": 3
+ }
+]

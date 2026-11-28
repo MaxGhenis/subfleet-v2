@@ -119,6 +119,13 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     # C-6.20: a tree that needs cutting again while a lock, whoever took it, stands on its registration.
     "worktree-locked": ("the job's worktree needs cutting again and a lock stands on its registration",
                         "run git worktree unlock on it, then submit again"),
+    "worktree-unproven": ("the job's worktree could not be proved safe to rebuild; daemon.log has details",
+                           "preserve any work there and resolve the worktree before submitting again"),
+    # C-6.8: entries git 2.55 would refuse, so the add could not carry its pinned `core.fsmonitor=false`.
+    "worktree-git-config": ("git would refuse the daemon's GIT_CONFIG_COUNT entries, so no worktree can be "
+                            "added; daemon.log has git's reason",
+                            "correct or remove GIT_CONFIG_COUNT and its GIT_CONFIG_KEY_<n> and "
+                            "GIT_CONFIG_VALUE_<n> entries where the daemon is started, then restart it"),
     # D-SH1 round 6 (C-6.6): a policy review's copy of its caller's uncommitted work.
     "uncommitted-copy": ("the caller's uncommitted files changed while they were copied", "submit again"),
     "uncommitted-apply": ("the caller's uncommitted changes could not be copied into the worktree",
@@ -454,6 +461,11 @@ FALLBACK: tuple[str, None] = ("operation: request was refused", None)
 BY_POLICY = "by_policy"
 _BY_POLICY_FIX = "pass -s read-only"
 
+#: `details` key an `unknown-pinned-model` refusal of a resume carries (C-12.4): the pin
+#: is its source attempt's, which the caller cannot change, so the repair is a fresh job.
+RESUME_PIN = "resume_pin"
+RESUME_PIN_FIX = "submit a fresh job: a resume always runs on its source's model"
+
 _SHAPES = {
     "job_id": re.compile(r"[0-9]{8}-[0-9]{6}-[a-z0-9-]{1," + str(JOB_ID_SLUG_MAX) + r"}\Z"),
     "lane_id": re.compile(r"(?:codex|claude)-[1-9][0-9]{0,8}\Z"),
@@ -602,6 +614,8 @@ def render(reason: Any, details: Any = None) -> tuple[str, str | None]:
             message += "; verify hook SHA-256, TRUST and the pinned Codex version"
         # The renderer never raises: a kind admitted without a repair gets the generic one.
         fix = GUARD_REPAIRS.get(kind, HANDLER_MESSAGES["guard-preflight"][1])
+    if reason == "unknown-pinned-model" and details.get(RESUME_PIN) is True:
+        fix = RESUME_PIN_FIX
     if details.get(BY_POLICY) is True:
         # d261: a writer's refusal of a job its caller did not ask to write.
         task = details.get("task") if checked("task", details.get("task")) else "these"

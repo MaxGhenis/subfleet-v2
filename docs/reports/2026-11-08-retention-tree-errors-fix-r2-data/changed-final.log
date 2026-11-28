@@ -1,0 +1,16 @@
+bringing up nodes...
+bringing up nodes...
+
+..........................                                               [100%]
+============================= slowest 10 durations =============================
+36.94s setup    tests/unit/test_rte_tmpdir_acl.py::test_a_symlink_whose_own_acl_denies_delete_goes_and_its_outside_target_keeps_its_acl
+28.34s setup    tests/unit/test_rte_tmpdir_acl.py::test_the_tombstone_s_delete_child_acl_is_repaired_but_the_temp_root_s_blocks_rename
+25.98s setup    tests/unit/test_rte_tmpdir_acl.py::test_two_files_whose_acl_denies_delete_go_with_their_tmpdir_in_one_pass
+25.97s setup    tests/unit/test_rte_tmpdir_acl.py::test_a_directory_whose_acl_denies_delete_or_delete_child_goes_too[everyone deny delete_child]
+24.81s call     tests/unit/test_rte_tmpdir_acl.py::test_walk_finishes_or_raises_tree_error_never_permission_error
+23.75s call     tests/unit/test_rte_tmpdir_acl.py::test_removal_is_all_or_nothing_inside_and_changes_nothing_outside
+4.35s call     tests/unit/test_rte_tmpdir_acl.py::test_restore_leaves_every_blocking_fixture_removable
+3.51s call     tests/unit/test_rte_tmpdir_acl.py::test_clearing_delete_denials_preserves_other_permissions_and_entries[True]
+3.20s call     tests/unit/test_rte_tmpdir_acl.py::test_an_immutable_refusal_preserves_unrelated_acls[parent]
+2.95s call     tests/unit/test_rte_tmpdir_acl.py::test_an_immutable_refusal_preserves_unrelated_acls[entry]
+26 passed in 130.33s (0:02:10)

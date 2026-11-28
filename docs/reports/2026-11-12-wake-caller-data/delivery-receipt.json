@@ -1,0 +1,91 @@
+{
+  "head": "1e53b4dc2d2af8c619587d4e9efc65a7cf882288",
+  "base": "b51f08f961e1b1dcfb93347eb080f9ddd9a9260d",
+  "branch": "feat/wake-caller-217",
+  "commands": [
+    {
+      "command": [
+        "/usr/bin/git",
+        "--git-dir=/private/tmp/sf-wc-b1/git-local",
+        "--work-tree=/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s",
+        "rev-parse",
+        "HEAD"
+      ],
+      "rc": 0,
+      "output": "1e53b4dc2d2af8c619587d4e9efc65a7cf882288\n"
+    },
+    {
+      "command": [
+        "/usr/bin/git",
+        "--git-dir=/private/tmp/sf-wc-b1/git-local",
+        "--work-tree=/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s",
+        "diff",
+        "--check"
+      ],
+      "rc": 0,
+      "output": ""
+    },
+    {
+      "command": [
+        "/usr/bin/git",
+        "--git-dir=/private/tmp/sf-wc-b1/git-local",
+        "--work-tree=/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s",
+        "bundle",
+        "create",
+        "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/docs/reports/2026-11-12-wake-caller-data/delivery.gitbundle",
+        "b51f08f961e1b1dcfb93347eb080f9ddd9a9260d..feat/wake-caller-217"
+      ],
+      "rc": 0,
+      "output": ""
+    },
+    {
+      "command": [
+        "/usr/bin/git",
+        "--git-dir=/private/tmp/sf-wc-b1/git-local",
+        "--work-tree=/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s",
+        "bundle",
+        "verify",
+        "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/docs/reports/2026-11-12-wake-caller-data/delivery.gitbundle"
+      ],
+      "rc": 0,
+      "output": "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/docs/reports/2026-11-12-wake-caller-data/delivery.gitbundle is okay\nThe bundle contains this ref:\n1e53b4dc2d2af8c619587d4e9efc65a7cf882288 refs/heads/feat/wake-caller-217\nThe bundle requires this ref:\nb51f08f961e1b1dcfb93347eb080f9ddd9a9260d \nThe bundle uses this hash algorithm: sha1\n"
+    },
+    {
+      "command": [
+        "/usr/bin/git",
+        "--git-dir=/private/tmp/sf-wc-b1/git-local",
+        "--work-tree=/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s",
+        "bundle",
+        "list-heads",
+        "/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s/docs/reports/2026-11-12-wake-caller-data/delivery.gitbundle"
+      ],
+      "rc": 0,
+      "output": "1e53b4dc2d2af8c619587d4e9efc65a7cf882288 refs/heads/feat/wake-caller-217\n"
+    },
+    {
+      "command": [
+        "/usr/bin/git",
+        "--git-dir=/private/tmp/sf-wc-b1/git-local",
+        "--work-tree=/Users/maxghenis/.subfleet/worktrees/20261111-122601-wc-build-r1s",
+        "status",
+        "--porcelain"
+      ],
+      "rc": 0,
+      "output": "?? docs/reports/2026-11-12-wake-caller-data/delivery.gitbundle\n"
+    }
+  ],
+  "bundle": "docs/reports/2026-11-12-wake-caller-data/delivery.gitbundle",
+  "cleanup": [
+    {
+      "path": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261111-122601-wc-build-r1s-a1-uwzfonyi/sf-wc-b1",
+      "guard": "sf-wc-b1 in path; basename; no symlink; matching OWNER",
+      "removed": true
+    },
+    {
+      "path": "/private/tmp/sf-wc-b1",
+      "guard": "sf-wc-b1 in path; basename; no symlink; matching OWNER",
+      "removed": true
+    }
+  ],
+  "completed_at": "2026-11-12T07:57:50.881914+00:00"
+}

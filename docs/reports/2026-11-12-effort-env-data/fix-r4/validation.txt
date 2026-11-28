@@ -1,0 +1,126 @@
+Started 20261125T212658Z UTC
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   3996G     14G    107G    12%    487k  1.0G    0%   /
+Command uv run --no-sync --with pytest-xdist\>=3.6 pytest -n 4 -p no:cacheprovider -p round4_isolation --basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/pytest-new-after-20261125T212658Z -q -rs tests/fake/test_resume_contract.py::test_resume_is_refused_unknown_pinned_model_when_no_entry_holds_its_source_model_id tests/fake/test_resume_contract.py::test_resume_after_a_policy_change_pins_an_entry_at_its_source_model_id tests/fake/test_resume_contract.py::test_imported_resume_pins_source_id_when_a_current_key_shadows_it
+bringing up nodes...
+bringing up nodes...
+
+.......                                                                  [100%]
+7 passed in 50.89s
+Finished 2026-11-25 21:27:56 UTC, exit 0
+ 59M	/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4
+Started 20261125T212825Z UTC
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   3996G     14G    107G    12%    487k  1.0G    0%   /
+Command uv run --no-sync --with pytest-xdist\>=3.6 pytest -n 4 -p no:cacheprovider -p round4_isolation --basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/pytest-resume-contract-20261125T212825Z -q -rs tests/fake/test_resume_contract.py
+bringing up nodes...
+bringing up nodes...
+
+.........................................                                [100%]
+41 passed in 99.08s (0:01:39)
+Finished 2026-11-25 21:30:14 UTC, exit 0
+ 84M	/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4
+Started 20261125T213032Z UTC
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   3996G     14G    107G    12%    487k  1.0G    0%   /
+Command uv run --no-sync --with pytest-xdist\>=3.6 pytest -n 4 -p no:cacheprovider -p round4_isolation --basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/pytest-legacy-hold-20261125T213032Z -q -rs tests/unit/test_legacy_hold.py
+bringing up nodes...
+bringing up nodes...
+
+..........ss..sss...............s.......................                 [100%]
+=========================== short test summary info ============================
+SKIPPED [4] tests/unit/test_legacy_hold.py:905: C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+SKIPPED [2] tests/unit/test_legacy_hold.py:874: C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+50 passed, 6 skipped in 86.12s (0:01:26)
+Finished 2026-11-25 21:32:11 UTC, exit 0
+ 69M	/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4
+Started 20261125T213225Z UTC
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   3996G     14G    107G    12%    487k  1.0G    0%   /
+Command uv run --no-sync --with pytest-xdist\>=3.6 pytest -n 4 -p no:cacheprovider -p round4_isolation --basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/pytest-handler-refusals-20261125T213225Z -q -rs tests/unit/test_handler_refusals.py
+bringing up nodes...
+bringing up nodes...
+
+........................................................................ [ 18%]
+........................................................................ [ 37%]
+........................................................................ [ 56%]
+........................................................................ [ 75%]
+........................................................................ [ 93%]
+........................                                                 [100%]
+384 passed in 201.48s (0:03:21)
+Finished 2026-11-25 21:36:01 UTC, exit 0
+ 69M	/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4
+Started 20261125T213602Z UTC
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   3996G     14G    106G    12%    487k  1.0G    0%   /
+Command uv run --no-sync --with pytest-xdist\>=3.6 pytest -n 4 -p no:cacheprovider -p round4_isolation --basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/pytest-review-needs-shell-20261125T213602Z -q -rs tests/fake/test_review_needs_shell.py
+bringing up nodes...
+bringing up nodes...
+
+.......................                                                  [100%]
+23 passed in 53.19s
+Finished 2026-11-25 21:37:01 UTC, exit 0
+ 79M	/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4
+Started 20261125T213704Z UTC
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   3996G     14G    106G    12%    487k  1.0G    0%   /
+Command uv run --no-sync --with pytest-xdist\>=3.6 pytest -n 4 -p no:cacheprovider -p round4_isolation --basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/pytest-hygiene-20261125T213704Z -q -rs tests/frontend/test_visual_report_hygiene.py
+bringing up nodes...
+bringing up nodes...
+
+............................................................             [100%]/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/archive-v0/iuLG4UuzFZvJ3tbNi2fjY/lib/python3.15/site-packages/_pytest/unraisableexception.py:67: PytestUnraisableExceptionWarning: Exception ignored while calling weakref callback <function _WeakValueDictionary.__init__.<locals>.KeyedRef.remove at 0x103660670>: None
+
+Traceback (most recent call last):
+  File "<frozen importlib._bootstrap>", line 86, in remove
+KeyboardInterrupt
+
+
+  warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))
+
+60 passed in 26.56s
+Finished 2026-11-25 21:37:35 UTC, exit 0
+ 79M	/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4
+Started 20261125T213736Z UTC
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   3996G     14G    106G    12%    487k  1.0G    0%   /
+Command uv run --no-sync --with pytest-xdist\>=3.6 pytest -n 4 -p no:cacheprovider -p round4_isolation --basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/pytest-importers-20261125T213736Z -q -rs tests/fake/test_admission_priority.py tests/fake/test_census_round3_leases.py tests/fake/test_census_round3_interleavings.py
+bringing up nodes...
+bringing up nodes...
+
+..........................................                               [100%]
+42 passed in 143.30s (0:02:23)
+Finished 2026-11-25 21:40:04 UTC, exit 0
+116M	/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4
+Started 20261125T214006Z UTC
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   3996G     14G    106G    12%    487k  1.0G    0%   /
+Command uv run --no-sync --with pytest-xdist\>=3.6 pytest -n 4 -p no:cacheprovider -p round4_isolation --basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/pytest-guards-20261125T214006Z -q -rs tests/fake/test_state_contract.py tests/unit/test_test_module_names.py tests/unit/test_invariants_index.py
+bringing up nodes...
+bringing up nodes...
+
+...............................................................          [100%]
+63 passed in 39.37s
+Finished 2026-11-25 21:40:48 UTC, exit 0
+136M	/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4
+Started 20261125T214105Z UTC
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   3996G     14G    106G    12%    487k  1.0G    0%   /
+Command uv run --no-sync --with pytest-xdist\>=3.6 pytest -n 4 -p no:cacheprovider -p round4_isolation --basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/pytest-hygiene-final-20261125T214105Z -q -rs tests/frontend/test_visual_report_hygiene.py
+bringing up nodes...
+bringing up nodes...
+
+............................................................             [100%]
+60 passed in 28.52s
+Finished 2026-11-25 21:41:39 UTC, exit 0
+136M	/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4
+Started 20261125T214154Z UTC
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   3996G     14G    106G    12%    487k  1.0G    0%   /
+Command uv run --no-sync --with pytest-xdist\>=3.6 pytest -n 4 -p no:cacheprovider -p round4_isolation --basetemp=/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/pytest-hygiene-report-20261125T214154Z -q -rs tests/frontend/test_visual_report_hygiene.py
+bringing up nodes...
+bringing up nodes...
+
+............................................................             [100%]
+60 passed in 31.98s
+Finished 2026-11-25 21:42:32 UTC, exit 0
+136M	/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4

@@ -1,0 +1,45 @@
+# label: mutant-resume-fix-dropped
+# start: 2026-11-17T14:45:47Z
+# command: uv run --no-sync --with pytest-xdist\>=3.6 pytest --basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T//sf-eff-fix3/pytest-mutant-resume-fix-dropped-144546 -p no:cacheprovider -n 4 -q -rfE tests/fake/test_resume_contract.py tests/unit/test_handler_refusals.py -k imported_resume_runs\ or\ after_a_policy_change\ or\ unknown_pinned_model_when\ or\ aliases_share\ or\ resume_refused_for_its_source\ or\ most_specific_checked_form
+bringing up nodes...
+bringing up nodes...
+
+....................F...                                                 [100%]
+=================================== FAILURES ===================================
+_ test_resume_is_refused_unknown_pinned_model_when_no_entry_holds_its_source_model_id _
+[gw3] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmpJlUTol/bin/python
+
+state_daemon = (<subfleet.daemon.Daemon object at 0x109738d70>, <tests.fake.conftest.Harness object at 0x1097be3f0>)
+
+    def test_resume_is_refused_unknown_pinned_model_when_no_entry_holds_its_source_model_id(state_daemon):
+        """C-12.4, C-25.7 (review r3 of #310, P2 and P3): when no policy entry holds the source
+        attempt's model ID, the resume is refused at its pin, before the request digest, as
+        `unknown-pinned-model` (code 7) naming no policy path. The caller cannot change a resume's
+        pin, so the repair is a fresh job."""
+        daemon, harness = state_daemon
+        claude_lane(daemon)
+        source_id, source_attempt = finished_source(daemon, harness, pinned_lane="claude-1", pinned_model="haiku")
+        old_id = source_attempt["model_requested"]
+        daemon.policy["models"]["haiku"]["id"] = NEXT_HAIKU_ID
+        reload_policy(daemon)
+        with pytest.raises(AdapterError) as raised:
+            resume_job(daemon, harness, source_id)
+        refusal = raised.value
+        assert type(refusal) is AdapterError
+        assert (refusal.reason, refusal.code) == ("unknown-pinned-model", 7)
+        assert str(refusal) == (f"unknown pinned model {old_id!r}; policy models: "
+                                + ", ".join(daemon.policy["models"]))
+        assert "policy.json" not in str(refusal) and "pinned_model" not in str(refusal)
+>       assert refusal.fix == RESUME_MODEL_FIX
+E       assert None == "submit a fresh job: a resume always runs on its source's model"
+E        +  where None = AdapterError("unknown pinned model 'claude-haiku-4-5-20251001'; policy models: fable, opus, sonnet, haiku, astra, terra, luna, sol61").fix
+
+tests/fake/test_resume_contract.py:294: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4453535088:daemon.py:1030 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4453535088:daemon.py:1123 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_resume_contract.py::test_resume_is_refused_unknown_pinned_model_when_no_entry_holds_its_source_model_id
+1 failed, 23 passed in 63.88s (0:01:03)
+# end: 2026-11-17T14:46:57Z
+# exit: 1

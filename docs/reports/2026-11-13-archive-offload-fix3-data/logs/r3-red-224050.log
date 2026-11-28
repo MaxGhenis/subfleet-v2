@@ -1,0 +1,97 @@
+label r3-red start 22:40:50 bound 585s basetemp /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T//sf-ao-fix3/bt/pytest-r3-red-224050
+uptime-start: 23:40  up 4 days, 11:01, 1 user, load averages: 34.87 39.64 49.54
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   3996G     14G    103G    12%    487k  1.0G    0%   /
+args: -n 4 -rA tests/unit/test_retention_offload_r3.py
+============================= test session starts ==============================
+platform darwin -- Python 3.15.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/maxghenis/.subfleet/worktrees/20261125-232725-ao-fix-r3
+configfile: pyproject.toml
+plugins: xdist-3.8.0, timeout-2.4.0, hypothesis-6.168.1
+timeout: 1200.0s
+timeout method: signal
+timeout func_only: False
+created: 4/4 workers
+4 workers [6 items]
+
+..FF..                                                                   [100%]
+=================================== FAILURES ===================================
+__________ test_recall_after_a_crash_at_removing_with_the_volume_gone __________
+[gw0] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmp6eM0m9/bin/python
+
+archives = <tests.unit.test_retention_offload.Archives object at 0x108666900>
+env = Env(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ao-fix3/bt/pytest-r3-red-224050/popen-...t_r0/env-6le4759l/vol-a'), fstype='apfs', local=True, owners=True, readonly=False, free=1000000000000, encrypted=True))
+volumes = <tests.unit.test_retention_offload.Volumes object at 0x1093b70e0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108709810>
+
+    def test_recall_after_a_crash_at_removing_with_the_volume_gone(archives, env, volumes, monkeypatch):
+        name = install(archives.build(RICH), env)
+        before = tree_state(env.archive(name))
+        outside = _interrupted(env, name, monkeypatch, "removing")
+        stub = rof.read_stub(env.root, name)
+        assert stub["state"] == "verified" and stub["removing"] is True
+        assert rof.external_authoritative(stub)
+        assert _without_stub(tree_state(env.archive(name))) == before      # nothing internal removed yet
+        external_before = tree_state(outside)
+        volumes.unmount(EXT_UUID)
+    
+        report = rof.recall(env.root, name)
+    
+>       assert outcomes(report) == {name: "recalled"}, report
+E       AssertionError: {'results': [{'archive': 'job-1', 'outcome': 'failed', 'error': "archive job-1 is offloaded to volume 'Backup ☃' (6A1E0F7C-0FF1-4AD5-9C3B-5D2B7E0A1B2C), which is not mounted; mount it and run again"}], 'skipped': []}
+E       assert {'job-1': 'failed'} == {'job-1': 'recalled'}
+E         
+E         Differing items:
+E         {'job-1': 'failed'} != {'job-1': 'recalled'}
+E         Use -v to get more diff
+
+tests/unit/test_retention_offload_r3.py:61: AssertionError
+_ test_an_offloaded_archive_whose_recall_put_everything_back_is_recalled_without_the_volume _
+[gw1] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmp6eM0m9/bin/python
+
+archives = <tests.unit.test_retention_offload.Archives object at 0x107ec67b0>
+env = Env(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ao-fix3/bt/pytest-r3-red-224050/popen-...hos0/env-aobf4vjm/vol-a'), fstype='apfs', local=True, owners=True, readonly=False, free=1000000000000, encrypted=True))
+volumes = <tests.unit.test_retention_offload.Volumes object at 0x1089caa50>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1082fbce0>
+
+    def test_an_offloaded_archive_whose_recall_put_everything_back_is_recalled_without_the_volume(
+            archives, env, volumes, monkeypatch):
+        """`offloaded` too: a recall killed after its last copy, before it marked
+        the stub `recalled`, leaves a complete internal copy; the rerun needs
+        nothing external, and `--drop-external` keeps the unreachable copy."""
+        name = install(archives.build(RICH), env)
+        before = tree_state(env.archive(name))
+        assert outcomes(offload(env)) == {name: "offloaded"}
+        outside = _outside(env, name)
+        monkeypatch.setattr(rof, "HOOK", crash_at("recall-bundle", 1))
+        with pytest.raises(Crash):
+            rof.recall(env.root, name)
+        monkeypatch.setattr(rof, "HOOK", None)
+        stub = rof.read_stub(env.root, name)
+        assert stub["state"] == "offloaded" and not stub.get("recalled") and rof.external_authoritative(stub)
+        assert _without_stub(tree_state(env.archive(name))) == before
+        external_before = tree_state(outside)
+        volumes.unmount(EXT_UUID)
+    
+        report = rof.recall(env.root, name, drop_external=True)
+    
+>       assert outcomes(report) == {name: "recalled"}, report
+E       AssertionError: {'results': [{'archive': 'job-1', 'outcome': 'failed', 'error': "archive job-1 is offloaded to volume 'Backup ☃' (6A1E0F7C-0FF1-4AD5-9C3B-5D2B7E0A1B2C), which is not mounted; mount it and run again"}], 'skipped': []}
+E       assert {'job-1': 'failed'} == {'job-1': 'recalled'}
+E         
+E         Differing items:
+E         {'job-1': 'failed'} != {'job-1': 'recalled'}
+E         Use -v to get more diff
+
+tests/unit/test_retention_offload_r3.py:91: AssertionError
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED tests/unit/test_retention_offload_r3.py::test_a_half_removed_internal_copy_still_needs_the_volume
+PASSED tests/unit/test_retention_offload_r3.py::test_an_offloaded_recall_with_the_volume_gone_changes_nothing
+PASSED tests/unit/test_retention_offload_r3.py::test_a_changed_internal_file_still_needs_the_volume
+PASSED tests/unit/test_retention_offload_r3.py::test_a_stub_without_a_bundle_checksum_still_needs_the_volume
+FAILED tests/unit/test_retention_offload_r3.py::test_recall_after_a_crash_at_removing_with_the_volume_gone
+FAILED tests/unit/test_retention_offload_r3.py::test_an_offloaded_archive_whose_recall_put_everything_back_is_recalled_without_the_volume
+========================= 2 failed, 4 passed in 39.27s =========================
+rc=1 end 22:41:37
+uptime-end: 23:41  up 4 days, 11:02, 1 user, load averages: 48.15 42.38 49.97

@@ -1,0 +1,10 @@
+# label: guards-b
+# start: 2026-11-17T14:42:07Z
+# command: uv run --no-sync --with pytest-xdist\>=3.6 pytest --basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T//sf-eff-fix3/pytest-guards-b-144207 -p no:cacheprovider -n 4 -q -rfE tests/fake/test_state_contract.py
+bringing up nodes...
+bringing up nodes...
+
+.....................................                                    [100%]
+37 passed in 58.42s
+# end: 2026-11-17T14:43:16Z
+# exit: 0
