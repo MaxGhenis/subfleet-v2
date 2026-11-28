@@ -58,8 +58,9 @@ No tests ran in this phase. Product/tests/docs were not edited. The active pytes
 Read-only discovery:
 
 ```sh
-git grep -l -E '(from subfleet([.]sessions|[.]conversations)? import|import subfleet([.]sessions|[.]conversations)?[.])(store|cli|daemon|review_subject|protocol|client|service)|from subfleet[.](store|cli|daemon|review_subject|protocol|sessions[.]client|conversations[.]service) import' -- tests
+git grep -l -E '(from subfleet([.]sessions|[.]conversations)? import|import subfleet([.]sessions|[.]conversations)?[.])(store|cli|daemon|review_subject|protocol|client|service)|from subfleet\.(store|cli|daemon|review_subject|protocol|sessions[.]client|conversations[.]service) import' -- tests
 ```
+Fix round 4 of PR #314 rewrote the bracket class before the opening parenthesis as the equivalent `\.` to prevent `tests/frontend/test_visual_report_hygiene.py` from reading it as a Markdown link, and the rewritten pattern matches the same lines as the one that ran.
 
 Exit 0; preliminary discovery returned 292 paths. This expression missed some import layouts, so it was replaced by broader grep discovery and an import-statement scanner.
 
@@ -84,11 +85,12 @@ Read-only hazard scans saved to scratch:
 
 ```sh
 git grep -n -E '(gh.{0,30}(POST|PATCH|DELETE|merge|rerun)|git.{0,20}push|real_lsof|real_cwd|launchctl|agent-secret|chief-of-staff|[/~][.]subfleet|[/~][.]claude|[/~][.]codex)' -- tests > /private/tmp/sf-a2-fix1/importer-hazard-hits.txt
-rg -n -g '*.py' '(\[.*["\x27]gh["\x27].*(POST|PATCH|DELETE|merge|rerun)|["\x27]git push|real_lsof|real_cwd|subprocess.*["\x27](ps|pgrep|lsof)|["\x27](ps|pgrep|lsof)["\x27])' tests > /private/tmp/sf-a2-fix1/specific-hazard-hits.txt
-rg -n -g '*.py' "[\"'](push|merge|rerun|POST|PATCH|DELETE)[\"']" tests > /private/tmp/sf-a2-fix1/command-verb-hits.txt
+rg -n -g '*.py' '(\[.*["\x27]gh["\x27].*(POST|PATCH|DELETE|merge|rerun)|["\x27]git push|real_lsof|real_cwd|subprocess.*["\x27]{1}(ps|pgrep|lsof)|["\x27]{1}(ps|pgrep|lsof)["\x27])' tests > /private/tmp/sf-a2-fix1/specific-hazard-hits.txt
+rg -n -g '*.py' "[\"']{1}(push|merge|rerun|POST|PATCH|DELETE)[\"']" tests > /private/tmp/sf-a2-fix1/command-verb-hits.txt
 rg -n 'real process|real kernel|host.*(process|table)|census.*real|real.*census|whole.host' tests/fake/*.py tests/unit/*.py > /private/tmp/sf-a2-fix1/host-census-candidates.txt
 rg -n '(import_module|__import__).*subfleet\.(store|cli|daemon|review_subject|protocol|sessions\.client|conversations\.service)' tests
 ```
+Fix round 4 of PR #314 added `{1}` after each bracket class before an opening parenthesis to prevent `tests/frontend/test_visual_report_hygiene.py` from reading it as a Markdown link, and each rewritten pattern matches the same lines as the one that ran.
 
 All exited 0. The specific scan had 36 hits. Dynamic-import scan found one already-included protocol importer (`test_capacity_wait_backoff.py`). Hazard strings were inspected as source data only.
 

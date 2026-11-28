@@ -4,6 +4,8 @@ Started 2026-11-13 13:27:20 UTC (`date -u`, first command); deadline 17:27:20 UT
 
 Implemented caller identity, review subjects and rounds, migration 11, CLI views/help, README command examples and acceptance clauses C-3.8, C-6.21–22 and C-17.2, plus the C-6.5 refusal index. Reviewer selection by model family remains A3.
 
+The review fields now use migration slot 12, and slot 11 holds #307's caller-wake schema. This PR's review-subject clause is C-3.9 and #315 owns C-3.8. The sections from “Fix round 1” onward record each change.
+
 Code-inspection limitation: populating Codex caller ids also brings them under existing session writer checks. PID detection still reads only `CLAUDE_PID`, so a second overlapping writable submission from one Codex thread can be refused as `unidentified-writer`. I5 proves the same daemon inputs match release/217; it does not prove unchanged CLI admission after adding this identity. Writer policy was left unchanged.
 
 `run` chooses its explicit `--caller-family` before `SUBFLEET_CALLER_FAMILY`, then native Claude markers (`CLAUDECODE` or `CLAUDE_CODE_SESSION_ID`), then native Codex markers (`CODEX_THREAD_ID` or `CODEX_SESSION_ID`), otherwise null. Invalid inputs name the flag/environment variable; invalid daemon input uses refusal reason `caller-family`. Resume and the sessions kit's handoff/revive submit boundary also detect the current caller's family; revive retains its target session id. Internal daemon-created gate/turn jobs without model caller context keep null: their executing provider does not identify who asked.
@@ -1170,3 +1172,65 @@ The merged worktree had 118 Store importers, including 4 PR-only importers. Of 1
 ### Hub collection
 
 The hub recorded the merge in the lane with the intended parents (`76c8ac29a`), copying the seven resolved files from the job's worktree. The contract matched the SHA-256 above, and every other path matched the job's files. The PR-owned test updates went in a separate commit (`82f52185b`). The two #307 tests in `tests/unit/test_store_notice_wake_migration.py` now allow a later slot (`273ab7a87`): slot 11 must be at or below `SCHEMA_VERSION`, and the first open of a version-10 store records one version row and one `schema.migrated` event for each step from 11 to the latest. On `273ab7a87`, the four contract files, the PR's changed test files and `tests/unit/test_store_*.py` passed 1,319 tests with `-n 4`.
+
+## Fix round 4 (review a2-r3)
+
+Started at 2026-11-28T02:52:19Z on `8af8616a1f585f3880b5e2055065c5726c807bb8` with a clean tracked worktree and zero untracked paths. The lane's Python 3.15.2 imported `subfleet` from this worktree.
+
+**P1. Report-link check.** The fail-first run reproduced the four false link targets in `subject-actions.md` and the failing node `tests/frontend/test_visual_report_hygiene.py::test_every_report_link_resolves_inside_the_repository[2026-11-13-review-subject-fix1-data]`. In CI run 45839455677 the same node failed in shard 1/7 on Python 3.12 and 3.14. At base lines 61, 87 and 88, the recorded commands now use `\.` for the dot class and `{1}` after the three quote classes. A sentence after each block records the rewrite. The hygiene rerun passed all 68 tests.
+
+I took both patterns from the base and edited command lines, captured the path lists from `git grep -l -P '<pattern>' -- tests`, and compared ripgrep output from `rg -n -g '*.py' '<pattern>' tests | sort` with `LC_ALL=C`. Each pair was byte-for-byte equal. The searches ran sequentially and left the original output paths alone.
+
+| Base line | Original and rewritten counts | SHA-256 of each output |
+| --- | ---: | --- |
+| 61 | 333 paths each | `00aac84b6196d4de7f195469606812a6e7f4dbd00d40f44a39dd649d8e468b7b` |
+| 87 | 38 lines each | `b8a10062ac59ff1aefe8c8128f98b1e375759d233fe76c8c5c484ffdf64ece` |
+| 88 | 102 lines each | `8b7ae1a85ae4f1f71b98d866cd2658860d37d171eab142a920151e1a69d0393c` |
+
+The base-to-HEAD stat for `subject-actions.md` is empty because the index lock was denied. The base-to-worktree stat reads `subject-actions.md | 8 +++++---`, with five insertions and three deletions. Reversing those edits recovered the base file byte for byte. The fix round 1 manifest records the historical SHA-256 `07001b3137b93ec23d708d1230db238226fc215cc18ce4c2e44184d5c1bb26bb`. The round 4 file has SHA-256 `157f5c73d574ffa88192a0334c12dc9b6a35c35def577aff9959e75a6673471c`.
+
+**P3. Opening paragraph.** The build summary at line 5 remains the historical record. The new paragraph gives the current migration slots and clause ownership and points to the history from “Fix round 1” onward. `sed -n '5,8p' docs/reports/2026-11-13-review-subject.md` showed both paragraphs. `grep -n 'C-3\.9' docs/reports/2026-11-13-review-subject.md` found the new paragraph at line 7 and the five existing hits at 796, 800, 837, 850 and 851.
+
+### Test runs
+
+`TMPDIR` was `$PWD/build/rsub-fix-r4/runtime`. Commands and counts follow.
+
+```sh
+uv --no-cache run --no-sync python -m pytest -p no:cacheprovider -n 4 --timeout=540 \
+  --basetemp "$TMPDIR/pytest-fail-first" -q tests/frontend/test_visual_report_hygiene.py
+uv --no-cache run --no-sync python -m pytest -p no:cacheprovider -n 4 --timeout=540 \
+  --basetemp "$TMPDIR/pytest-after-change" -q tests/frontend/test_visual_report_hygiene.py
+uv --no-cache run --no-sync python -m pytest -p no:cacheprovider -n 4 --timeout=540 \
+  --basetemp "$TMPDIR/pytest-final" -q tests/frontend/test_visual_report_hygiene.py \
+  tests/fake/test_state_contract.py tests/unit/test_invariants_index.py \
+  tests/unit/test_test_module_names.py tests/unit/test_handler_refusals.py
+```
+
+| Run | Passed | Failed | Skipped | Basetemp KiB |
+| --- | ---: | ---: | ---: | ---: |
+| Fail-first | 67 | 1 | 0 | 0 |
+| After-change | 68 | 0 | 0 | 0 |
+| Final | 531 | 0 | 0 | 21,328 |
+
+Pytest reported 48.56s, 43.97s and 161.63s respectively. No run printed a `pruned` line.
+
+### Footprint and cleanup
+
+The `df -H /` rows below are for `/dev/disk3s1s1` mounted on `/`. Usage was 17% and inode usage was 0% at each reading.
+
+| Before run or measurement | UTC | Disk size / used / free | Inodes used / free | Local uptime and loads | Scratch KiB |
+| --- | --- | --- | --- | --- | ---: |
+| Fail-first | 02:53:43Z | 3996G / 14G / 72G | 487k / 702M | 21:53, 1 user, 76.42 62.17 60.67 | 0 |
+| After-change | 02:55:57Z | 3996G / 14G / 72G | 487k / 701M | 21:55, 1 user, 54.02 57.35 59.00 | 32 |
+| First equivalence attempt | 02:57:37Z | 3996G / 14G / 72G | 487k / 700M | 21:57, 1 user, 69.34 63.79 61.46 | 64 |
+| Equivalence | 02:57:51Z | 3996G / 14G / 72G | 487k / 701M | 21:57, 1 user, 69.69 64.14 61.62 | 64 |
+| Final | 02:58:04Z | 3996G / 14G / 72G | 487k / 700M | 21:58, 1 user, 75.55 65.58 62.16 | 64 |
+| Scope and cleanup | 03:01:23Z | 3996G / 14G / 71G | 487k / 700M | 22:01, 1 user, 63.26 60.21 60.12 | 484 |
+
+I measured each basetemp with `du -sk` and removed it before the next run after checking its resolved parent and `pytest-` prefix. The largest measured scratch size was 21,812 KiB. After the final basetemp deletion, 484 KiB remained. I removed the resolved `build/rsub-fix-r4/` tree after checking its name and its location inside the worktree. It contained `runtime/`, eight test-created `runtime/sf-test-homes-*` directories, and `hypothesis/` with its `constants/` and `unicode_data/` directories. I also removed the empty `build/` directory created for this round. The only paths left for salvage are the two edited Markdown files.
+
+### PR body and deviations
+
+- PR-body sentences this round makes false are **none**. The Store bullet's migration 11 and C-3.8 references were already stale at the base. The PR body was read with `gh pr view 314 --repo MaxGhenis/subfleet-v2`.
+- The line 61 equivalence check used `git grep -P` under the grouped-regex memory rule. The same fixed alternatives, optional groups and literal dots have the same meaning in both engines. The first verification attempt stopped before running any searches because its assertion used the closing-fence line number for the new sentence. I corrected the index and reran the set.
+- Git returned `Operation not permitted` on `index.lock` when staging the named documentation paths. `HEAD` remained at the base. The recovery is the two unstaged files `docs/reports/2026-11-13-review-subject-fix1-data/subject-actions.md` and `docs/reports/2026-11-13-review-subject.md`.
