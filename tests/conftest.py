@@ -338,7 +338,8 @@ def _merged_passes(first: dict, later: dict) -> dict:
     for key in ("pruned", "errors", "reclaimed", "conflicts", "tmpdir_left"):
         merged[key] = [*(first.get(key) or []), *(later.get(key) or [])]
     merged["deferred"] = {**(first.get("deferred") or {}), **(later.get("deferred") or {})}
-    for key in ("listings", "listing_s", "freed_bytes", "freed_disk_bytes", "archived_bytes", "added_bytes"):
+    for key in ("listings", "listing_s", "freed_bytes", "freed_disk_bytes", "archived_bytes", "added_bytes",
+                "shared_bytes"):
         merged[key] = (first.get(key) or 0) + (later.get(key) or 0)
     for key in ("progressed", "holder_scan_failed"):
         merged[key] = bool(first.get(key) or later.get(key))
@@ -347,7 +348,7 @@ def _merged_passes(first: dict, later: dict) -> dict:
     for name, pool in (first.get("pools") or {}).items():
         if name in pools:
             pools[name].update({k: pool[k] for k in ("jobs_before", "bytes_before") if k in pool})
-            for k in ("freed_bytes", "freed_disk_bytes", "archived_bytes", "added_bytes"):
+            for k in ("freed_bytes", "freed_disk_bytes", "archived_bytes", "added_bytes", "shared_bytes"):
                 pools[name][k] = pool.get(k, 0) + pools[name].get(k, 0)
     if pools:
         merged["pools"] = pools

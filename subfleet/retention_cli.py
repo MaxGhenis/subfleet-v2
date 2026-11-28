@@ -111,6 +111,7 @@ def cmd_retention(args: argparse.Namespace) -> int:
             emit({"archives": archives})
             return int(Exit.OK)
         total = sum(a.get("archived_bytes", 0) for a in archives if "error" not in a)
+        shared = sum(a.get("shared_bytes", 0) for a in archives if "error" not in a)
         freed = sum(rarch.accounting(a)["freed_bytes"] for a in archives if "error" not in a)
         added = sum(a.get("added_bytes", 0) for a in archives if "error" not in a)
         for a in archives:
@@ -121,8 +122,10 @@ def cmd_retention(args: argparse.Namespace) -> int:
             where = f"  {offload.get('describe') or offload.get('error')}" if offload else ""
             out(f"{a['archive']}  {a.get('created_at', '?')}  archived {a.get('archived_bytes', 0):,} B  "
                 f"omitted {a.get('omitted_bytes', 0):,} B  regenerable {a.get('regenerable_bytes', 0):,} B  "
+                f"shared {a.get('shared_bytes', 0):,} B  "
                 f"added {a.get('added_bytes', 0):,} B  {a.get('worktree') or a.get('job_dir') or ''}{where}")
-        out(f"{len(archives)} archives: {total:,} bytes kept in them; {freed:,} bytes deleted without a copy "
+        out(f"{len(archives)} archives: {total:,} bytes kept in them; {shared:,} bytes shared; "
+            f"{freed:,} bytes deleted without a copy "
             f"(tracked files a remote holds, regenerable output); {added:,} bytes the archives added "
             "(bundles, manifests, rows, byte copies)")
         return int(Exit.OK)

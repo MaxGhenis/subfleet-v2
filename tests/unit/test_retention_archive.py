@@ -733,9 +733,10 @@ def test_a_persistent_error_keeps_the_cache_and_backs_off(world, monkeypatch):
     last = run(w, state=restarted, clock=clock)
     assert last["pruned"] == ["job-err"], last["deferred"]
     manifest = json.loads((w.root / "archive" / "job-err" / "manifest.json").read_text())
-    stored = [e for t in manifest["trees"].values() for e in t["entries"] if e.get("store") and not e.get("hl")]
-    # Only the read-back of each stored file (the lock aside) happened since.
-    assert len(reads) == read_once + len([e for e in stored if e["size"] != lock_size])
+    stored = {e["store"] for t in manifest["trees"].values() for e in t["entries"]
+              if e.get("store") and e["size"] != lock_size}
+    # Each distinct store was read back once, excluding the lock.
+    assert len(reads) == read_once + len(stored)
     assert rarch.check_archive(w.root, "job-err")["ok"]
 
 

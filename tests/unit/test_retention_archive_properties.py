@@ -2,13 +2,15 @@
 
 Hypothesis builds a job's worktree from random operations — files with random
 bytes, modes and non-ASCII names in nested folders, empty folders (some
-read-only), symbolic links inside, outside and dangling, hard links, FIFOs,
-ignored output, and git history: detached commits, commits reset away, staged
-content edited again, per-worktree refs and deleted tracked files. Retention
-retires the job; then:
+read-only), symbolic links inside, outside and dangling, hard links, independent
+files with identical bytes, FIFOs, ignored output, and git history: detached
+commits, commits reset away, staged content edited again, per-worktree refs and
+deleted tracked files. Retention retires the job; then:
 
 - restoring gives back every entry: path, type, permission bits, bytes, link
   target, hard-link grouping and mtime (I1);
+- stores have one digest and size and serve at most one hard-link group, and
+  independent files with identical bytes share a store (D-STORE-SHARE1);
 - every commit and staged blob the worktree could reach before retirement is in
   a fresh clone of the remote plus the archive's bundle (I3): nothing depends on
   the source repository's local objects;
@@ -18,6 +20,7 @@ retires the job; then:
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import stat
@@ -47,11 +50,13 @@ DIRS = ["", "d", "d/e", "ö", "out"]
 
 content = st.binary(min_size=0, max_size=3000) | st.sampled_from([b"line\r\nline\r\n", b"\x00\x01\x02", b"$Id$\n"])
 path = st.tuples(st.sampled_from(DIRS), st.sampled_from(NAMES)).map(lambda t: f"{t[0]}/{t[1]}" if t[0] else t[1])
+mode = st.sampled_from([0o644, 0o600, 0o755, 0o444])
 op = st.one_of(
-    st.tuples(st.just("write"), path, content, st.sampled_from([0o644, 0o600, 0o755, 0o444])),
+    st.tuples(st.just("write"), path, content, mode),
     st.tuples(st.just("mkdir"), st.sampled_from(["empty", "d/empty", "ro"]), st.sampled_from([0o755, 0o700, 0o555])),
     st.tuples(st.just("symlink"), path, st.sampled_from(["b.txt", "../outside", "/etc/hosts", "missing"])),
     st.tuples(st.just("hardlink"), path, path),
+    st.tuples(st.just("copy-bytes"), path, path, mode),
     st.tuples(st.just("fifo"), path),
     st.tuples(st.just("commit"), path, content),
     st.tuples(st.just("reset")),
@@ -98,6 +103,13 @@ def apply(wt: Path, ops) -> dict:
                 if src.is_file() and not src.is_symlink() and src != dst:
                     _prepare(dst)
                     os.link(src, dst)
+            elif kind == "copy-bytes":
+                src, dst = wt / o[1], wt / o[2]
+                if src.is_file() and not src.is_symlink() and src != dst:
+                    data = src.read_bytes()
+                    _prepare(dst)
+                    dst.write_bytes(data)
+                    os.chmod(dst, o[3])
             elif kind == "fifo":
                 p = wt / o[1]
                 _prepare(p)
@@ -142,11 +154,46 @@ def _cleanup(base: Path) -> None:
     shutil.rmtree(base, ignore_errors=True)
 
 
-def _retire_and_check(w: World, ops, *, delete_source: bool) -> None:
+def _assert_shared_stores(archive: Path) -> None:
+    manifest = json.loads((archive / "manifest.json").read_text())
+    entries = {e["p"]: e for e in manifest["trees"]["worktree"]["entries"]}
+    source = entries[".sharing/source"]
+    copy = entries[".sharing/copy"]
+    assert source["sig"]["nlink"] == copy["sig"]["nlink"] == 1
+    assert source["store"] == copy["store"]
+
+    content_by_store: dict[str, tuple[str, int]] = {}
+    store_by_content: dict[tuple[str, int], str] = {}
+    hardlink_by_store: dict[str, tuple[int, int]] = {}
+    for tree in manifest["trees"].values():
+        for entry in tree["entries"]:
+            if not (store := entry.get("store")):
+                continue
+            digest_and_size = (entry["sha256"], entry["size"])
+            assert content_by_store.setdefault(store, digest_and_size) == digest_and_size
+            sig = entry["sig"]
+            if sig["nlink"] == 1:
+                assert store_by_content.setdefault(digest_and_size, store) == store
+            else:
+                inode = (sig["dev"], sig["ino"])
+                assert hardlink_by_store.setdefault(store, inode) == inode
+
+
+def _retire_and_check(w: World, ops, sharing_data: bytes, *, delete_source: bool) -> None:
     wt = w.job("job-prop")
     sentinel = w.base / "outside"
     sentinel.write_text("outside the job\n")
-    apply(wt, ops)
+    # Every generated tree has a duplicate, a hard-link group with the same
+    # bytes, and an unrelated file of the same size. The random operations may
+    # add further copies or link groups elsewhere in the tree.
+    apply(wt, [
+        *ops,
+        ("write", ".sharing/source", b"A" + sharing_data, 0o644),
+        ("copy-bytes", ".sharing/source", ".sharing/copy", 0o600),
+        ("copy-bytes", ".sharing/source", ".sharing/group", 0o644),
+        ("hardlink", ".sharing/group", ".sharing/group-link"),
+        ("write", ".sharing/other", b"B" + sharing_data, 0o644),
+    ])
     expected = reachable(wt)
     before = snapshot(wt)
     groups = inode_groups(wt)
@@ -156,6 +203,8 @@ def _retire_and_check(w: World, ops, *, delete_source: bool) -> None:
     assert result["pruned"] == ["job-prop"], f"Full maintenance result: {result!r}"
     assert not wt.exists()
     assert sentinel.read_text() == "outside the job\n"
+    archive = w.root / "archive" / "job-prop"
+    _assert_shared_stores(archive)
     if delete_source:
         shutil.rmtree(w.repo)
         rarch.restore(w.root, "job-prop", to=w.base / "restored")
@@ -170,7 +219,7 @@ def _retire_and_check(w: World, ops, *, delete_source: bool) -> None:
     assert inode_groups(restored) == groups
     fresh = w.base / "fresh"
     git(w.base, "clone", "--quiet", str(w.remote), str(fresh))
-    git(fresh, "fetch", "--quiet", str(w.root / "archive" / "job-prop" / "commits.bundle"), "+refs/*:refs/restored/*")
+    git(fresh, "fetch", "--quiet", str(archive / "commits.bundle"), "+refs/*:refs/restored/*")
     for oid in expected:
         assert subprocess.run(["git", "-C", str(fresh), "cat-file", "-e", oid]).returncode == 0, oid
 
@@ -190,13 +239,13 @@ def reachable(wt: Path) -> set[str]:
 
 @settings(max_examples=EXAMPLES, deadline=None, phases=PHASES, suppress_health_check=[HealthCheck.function_scoped_fixture,
                                                                         HealthCheck.too_slow])
-@given(st.lists(op, min_size=1, max_size=14))
-def test_archive_then_restore_round_trips_a_trusted_repository(monkeypatch, ops):
+@given(st.lists(op, min_size=1, max_size=14), content)
+def test_archive_then_restore_round_trips_a_trusted_repository(monkeypatch, ops, sharing_data):
     monkeypatch.setattr(rgit, "temp_roots", lambda: {"/nonexistent-temporary-root"})
     base = Path(tempfile.mkdtemp(prefix="retention-prop-"))
     w = World(base)
     try:
-        _retire_and_check(w, ops, delete_source=False)
+        _retire_and_check(w, ops, sharing_data, delete_source=False)
     finally:
         w.close()
         _cleanup(base)
@@ -204,12 +253,12 @@ def test_archive_then_restore_round_trips_a_trusted_repository(monkeypatch, ops)
 
 @settings(max_examples=EXAMPLES, deadline=None, phases=PHASES, suppress_health_check=[HealthCheck.function_scoped_fixture,
                                                                         HealthCheck.too_slow])
-@given(st.lists(op, min_size=1, max_size=14))
-def test_archive_then_restore_round_trips_after_the_scratch_source_is_deleted(ops):
+@given(st.lists(op, min_size=1, max_size=14), content)
+def test_archive_then_restore_round_trips_after_the_scratch_source_is_deleted(ops, sharing_data):
     base = Path(tempfile.mkdtemp(prefix="retention-prop-scratch-"))
     w = World(base)          # a temporary directory: scratch, nothing omitted
     try:
-        _retire_and_check(w, ops, delete_source=True)
+        _retire_and_check(w, ops, sharing_data, delete_source=True)
     finally:
         w.close()
         _cleanup(base)
