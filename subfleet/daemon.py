@@ -8460,18 +8460,19 @@ class Daemon:
                     hold = {"reason": scheduler.refusal_label(refused), "refused_now": refused, "unprepared": True,
                             **({"for_good": for_good} if for_good else {})}
                     # No lane would take it: C-23.16's demand, as the look it skipped would have found.
-                    rechecks = self._capacity_wait(job["job_id"], "unprepared:" + scheduler.verdict_signature(waiting_decision), hold,
-                                                   lane_wait=True)
-                    next_check = scheduler.waiting_metadata(
-                        waiting_decision, rechecks=rechecks,
-                        ceiling_s=scheduler.capacity_recheck_ceiling(waiting_decision),
-                        capacity_steer=routed_job.get("capacity_steer"))["next_check_at"]
-                    with self.store.transaction("job.unprepared_wait", job_id=job["job_id"]) as tx:
-                        taken = self._task_held_at_write(tx, job, holds)            # C-11.10 (R3-1)
-                        if taken is None:
-                            tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? "
-                                       "WHERE job_id=? AND state IN ('queued','waiting') "
-                                       "AND cancel_requested_at IS NULL", (next_check, job["job_id"]))
+                    with self._capacity_wait_rollback(job["job_id"]):
+                        rechecks = self._capacity_wait(job["job_id"], "unprepared:" + scheduler.verdict_signature(waiting_decision), hold,
+                                                       lane_wait=True)
+                        next_check = scheduler.waiting_metadata(
+                            waiting_decision, rechecks=rechecks,
+                            ceiling_s=scheduler.capacity_recheck_ceiling(waiting_decision),
+                            capacity_steer=routed_job.get("capacity_steer"))["next_check_at"]
+                        with self.store.transaction("job.unprepared_wait", job_id=job["job_id"]) as tx:
+                            taken = self._task_held_at_write(tx, job, holds)            # C-11.10 (R3-1)
+                            if taken is None:
+                                tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? "
+                                           "WHERE job_id=? AND state IN ('queued','waiting') "
+                                           "AND cancel_requested_at IS NULL", (next_check, job["job_id"]))
                     if taken is not None:
                         continue
                     if not for_good:
@@ -9582,6 +9583,25 @@ class Daemon:
             return json.dumps(sorted(set(json.loads(job["exclusions"])) | set(extra)))
         except ROUTE_ERRORS as exc:
             raise Unroutable(exc) from exc
+
+    @contextlib.contextmanager
+    def _capacity_wait_rollback(self, job_id: str):
+        """C-3.8, C-6.10: restore this job's wait record when its transaction fails.
+
+        Enclose the transaction's exit so audit and COMMIT failures restore too.
+        The writer lock keeps snapshot and restore together with task holds that
+        clear the record. Call only around the wait and transaction, never probes.
+        """
+        with self.store._lock:
+            previous = self._capacity_waits.get(job_id)
+            try:
+                yield
+            except BaseException:
+                if previous is None:
+                    self._capacity_waits.pop(job_id, None)
+                else:
+                    self._capacity_waits[job_id] = previous
+                raise
 
     @contextlib.contextmanager
     def _isolated_route(self, job: dict, holds: dict[str, dict]):
