@@ -36,6 +36,7 @@ import pytest
 from subfleet.conversations import redact
 from subfleet.policy import DEFAULT_POLICY_PATH, HANDOFF_BRIEF_MAX_CHARS, PolicyError, load_policy
 from subfleet.sessions import handoff, scrub_release
+from tests import regex_reads
 from tests.cpu_scaling import COUNT_GROWTH_MAX, GROWTH_RATIO_MAX
 
 BUDGET = handoff.MAX_SCRUB_CHARS
@@ -1003,6 +1004,84 @@ def test_the_data_uri_step_s_body_matches_are_linear_in_the_blocks():
             with mock.patch.object(handoff, "_DATA_BODY_RE", Counted()):
                 handoff._split_masks(build(k), True, handoff._Tally())
             assert len(counted) <= 4 * k + 16, (name, k, len(counted))
+
+
+def test_the_data_uri_step_s_reads_are_linear_in_the_text():
+    """Review r3 of #331, P2 (invariant 4): the characters the data URI step reads grow linearly
+    with the text. The body-match test above counts calls; this one counts what they read, with the
+    repository's read meter (`tests.regex_reads`: each character test, at each position a scan
+    tries): `_PrefixEnds`' one pass for the prefixes' ends, `shift`'s prefix matches and `chain`'s
+    body matches, in one `_split_masks` call. Both patterns' stand-ins share one budget for the call,
+    16 reads per character of the text (on these shapes the step read 1.1 to 2.9 per character when
+    this test was written), so a quadratic mutant stops by count. On the third shape each block has
+    its own data URI, so the pass for the prefixes' ends is asked for once per block and must still
+    run once."""
+    expected = {("prefix", "finditer", "__contains__"), ("prefix", "match", "shift"),
+                ("body", "match", "chain")}               # (pattern, call, caller): no other call reaches them
+    reads: dict[tuple[str, str, str], int] = {}
+    budget = [0]
+    queries = [0]
+
+    class Metered:
+        """A pattern whose `finditer` and `match` count what they read against the shared budget;
+        every other reading method is refused, so no read escapes the count."""
+
+        def __init__(self, name, pattern):
+            self.name, self.pattern, self.emulated = name, pattern, regex_reads.emulated(pattern)
+
+        def count(self, kind, text, pos, endpos):
+            caller = sys._getframe(2).f_code.co_name
+            read, spans = self.emulated.scan(kind, text, pos, endpos, budget=budget[0] - sum(reads.values()))
+            assert spans == regex_reads.real_spans(kind, self.pattern, text, pos, endpos), (self.name, kind)
+            reads[(self.name, kind, caller)] = reads.get((self.name, kind, caller), 0) + read
+
+        def match(self, string, pos=0, endpos=sys.maxsize):
+            self.count("match", string, pos, endpos)
+            return self.pattern.match(string, pos, endpos)
+
+        def finditer(self, string, pos=0, endpos=sys.maxsize):
+            self.count("finditer", string, pos, endpos)
+            return self.pattern.finditer(string, pos, endpos)
+
+        def __getattr__(self, name):
+            if name in ("search", "fullmatch", "findall", "sub", "subn", "split", "scanner"):
+                raise AttributeError(f"{name} is not counted: count it before the step uses it")
+            return getattr(self.pattern, name)
+
+    contains = handoff._PrefixEnds.__contains__
+
+    def asked(self, at):
+        queries[0] += 1
+        return contains(self, at)
+
+    shapes = {
+        "chained-blocks": lambda k: _U + (_R + 'token="' + _C + '"\n' + _C + "Q\n") * k,
+        "a-chain-of-data-uris": lambda k: _U + _R + 'passwd="' + _C + "\n" + _C + _U * k + "Zq8x005884",
+        "a-data-uri-per-block": lambda k: (_U + _R + 'token="' + _C + '"\n' + _C + "Q\n") * k,
+    }
+    for name, build in shapes.items():
+        counts: dict[int, dict[str, int]] = {}
+        for k in (250, 1_000, 4_000):
+            text = build(k)
+            reads.clear()
+            budget[0], queries[0] = 16 * len(text), 0
+            prefix, body = Metered("prefix", handoff._DATA_URI_PREFIX_RE), Metered("body", handoff._DATA_BODY_RE)
+            try:
+                with (mock.patch.object(handoff, "_DATA_URI_PREFIX_RE", prefix),
+                      mock.patch.object(handoff, "_DATA_BODY_RE", body),
+                      mock.patch.object(handoff._PrefixEnds, "__contains__", asked)):
+                    handoff._split_masks(text, True, handoff._Tally())
+            except regex_reads.OverBudget:
+                pytest.fail(f"over the budget: {(name, k, len(text), budget[0], dict(reads))}")
+            assert set(reads) <= expected, (name, k, set(reads) - expected)
+            if name == "a-data-uri-per-block":
+                assert queries[0] >= k, (name, k, queries[0])
+            counts[k] = {part: sum(v for (pattern, _, _), v in reads.items() if pattern == part)
+                         for part in ("prefix", "body")}
+            counts[k]["both"] = counts[k]["prefix"] + counts[k]["body"]
+            if k // 4 in counts:
+                for part, count in counts[k].items():
+                    assert count <= COUNT_GROWTH_MAX * counts[k // 4][part], (name, k, part, counts)
 
 
 @pytest.mark.parametrize("place", ["alone", "head-edge", "tail-first-line"])
