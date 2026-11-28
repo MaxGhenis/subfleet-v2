@@ -10,6 +10,7 @@ from subfleet import retention
 from subfleet import retention_archive as rarch
 from subfleet import retention_git as rgit
 from subfleet import retention_qos as rqos
+from subfleet.retention_delete_guard import ISOLATED_CONFIG
 from tests.unit.retention_delete_world import delete_path, nested_job, request
 from tests.unit.retention_delete_world import run as run_delete
 from tests.unit.retention_world import World, git, snapshot, trust_temporary_directories
@@ -367,6 +368,47 @@ def test_archive_only_sets_non_sparse_for_bundle_create(world, git_commands):
     result = run(w, slice_s=480)
     assert result["pruned"] == ["job-normal"], result
     assert_only_bundle_create_sets_non_sparse(git_commands)
+
+
+def test_guarded_bundle_with_held_refs_uses_non_sparse_walk(prerequisite_repo, tmp_path, git_commands):
+    """C-8.4: under a command guard with the delete path's isolated config, a
+    bundle that excludes held refs from a complete clone is still built, with
+    `pack.useSparse=false` on its `bundle create` only, and the guard's check
+    sees that command. The side commit shares the prerequisite's tree, so the
+    pack holds that one commit under either walk."""
+    repo = prerequisite_repo
+    add_side_commit(repo)
+    git_dir = repo / ".git"
+    bundle = tmp_path / "guarded.bundle"
+    checked = []
+    with rgit.command_guard(lambda args, git_dir, cwd: checked.append(args), env=ISOLATED_CONFIG):
+        rgit.create_bundle(git_dir, bundle, [SIDE], [HELD])
+    assert bundle.exists()
+    assert_only_bundle_create_sets_non_sparse(git_commands)
+    assert ("bundle", "create", str(bundle), SIDE, "--not", HELD) in checked
+    assert rgit.bundle_heads(bundle).keys() == {SIDE}
+    side = git(repo, "rev-parse", SIDE)
+    assert packed_objects(repo, bundle, tmp_path / "guarded-pack.git", side) == {side}
+
+
+def test_guarded_anchor_bundle_omits_admin_objects_in_prerequisite(prerequisite_repo, tmp_path):
+    """C-8.4: the non-sparse walk takes effect under a command guard with the
+    delete path's isolated config. An anchor naming a prerequisite subtree and
+    blob packs neither (Git's default sparse walk packs both)."""
+    repo = prerequisite_repo
+    parent = git(repo, "rev-parse", "HEAD")
+    tree = git(repo, "rev-parse", "HEAD:pkg/sub")
+    blob = git(repo, "rev-parse", "HEAD:pkg/sub/f0")
+    git_dir = repo / ".git"
+    anchor = rgit.make_anchor(git_dir, JOB, {"tree": {tree}, "blob": {blob}}, [parent])
+    ref = rgit.anchor_ref(JOB, anchor)
+    rgit.create_ref(git_dir, ref, anchor)
+    bundle = tmp_path / "guarded-admin.bundle"
+    with rgit.command_guard(lambda args, git_dir, cwd: None, env=ISOLATED_CONFIG):
+        rgit.create_bundle(git_dir, bundle, [ref], [HELD])
+    packed = packed_objects(repo, bundle, tmp_path / "guarded-admin-pack.git", anchor)
+    assert anchor in packed
+    assert packed.isdisjoint({tree, blob})
 
 
 def test_bundle_has_same_header_as_git_default(world, shape):

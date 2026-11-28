@@ -16,6 +16,7 @@ import pytest
 from subfleet import retention_archive as rarch
 from subfleet import retention_git as rgit
 from subfleet import retention_qos as rqos
+from subfleet.retention_delete_guard import ISOLATED_CONFIG
 
 
 @pytest.fixture
@@ -85,13 +86,31 @@ def test_per_command_config_cannot_override_git_hardening(monkeypatch, setting):
         rgit.run(["config", "--list"], config=(setting,))
 
 
-def test_per_command_config_cannot_bypass_a_command_guard(monkeypatch):
-    def unexpected_popen(*args, **kwargs):
-        pytest.fail("Git started with per-command config under a guard")
+@pytest.mark.parametrize("setting", ["pack.useSparse=false", "PACK.USESPARSE=false"])
+def test_a_command_guard_admits_only_the_non_sparse_pack_setting(monkeypatch, tmp_path, setting):
+    """C-8.4: under a command guard with the delete path's isolated config, the
+    allowlisted pair `pack.useSparse=false` (its key in any case, as Git reads
+    keys) reaches Git and the guard's check sees the command. A key outside
+    the allowlist is refused before Git starts."""
+    git_dir = tmp_path / "repo.git"
+    rgit.run(["init", "--quiet", "--bare", "--template=", str(git_dir)], cwd=tmp_path)
+    launches = []
+    real_popen = subprocess.Popen
 
-    monkeypatch.setattr(rgit.subprocess, "Popen", unexpected_popen)
-    with rgit.command_guard(lambda args, git_dir, cwd: None), pytest.raises(ValueError):
-        rgit.run(["config", "--get", "pack.useSparse"], config=("pack.useSparse=false",))
+    def popen(*args, **kwargs):
+        launches.append(args[0])
+        return real_popen(*args, **kwargs)
+
+    monkeypatch.setattr(rgit.subprocess, "Popen", popen)
+    checked = []
+    with rgit.command_guard(lambda args, git_dir, cwd: checked.append((args, git_dir)), env=ISOLATED_CONFIG):
+        result = rgit.run(["config", "--get", "pack.useSparse"], git_dir=git_dir, config=(setting,))
+        assert result.stdout == b"false\n"
+        assert checked == [(("config", "--get", "pack.useSparse"), git_dir)]
+        assert len(launches) == 1
+        with pytest.raises(ValueError, match="under a command guard"):
+            rgit.run(["config", "--get", "pack.threads"], git_dir=git_dir, config=("pack.threads=1",))
+    assert len(launches) == 1
 
 
 def test_per_command_config_reaches_git_outside_a_guard(tmp_path):
@@ -100,6 +119,47 @@ def test_per_command_config_reaches_git_outside_a_guard(tmp_path):
     result = rgit.run(["config", "--get", "pack.useSparse"], git_dir=git_dir,
                       config=("pack.useSparse=false",))
     assert result.stdout == b"false\n"
+
+
+@pytest.mark.parametrize("setting", ["gc.auto=1", "Core.HooksPath=/elsewhere", "core.fsmonitor"])
+def test_a_command_guard_refuses_overrides_of_git_hardening(monkeypatch, setting):
+    """C-8.4: under a command guard, a per-command pair naming a key GIT_CONFIG
+    sets (in any case, or without a value) is refused before Git starts."""
+    def unexpected_popen(*args, **kwargs):
+        pytest.fail("Git started with an override of a hardening setting under a guard")
+
+    monkeypatch.setattr(rgit.subprocess, "Popen", unexpected_popen)
+    with rgit.command_guard(lambda args, git_dir, cwd: None, env=ISOLATED_CONFIG), pytest.raises(ValueError):
+        rgit.run(["config", "--list"], config=(setting,))
+
+
+@pytest.mark.parametrize("setting", [
+    "pack.threads=1",
+    "core.sshCommand=/usr/bin/false",
+    "pack.useSparse",
+    "pack.useSparse=true",
+    "pack.useSparse=no",
+], ids=["other-pack-key", "command-key", "non-sparse-key-without-value", "non-sparse-key-true",
+        "non-sparse-key-other-false-spelling"])
+def test_a_command_guard_refuses_config_outside_its_allowlist(monkeypatch, setting):
+    """C-8.4: under a command guard, only the exact pair `pack.useSparse=false`
+    is admitted. Another key, the bare key (Git reads it as true), `true`, and
+    another spelling of false are each refused before Git starts."""
+    def unexpected_popen(*args, **kwargs):
+        pytest.fail("Git started with per-command config outside the guard's allowlist")
+
+    monkeypatch.setattr(rgit.subprocess, "Popen", unexpected_popen)
+    with rgit.command_guard(lambda args, git_dir, cwd: None, env=ISOLATED_CONFIG), \
+            pytest.raises(ValueError, match="under a command guard"):
+        rgit.run(["config", "--list"], config=(setting,))
+
+
+def test_the_guard_allowlist_names_no_hardening_key():
+    """C-8.4: no key a command guard admits is one GIT_CONFIG sets, so the
+    allowlist can never override the hardening settings."""
+    allowed = {key for key, _ in rgit._GUARDED_CONFIG}
+    assert allowed == {"pack.usesparse"}
+    assert allowed.isdisjoint(rgit._GIT_CONFIG_KEYS)
 
 
 @pytest.mark.parametrize("args,config,cancelled,message", [
