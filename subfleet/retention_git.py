@@ -48,6 +48,11 @@ from . import retention_qos as rqos
 GIT_CONFIG = ("-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "gc.auto=0",
               "-c", "maintenance.auto=false", "-c", "core.untrackedCache=false")
 _GIT_CONFIG_KEYS = frozenset(setting.partition("=")[0].lower() for setting in GIT_CONFIG[1::2])
+#: The per-command settings a guarded caller may pass, as (lower-case key,
+#: exact value). A guard's check never sees `config`, so only a setting that
+#: changes how Git walks objects for a pack, not what it reads or runs, is
+#: admitted; no key here is one GIT_CONFIG sets (C-8.4).
+_GUARDED_CONFIG = frozenset({("pack.usesparse", "false")})
 ANCHOR_IDENTITY = {"GIT_AUTHOR_NAME": "subfleet retention", "GIT_AUTHOR_EMAIL": "retention@subfleet.invalid",
                    "GIT_COMMITTER_NAME": "subfleet retention", "GIT_COMMITTER_EMAIL": "retention@subfleet.invalid",
                    "GIT_AUTHOR_DATE": "@0 +0000", "GIT_COMMITTER_DATE": "@0 +0000"}
@@ -124,14 +129,18 @@ def run(args: Iterable[str], *, git_dir: Path | None = None, cwd: Path | None = 
 
     A wrapper or Git child can retain the output pipes after its parent dies.
     Kill the whole session's group and bound the final drain as well.
-    Per-command config outside a guard may add keys absent from GIT_CONFIG.
+    Per-command config may add keys absent from GIT_CONFIG; under a guard,
+    only the pairs in _GUARDED_CONFIG (`pack.useSparse=false`).
     """
     args = tuple(args)
     config = tuple(config)
     guarded = _COMMAND_GUARD.get()
     if guarded is not None:
-        if config:
-            raise ValueError("per-command Git config is disallowed under a command guard")
+        for setting in config:
+            key, sign, value = setting.partition("=")
+            if not sign or (key.lower(), value) not in _GUARDED_CONFIG:
+                # Name the key only: a refused value is never echoed into a reason.
+                raise ValueError(f"per-command Git config for {key.lower()} is not admitted under a command guard")
         check, forced_environment, default_cwd = guarded
         if cwd is None and git_dir is None:
             cwd = default_cwd
