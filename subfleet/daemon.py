@@ -9452,6 +9452,11 @@ class Daemon:
                     if tries == ROUTE_TRIES:
                         break
                     self._count_route(again=1)
+                    if desktop_account is not None:
+                        # C-10.3: evaluated again by the app's newest answer, the one the
+                        # check marks the lanes with, so a report that moved the desktop
+                        # lane after this pass began does not move every try of it.
+                        desktop_account = dataclasses.replace(desktop_account, app=self._desktop_app_read()[1])
                     basis = {}
                     try:
                         decision = self._route(decision_job, extra_exclusions=route_exclusions,
