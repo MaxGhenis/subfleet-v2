@@ -436,6 +436,19 @@ def test_c10_9_alert_the_apps_org_unlinked_for_ten_minutes_while_in_use():
     assert desktop_app.alert_conditions(summary_of(linked), in_use=True, now=NOW) == []
 
 
+def test_c10_9_no_unlinked_alert_while_a_lane_key_names_the_apps_org():
+    """Review r1 of #318 (P3): on the file alone a uuid-keyed lane in the app's org is
+    `desktop`, so the org is not unlinked from a lane and the alert stays quiet; a
+    uuid-keyed lane in another org does not quiet it. Written after the fix (fix round 1)."""
+    app = resolve(AppSample(ORGS[0], at(-30), 5.0, at(-601)), [])
+    mine = [verified("claude-9", uuid(9), ORGS[0]), claude("claude-1", EMAILS[0])]
+    assert app.summary(mine)["lanes"] == ["claude-9"]
+    assert desktop_app.alert_conditions(summary_of(app, mine), in_use=True, now=NOW) == []
+    other = [verified("claude-9", uuid(9), ORGS[1]), claude("claude-1", EMAILS[0])]
+    keys = [row["key"] for row in desktop_app.alert_conditions(summary_of(app, other), in_use=True, now=NOW)]
+    assert keys == [f"desktop-app-unlinked:{ORGS[0][:8]}"]
+
+
 def test_c10_9_alert_a_newer_event_naming_another_org_for_ten_minutes():
     events = [event(1, ORGS[1], EMAILS[1], seconds=-700), event(2, ORGS[1], EMAILS[1], seconds=-100)]
     app = resolve(AppSample(ORGS[0], at(-800), 5.0, at(-800)), [event(0, ORGS[0], EMAILS[0], seconds=-900), *events])
