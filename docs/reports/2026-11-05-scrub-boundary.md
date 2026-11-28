@@ -1210,8 +1210,8 @@ Built head: see the final answer.
 
 Fix job 20261128-000326-scrubop-fix-r3, run from 2026-11-28 05:03 UTC on f9672a3a5 (fix round 2's
 head with the hub's issue numbers, which review r3 read), in a detached job checkout. No code
-behaviour changes: `handoff.py` changes in two docstrings only. Host load (1 min) ran 15–55 on 18
-cores; free disk stayed at 68.4–69.9 GiB. Commits: `1147a1784` (the read test), `1efb1a646` and
+behaviour changes: `handoff.py` changes in two docstrings only. Host load (1 min) ran 15–88 on 18
+cores; free disk stayed at 67.7–69.9 GiB. Commits: `1147a1784` (the read test), `1efb1a646` and
 `7563f648b` (the docstrings), `bd5ef9f86` (C-23.14), then this report.
 
 ### Each finding's cause and change
@@ -1442,7 +1442,25 @@ module, class and function docstring (137 in each) and compares `ast.dump`: the 
 | 05:23 | `count_f1.py`, a 4890f0d60 archive | 68.5; 40.9 | 21 / 21; leak 2695 |
 | 05:24 | this head's test module on 4890f0d60 | 68.4; 37.9 | 2 failed (:1006, :1051), 1 passed in 5.2 s |
 | 05:26 | the four guard modules, after the C-23.14 edit (`-n 4`) | 68.5; 30.1 | **437 passed** in 103.4 s |
-| final | final runs | see the final answer | see the final answer |
+| 05:37 | **final 1**: `-k data_uri_step_s` (`-n 4`) | 68.5; 34.4 | **2 passed** in 21.2 s |
+| 05:38 | **final 2a**: the growth test (`-k split_step_s_work_is_linear`, `-n 4`) | 68.6; 26.8 | **7 passed** in 35.2 s |
+| 05:39 | **final 2b**, chunk 0 of the module's other 356 ids (every fourth id, `@argsfile`, `-n 4`) | 68.5; 31.4 | **89 passed** in 362.4 s |
+| 05:45 | chunk 1 | 68.3; 87.6 | **89 passed** in 316.1 s |
+| 05:51 | chunk 2, first half | 67.8; 22.1 | **45 passed** in 59.8 s |
+| 05:52 | chunk 2, second half | 67.7; 29.2 | **44 passed** in 94.9 s |
+| 05:53 | chunk 3, first half | 69.5; 22.1 | **45 passed** in 41.2 s |
+| 05:54 | chunk 3, second half | 69.3; 21.2 | **44 passed** in 121.8 s |
+| 05:56 | **final 3**: `tests/fake/test_state_contract.py tests/unit/test_invariants_index.py tests/unit/test_test_module_names.py tests/unit/test_handler_refusals.py` at `2ef3c09b2` (`-n 4`) | 69.5; 28.0 | **437 passed** in 44.4 s |
+
+- **Collected.** `tests/unit/test_sessions_handoff_excerpts.py` holds 363 tests. It is the only test
+  module in `git diff --name-only 53a7bac93...HEAD`, with `docs/acceptance-contract.md`, this report and
+  `handoff.py`.
+- **The module whole.** Finals 2a and 2b ran it: 7 + 356 = 363 passed.
+- **Each invariant's tests passed** in those runs:
+  - the `REVIEW_R2` and `REVIEW_R1` rows tests;
+  - the superset test;
+  - the growth test, the closer-once count, the body-match count and the read count.
+- **The AST check** at `2ef3c09b2` was identical.
 
 ### What didn't run, and deviations
 
@@ -1457,6 +1475,9 @@ module, class and function docstring (137 in each) and compares `ast.dump`: the 
 - **No separate per-character assertion.** The shared budget is the per-character bound.
 - **Serial runs.** The new test's first two runs and the mutant runs were serial (two or three tests
   each), not `-n 4`.
+- **Chunks.** Final 2b ran the module's other 356 ids in four interleaved chunks of 89, passed to
+  pytest as `@argsfile` lists. The last two chunks were halved when the load reached 88, to stay
+  within the tool's 600 s per call.
 - **An extra guard run.** The four guard modules also ran once after the contract edit, before the
   final runs.
 - **No seed number in C-23.14.** It keeps none for #345. The brief allowed one, qualified as fix round
