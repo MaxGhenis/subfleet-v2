@@ -3,6 +3,8 @@
 Revision 9, 2026-11-26: files with identical bytes can share a stored copy
 within one archive. Restore recreates each independent file and preserves
 hard-link groups. Accounting reports `shared_bytes` (D-STORE-SHARE1, C-8.4).
+A file whose link count changes between the walk and its open defers the job
+(review r1).
 
 Revision 8, 2026-11-09: section 18, the operator's delete path for the trees
 the pass keeps for good (d2660, C-8.7).
@@ -343,8 +345,10 @@ the directory), so a crash anywhere is resumed or undone by the next pass.
    walk, section 7); walk the trees
    descriptor-relative, never following a link, in byte order; clone, omit or
    mark regenerable each entry, re-`fstat`ing a file around its read (a change
-   defers the job); walk the admin directory in place; verify the omitted
-   blobs whole; build the anchor, create its ref, write and verify the bundle;
+   around the read defers the job, as does an inode or link count at open
+   that differs from what the walk saw); walk the admin directory in place;
+   verify the omitted blobs whole; build the anchor, create its ref, write
+   and verify the bundle;
    write the manifest; read every stored file back and check its size and
    sha256. A job whose slice runs out is parked in quarantine with its progress
    and continues in the next pass. A slice stops only between files and only
@@ -1173,8 +1177,10 @@ descriptors, and deliberately adversarial same-user tricks):
   the item above for a second repository on the same disk.
 - Processes of other users are invisible to a non-root `lsof`; worktrees are
   0700, so only root could hold one.
-- Extended attributes, ACLs and file flags are not in the manifest; a clone
-  keeps them, a byte copy and a restore do not. A change to them after the
+- Extended attributes, ACLs and file flags are not in the manifest. A byte
+  copy carries only the file contents. On APFS, a file restored by cloning
+  a stored copy inherits that copy's extended attributes and file flags,
+  including when it shares another file's copy. A change to them after the
   archive moves a file's ctime: a file with one link then goes to conflicts,
   but one that had other links and still holds its archived bytes is deleted
   (revision 5), with the attributes the clone took.
@@ -1232,7 +1238,7 @@ finding:
 | Item | Tests |
 |---|---|
 | Round trip | `test_round_trip_dirty_unpushed_detached_job_restores_every_byte_and_commit`, `test_bundle_alone_restores_the_commits_in_a_fresh_clone`, both properties |
-| Shared stored files (D-STORE-SHARE1, C-8.4) | `test_retention_store_share.py` covers cross-tree sharing, independent restore, hard-link groups, crash and walk retries, readback, verified deletion, accounting and attempt streams. The two round-trip properties in `test_retention_archive_properties.py` cover shared-store metadata and inode grouping. |
+| Shared stored files (D-STORE-SHARE1, C-8.4) | `test_retention_store_share.py` covers cross-tree sharing, independent restore, hard-link groups, a link-count change before open, crash and walk retries, readback, verified deletion, accounting, attempt streams and APFS file flags. The two round-trip properties in `test_retention_archive_properties.py` cover shared-store metadata and inode grouping. |
 | Nothing depends on an uncontrolled repository | `test_scratch_source_clone_deleted_after_retirement_is_still_restorable`, `test_clone_of_a_local_repository_carries_its_whole_history`, `test_blob_only_in_a_local_branch_is_archived_not_omitted`, `test_local_path_remote_is_not_a_remote`, `test_borrowed_or_shallow_object_store_is_scratch`, `test_temporary_directory_source_is_scratch_by_default` |
 | Omission hashes the whole object | `test_corrupted_loose_object_is_not_trusted_for_omission[wrong-bytes, truncated]`, `test_object_reader_hashes_every_byte` |
 | Anchor idempotent | `test_anchor_is_deterministic_and_create_is_idempotent`, `test_rollback_after_anchoring_then_next_pass_retires` |

@@ -1988,6 +1988,8 @@ class _Builder:
             before = os.fstat(fd)
             if (before.st_dev, before.st_ino) != (st.st_dev, st.st_ino) or not stat.S_ISREG(before.st_mode):
                 raise rfs.TreeError("changed", f"{entry['p']} was replaced")
+            if before.st_nlink != st.st_nlink:
+                raise rfs.TreeError("changed", f"{entry['p']} changed its link count before it was archived")
             if omittable:
                 digest, blob = rfs.read_hashes(fd, before.st_size, fmt, self.ctx.check)
                 after = os.fstat(fd)

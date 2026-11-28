@@ -4,11 +4,11 @@ Started 2026-11-26 at 10:30:16 UTC on detached HEAD at `53a7bac93d01afd9165588bc
 
 ## Implementation
 
-- **Ruling 1, store sharing.** `subfleet/retention_archive.py:1683–1684, 2006–2036` keeps a builder-wide map keyed by SHA-256 and size. After cloning or copying and checking the source signature, a one-link entry can reuse the first recorded store. The builder removes the duplicate clone before writing the alias progress record. An own-key hit keeps the fresh store. Multi-link entries keep their signature-keyed stores and `hl` grouping. A one-link entry can reuse a hard-link group's store.
-- **Ruling 2, totals.** `subfleet/retention_archive.py:75–86, 1328–1366, 1781–1794, 1811–1823, 2027–2046, 2065–2101` counts one-link entries against a set of store names. The set is restored when a regenerable walk restarts, and it spans the three trees and the omission fallback. `shared_bytes` counts apparent bytes of entries reusing a counted store. Their originals' private blocks contribute to `freed_disk_bytes` after the temporary clone is removed. `freed_bytes` still sums omitted and regenerable bytes. `added_bytes` still counts the bundle, manifest, summary, rows and actual byte copies.
-- **Ruling 2, reporting.** `subfleet/retention.py:389–398, 491, 744, 1186–1201` initializes and aggregates `shared_bytes` in the pass result and each pool using `ACCOUNTING_KEYS`. The two events use `accounting()` (`subfleet/retention_archive.py:954, 1357–1366`). Older accounting records default to zero. `subfleet/retention_cli.py:91–112` and `subfleet/retention_archive.py:2263–2280` publish the per-archive and total text figures and the per-archive JSON field. `tests/conftest.py:334–353` sums the new field when joining catch-up passes.
-- **Ruling 3, resume.** `subfleet/retention_archive.py:1956–1980, 2027–2036, 2238–2247` accepts a valid cached alias for a one-link file, clears an unrecorded own-key clone before measuring, and registers and counts the alias by its referenced store. A multi-link cache entry must point to its own key. Cleanup keeps every referenced name, including one whose original owner is absent.
-- **Rulings 4 and 5, verification and restore.** `subfleet/retention_archive.py:2009–2026, 2201–2236, 2287–2327` uses the source digest after cloning and checking for intervening writes, or the digest from a valid progress record. Builder readback and `check_archive` require all entries for a store to agree on SHA-256 and size. The builder discards a disagreeing store and defers retirement. The existing restore path recreates each independent entry with its own mode and mtime.
+- **Ruling 1, store sharing.** `subfleet/retention_archive.py:1683–1684, 2008–2038` keeps a builder-wide map keyed by SHA-256 and size. The link-count check at lines 1991–1992 defers the job when a file's open descriptor and walk entry disagree. After cloning or copying and checking the source signature, a one-link entry can reuse the first recorded store. The builder removes the duplicate clone before writing the alias progress record. An own-key hit keeps the fresh store. Multi-link entries keep their signature-keyed stores and `hl` grouping. A one-link entry can reuse a hard-link group's store.
+- **Ruling 2, totals.** `subfleet/retention_archive.py:75–86, 1328–1366, 1781–1794, 1811–1823, 2029–2048, 2067–2103` counts one-link entries against a set of store names. The set is restored when a regenerable walk restarts, and it spans the three trees and the omission fallback. `shared_bytes` counts apparent bytes of entries reusing a counted store. Their originals' private blocks contribute to `freed_disk_bytes` after the temporary clone is removed. `freed_bytes` still sums omitted and regenerable bytes. `added_bytes` still counts the bundle, manifest, summary, rows and actual byte copies.
+- **Ruling 2, reporting.** `subfleet/retention.py:389–398, 491, 744, 1186–1201` initializes and aggregates `shared_bytes` in the pass result and each pool using `ACCOUNTING_KEYS`. The two events use `accounting()` (`subfleet/retention_archive.py:954, 1357–1366`). Older accounting records default to zero. `subfleet/retention_cli.py:91–112` and `subfleet/retention_archive.py:2265–2282` publish the per-archive and total text figures and the per-archive JSON field. `tests/conftest.py:334–353` sums the new field when joining catch-up passes.
+- **Ruling 3, resume.** `subfleet/retention_archive.py:1956–1980, 2029–2038, 2240–2249` accepts a valid cached alias for a one-link file, clears an unrecorded own-key clone before measuring, and registers and counts the alias by its referenced store. A multi-link cache entry must point to its own key. Cleanup keeps every referenced name, including one whose original owner is absent.
+- **Rulings 4 and 5, verification and restore.** `subfleet/retention_archive.py:2011–2028, 2203–2238, 2289–2329` uses the source digest after cloning and checking for intervening writes, or the digest from a valid progress record. Builder readback and `check_archive` require all entries for a store to agree on SHA-256 and size. The builder discards a disagreeing store and defers retirement. The existing restore path recreates each independent entry with its own mode and mtime.
 - **Tests and contract.** `tests/unit/test_retention_store_share.py` covers sharing, accounting, retries, verification, verified deletion, and restore metadata. `tests/unit/test_retention_archive_properties.py` generates independent identical files and checks store metadata and hard-link inode consistency. `tests/unit/test_retention_archive.py:736–739` now predicts the number of readbacks from distinct store names. In the fixture, `admin/HEAD` and `admin/ORIG_HEAD` share a 41-byte copy. `docs/acceptance-contract.md` updates C-8.4 under its existing clause ID. `docs/desktop/retention-archive.md` adds revision 9 and describes sharing, accounting, verification and independent restore.
 
 ## Readers
@@ -21,7 +21,7 @@ Started 2026-11-26 at 10:30:16 UTC on detached HEAD at `53a7bac93d01afd9165588bc
 
 ## Limits
 
-- I1 covers the bytes, inode grouping, mode and mtime of each restored file. On APFS, a shared file inherited the stored source's extended attributes in the documented-limitation test.
+- I1 covers the bytes, inode grouping, mode and mtime of each restored file. On APFS, clone-based restore of a shared file inherits the stored copy's extended attributes and file flags. The documented-limitation tests observed the first file's xattr and `UF_HIDDEN` on both restored files.
 - On a byte-copy volume, the builder still copies a duplicate and removes the temporary copy after source verification. Only the retained copy contributes to `copied_bytes`.
 - A hard-link inode present in two source trees retains the old per-tree accounting, so its one signature-keyed store may count twice. Published archives were left untouched. Older summaries without `shared_bytes` display zero. Valid in-flight cache records that already name distinct stores for identical bytes retain their names.
 - The daemon log still computes net relief as `freed_disk_bytes - added_bytes`, which now includes unshared blocks of shared originals. The survey still estimates storage per file and can overstate `archived_bytes` for jobs with duplicates.
@@ -298,3 +298,139 @@ Git refused to create the linked worktree's index lock. HEAD stayed on
 the base, and the ten changed files are available for salvage. No live
 state or archive was accessed. The hub's #316 offload review is the
 remaining merge-time check.
+
+## Fix round 1 (review r1)
+
+Started at 2026-11-28T02:52:01Z on detached HEAD
+`3c21e5d3bfd0c4c669eaa0fc8eaea69534ea9bd9`. The tracked checkout was clean
+and there were no untracked files.
+
+- **P1, link count between walk and open.** `subfleet/retention_archive.py:1991–1992`
+  compares the open descriptor's link count with the walk's link count,
+  immediately after the inode check and before the omission branch.
+  The existing mapping at lines 1894–1897 defers the job for one hour.
+  `tests/unit/test_retention_store_share.py:399–446` changes an external link
+  just before the open in both directions. Each case checks that the job
+  folder keeps its bytes, modes and mtimes and that no archive is published.
+  After the delay it checks retirement, archive verification and restore.
+  Only `a-g1` and `z-g2` form a hard-link group. Restored `m-f1` has its
+  own inode, one link, mode `0o755` and its original mtime. Its manifest entry
+  has no `hl`. The added external link remains in place through the retry.
+  The design records the deferral in revision 9 and step 6
+  (`docs/desktop/retention-archive.md:3–7, 343–355`).
+- **P3, C-8.4.** `docs/acceptance-contract.md:556` now explicitly allows a
+  one-link file to reuse a hard-link group's stored copy and restore as its
+  own file. The group keeps its own copy. The existing `pair-first` case of
+  `test_one_link_files_share_without_joining_a_hard_link_group` exercises this
+  case. The change-log entry at line 9 names both new tests.
+- **P3, restore metadata and resume limits.** The flags test at
+  `tests/unit/test_retention_store_share.py:553–570` set `UF_HIDDEN` only on
+  `a-first`. Both entries named one store and both restored files had the
+  flag. The xattr test at lines 531–550 likewise found the first file's
+  xattr on both restored files. These results replace the design's blanket
+  claim that restore drops the metadata. The revised bullet at
+  `docs/desktop/retention-archive.md:1180–1187` describes what APFS
+  clone-based restore inherits. The manifest excludes xattrs, flags and
+  ACLs, and the byte-copy fallback writes only bytes. The review's deny-write
+  ACL did not carry over. The limits above now cover file flags and retain
+  the in-flight cache case. The design's tests row at line 1241 lists the
+  race and flags coverage.
+
+The fail-first run at the original PR head gave 22 passes and two failures
+in `test_a_link_count_change_before_the_open_defers_the_job`:
+
+- `[drop]`, `tests/unit/test_retention_store_share.py:432`:
+  `assert ['link-count-change'] == []`. The job was pruned. In the review's
+  separate reproduction, restore grouped `m-f1` with `z-g2` and gave
+  `m-f1` mode `0o640`.
+- `[add]`, `tests/unit/test_retention_store_share.py:433`:
+  `assert 'changed its link count' in 'changed after archive: job/m-f1'`.
+  The final check deferred it after the builder archived it.
+
+The module passed all 24 cases with the guard in place, including both race
+cases and both APFS metadata tests.
+
+M8 removed the new check and both cases failed on the same lines as in the
+fail-first run. M9 rejected only link drops with `before.st_nlink < st.st_nlink`.
+`[drop]` passed and `[add]` failed at line 433 with
+`changed after archive: job/m-f1`.
+
+### Run commands and footprint
+
+The lane venv resolved `subfleet` to the assigned worktree. Each run used
+the following command with the label and selectors in the table. It used
+four xdist workers and the default pytest temporary-path retention policy.
+The scratch-only `sshare_local` plugin redirected the test harness's
+failure-preservation and pruning root from `/tmp/sf-failed` into `$R`.
+JUnit output supplied per-module counts.
+
+```sh
+R="$PWD/build/sshare-fix-r1"
+export TMPDIR="$R/runtime" HYPOTHESIS_STORAGE_DIRECTORY="$R/hypothesis"
+export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD:$R"
+export UV_PROJECT_ENVIRONMENT=/Users/maxghenis/subfleet-v2-lanes/store-share/.venv
+export SSHARE_RUN_ROOT="$R"
+uv --no-cache run --no-sync python -m pytest -p no:cacheprovider \
+  -p sshare_local -n 4 --timeout=600 -m "not real_lsof and not real_cwd" \
+  --basetemp "$TMPDIR/pytest-$label" -q -rs --junitxml "$R/$label.xml" "$@"
+```
+
+In the table, `share` is `tests/unit/test_retention_store_share.py`.
+`full` uses all 21 module paths in the following module table, in order.
+
+| Label | Selector | Pass | Fail | Skip | UTC start | Available at `/` | Load (1, 5, 15 min) | Basetemp (KiB) |
+| --- | --- | ---: | ---: | ---: | --- | ---: | --- | ---: |
+| `smoke` | `share::test_equal_size_files_with_different_bytes_keep_separate_stores` | 1 | 0 | 0 | 2026-11-28T02:53:39Z | 72G | 73.50 61.36 60.38 | 556 |
+| `fail-first` | `share` | 22 | 2 | 0 | 2026-11-28T02:55:04Z | 72G | 42.84 57.47 59.19 | 13,740 |
+| `after-change` | `share` | 24 | 0 | 0 | 2026-11-28T02:57:33Z | 72G | 67.97 63.43 61.32 | 13,548 |
+| `m8` | `share::test_a_link_count_change_before_the_open_defers_the_job` | 0 | 2 | 0 | 2026-11-28T02:59:08Z | 71G | 41.24 57.30 59.30 | 1,120 |
+| `m9` | `share::test_a_link_count_change_before_the_open_defers_the_job` | 1 | 1 | 0 | 2026-11-28T03:00:20Z | 71G | 56.95 58.07 59.38 | 1,128 |
+
+### PR body changes for the hub
+
+Read with `gh pr view 353 --repo MaxGhenis/subfleet-v2`. GitHub reported
+`CONFLICTING` and `DIRTY` against `release/217`, and `gh pr checks`
+reported no checks for the branch.
+
+- Replace “Retention now stores one copy of each set of identical one-link
+  files in an archive.” with “Within one archive, a one-link file can share
+  a stored copy with matching SHA-256 and size, including a hard-link
+  group's copy.”
+- After “After it checks a one-link file's source signature, the builder
+  points that entry at the copy it already stored and removes the duplicate
+  clone.” add “The builder defers retirement if a file's link count differs
+  between the walk and its open.”
+- Replace “A hard-link group keeps its own stored copy, so it restores as a
+  group and no unrelated file joins it.” with “A hard-link group keeps its
+  own stored copy and restores as a group. A one-link file can share that
+  copy and still restore on its own inode.”
+- Expand “C-8.4 and the archive design describe the sharing and its limits.”
+  to “C-8.4 explicitly covers reuse of a hard-link group's stored copy.
+  The archive design documents open-time deferral and APFS restore metadata.”
+- Replace “On APFS, a shared file restores with the extended attributes of
+  the source that made the stored copy.” with “On APFS, clone-based restore
+  of a shared file inherits the stored copy's extended attributes and file
+  flags.”
+- The sentence “A resumed build accepts a cached alias for a one-link file
+  and counts it against the store it names.” needs the in-flight case in
+  Limits. Add “A valid in-flight progress record can keep its own store
+  for bytes that another entry already stores. A resumed build can
+  therefore keep two stores for identical bytes, with totals matching its
+  manifest.”
+- Replace the Tests sentence starting with `test_retention_store_share.py`
+  “(21 tests)” with “The 24 cases in `test_retention_store_share.py` and
+  two round-trip properties in `test_retention_archive_properties.py`
+  cover cross-tree sharing, both hard-link orders, crash and resume,
+  shared-store corruption, verified deletion after a late write,
+  accounting, and restore. The store-sharing cases also cover link-count
+  deferral and retry for a dropped or added link, and APFS file flags.”
+- Replace “On release/217, 20 of these 23 cases fail.” with “At the original
+  release/217 base, 20 of the original 23 cases failed. At the original PR
+  head, both new link-count cases failed and the other 22 store-sharing
+  cases passed. With the guard in place, all 24 store-sharing cases passed.”
+- Replace “Each of seven mutants fails its intended test.” with “The seven
+  original mutants failed their intended tests. M8 failed both link-count
+  cases and M9 failed the add case.”
+- Keep “Hub run on 3c21e5d3b: 911 passed and 4 skipped” labeled as the
+  original-head result. Add the fix-round lane result and the hub's
+  collected-head result after the hub runs it.

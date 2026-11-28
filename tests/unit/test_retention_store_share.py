@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import subprocess
 import sys
 
@@ -395,6 +396,56 @@ def test_a_rewrite_that_would_share_defers_during_archive(world, monkeypatch):
     assert not records.get(duplicate_key, {}).get("store")
 
 
+@pytest.mark.parametrize("change", ["drop", "add"])
+def test_a_link_count_change_before_the_open_defers_the_job(world, monkeypatch, change):
+    w = world
+    job_id = "link-count-change"
+    w.job(job_id, worktree=False, files={"a-g1": DATA, "m-f1": DATA})
+    job = w.root / "jobs" / job_id
+    os.link(job / "a-g1", job / "z-g2")
+    set_metadata(job / "a-g1", 0o640, 1600000000000000000)
+    set_metadata(job / "m-f1", 0o755, 1600000001000000000)
+    outside = w.base / "outside-link"
+    if change == "drop":
+        os.link(job / "m-f1", outside)
+    before = (job / "m-f1").stat()
+    expected = snapshot(job)
+    original = rfs.sig_key
+    triggered = False
+
+    def change_link_count(st):
+        nonlocal triggered
+        if not triggered and (st.st_dev, st.st_ino) == (before.st_dev, before.st_ino):
+            assert st.st_nlink == before.st_nlink
+            if change == "drop":
+                outside.unlink()
+            else:
+                os.link(w.root / "retention" / job_id / "job" / "m-f1", outside)
+            triggered = True
+        return original(st)
+
+    clock, state = Clock(), retention.RetentionState()
+    with monkeypatch.context() as once:
+        once.setattr(rfs, "sig_key", change_link_count)
+        result = run(w, clock=clock, state=state)
+    assert triggered
+    assert result["pruned"] == []
+    assert "changed its link count" in result["deferred"][job_id]
+    assert not archive(w, job_id).exists()
+    assert snapshot(job) == expected
+
+    clock.advance(rarch.DEFER_CHANGED_S + 1)
+    assert run(w, clock=clock, state=state)["pruned"] == [job_id]
+    assert rarch.check_archive(w.root, job_id)["ok"]
+    assert "hl" not in entries(read_manifest(w, job_id), "job")["m-f1"]
+    restored = restore(w, job_id) / "job"
+    assert inode_groups(restored) == [{"a-g1", "z-g2"}]
+    assert snapshot(restored) == expected
+    single = (restored / "m-f1").stat()
+    assert single.st_ino != (restored / "a-g1").stat().st_ino
+    assert single.st_nlink == 1
+
+
 def test_a_restarted_regenerable_walk_counts_shared_stores_once(world, monkeypatch):
     w = world
     job_id = "regen-retry"
@@ -497,3 +548,23 @@ def test_shared_restore_uses_the_stored_copys_xattrs(world):
     first = subprocess.check_output(["xattr", "-p", attr, restored / "a-first"])
     second = subprocess.check_output(["xattr", "-p", attr, restored / "b-second"])
     assert first == second == b"first xattr\n"
+
+
+@pytest.mark.documented_limitation
+@pytest.mark.skipif(sys.platform != "darwin", reason="requires APFS clone file flags semantics")
+def test_shared_restore_uses_the_stored_copys_file_flags(world):
+    w = world
+    job_id = "shared-flags"
+    w.job(job_id, worktree=False, files={"a-first": DATA, "b-second": DATA})
+    job = w.root / "jobs" / job_id
+    os.chflags(job / "a-first", stat.UF_HIDDEN)
+    assert not (job / "b-second").stat().st_flags & stat.UF_HIDDEN
+    assert run(w)["pruned"] == [job_id]
+    manifest = read_manifest(w, job_id)
+    if manifest["totals"]["clones"] == 0:
+        pytest.skip("this volume does not support clones")
+    archived = entries(manifest, "job")
+    assert archived["a-first"]["store"] == archived["b-second"]["store"]
+    restored = restore(w, job_id) / "job"
+    assert (restored / "a-first").stat().st_flags & stat.UF_HIDDEN
+    assert (restored / "b-second").stat().st_flags & stat.UF_HIDDEN
