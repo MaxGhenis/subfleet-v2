@@ -1184,10 +1184,10 @@ I took both patterns from the base and edited command lines, captured the path l
 | Base line | Original and rewritten counts | SHA-256 of each output |
 | --- | ---: | --- |
 | 61 | 333 paths each | `00aac84b6196d4de7f195469606812a6e7f4dbd00d40f44a39dd649d8e468b7b` |
-| 87 | 38 lines each | `b8a10062ac59ff1aefe8c8128f98b1e375759d233fe76c8c5c484ffdf64ece` |
+| 87 | 38 lines each | `b8a10062ac59ff1aefe8c8128f98b1e1e375759d233fe76c8c5c484ffdf64ece` |
 | 88 | 102 lines each | `8b7ae1a85ae4f1f71b98d866cd2658860d37d171eab142a920151e1a69d0393c` |
 
-The base-to-HEAD stat for `subject-actions.md` is empty because the index lock was denied. The base-to-worktree stat reads `subject-actions.md | 8 +++++---`, with five insertions and three deletions. Reversing those edits recovered the base file byte for byte. The fix round 1 manifest records the historical SHA-256 `07001b3137b93ec23d708d1230db238226fc215cc18ce4c2e44184d5c1bb26bb`. The round 4 file has SHA-256 `157f5c73d574ffa88192a0334c12dc9b6a35c35def577aff9959e75a6673471c`.
+When the round ended, the base-to-HEAD stat for `subject-actions.md` was empty because the index lock was denied, and the base-to-worktree stat read `subject-actions.md | 8 +++++---`, with five insertions and three deletions. Reversing those edits recovered the base file byte for byte. The fix round 1 manifest records the historical SHA-256 `07001b3137b93ec23d708d1230db238226fc215cc18ce4c2e44184d5c1bb26bb`. The round 4 file has SHA-256 `157f5c73d574ffa88192a0334c12dc9b6a35c35def577aff9959e75a6673471c`.
 
 **P3. Opening paragraph.** The build summary at line 5 remains the historical record. The new paragraph gives the current migration slots and clause ownership and points to the history from “Fix round 1” onward. `sed -n '5,8p' docs/reports/2026-11-13-review-subject.md` showed both paragraphs. `grep -n 'C-3\.9' docs/reports/2026-11-13-review-subject.md` found the new paragraph at line 7 and the five existing hits at 796, 800, 837, 850 and 851.
 
@@ -1233,4 +1233,8 @@ I measured each basetemp with `du -sk` and removed it before the next run after 
 
 - PR-body sentences this round makes false are **none**. The Store bullet's migration 11 and C-3.8 references were already stale at the base. The PR body was read with `gh pr view 314 --repo MaxGhenis/subfleet-v2`.
 - The line 61 equivalence check used `git grep -P` under the grouped-regex memory rule. The same fixed alternatives, optional groups and literal dots have the same meaning in both engines. The first verification attempt stopped before running any searches because its assertion used the closing-fence line number for the new sentence. I corrected the index and reran the set.
-- Git returned `Operation not permitted` on `index.lock` when staging the named documentation paths. `HEAD` remained at the base. The recovery is the two unstaged files `docs/reports/2026-11-13-review-subject-fix1-data/subject-actions.md` and `docs/reports/2026-11-13-review-subject.md`.
+- Git returned `Operation not permitted` on `index.lock` when staging the named documentation paths. `HEAD` remained at the base. The recovery was the two unstaged files `docs/reports/2026-11-13-review-subject-fix1-data/subject-actions.md` and `docs/reports/2026-11-13-review-subject.md`, which the hub committed (see "Hub collection" below).
+
+### Hub collection
+
+The hub committed both files as `925d37afd` (one parent, `8af8616a1`), so `git diff --stat 8af8616a1 925d37afd` lists `subject-actions.md | 8 +++++---` and the report. Review a2-r4 (`VERDICT: APPROVE`) closed the P1 and round a2-r3's P3 and raised two P3s in this section: a SHA-256 in the table above that lost two characters when the hub copied the section in (fixed here to the job's value), and two sentences that read the lane's uncommitted state as current (now past tense, with this note). `sha256-manifest.json` still records the fix round 1 hash for `subject-actions.md`; the round 4 hash is the one above.
