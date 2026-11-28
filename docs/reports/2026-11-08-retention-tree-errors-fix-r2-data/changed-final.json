@@ -1,0 +1,30 @@
+{
+  "command": [
+    "uv",
+    "run",
+    "--offline",
+    "--no-sync",
+    "--with",
+    "pytest-xdist>=3.6",
+    "python",
+    "-u",
+    "-m",
+    "pytest",
+    "-p",
+    "sf_rte_safe",
+    "-q",
+    "-ra",
+    "--durations=10",
+    "--timeout=600",
+    "--timeout-method=signal",
+    "--basetemp=/private/tmp/sf-rte-fix2/pytest-changed-final",
+    "-o",
+    "cache_dir=/private/tmp/sf-rte-fix2/pytest-cache-changed-final",
+    "tests/unit/test_rte_tmpdir_acl.py",
+    "tests/unit/test_rte_tmpdir_acl_iterator.py",
+    "-n",
+    "4"
+  ],
+  "exit_code": 0,
+  "elapsed_s": 151.32
+}

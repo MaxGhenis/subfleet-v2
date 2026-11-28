@@ -1,0 +1,27 @@
+{
+  "command": [
+    "uv",
+    "run",
+    "--offline",
+    "--no-sync",
+    "--with",
+    "pytest-xdist>=3.6",
+    "python",
+    "-u",
+    "/Users/maxghenis/.subfleet/worktrees/20261117-114949-rte-fix-r2/docs/reports/2026-11-08-retention-tree-errors-fix-r2-data/verify.py",
+    "W5",
+    "-p",
+    "sf_rte_safe",
+    "-q",
+    "-ra",
+    "--durations=10",
+    "--timeout=600",
+    "--timeout-method=signal",
+    "--basetemp=/private/tmp/sf-rte-fix2/pytest-w5",
+    "-o",
+    "cache_dir=/private/tmp/sf-rte-fix2/pytest-cache-w5",
+    "tests/unit/test_rte_tmpdir_acl_iterator.py"
+  ],
+  "exit_code": 0,
+  "elapsed_s": 35.37
+}
