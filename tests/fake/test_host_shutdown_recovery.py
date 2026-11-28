@@ -113,7 +113,9 @@ def limit_line() -> bytes:
 
 def launched(daemon, attempt) -> Path:
     """What `_launch` leaves for finalization, with no guardian started: the
-    attempt's directory and its launch (the lane a limit closes is read from it)."""
+    attempt's directory and its launch (the lane a limit closes is read from it),
+    and the launch evidence `_launch` records for an attempt that ran (C-12.4),
+    as `tests/fake/test_state_contract.py`'s `launched` does."""
     daemon._pending_launches.discard(attempt["attempt_id"])
     adir = daemon.root / "jobs" / attempt["job_id"] / f"a{attempt['seq']}"
     adir.mkdir(mode=0o700, exist_ok=True)
@@ -121,6 +123,9 @@ def launched(daemon, attempt) -> Path:
     daemon._launches[attempt["attempt_id"]] = Launch(
         (), {"SUBFLEET_LANE": attempt["lane_id"]}, (), job.get("worktree") or job["workdir"],
         job["prompt_path"], str(adir / "stdout"), str(adir / "stderr"), None, None)
+    lane = daemon.store.get_lane(attempt["lane_id"])
+    daemon._record_launch(attempt["attempt_id"], lane.provider, job["sandbox"],
+                          job.get("task") == "review" or job["kind"] == "gate-review")
     return adir
 
 
@@ -139,6 +144,9 @@ def run_attempt(daemon, job_id, *, rc, boot=OLD_BOOT, ended_at=ENDED_AT, stderr=
     (adir / "stdout").write_bytes(stdout)
     (adir / "stderr").write_bytes(stderr)
     (adir / "lane.log").write_bytes(b"")
+    # The lanes are Codex's: a detached Codex success needs its stream's completion
+    # proof (C-9.2), as `tests/fake/test_state_contract.py`'s `receipt_fixture` writes it.
+    (adir / "stream.jsonl").write_text('{"type":"turn.completed"}\n' if rc == 0 else "")
     (adir / "exit.json").write_text(json.dumps({"rc": rc, "signal": signal_number, "wall_s": 4069.6,
                                                 "child_pid": 42100 + attempt["seq"], "finished_at": ended_at}))
     daemon._process_attempt(aid)                    # running with a receipt: finalizing (C-4.2)
