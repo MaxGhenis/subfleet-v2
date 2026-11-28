@@ -12,14 +12,17 @@ Every test names the clause it proves (C-20.5).
 
 from __future__ import annotations
 
+import errno
 import json
+import os
+import socket
 import types
 
 import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from subfleet import cli, protocol
+from subfleet import cli, client, protocol
 from subfleet.client import DaemonError, DaemonUnavailable
 from subfleet.contracts import Exit
 from subfleet.protocol import ProtocolError
@@ -147,6 +150,8 @@ ENDINGS = {"daemon-error": (lambda: DaemonError(int(Exit.OPERATIONAL), "store re
                             int(Exit.OPERATIONAL), "subfleet: store read failed"),
            "daemon-gone": (lambda: DaemonUnavailable("daemon not running"),
                            int(Exit.DAEMON_UNAVAILABLE), "subfleet: daemon not running"),
+           "oserror": (lambda: OSError(errno.EMFILE, os.strerror(errno.EMFILE)),
+                       int(Exit.OPERATIONAL), f"subfleet: [Errno {errno.EMFILE}] {os.strerror(errno.EMFILE)}"),
            "protocol": (lambda: ProtocolError("malformed answer", Exit.OPERATIONAL),
                         int(Exit.OPERATIONAL), "subfleet: malformed answer")}
 
@@ -168,6 +173,34 @@ def test_c15_9_an_error_exit_still_says_what_it_skipped(scripted_cli, capsys, sk
     assert line in err and err.index(skipped) < err.index(line)
 
 
+def test_c15_9_a_socket_the_client_cannot_make_still_says_what_it_skipped(daemon, session, monkeypatch, capsys):
+    """C-15.9 the real client can raise a socket creation error after a successful poll."""
+    server = daemon({"wait": lambda request: {"timeout": True, "retired": [OLD]}})
+    calls = 0
+
+    def make_socket(family, kind):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return socket.socket(family, kind)
+        raise OSError(errno.EMFILE, os.strerror(errno.EMFILE))
+
+    monkeypatch.setattr(client, "socket", types.SimpleNamespace(
+        AF_UNIX=socket.AF_UNIX, SOCK_STREAM=socket.SOCK_STREAM, socket=make_socket))
+    monkeypatch.setattr(cli, "time", types.SimpleNamespace(monotonic=cli.time.monotonic, time=cli.time.time,
+                                                           sleep=lambda seconds: None))
+    assert run_cli(["wait", "--mine", "--json"]) == int(Exit.OPERATIONAL)
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    err = captured.err.splitlines()
+    (skipped,) = skipped_lines(captured.err)
+    assert skipped.endswith(OLD)
+    line = f"subfleet: [Errno {errno.EMFILE}] {os.strerror(errno.EMFILE)}"
+    assert line in err and err.index(skipped) < err.index(line)
+    assert calls == 2
+    assert server.ops() == ["wait"]
+
+
 def test_c15_9_an_error_exit_leaves_out_the_job_it_refuses(scripted_cli, capsys):
     """C-15.9 a job refused as unknown twice was never retired, so the error exit's line leaves
     it out and still names the jobs the wait did skip."""
@@ -181,6 +214,23 @@ def test_c15_9_an_error_exit_leaves_out_the_job_it_refuses(scripted_cli, capsys)
     (skipped,) = skipped_lines(err)
     assert skipped.startswith("subfleet wait: skipped 1 retired job,") and skipped.endswith(other)
     assert f"subfleet: unknown job {OLD}" in err.splitlines()
+
+
+@pytest.mark.parametrize("inferred_first", [False, True], ids=["answer-then-refusal", "refusal-answer-refusal"])
+def test_c15_9_a_later_refusal_keeps_a_job_an_answer_named_retired(scripted_cli, capsys, inferred_first):
+    """C-15.9 a job named in an answer's `retired` stays in the error exit's skipped line."""
+    steps = [SKIPS["retired-field"](), SKIPS["older-daemon"]()]
+    if inferred_first:
+        steps.insert(0, SKIPS["older-daemon"]())
+    scripted = scripted_cli["client"] = Scripted(*steps)
+    assert run_cli(["wait", "--mine"]) == int(Exit.INVALID_INPUT)
+    stderr = capsys.readouterr().err
+    (skipped,) = skipped_lines(stderr)
+    assert skipped.startswith("subfleet wait: skipped 1 retired job,") and skipped.endswith(OLD)
+    err = stderr.splitlines()
+    line = f"subfleet: unknown job {OLD}"
+    assert line in err and err.index(skipped) < err.index(line)
+    assert not scripted.steps
 
 
 @pytest.mark.parametrize("message", ["unknown job", "unknown job two words", f"unknown job {OLD} "])

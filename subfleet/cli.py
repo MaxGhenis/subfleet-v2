@@ -1486,13 +1486,12 @@ def _retired_note(retired: set[str]) -> str:
             f"removed from the store while this wait ran: {names}")
 
 
-def _note_retired_before_error(retired: set[str], exc: Exception) -> None:
-    """C-15.9: a wait that ends on a daemon, transport or protocol error still says which
-    retired jobs it skipped, before the error's own line; the exit code stays the error's
-    (review r1 of #287, P2). A job the error itself calls unknown is left out: the daemon
-    named it a second time, so the first refusal was not its retirement either."""
-    named = _unknown_job(exc)
-    skipped = retired - {named} if named is not None else retired
+def _note_retired_before_error(retired: set[str], retired_in_answers: set[str], exc: Exception) -> None:
+    """C-15.9: report skipped jobs before the wait's error. Omit a job skipped only
+    on an older daemon's refusal when the ending error refuses it again. Keep any
+    job an answer named in `retired`."""
+    refused = _unknown_job(exc)
+    skipped = retired - {refused} if refused is not None and refused not in retired_in_answers else retired
     if skipped:
         note(_retired_note(skipped))
 
@@ -1534,6 +1533,7 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
     # what it exits with (C-17.3).
     adopting = bool(mine) or bool(last) or not requested
     retired: set[str] = set()       # C-15.9: resolved jobs retention retired meanwhile
+    retired_in_answers: set[str] = set()
     idle_polls = 0
     busy: DaemonError | None = None
     busy_streak = 0
@@ -1613,12 +1613,19 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
                     pause = min(pause, left)
                 time.sleep(pause)
                 continue
+            except OSError as exc:
+                # The client lets some transport errors out raw (e.g. creating the
+                # socket in _call_once). Add the skipped line before main reports it.
+                _note_retired_before_error(retired, retired_in_answers, exc)
+                raise
             if timeout is not None and time.monotonic() - started > timeout:
                 timed_out = True
                 break
             busy, busy_streak, unverified_since = None, 0, None
             if adopting:
-                retired.update(job_id for job_id in _retired_from_wait(result) if job_id not in requested)
+                reported = {job_id for job_id in _retired_from_wait(result) if job_id not in requested}
+                retired_in_answers.update(reported)
+                retired.update(reported)
                 pending -= retired
             jobs = {job_id: job for job_id, job in _jobs_from_wait(result).items()
                     if adopting or job_id in requested}
@@ -1648,13 +1655,13 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
                     pause = min(pause, max(0.0, timeout - (time.monotonic() - started)))
                 time.sleep(pause)
     except DaemonUnavailable as exc:
-        _note_retired_before_error(retired, exc)
+        _note_retired_before_error(retired, retired_in_answers, exc)
         return _daemon_down(exc)
     except DaemonError as exc:
-        _note_retired_before_error(retired, exc)
+        _note_retired_before_error(retired, retired_in_answers, exc)
         return _daemon_error(exc)
     except ProtocolError as exc:
-        _note_retired_before_error(retired, exc)
+        _note_retired_before_error(retired, retired_in_answers, exc)
         return _protocol_failure(exc)
 
     worst = int(Exit.OK)

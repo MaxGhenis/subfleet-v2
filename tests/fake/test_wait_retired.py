@@ -82,7 +82,9 @@ def retiring(daemon, job_ids):
 
 
 def retire_everything_finished(daemon) -> dict:
-    """One real retention pass with the budgets at zero: every finished job is over."""
+    """Run retention's `maintenance` with the budgets at zero. Under this module's
+    `retention_catch_up` marker, the call also runs up to three follow-up passes
+    while a job awaits its second holder check, as the daemon's catch-up would."""
     return retention.maintenance(daemon.store, daemon.root, max_jobs=0, max_bytes=0,
                                  holders=lambda watches, **_: {})
 
