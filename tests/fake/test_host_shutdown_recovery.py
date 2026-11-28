@@ -842,6 +842,31 @@ def test_c4_7_a_lane_fault_and_three_host_shutdowns_are_all_uncharged(retry_wall
     assert moved < shutdown < len(lines) - 1 and lines[-1].startswith("ran read-only on ")
 
 
+@pytest.mark.parametrize("max_attempts,state", [(1, "failed"), (2, "queued")])
+def test_c4_7_an_attempt_that_never_launched_after_host_shutdowns_is_counted(state_daemon, max_attempts, state):
+    """C-4.5, C-4.7: `_unlaunched` asks `_attempts_left` too (as
+    `test_c4_5_an_attempt_that_never_launched_after_a_lane_fault_is_counted_as_ever`
+    shows for a lane fault): the job's first three host shutdowns are not counted,
+    and the attempt after them that never launched is."""
+    service, harness = state_daemon
+    jid, attempt, _ = reserve(service, harness, max_attempts=max_attempts)
+    service.store.update_attempt(attempt["attempt_id"], state="running", started_at=utcnow())
+    for seq in range(1, host_shutdown.RETRIES + 1):
+        assert attempt["seq"] == seq
+        done = host_shutdown_of(service, attempt)
+        assert done["outcome_class"] == "transient"
+        assert host_shutdown.exempt(done)
+        assert service.store.get_job(jid)["state"] == "waiting"
+        if seq < host_shutdown.RETRIES:
+            attempt = next_running(service, jid)
+    service._admit()
+    fourth = service.store.list_attempts(jid)[-1]
+    assert (fourth["seq"], fourth["state"]) == (host_shutdown.RETRIES + 1, "reserved")
+    service._pending_launches.discard(fourth["attempt_id"])
+    service._unlaunched(fourth, "reserved-no-launch")
+    assert service.store.get_job(jid)["state"] == state
+
+
 # --- end to end: a daemon, guardians and a real SIGTERM ------------------------
 
 
