@@ -19,6 +19,7 @@ rule above.
 
 from __future__ import annotations
 
+from contextlib import closing
 import json
 from pathlib import Path
 import tempfile
@@ -28,7 +29,7 @@ import uuid
 from hypothesis import HealthCheck, event, given, settings, strategies as st
 import pytest
 
-from tests.frontend.conftest import needs_swift, run_probe, write_json
+from tests.frontend.conftest import needs_swift, run_probe, state_root, write_json
 from tests.frontend.daemon_harness import ServiceHarness, claude_assistant, claude_init, claude_result
 from tests.frontend.swift import ROOT, compile_probe
 
@@ -50,10 +51,9 @@ def target(core_probe, request_id: str, user_info: dict, on_screen: str | None =
 
 
 @pytest.fixture
-def harness():
-    harness = ServiceHarness(Path(tempfile.mkdtemp(prefix="sf-nt-", dir="/tmp")))
-    yield harness
-    harness.close()
+def harness(request):
+    with state_root(request, "sf-nt-") as root, closing(ServiceHarness(root)) as harness:
+        yield harness
 
 
 def test_c29_9_the_feeds_notifications_open_their_conversation_and_an_approval_its_card(core_probe, tmp_path, harness):

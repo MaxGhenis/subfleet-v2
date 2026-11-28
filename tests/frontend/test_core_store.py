@@ -15,10 +15,10 @@ of the conversation's pending approvals, which list answers never move.
 
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
-import tempfile
 import time
 import uuid
 
@@ -27,17 +27,16 @@ import pytest
 
 from subfleet.conversations.claude_turn import observed_catalog
 from subfleet.status_json import build_status
-from tests.frontend.conftest import needs_swift, run_probe, write_json
+from tests.frontend.conftest import needs_swift, run_probe, state_root, write_json
 from tests.frontend.daemon_harness import CLAUDE_CATALOG, ServiceHarness, claude_assistant, claude_init, claude_result
 
 pytestmark = needs_swift
 
 
 @pytest.fixture
-def harness():
-    harness = ServiceHarness(Path(tempfile.mkdtemp(prefix="sf-st-", dir="/tmp")))
-    yield harness
-    harness.close()
+def harness(request):
+    with state_root(request, "sf-st-") as root, closing(ServiceHarness(root)) as harness:
+        yield harness
 
 
 def store(core_probe, tmp_path, steps: list[dict], now: float | None = None) -> dict:
