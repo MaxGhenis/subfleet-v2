@@ -40,6 +40,10 @@ from subfleet.offline import Offline
 from tests.fake.test_state_contract import state_daemon  # noqa: F401  (fixture)
 from tests.fake.test_turn_listing import add
 
+# One holder listing a pass (D-HOLDERS-LSOF1): a job retires in the pass after the one that
+# lists it, so each `maintenance` call here runs the follow-up passes the daemon's catch-up would.
+pytestmark = pytest.mark.retention_catch_up
+
 TERMINAL = ("succeeded", "failed", "cancelled", "lost")
 OLD = "20261006-004417-pr127-review-r6"
 LIVE = "20261102-115300-live-review"
