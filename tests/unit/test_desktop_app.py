@@ -736,7 +736,7 @@ def test_c10_9_a_sample_from_the_future_is_left_out(tmp_path):
     desktop_app.forget_app_usage()
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
     path = tmp_path / "plan-usage-history.json"
-    path.write_bytes(usage([raw(ORGS[1], now_ms + 10 * 365 * 86_400_000), raw(ORGS[0], now_ms - 1000)]))
+    path.write_bytes(usage([raw(ORGS[1], now_ms + 10 * 365 * 86_400_000), raw(ORGS[0], now_ms - 60_000)]))
     found = desktop_app.read_app_usage(path)
     assert found.org == ORGS[0]
     later = desktop_app.iso(datetime.now(timezone.utc) + timedelta(seconds=-1))

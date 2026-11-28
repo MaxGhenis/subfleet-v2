@@ -17,8 +17,14 @@ Two signals, both the app's own:
   moves to another account, so its newest sample names the org it is on now,
   before any session restarts.
 
-Lanes record their account's email (`account_key` reads `claude:<email>`), so
-an event's email joins the app's org to its lanes. Nothing here is inferred.
+A Claude lane records its account in its key, in one of two forms
+(`adapters/claude.py`, C-1.4): a lane enrolled with profile scope records its
+identity, `claude:<account uuid>:<org uuid>`; one enrolled without (no profile
+scope, or a profile that did not answer) records the email its keychain item
+or its home's `.claude.json` gives, `claude:<email>`. An event's email joins
+the app's org to the email-keyed lanes, its account uuid and org to the
+uuid-keyed ones, and the usage file's org to the uuid-keyed ones too. Nothing
+here is inferred.
 
 This module holds the shapes and the pure rules; `capacity.mark_desktop` lays
 them over lane rows and the daemon reads the store and the file. It imports no
@@ -29,9 +35,11 @@ validate a report without loading the scheduler.
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import threading
+import unicodedata
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -45,10 +53,14 @@ REPORT_OP = "desktop.report"
 #: C-10.9: a report naming the same account as the newest event is written again
 #: only once that event is older than this, so a busy session writes one an hour.
 REFRESH_S = 3600
-#: C-10.9: how many of the newest `desktop.account` rows a decision reads, on the
-#: events kind index. Each write adds two rows (the event and its audit row).
+#: C-10.9: how many of the newest `desktop.account` rows the newest events are
+#: read from, on the events kind index. Each write adds two rows (the event and
+#: its audit row). An org's link never falls out of it: the newest event of each
+#: (org, email) pair is kept beside it (`newest_links`).
 EVENT_ROWS = 4000
-#: C-10.9: the hook waits at most this long for the daemon to take its report.
+#: C-10.9: the hook waits at most this long for the daemon's reply. After a
+#: timeout the client takes one look at the lock's holder, bounded by
+#: `client.HOLDER_PROBE_BUDGET_S` (5 s), before the hook goes on.
 REPORT_TIMEOUT_S = 1.0
 #: C-10.9: the entry point the desktop app stamps on the sessions it starts.
 DESKTOP_ENTRYPOINT = "claude-desktop"
@@ -60,6 +72,9 @@ ACCOUNT_NAMES = ("CLAUDE_CODE_USER_EMAIL", "CLAUDE_CODE_ACCOUNT_UUID", "CLAUDE_C
 APP_USAGE_LIMIT = 4 * 1024 * 1024
 #: C-10.9: the only usage-file version read; any other is no answer.
 APP_USAGE_VERSION = 2
+#: C-10.9: a usage sample stamped later than the clock by more than this is
+#: left out, as one without a usable `t` (one clock, one machine).
+SAMPLE_AHEAD_S = 300
 #: C-10.9: the two alerts' patience, in seconds.
 ALERT_AFTER_S = 600
 EMAIL_MAX = 254
@@ -77,12 +92,20 @@ def canonical_uuid(value: Any) -> str | None:
     return value.lower()
 
 
+#: C-10.9: the Unicode categories an email never holds: control (Cc), format
+#: (Cf) and a lone surrogate (Cs, what `os.environ` gives for a non-UTF-8 byte).
+EMAIL_REFUSED_CATEGORIES = frozenset({"Cc", "Cf", "Cs"})
+
+
 def valid_email(value: Any) -> str | None:
-    """An email with exactly one `@`, a part on each side, at most 254 characters,
-    and no whitespace or control character; None for anything else."""
+    """An email with exactly one `@`, a part on each side, at most 254
+    characters, that NFKC leaves unchanged, and with no whitespace, control
+    (Cc), format (Cf) or surrogate (Cs) character; None for anything else."""
     if not isinstance(value, str) or not value or len(value) > EMAIL_MAX:
         return None
-    if value.count("@") != 1 or any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in value):
+    if any(ch.isspace() or unicodedata.category(ch) in EMAIL_REFUSED_CATEGORIES for ch in value):
+        return None
+    if unicodedata.normalize("NFKC", value) != value or value.count("@") != 1:
         return None
     local, _, domain = value.partition("@")
     return value if local and domain else None
@@ -98,11 +121,12 @@ def _instant(value: Any) -> datetime | None:
         return None
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
+        if parsed.tzinfo is None:
+            return None
+        # A stamp a few hours inside the calendar's ends overflows it here.
+        return parsed.astimezone(timezone.utc)
+    except (ValueError, OverflowError):
         return None
-    if parsed.tzinfo is None:
-        return None
-    return parsed.astimezone(timezone.utc)
 
 
 def iso(value: datetime) -> str:
@@ -154,7 +178,8 @@ class AppSample:
 
 
 def _sample_time(value: Any) -> datetime | None:
-    if isinstance(value, bool) or not isinstance(value, int):
+    # `type(...) is int`: never a bool, a float or an int subclass.
+    if type(value) is not int:
         return None
     try:
         return datetime.fromtimestamp(value / 1000, timezone.utc)
@@ -162,18 +187,33 @@ def _sample_time(value: Any) -> datetime | None:
         return None
 
 
-def parse_app_usage(data: bytes) -> AppSample | None:
+def _percent(value: Any) -> float | None:
+    """A weekly percent: a finite number from 0 to 100 as a float, else None.
+    Never a bool, NaN, an infinity, or an integer too large for a float (C-10.9)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        number = float(value)
+    except OverflowError:
+        return None
+    return number if math.isfinite(number) and 0 <= number <= 100 else None
+
+
+def parse_app_usage(data: bytes, *, now: datetime | None = None) -> AppSample | None:
     """C-10.9: the newest sample of a version-2 usage file, or None.
 
     Raises ValueError for a file that is not JSON, not an object, or another
-    version. A sample without an integer `t` or a canonical `org` is left out;
-    with none left there is no answer. Newest is the greatest `t`; equal times
-    break by org, so the answer never depends on the order samples are listed in."""
+    version (`version` must be the integer 2). A sample without an integer `t`
+    or a canonical `org`, or, with `now`, stamped more than `SAMPLE_AHEAD_S`
+    after it, is left out; with none left there is no answer. A `u.sd` that is
+    no finite number from 0 to 100 is weekly None. Newest is the greatest `t`;
+    equal times break by org, so the answer never depends on the order samples
+    are listed in."""
     value = json.loads(data.decode("utf-8"))
     if not isinstance(value, dict):
         raise ValueError("not a JSON object")
     version = value.get("version")
-    if isinstance(version, bool) or version != APP_USAGE_VERSION:
+    if type(version) is not int or version != APP_USAGE_VERSION:
         raise ValueError("unsupported version")
     samples = value.get("samples")
     if not isinstance(samples, list):
@@ -182,14 +222,13 @@ def parse_app_usage(data: bytes) -> AppSample | None:
     for item in samples:
         if not isinstance(item, dict):
             continue
-        org = canonical_uuid(item.get("org"))
-        if org is None or _sample_time(item.get("t")) is None:
+        org, when = canonical_uuid(item.get("org")), _sample_time(item.get("t"))
+        if org is None or when is None:
+            continue
+        if now is not None and (when - now).total_seconds() > SAMPLE_AHEAD_S:
             continue
         usage = item.get("u") if isinstance(item.get("u"), dict) else {}
-        weekly = usage.get("sd")
-        weekly = (float(weekly) if isinstance(weekly, (int, float)) and not isinstance(weekly, bool)
-                  and weekly == weekly and abs(weekly) != float("inf") else None)
-        found.append((item["t"], org, weekly))
+        found.append((item["t"], org, _percent(usage.get("sd"))))
     if not found:
         return None
     found.sort(key=lambda row: (row[0], row[1], -1.0 if row[2] is None else row[2]))
@@ -225,8 +264,10 @@ def read_app_usage(path: str | Path | None = None, *,
 
     The file is looked at on every call and read only when `stat` says it has
     changed, through the regular-file reader with a 4 MiB cap (never a FIFO,
-    never waiting in open). A missing file, another version or a parse error
-    is no answer, and is logged once per change of the file's state."""
+    never waiting in open). A missing file, another version, a parse error or
+    anything else that fails in the parse is no answer, recorded for that
+    state of the file and logged once per change of it: nothing raises out of
+    here, so no file can stop admission (review r1 of #318, P1 1)."""
     global _app_seen
     from .sessions.transcripts import read_regular
     target = Path(path) if path is not None else app_usage_path()
@@ -249,11 +290,11 @@ def read_app_usage(path: str | Path | None = None, *,
         why = f"unreadable ({state[1]})"
     else:
         try:
-            result = parse_app_usage(read_regular(target, APP_USAGE_LIMIT))
+            result = parse_app_usage(read_regular(target, APP_USAGE_LIMIT), now=datetime.now(timezone.utc))
             if result is None:
                 why = "no usable sample"
-        except (OSError, UnicodeError, ValueError, RecursionError) as exc:
-            why = f"{type(exc).__name__}"
+        except Exception as exc:                        # noqa: BLE001 - a file is never worth an admission pass
+            result, why = None, f"{type(exc).__name__}"
     with _app_lock:
         _app_seen = (str(target), state, result)
     if why is not None and log is not None:
@@ -307,26 +348,67 @@ def newest(events: Iterable[AccountEvent]) -> AccountEvent | None:
     return max(events, key=lambda event: event.order, default=None)
 
 
+def newest_links(events: Iterable[AccountEvent],
+                 kept: Mapping[tuple[str, str], AccountEvent] | None = None) -> dict[tuple[str, str], AccountEvent]:
+    """C-10.9: the newest event of each (org, email lower-cased) pair, over
+    `kept` and `events`.
+
+    `resolve` gives the same org, email, account and "linked elsewhere" set
+    over these as over every event they came from: the newest event of all,
+    and the newest naming any org, is the newest of its pair, and every pair is
+    here. So an org's link never falls out of a row window (review r1 of
+    #318, P2 2). `disagree_since` and `should_record` read the newest events."""
+    links = dict(kept or {})
+    for event in events:
+        pair = (event.org, event.email.lower())
+        if pair not in links or event.order > links[pair].order:
+            links[pair] = event
+    return links
+
+
+def with_links(window: Iterable[AccountEvent], links: Mapping[tuple[str, str], AccountEvent]) -> list[AccountEvent]:
+    """C-10.9: what a decision reads: the newest events (a row window) and the
+    newest event of each (org, email) pair, each event once, by event id."""
+    found = {event.event_id: event for event in window}
+    found.update((event.event_id, event) for event in links.values())
+    return [found[event_id] for event_id in sorted(found)]
+
+
 def should_record(report: Mapping[str, str], events: Iterable[AccountEvent], *, now: datetime) -> bool:
     """C-10.9: write the report only when its email (case aside), account or org
-    differs from the newest event's, or that event is over `REFRESH_S` old."""
+    differs from the newest event's, or that event is over `REFRESH_S` old.
+    Against the newest event only, so two sessions on different accounts that
+    alternate prompts write one event per prompt."""
     last = newest(events)
     if last is None:
         return True
-    same = (last.email.casefold() == report["email"].casefold()
+    same = (last.email.lower() == report["email"].lower()
             and last.account_uuid == report["account_uuid"] and last.org == report["org_uuid"])
     return not same or (now - _instant(last.observed_at)).total_seconds() > REFRESH_S   # type: ignore[operator]
 
 
 # --- C-10.3's rule -----------------------------------------------------------
 
-def lane_email(lane: Mapping[str, Any]) -> str | None:
-    """The email a Claude lane's account key records (`claude:<email>`), case folded."""
-    key = str(lane.get("account_key") or "")
-    prefix, _, tail = key.partition(":")
-    if prefix.casefold() != "claude" or "@" not in tail:
+def lane_account(lane: Mapping[str, Any]) -> tuple[str, ...] | None:
+    """C-10.3: the account a Claude lane's key records, by its kind.
+
+    `("email", <email, lower-cased>)` for `claude:<email>`, and `("uuid",
+    <account uuid>, <org uuid>)`, lower-cased, for `claude:<account uuid>:<org
+    uuid>`, the key of a lane enrolled with profile scope (C-1.4). None for a
+    lane of another provider (only a Claude lane is ever the desktop app's) or
+    a key of neither form. `owns` and the "linked elsewhere" test both read it.
+    Case aside is `lower()`: `casefold` joins distinct addresses."""
+    if lane.get("provider", "claude") != "claude":
         return None
-    return tail.strip().casefold() or None
+    prefix, _, tail = str(lane.get("account_key") or "").partition(":")
+    tail = tail.strip()
+    if prefix.lower() != "claude" or not tail:
+        return None
+    if "@" in tail:
+        return ("email", tail.lower())
+    account, _, org = tail.partition(":")
+    account, org = canonical_uuid(account), canonical_uuid(org)
+    return ("uuid", account, org) if account and org else None
 
 
 @dataclass(frozen=True)
@@ -334,9 +416,11 @@ class AppAccount:
     """C-10.3: the desktop app's account, as its own signals give it.
 
     `org` is the newest usage sample's org when the file answers, else the org
-    of the newest `desktop.account` event. `email` is the email of the newest
-    event naming `org`, at any age, or None when none does. `elsewhere` holds
-    every email an event links to another org and none to `org`."""
+    of the newest `desktop.account` event. `email` and `account` are the email
+    and account uuid of the newest event naming `org`, at any age (the daemon
+    keeps the newest event of each (org, email) pair, `newest_links`), or None
+    when none does. `elsewhere` holds every email, lower-cased, an event links
+    to another org and none to `org`."""
 
     org: str
     source: str                                   # "app-file" | "hook"
@@ -347,22 +431,35 @@ class AppAccount:
     linked_at: str | None = None                  # the newest event naming `org`
     linked: int = 0                               # how many orgs the events link
     disagree_since: str | None = None             # `disagree_since(sample, events)`
+    account: str | None = None                    # the account uuid of the newest event naming `org`
 
     def owns(self, lane: Mapping[str, Any]) -> bool:
-        """Exactly the Claude lanes whose account key is `claude:<email>`, case aside."""
-        return (self.email is not None
-                and str(lane.get("account_key") or "").casefold() == f"claude:{self.email.casefold()}")
+        """C-10.3: is this Claude lane the app's account, by what its key records?
+
+        An email-keyed lane (`claude:<email>`) when its email is `email`, case
+        aside. A uuid-keyed lane (`claude:<account uuid>:<org uuid>`) when its org
+        is `org` and, when an event names `org` (so `account` is known), its
+        account is `account`: the usage file names an org and no account."""
+        found = lane_account(lane)
+        if found is None:
+            return False
+        if found[0] == "email":
+            return self.email is not None and found[1] == self.email.lower()
+        return found[2] == self.org and (self.account is None or found[1] == self.account)
 
     def possible(self, lane: Mapping[str, Any]) -> bool:
-        """With no email for `org`, every Claude lane not linked elsewhere."""
-        return (self.email is None and lane.get("provider", "claude") == "claude"
-                and lane_email(lane) not in self.elsewhere)
+        """With no email for `org`, every email-keyed Claude lane not linked
+        elsewhere. Never a uuid-keyed lane: its key names its org, so it is the
+        app's (`owns`) or linked elsewhere."""
+        found = lane_account(lane)
+        return self.email is None and found is not None and found[0] == "email" and found[1] not in self.elsewhere
 
     def summary(self, lanes: Iterable[Mapping[str, Any]] = ()) -> dict[str, Any]:
-        """What `status`, `status.json` and the alerts show of it."""
+        """What `status`, `status.json` and the alerts show of it: the org's
+        8-character prefix, never the whole uuid."""
         owned = sorted(str(lane["lane_id"]) for lane in lanes
                        if lane.get("provider") == "claude" and self.owns(lane))
-        return {"org": self.org, "org_prefix": self.org[:8], "source": self.source,
+        return {"org_prefix": self.org[:8], "source": self.source,
                 "linked": self.email is not None, "lanes": owned,
                 "app_file": ({"org_prefix": self.sample.org[:8], "at": self.sample.at, "since": self.sample.since,
                               "weekly_percent": self.sample.weekly} if self.sample else None),
@@ -388,18 +485,19 @@ def resolve(sample: AppSample | None, events: Iterable[AccountEvent]) -> AppAcco
         return None
     mine = [event for event in events if event.org == org]
     link = newest(mine)
-    own = {event.email.casefold() for event in mine}
-    other = {event.email.casefold() for event in events if event.org != org}
+    own = {event.email.lower() for event in mine}
+    other = {event.email.lower() for event in events if event.org != org}
     return AppAccount(org, source, link.email if link else None, frozenset(other - own), sample, last,
                       link.observed_at if link else None, len({event.org for event in events}),
-                      disagree_since(sample, events))
+                      disagree_since(sample, events), account=link.account_uuid if link else None)
 
 
 def alert_conditions(summary: Mapping[str, Any] | None, *, in_use: Any, now: datetime) -> list[dict[str, Any]]:
     """C-10.9: the two warnings, from `AppAccount.summary` as `status.json` carries it.
 
     * The app's org has stayed unlinked for `ALERT_AFTER_S` while the desktop
-      login is in use (`in_use` not False: unknown is use, as C-10.3 reads it).
+      login is in use (`in_use` not False: unknown is use, as C-10.3 reads it),
+      and no lane's key names it (a uuid-keyed lane in that org is `desktop`).
     * The newest event, newer than the file's newest sample, has named another
       org than the file for `ALERT_AFTER_S`."""
     if not summary:
@@ -407,7 +505,7 @@ def alert_conditions(summary: Mapping[str, Any] | None, *, in_use: Any, now: dat
     found = []
     sample, hook = summary.get("app_file"), summary.get("hook")
     since = _instant((sample or {}).get("since")) if summary.get("source") == "app-file" else None
-    if (not summary.get("linked") and in_use is not False and since is not None
+    if (not summary.get("linked") and not summary.get("lanes") and in_use is not False and since is not None
             and (now - since).total_seconds() >= ALERT_AFTER_S):
         found.append({
             "key": f"desktop-app-unlinked:{summary['org_prefix']}", "severity": "warn",

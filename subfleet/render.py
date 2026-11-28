@@ -383,13 +383,16 @@ def disk_floor_detail(reading: Mapping[str, Any]) -> str:
 
 def desktop_account_line(account: Mapping[str, Any]) -> str:
     """C-10.9: the desktop app's account in one line, shared by both status views:
-    its org (8 characters), its lanes ("no lane", or "not linked yet" when no
-    session has reported that org's email), and each signal's source and time,
-    with the usage file's weekly percent."""
-    if not account.get("linked"):
+    its org (8 characters), its lanes (a lane whose key names its account,
+    else "not linked yet" when no session has reported that org's email, else
+    "no lane"), and each signal's source and time, with the usage file's
+    weekly percent."""
+    if account.get("lanes"):
+        where = "on " + ", ".join(account["lanes"])
+    elif not account.get("linked"):
         where = "not linked yet (Claude lanes not linked elsewhere sort last)"
     else:
-        where = "on " + ", ".join(account.get("lanes") or ()) if account.get("lanes") else "no lane"
+        where = "no lane"
     signals = []
     sample, hook = account.get("app_file"), account.get("hook")
     if isinstance(sample, Mapping):

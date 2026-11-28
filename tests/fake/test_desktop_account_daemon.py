@@ -214,7 +214,7 @@ def test_c10_9_a_usage_number_too_large_for_a_float_stops_nothing(desktop):
     assert daemon._cached_desktop_identity().app.sample.weekly is None
     assert daemon.dispatch("daemon.status", {})["desktop_account"]["org_prefix"] == ORG_APP[:8]
     assert {lane["lane_id"] for lane in daemon.dispatch("lanes", {})["lanes"]} >= {"claude-1", "claude-2"}
-    daemon.dispatch("pick", {"model": "opus"})
+    daemon.dispatch("pick", {"family": "claude", "model": "opus"})
     assert daemon.timers.snapshot().get("desktop_account", {}).get("org_prefix") == ORG_APP[:8]
     job_id = daemon.dispatch("submit", harness.submit_args())["job_id"]
     daemon._admit()
@@ -298,8 +298,10 @@ def test_c10_3_the_reservation_judges_the_desktop_lane_by_the_newest_report(desk
     early = daemon._pick(job, extra_exclusions=("claude-1",), desktop=daemon._desktop_identity(), basis=basis)
     assert early.chosen_lane == "claude-2" and "desktop" in rejected(early, "claude-3")
     daemon.dispatch(desktop_app.REPORT_OP, report())                                 # claude-2 is, in use
+    # The refresh the reservation loop runs before each try.
     daemon._desktop_in_use()
     daemon._record_desktop_use()
+    daemon._desktop_app_read()
     status, _, decision = daemon._route_stands(basis, early)
     if status is None:
         assert decision.chosen_lane == "claude-3" and "desktop" in rejected(decision, "claude-2")
@@ -344,8 +346,10 @@ def test_c10_9_desktop_possible_alone_changing_moves_the_route(desktop):
     assert early.chosen_lane == "claude-1"
     daemon.dispatch(desktop_app.REPORT_OP, report(email=EMAILS[1], org=ORG_OTHER))    # claude-2 linked elsewhere
     assert daemon._pick(job, desktop=daemon._desktop_identity()).chosen_lane == "claude-2"
+    # The refresh the reservation loop runs before each try.
     daemon._desktop_in_use()
     daemon._record_desktop_use()
+    daemon._desktop_app_read()
     status, _, decision = daemon._route_stands(basis, early)
     assert not (status is None and decision.chosen_lane == "claude-1")
 

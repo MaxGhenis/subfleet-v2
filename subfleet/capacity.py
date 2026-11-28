@@ -180,8 +180,11 @@ class DesktopIdentity:
     def owns(self, lane: Mapping[str, Any]) -> bool:
         """C-10.3: is this lane the desktop app's own account?
 
-        While the app answers (C-10.9), exactly the lanes whose account key is
-        `claude:<the app's org's email>`, and none when that org has no email."""
+        While the app answers (C-10.9), `desktop_app.AppAccount.owns` decides by
+        what the lane's key records: a `claude:<email>` lane when its email is the
+        app's org's (none when no event names that org), a `claude:<account
+        uuid>:<org uuid>` lane when its org is the app's and its account the one
+        the newest event naming that org carries (any, when none names it)."""
         if self.app is not None:
             return self.app.owns(lane)
         identity = lane.get("identity")

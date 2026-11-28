@@ -506,6 +506,12 @@ class _ProbeLaneBusy(Exception):
     probe's reservation, which then holds nothing, so the job may look at another lane."""
 
 
+class _DesktopMoved(Exception):
+    """C-10.3: a `desktop.account` event was written after the app's answer a
+    probe's reservation judges by was read; raised inside the reservation, which
+    then holds nothing, so the job is evaluated again with the newest answer."""
+
+
 class _WorkspaceNeeded(Exception):
     """C-6.20: placement passed; roll back before preparing a fresh tree off the lock."""
 
@@ -1142,6 +1148,16 @@ class Daemon:
         self._desktop_accounts: tuple[Any, list] | None = None
         self._desktop_accounts_lock = threading.Lock()
         self._desktop_report_lock = threading.Lock()
+        # C-10.9: the newest event of each (org, email) pair (`desktop_app.newest_links`),
+        # built once from every row of the kind and then from the rows past
+        # `_desktop_links_mark`, the greatest event id it has read, so an org's
+        # link never falls out of the `EVENT_ROWS` window (review r1 of #318, P2 2).
+        self._desktop_links: dict = {}
+        self._desktop_links_mark = 0
+        # C-10.3: the app's answer as last read off the lock, with the newest
+        # `desktop.account` event id it read (`_desktop_app_read`); a
+        # reservation marks the lanes with it and checks that id inside.
+        self._desktop_app_seen: tuple[Any, Any] | None = None
 
     def _release_partial_init(self) -> None:
         """Undo a construction that raised part way (see `_released_on_failure`).
@@ -2728,29 +2744,70 @@ class Daemon:
         return [{"session_id": caller.strip().lower(), "name": names.get(caller.strip().lower())}
                 for caller in callers]
 
-    def _desktop_account_events(self) -> list:
-        """C-10.9: the `desktop.account` events, newest `desktop_app.EVENT_ROWS` rows,
-        read on the events kind index. Parsed again only when a newer event exists
-        (one index probe each call), since admission asks on every route try."""
-        newest = self.store.one("SELECT MAX(event_id) AS id FROM events WHERE kind=?",
-                                (desktop_app.DESKTOP_ACCOUNT_EVENT,))
+    def _desktop_account_read(self) -> tuple[Any, list]:
+        """C-10.9: the newest `desktop.account` event id and the events a decision
+        reads: the newest `desktop_app.EVENT_ROWS` rows on the events kind index
+        and the newest event of each (org, email) pair (`_desktop_links`), each
+        event once. The pairs are built from every row of the kind on the first
+        read in a process (two rows per write: retention never deletes this
+        kind), then only from rows past their mark. Parsed again only when a
+        newer event exists (one index probe each call), since admission asks on
+        every route try."""
+        kind = desktop_app.DESKTOP_ACCOUNT_EVENT
+        newest = self.store.one("SELECT MAX(event_id) AS id FROM events WHERE kind=?", (kind,))
         mark = newest["id"] if newest else None
         with self._desktop_accounts_lock:
             kept = self._desktop_accounts
+            links, linked_to = self._desktop_links, self._desktop_links_mark
         if kept is not None and kept[0] == mark:
-            return kept[1]
-        events = desktop_app.account_events(self.store.query(
+            return mark, kept[1]
+        rows = self.store.query("SELECT event_id,data_json FROM events WHERE kind=? AND event_id>? "
+                                "ORDER BY event_id", (kind, linked_to))
+        links = desktop_app.newest_links(desktop_app.account_events(rows), links)
+        read_to = max((int(row["event_id"]) for row in rows), default=linked_to)
+        window = desktop_app.account_events(self.store.query(
             "SELECT event_id,data_json FROM events WHERE kind=? ORDER BY event_id DESC LIMIT ?",
-            (desktop_app.DESKTOP_ACCOUNT_EVENT, desktop_app.EVENT_ROWS)))
+            (kind, desktop_app.EVENT_ROWS)))
+        events = desktop_app.with_links(window, links)
         with self._desktop_accounts_lock:
+            if read_to >= self._desktop_links_mark:
+                self._desktop_links, self._desktop_links_mark = links, read_to
             self._desktop_accounts = (mark, events)
-        return events
+        return mark, events
+
+    def _desktop_account_events(self) -> list:
+        """C-10.9: the `desktop.account` events a decision reads (`_desktop_account_read`)."""
+        return self._desktop_account_read()[1]
+
+    def _desktop_app_read(self) -> tuple[Any, desktop_app.AppAccount | None]:
+        """C-10.3, C-10.9: the desktop app's account from its usage file and the
+        hook's reports (None when neither answers), with the newest
+        `desktop.account` event id it read. Kept as `_desktop_app_seen`, the
+        answer a reservation marks the lanes with. Reads a file, so never called
+        inside a transaction (C-3.3). A usage file that cannot be read is no
+        answer: the events still count, and the failure is logged."""
+        try:
+            sample = desktop_app.read_app_usage(log=self.log.info)
+        except Exception as exc:                        # noqa: BLE001 - a file never stops admission
+            self.log.warning("desktop usage file: %s; no answer from it (C-10.9)", type(exc).__name__)
+            sample = None
+        mark, events = self._desktop_account_read()
+        found = (mark, desktop_app.resolve(sample, events))
+        self._desktop_app_seen = found                  # replaced whole: other threads read it
+        return found
 
     def _desktop_app(self) -> desktop_app.AppAccount | None:
-        """C-10.3, C-10.9: the desktop app's account from its usage file and the
-        hook's reports, or None when neither answers. Reads a file, so never
-        called inside a transaction (C-3.3)."""
-        return desktop_app.resolve(desktop_app.read_app_usage(log=self.log.info), self._desktop_account_events())
+        """C-10.3, C-10.9: the desktop app's account, or None (`_desktop_app_read`)."""
+        return self._desktop_app_read()[1]
+
+    def _desktop_moved(self, mark: Any) -> bool:
+        """C-10.3: has a `desktop.account` event been written since the app's
+        answer read at `mark`? One probe of the events kind index, made inside
+        a reservation's transaction, so a report that lands between the
+        refresh off the lock and the transaction is never judged by an older answer."""
+        newest = self.store.one("SELECT MAX(event_id) AS id FROM events WHERE kind=?",
+                                (desktop_app.DESKTOP_ACCOUNT_EVENT,))
+        return (newest["id"] if newest else None) != mark
 
     def _desktop_report(self, args: dict) -> dict:
         """C-10.9: record a desktop session's report of the app's account.
@@ -7484,8 +7541,12 @@ class Daemon:
             # reads it, so a probe never runs a turn on the desktop login that
             # Claude Code began using after the evaluation (review of PR #72).
             # Before the directory exists, so a store error here leaves none behind.
+            # The app's answer (C-10.9) is refreshed here too, and the lane is judged
+            # by it; a report written after it moves the look (review r1 of #318, P2 1).
             self._desktop_in_use()
             self._record_desktop_use()
+            app_mark, app = self._desktop_app_read()
+            judged = dataclasses.replace(desktop, app=app) if desktop is not None else None
             token = os.urandom(12).hex()
             holder = f"probe:{token}"
             directory = self.root / "lanes" / decision.chosen_lane / "probes" / token
@@ -7512,9 +7573,11 @@ class Daemon:
                     row = self.store.one("SELECT * FROM lanes WHERE lane_id=?", (decision.chosen_lane,))
                     if row and capacity.credential_latched(self.timers.merge_lane(dict(row))):
                         raise _ProbeLaneBusy
+                    if self._desktop_moved(app_mark):
+                        raise _DesktopMoved
                     is_desktop = lane.desktop
-                    if lane.provider == "claude" and desktop.decisive:
-                        is_desktop = desktop.owns(dataclasses.asdict(lane))
+                    if lane.provider == "claude" and judged is not None and judged.decisive:
+                        is_desktop = judged.owns(dataclasses.asdict(lane))
                     # C-10.3: refused only while Claude Code uses the desktop login,
                     # as the decision it probes for was judged (`basis`).
                     in_use = self._desktop_answer()
@@ -7533,6 +7596,9 @@ class Daemon:
             except _ProbeLaneBusy:
                 # C-11.4: this lane cannot be probed now; this look tries another of the model.
                 busy.add(decision.chosen_lane)
+                continue
+            except _DesktopMoved:
+                # C-10.3: a report landed after the answer this look judged by: evaluate again.
                 continue
             finally:
                 if not reserved:
@@ -8869,9 +8935,12 @@ class Daemon:
                 tries += 1
                 # C-10.3: refreshed off the lock, at most `REGISTRY_READ_TTL_S` old; the
                 # check inside reads the answer without touching the registry. A
-                # change it places by is recorded (review of PR #72).
+                # change it places by is recorded (review of PR #72). The app's
+                # answer (C-10.9) is refreshed here too, and the check marks the
+                # lanes with it (`_route_rows`; review r1 of #318, P2 1).
                 self._desktop_in_use()
                 self._record_desktop_use()
+                self._desktop_app_read()
                 output_claim = (resource_leases.OutputClaim.prepare(self.store.query, job["out_path"],
                                                                     identities=output_identities)
                                 if job["out_path"] else None)
@@ -9580,8 +9649,23 @@ class Daemon:
         # check judges that lane again (review of the uncap plan: reusing the
         # view's answer reserved the lane after Claude Code had become active).
         in_use = self._desktop_answer()
+        # C-10.3, C-10.9: which lanes are `desktop` (and `desktop_possible`) by the
+        # app's answer as last read off the lock (`_desktop_app_read`, refreshed
+        # before each reservation try), never the evaluation's: a report that
+        # moved the desktop lane since changes that lane's facts, and the check
+        # judges it again (review r1 of #318, P2 1). A report written after that
+        # read is seen here, and the route is evaluated again; a usage file
+        # rewritten since is not read here (C-3.3), so its change waits for the
+        # next evaluation. The profile and hint parts of the evaluation's
+        # identity stay.
+        desktop = basis["desktop"]
+        if desktop is not None:
+            seen = self._desktop_app_seen
+            if seen is None or self._desktop_moved(seen[0]):
+                return None
+            desktop = dataclasses.replace(desktop, app=seen[1])
         lanes = [self.timers.merge_lane(capacity.mark_desktop(
-                     dict(row), desktop=basis["desktop"],
+                     dict(row), desktop=desktop,
                      desktop_in_use=basis.get("desktop_in_use") if in_use is None else in_use))
                  for row in lane_rows]
         probes = store.query("SELECT lease_key,holder FROM leases WHERE holder LIKE 'probe:%'")
