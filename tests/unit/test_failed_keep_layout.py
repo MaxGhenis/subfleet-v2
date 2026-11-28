@@ -21,8 +21,10 @@ HELPER = TESTS / "failed_keep.py"
 WORKFLOW = REPO / ".github/workflows/tests.yml"
 NEEDLE = failed_keep.ROOT.name
 #: The harnesses that keep a failed test's state root today: the fake-daemon and end-to-end
-#: fixtures and the app core's live test. Discovery below must still find each of them.
-HARNESSES = {"tests/fake/conftest.py", "tests/e2e/conftest.py", "tests/frontend/test_core_live.py"}
+#: fixtures, the frontend service fixtures and the app core's live test.
+#: Discovery below must still find each of them.
+HARNESSES = {"tests/fake/conftest.py", "tests/e2e/conftest.py", "tests/frontend/conftest.py",
+             "tests/frontend/test_core_live.py"}
 
 
 class Source(NamedTuple):

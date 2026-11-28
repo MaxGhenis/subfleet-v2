@@ -35,7 +35,8 @@ import uuid
 from hypothesis import HealthCheck, example, given, settings, strategies as st
 import pytest
 
-from tests.frontend.conftest import needs_swift, run_probe, write_json
+from tests import failed_keep
+from tests.frontend.conftest import needs_swift, run_probe, state_root, write_json
 from tests.frontend.daemon_harness import (
     STEER_REFUSALS, ServiceHarness, ServiceServer, go_live_when_submitted, steer_frames,
 )
@@ -168,9 +169,9 @@ def expected_refusal(kind: str, live: bool, host: bool) -> str | None:
 @settings(max_examples=20, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(ops=st.lists(op, min_size=1, max_size=16), fates=st.lists(fate, min_size=16, max_size=16),
        b_live=st.booleans())
-def test_o1_o4_the_outbox_sends_in_order_and_steers_exactly_once(core_probe, ops, fates, b_live):
+def test_o1_o4_the_outbox_sends_in_order_and_steers_exactly_once(core_probe, request, ops, fates, b_live):
     # Each example's root (about 256 KiB) is removed when it ends, also when it fails (#265 review r1).
-    with tempfile.TemporaryDirectory(prefix="sf-steer-o-", dir="/tmp") as scratch:
+    with state_root(request, "sf-steer-o-") as scratch:
         root = Path(scratch)
         harness = ServiceHarness(root / "daemon")
         server = ServiceServer(harness)
@@ -278,9 +279,9 @@ def run_outbox_history(core_probe, root: Path, harness, server, ops, fates, b_li
             assert chain == [None, *mids[:-1]]
 
 
-def test_the_property_harness_leaves_no_root_after_each_example(monkeypatch):
+def test_the_property_harness_leaves_no_root_after_each_example(request, monkeypatch, tmp_path):
     """#265 review r1 (P3): the root each example makes (about 256 KiB) is gone when the
-    example ends, also when its body raises. The example's body is replaced by one that
+    example ends, with a copy kept when its body raises. The example's body is replaced by one that
     checks the root exists, then returns or raises; the harness around it is the test's own."""
     made: list[Path] = []
     real = tempfile.mkdtemp
@@ -296,10 +297,14 @@ def test_the_property_harness_leaves_no_root_after_each_example(monkeypatch):
         if b_live:
             raise RuntimeError("the example's body raises")
     monkeypatch.setattr(tempfile, "mkdtemp", mkdtemp)
+    monkeypatch.setattr(failed_keep, "ROOT", tmp_path)
     monkeypatch.setattr(sys.modules[__name__], "run_outbox_history", body)
     run_example = test_o1_o4_the_outbox_sends_in_order_and_steers_exactly_once.hypothesis.inner_test
-    run_example(None, ops=[], fates=[], b_live=False)
+    keep = failed_keep.failed_keep_dir(request.node.name)
+    run_example(None, request=request, ops=[], fates=[], b_live=False)
+    assert not keep.exists()
     with pytest.raises(RuntimeError, match="body raises"):
-        run_example(None, ops=[], fates=[], b_live=True)
+        run_example(None, request=request, ops=[], fates=[], b_live=True)
     assert len([path for path in made if path.name.startswith("sf-steer-o-")]) == 2, made
     assert [path for path in made if path.exists()] == []
+    assert (keep / "daemon" / "work").is_dir(), keep

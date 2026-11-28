@@ -21,7 +21,8 @@ import uuid
 import pytest
 
 from subfleet import protocol
-from tests.frontend.conftest import needs_swift, run_probe, write_json
+from tests import failed_keep
+from tests.frontend.conftest import needs_swift, run_probe, state_root, write_json
 from tests.frontend.daemon_harness import (
     STEER_REFUSALS, ServiceHarness, ServiceServer, after_submitted, claude_assistant, claude_block, claude_init,
     claude_result, go_live_when_submitted, make_live, record_state, record_steer_event, steer_frames, steer_requests,
@@ -52,8 +53,8 @@ REFUSED_WORDS = {
 
 # Each root holds about 256 KiB; teardown removes it, also after a failed test (#265 review r1).
 @pytest.fixture
-def harness():
-    with tempfile.TemporaryDirectory(prefix="sf-steer-", dir="/tmp") as root:
+def harness(request):
+    with state_root(request, "sf-steer-") as root:
         harness = ServiceHarness(Path(root))
         try:
             yield harness
@@ -62,8 +63,8 @@ def harness():
 
 
 @pytest.fixture
-def daemon():
-    with tempfile.TemporaryDirectory(prefix="sf-steer-ob-", dir="/tmp") as root:
+def daemon(request):
+    with state_root(request, "sf-steer-ob-") as root:
         harness = ServiceHarness(Path(root))
         try:
             server = ServiceServer(harness)
@@ -78,6 +79,7 @@ def daemon():
 #: The two fixtures above, run in a scratch pytest session of their own: each test records
 #: nothing itself; the roots are what `tempfile.mkdtemp` made meanwhile.
 ROOTS_CONFTEST = """
+from tests.frontend.conftest import pytest_runtest_makereport  # noqa: F401  reports for the fixtures
 from tests.frontend.test_core_steer import daemon, harness  # noqa: F401  the fixtures under test
 """
 ROOTS_TESTS = """
@@ -102,10 +104,10 @@ def test_daemon(daemon, raises):
 """
 
 
-def test_the_steer_fixtures_leave_no_root_after_teardown(pytester, monkeypatch):
+def test_the_steer_fixtures_leave_no_root_after_teardown(pytester, monkeypatch, tmp_path):
     """#265 review r1 (P3): every root the `harness` and `daemon` fixtures make (about
     256 KiB each) is gone after teardown, also when the test body raises; so is the
-    socket server's own folder."""
+    socket server's own folder. A failure keeps a copy of the harness root."""
     made: list[Path] = []
     real = tempfile.mkdtemp
 
@@ -115,12 +117,17 @@ def test_the_steer_fixtures_leave_no_root_after_teardown(pytester, monkeypatch):
             made.append(Path(path))
         return path
     monkeypatch.setattr(tempfile, "mkdtemp", mkdtemp)
+    monkeypatch.setattr(failed_keep, "ROOT", tmp_path)
     pytester.makeconftest(ROOTS_CONFTEST)
     pytester.makepyfile(test_steer_roots=ROOTS_TESTS)
     run = pytester.inline_run("-p", "no:cacheprovider", "-q")
     run.assertoutcome(passed=2, failed=2)
     assert len([path for path in made if path.name.startswith("sf-steer-")]) == 4, made
     assert [path for path in made if path.exists()] == []
+    for name in ("test_harness", "test_daemon"):
+        keep = failed_keep.failed_keep_dir(f"{name}[raises]")
+        assert (keep / "work").is_dir(), keep
+        assert not failed_keep.failed_keep_dir(f"{name}[passes]").exists()
 
 
 # --- helpers -----------------------------------------------------------------------
