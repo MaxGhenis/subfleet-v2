@@ -76,9 +76,11 @@ def test_d_qos_booked1_runs_show_offline_reads_utility_on_an_old_store_too(tmp_p
 def test_d_qos_booked1_a_job_record_reads_null_and_a_missing_column_as_utility():
     """#277 review r1, P2: `job_flags` makes every job reader's record; `shell_flags`,
     which attempt rows take, adds no job field."""
-    assert job_flags({"job_id": "j"}) == {"job_id": "j", "provider_qos": "utility"}
+    null_review = {"caller_family": None, "review_subject": None, "review_round": None}
+    assert job_flags({"job_id": "j"}) == {"job_id": "j", "provider_qos": "utility", **null_review}
     assert job_flags({"job_id": "j", "provider_qos": None})["provider_qos"] == "utility"
-    assert job_flags({"provider_qos": "default", "needs_shell": 1}) == {"provider_qos": "default", "needs_shell": True}
+    assert job_flags({"provider_qos": "default", "needs_shell": 1}) == {
+        "provider_qos": "default", "needs_shell": True, **null_review}
     assert shell_flags({"attempt_id": "j/a1", "has_shell": 0}) == {"attempt_id": "j/a1", "has_shell": False}
 
 

@@ -1,0 +1,31 @@
+# Suggested addition to the scratch pytest plugin's pytest_configure hook,
+# before collection imports tests/frontend/conftest.py. Do not modify helpers.
+from pathlib import Path
+from tests.frontend import swift as frontend_swift
+
+_frontend_compile = frontend_swift.compile_probe
+_frontend_cache = Path('/private/tmp/sf-a2-fix1/frontend-cache')
+_frontend_modules = Path('/private/tmp/sf-a2-fix1/swift-module-cache')
+_frontend_modules.mkdir(parents=True, exist_ok=True)
+
+def compile_probe_in_job_scratch(*args, **kwargs):
+    # SOURCES remains the real checkout's app/Sources. Callers construct their
+    # probe paths from the original ROOT before this wrapper runs. The only
+    # ROOT lookup inside compile_probe itself is its build/frontend-probes cache.
+    original_root = frontend_swift.ROOT
+    original_run = frontend_swift.subprocess.run
+
+    def compile_with_module_cache(command, *run_args, **run_kwargs):
+        if list(command[:2]) == ['xcrun', 'swiftc']:
+            command = [*command, '-module-cache-path', str(_frontend_modules)]
+        return original_run(command, *run_args, **run_kwargs)
+
+    frontend_swift.ROOT = _frontend_cache
+    frontend_swift.subprocess.run = compile_with_module_cache
+    try:
+        return _frontend_compile(*args, **kwargs)
+    finally:
+        frontend_swift.ROOT = original_root
+        frontend_swift.subprocess.run = original_run
+
+frontend_swift.compile_probe = compile_probe_in_job_scratch

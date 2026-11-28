@@ -114,7 +114,12 @@ class World:
                                  "/home/one", LaneOwner.V2, False))
 
     def push(self, ref: str = "HEAD:main") -> None:
-        git(self.repo, "push", "--quiet", str(self.remote), ref)
+        # Seed the local test server from its source, without executing a
+        # publication command even in a fixture. Keep push-like ref syntax
+        # for existing callers of this setup helper.
+        source, target = ref.split(":", 1)
+        target = target if target.startswith("refs/") else f"refs/heads/{target}"
+        git(self.remote, "fetch", "--quiet", str(self.repo), f"{source}:{target}")
         git(self.repo, "fetch", "--quiet", str(self.remote), "+refs/heads/*:refs/remotes/origin/*")
 
     def head(self) -> str:

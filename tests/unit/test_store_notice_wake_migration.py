@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -35,7 +36,8 @@ def old_store(path: Path) -> Path:
 
 
 def test_d_wake_caller1_notice_delivery_is_a_numbered_additive_migration(tmp_path):
-    assert _migration_adding("wake_state") == NOTICE_WAKE_MIGRATION == SCHEMA_VERSION
+    # Slot 11 adds the delivery records; a later slot may follow it (#314 adds 12).
+    assert _migration_adding("wake_state") == NOTICE_WAKE_MIGRATION <= SCHEMA_VERSION
     path = old_store(tmp_path / "old.sqlite3")
     with sqlite3.connect(path) as conn:
         before = conn.execute("SELECT * FROM notices ORDER BY notice_id").fetchall()
@@ -55,7 +57,7 @@ def test_d_wake_caller1_notice_delivery_is_a_numbered_additive_migration(tmp_pat
                                        (None, None), (None, None))]
         assert store.query("SELECT * FROM caller_wake_sessions") == []
         assert store.query("SELECT version FROM schema_version ORDER BY version") == [
-            {"version": NOTICE_WAKE_MIGRATION - 1}, {"version": NOTICE_WAKE_MIGRATION}]
+            {"version": version} for version in range(NOTICE_WAKE_MIGRATION - 1, SCHEMA_VERSION + 1)]
 
 
 def test_d_wake_caller1_reopening_preserves_retry_delivery_and_activity_records(tmp_path):
@@ -75,7 +77,9 @@ def test_d_wake_caller1_reopening_preserves_retry_delivery_and_activity_records(
         assert store.query("SELECT * FROM caller_wake_sessions") == sessions
         assert store.query("SELECT * FROM schema_version ORDER BY version") == versions
         assert store.query("SELECT * FROM events WHERE kind='schema.migrated'") == migrated
-        assert len(migrated) == 1
+        # One event for each step the first open ran, from slot 11 to the latest.
+        assert sorted(json.loads(event["data_json"])["version"] for event in migrated) == list(
+            range(NOTICE_WAKE_MIGRATION, SCHEMA_VERSION + 1))
 
 
 def test_d_wake_caller1_fresh_and_migrated_stores_have_the_same_delivery_schema(tmp_path):

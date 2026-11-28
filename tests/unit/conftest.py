@@ -20,7 +20,8 @@ from subfleet.contracts import Exit
 REFUSED_WORKDIR_PREFIXES = ("/" + "tmp/", "/private/" + "tmp/")  # C-2.4
 
 SESSION_ENV = ("CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_PID",
-               "SUBFLEET_RUN_DETACH", "SUBFLEET_DAEMON_BIN")
+               "CODEX_THREAD_ID", "CODEX_SESSION_ID", "SUBFLEET_SESSION_ID",
+               "SUBFLEET_CALLER_FAMILY", "SUBFLEET_RUN_DETACH", "SUBFLEET_DAEMON_BIN")
 
 
 @pytest.fixture
