@@ -81,7 +81,7 @@ All tests use synthetic uuids and `example.com` emails. The property tests use H
 | 2 | No guess: an unlinked org marks no email-keyed lane `desktop` (since fix round 1, a uuid-keyed lane whose key names the org is `desktop` by its key) | the same property test, whose oracle since fix round 1 reads each lane's recorded account under either key form; `test_c10_3_an_unlinked_org_marks_no_lane_desktop_and_every_lane_not_linked_elsewhere_possible` |
 | 3 | The file sets the org; no event moves it while the file answers | `test_c10_9_invariant_3_while_the_file_answers_no_event_moves_the_org` (property); `test_c10_9_the_file_sets_the_org_whatever_a_newer_event_says` |
 | 4 | Only desktop sessions outside a launch report, and only the three names | `tests/unit/test_desktop_hook_report.py::test_c10_9_invariant_4_only_a_desktop_session_outside_a_launch_reports` (property); `test_c10_9_invariant_4_the_report_carries_exactly_three_values_and_the_session` (property); `test_c10_9_the_report_reads_only_its_names`; `test_c10_9_a_subfleet_launch_never_reports` |
-| 5 | The hook is otherwise unchanged | `test_c10_9_invariant_5_stdout_stderr_and_exit_equal_the_base_hooks`: a differential of stdout, stderr and exit code against `tests/fixtures/hooks_266c3ab8b.py`; `test_c10_9_a_failed_report_never_changes_the_exit_code`, through `hooks.run` with each failure kind |
+| 5 | The hook is otherwise unchanged | `test_c10_9_invariant_5_stdout_stderr_and_exit_equal_the_base_hooks`: a differential of stdout, stderr and exit code against `tests/fixtures/hooks_f5a37995e.py` (release/217's hooks, re-frozen from `266c3ab8b` when release's C-15.9 change to `session_event` merged in); `test_c10_9_a_failed_report_never_changes_the_exit_code`, through `hooks.run` with each failure kind |
 | 6 | Fallback unchanged | `tests/unit/test_desktop_routing.py::test_c10_9_the_frozen_copies_are_266c3ab8b` (SHA-256 of the frozen copies, below); `test_c10_9_invariant_6_without_the_signals_every_decision_equals_base` (property: full `build_view` output and `asdict(Decision)` equal frozen base); `test_c10_9_invariant_6_rank_key_orders_as_base_without_desktop_possible` (property); at the daemon, `tests/fake/test_desktop_account_daemon.py::test_c10_9_without_the_signals_routing_is_the_hints` |
 | 7 | Ranking only, except the in-use refusal | `test_c10_9_invariant_7_the_signals_change_ranking_and_the_in_use_refusal_only` (property). See the note below. |
 | 8 | Order-free; equal times break by event id | `test_c10_9_invariant_8_shuffled_events_decide_the_same`; `test_c10_9_invariant_8_the_samples_order_never_matters` (both property) |
@@ -90,13 +90,13 @@ All tests use synthetic uuids and `example.com` emails. The property tests use H
 - With the signals, it applies to exactly the Claude lanes that hold the app's account (`AppAccount.owns`), while Claude Code uses the desktop login (or that is unknown) and the job lacks `allow_desktop`. Those are the email-keyed lanes with the org's email and the uuid-keyed lanes in the app's org, with the newest event's account when an event names the org. *(Corrected in fix round 1: this said "the lanes the app's org's email names". The property's oracle now derives them from each lane's recorded account, not from `owns`.)*
 - Without the signals, it applies to the lanes the profile and hint rule names.
 
-**Frozen base copies** (`git show 266c3ab8b:<path>`, SHA-256 checked before loading):
+**Frozen base copies** (`git show <ref>:subfleet/<name>.py` for the ref in each file's name, SHA-256 checked before loading). The hooks copy moved from `266c3ab8b` to `f5a37995e` when the release merge brought in release/217's C-15.9 change to `session_event` (its `notice.pending` arguments and timeout); release has not changed `capacity.py` since `266c3ab8b`, and its only `scheduler.py` change since then (`e4831aca0`) came before the merge base `a4d21501e`, so the merge moves neither and those two copies stay.
 
 | File | SHA-256 |
 |---|---|
 | `tests/fixtures/capacity_266c3ab8b.py` | `1771e1d1ff6174fd0d41e68ea2c1d3cef7b1a2edd6b02be75201160276f792f6` |
 | `tests/fixtures/scheduler_266c3ab8b.py` | `f6c9ad0cae11fd8b9d624f856b0782ddb7e155cbc4dfca1ab85ce141d1da7d54` |
-| `tests/fixtures/hooks_266c3ab8b.py` | `f1f5b53be73fd77c7b5b75fda65ef06d4c28c5aa280beb978c3648615529b6ed` |
+| `tests/fixtures/hooks_f5a37995e.py` | `9cc471982e1333866a9718b98b74a974eb9b1d3cc0295871bcce78e8c984a7be` |
 
 ## Mutants and their killing tests
 

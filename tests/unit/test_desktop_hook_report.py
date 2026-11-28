@@ -2,8 +2,11 @@
 
 Every environment here is built by the test: none reads the session's own, and
 every value is synthetic. The differential (invariant 5) runs release/217's own
-`subfleet/hooks.py` at 266c3ab8b, frozen in `tests/fixtures/hooks_266c3ab8b.py`
-and checked by its SHA-256, so it needs no git history.
+`subfleet/hooks.py` at f5a37995e, frozen in `tests/fixtures/hooks_f5a37995e.py`
+and checked by its SHA-256, so it needs no git history. The copy was first
+frozen at 266c3ab8b; it moved to f5a37995e when release's C-15.9 change to
+`session_event` (the `notice.pending` arguments and timeout) merged into this
+branch, so the base is again release's hook without this change's report.
 """
 
 from __future__ import annotations
@@ -25,9 +28,9 @@ from subfleet.protocol import ProtocolError
 
 LAWS = settings(max_examples=250, deadline=None, derandomize=True, database=None)
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
-BASE_HOOKS = FIXTURES / "hooks_266c3ab8b.py"
-#: `git show 266c3ab8b:subfleet/hooks.py | shasum -a 256`
-BASE_HOOKS_SHA256 = "f1f5b53be73fd77c7b5b75fda65ef06d4c28c5aa280beb978c3648615529b6ed"
+BASE_HOOKS = FIXTURES / "hooks_f5a37995e.py"
+#: `git show f5a37995e:subfleet/hooks.py | shasum -a 256`
+BASE_HOOKS_SHA256 = "9cc471982e1333866a9718b98b74a974eb9b1d3cc0295871bcce78e8c984a7be"
 SESSION = "sess-desktop-1"
 EMAIL = "person@example.com"
 ACCOUNT = "0000000c-0000-4000-8000-00000000000c"
@@ -38,7 +41,7 @@ REPORT_KEYS = {"email", "account_uuid", "org_uuid", "session_id", "observed_at"}
 def load_base_hooks():
     data = BASE_HOOKS.read_bytes()
     assert hashlib.sha256(data).hexdigest() == BASE_HOOKS_SHA256
-    name = "subfleet._hooks_266c3ab8b"
+    name = "subfleet._hooks_f5a37995e"
     if name in sys.modules:
         return sys.modules[name]
     spec = importlib.util.spec_from_file_location(name, BASE_HOOKS)
@@ -93,7 +96,7 @@ def run_event(module, event, body, root, client, env):
 
 # --- invariant 4: only desktop sessions report, and only the three names ---------------
 
-def test_c10_9_the_base_hooks_copy_is_266c3ab8b():
+def test_c10_9_the_base_hooks_copy_is_f5a37995e():
     assert hashlib.sha256(BASE_HOOKS.read_bytes()).hexdigest() == BASE_HOOKS_SHA256
 
 
@@ -235,6 +238,11 @@ def test_c10_9_invariant_5_stdout_stderr_and_exit_equal_the_base_hooks(event, pe
     """Invariant 5 (and mutant 8's test): for generated payloads and daemon
     replies, including a refused, timed-out, unreachable or junk report, the
     hook's stdout, stderr, exit code and notice calls equal release/217's."""
+    # Both hooks run in this one root, the base first. When `notice.pending` fails,
+    # release's offline path (C-15.9) records activity and takes the delivery lock
+    # here, but the root has no store, so neither run reads a notice offline or
+    # writes a receipt: what the base leaves moves only the quiet clock, which
+    # neither run prints.
     root = tmp_path_factory.mktemp("hook")
     body = payload(event, **({"source": source} if source else {}))
     if session is None:
