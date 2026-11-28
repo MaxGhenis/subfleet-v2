@@ -260,6 +260,8 @@ Both P2s are fixed. All three P3s are dealt with: the version mismatch, the push
   - its parser rejects `--sandbox` (argparse exit 2).
 
   The new daemon refuses `release -- '?'` as `unknown-task` with nothing changed (test above). C-11.10 now says all of this.
+
+  Correction (2026-11-26, issue #327): that holds for this fixture's policy, which has no task `?`. Policy validation accepts a task named `?`; the hint then releases that task's hold, never the sandbox hold. See `docs/reports/2026-11-26-release-hint-doc.md`.
 - Commits: 7918a8aad and 4cd213782.
 
 **4. P3: the push-worktree race.** The build is now queued inside the `job.workspace_preparing` transaction, after `_task_held_at_write` finds no hold (`subfleet/daemon.py:6399-6424`).
