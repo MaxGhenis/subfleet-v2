@@ -119,7 +119,7 @@
     }
   },
   "retired": {
-    "sol": "astra",
+    "sol": "sol62",
     "claude-fable-5": "fable"
   },
   "desktop_login": "never",

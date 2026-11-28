@@ -20,7 +20,7 @@ def test_shipped_policy_preserves_raw_hash_and_disabled_ramp_defaults():
     # D-PROBE-DEADLINE1 adds the admission deadline to the shipped bytes,
     # D-WAKE-CALLER1 adds three session keys and D-REVIEW-FAMILY1 updates the
     # shipped reviewer choices; loading ramp defaults still changes no bytes.
-    before = "435f7bf6dafbe51514ccb298cd617a3b46c1f97283ebeacd29c832d7f0b27e8f"
+    before = "299189fa51b5dfc4bfbf2f1e435cc642bb55671db51ca1df0e1ffee9c748d042"
     assert "ramp" not in json.loads(DEFAULT_POLICY_PATH.read_bytes())["admission"]
     assert policy_hash(DEFAULT_POLICY_PATH) == before
     loaded = load_policy(DEFAULT_POLICY_PATH)

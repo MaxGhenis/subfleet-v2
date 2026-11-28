@@ -15,6 +15,7 @@ import threading
 import uuid
 from pathlib import Path
 
+from ..policy import DEFAULT_POLICY_PATH, PolicyError, load_policy, resolve_model
 from ..sessions.transcripts import TooLarge, read_regular
 from ..store import utc_now
 from ..launch_env import helper_policy
@@ -43,6 +44,19 @@ def read_context(path: str | None, label: str) -> str:
         raise GateError(f"{label} exceeds 65536 bytes") from None
     except (OSError, UnicodeError) as exc:
         raise GateError(f"cannot read {label}: {exc}") from exc
+
+
+def resolve_peer(policy: dict, peer: str) -> str:
+    """C-6.24, C-11.1: resolve the model before applying the gate's peer choices."""
+    choices = ("fable", "sol62", "astra")
+    allowed = f"--peer must resolve to one of {', '.join(choices)}"
+    try:
+        resolved = resolve_model(policy, peer, key="peer", note=False)
+    except PolicyError as exc:
+        raise GateError(f"{exc}. {allowed}") from exc
+    if resolved not in choices:
+        raise GateError(f"{allowed} (got {resolved!r})")
+    return resolved
 
 
 def routing(args, peer: str) -> tuple[str | None, tuple[str, ...]]:
@@ -87,7 +101,9 @@ def capture(state: dict, *, runner=subprocess.run) -> tuple[dict, bytes | None]:
 
 def preview(args, root: Path, *, runner=subprocess.run, policy: dict | None = None) -> dict:
     """C-19.1: read files/remote metadata only, without a daemon or state mutation."""
-    with helper_policy(policy or {}):
+    if policy is None:
+        policy = load_policy(DEFAULT_POLICY_PATH)
+    with helper_policy(policy):
         return _preview(args, root, runner=runner, policy=policy)
 
 
@@ -99,7 +115,7 @@ def _preview(args, root: Path, *, runner, policy) -> dict:
         subject, _ = capture(state, runner=runner)
         peer = state["peer"]
     else:
-        peer = "astra" if args.peer == "sol" else args.peer
+        peer = resolve_peer(policy, args.peer)
         cwd = Path(args.workdir or Path.cwd()).expanduser().resolve()
         if args.gate_command == "plan":
             source = Path(args.target).expanduser()
@@ -116,7 +132,7 @@ def _preview(args, root: Path, *, runner, policy) -> dict:
             "revision": rev, "fingerprint": fingerprint(rev),
             "on_agreement": state["on_agreement"], "status": state.get("status"),
             "next_round": len(state["rounds"]) + 1,
-            "max_rounds": round_limit(args.max_rounds, policy or {}, state.get("max_rounds")),
+            "max_rounds": round_limit(args.max_rounds, policy, state.get("max_rounds")),
             "peer_account": account, "exclude_accounts": list(exclusions), "dry_run": True}
 
 
@@ -185,9 +201,7 @@ class GateService:
 
     def start(self, args):
         from .merge import capture_pr, verify_pr_workspace
-        peer = "astra" if args.peer == "sol" else args.peer
-        if peer not in {"fable", "astra"}:
-            raise GateError("--peer must be fable, astra, or sol")
+        peer = resolve_peer(self.daemon.policy, args.peer)
         account, exclusions = routing(args, peer)
         limit = round_limit(args.max_rounds, self.daemon.policy)
         if not args.main_approve:

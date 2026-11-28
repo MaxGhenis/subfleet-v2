@@ -248,13 +248,13 @@ def test_serialized_metadata_cannot_override_file_hash(tmp_path, policy_data):
     assert loaded["_policy_path"] == str(path)
 
 
-def test_retired_sol_alias_resolves_to_astra_with_note(capsys):
-    """C-11.1: the retired sol alias resolves to Astra with a stderr note."""
+def test_retired_sol_alias_resolves_to_sol62_with_note(capsys):
+    """C-11.1: the shipped policy resolves the retired sol alias to Sol 6.2 with a stderr note."""
     policy = load_policy(DEFAULT_POLICY_PATH)
-    assert resolve_model(policy, "sol") == "astra"
+    assert resolve_model(policy, "sol") == "sol62"
     captured = capsys.readouterr()
     assert not captured.out
-    assert "retired" in captured.err and "sol" in captured.err and "astra" in captured.err
+    assert "retired" in captured.err and "sol" in captured.err and "sol62" in captured.err
 
 
 @pytest.mark.parametrize("name", ["astra", "gpt-6-astra"])
@@ -266,7 +266,7 @@ def test_current_name_and_exact_id_resolve_without_note(name, capsys):
 
 def test_retired_note_can_be_suppressed_for_repeat_evaluations(capsys):
     """C-11.1: reevaluation may suppress a retired alias note already emitted."""
-    assert resolve_model(load_policy(DEFAULT_POLICY_PATH), "sol", note=False) == "astra"
+    assert resolve_model(load_policy(DEFAULT_POLICY_PATH), "sol", note=False) == "sol62"
     assert not capsys.readouterr().err
 
 

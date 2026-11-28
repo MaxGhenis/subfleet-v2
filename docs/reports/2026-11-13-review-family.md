@@ -212,7 +212,7 @@ Started 2026-11-17 04:10:11 UTC (first command, `date -u`); deadline 07:10:11 UT
 - `subfleet/store.py`: slots 11 and 12 are now exactly #314's. Slot 11 is #307's storage schema; slot 12 holds the review fields. Each step is presence-checked, and versions are recorded only after the schema script succeeds, all in one transaction. This PR's `allow_same_family` column moves to a new slot 13 (`REVIEW_FAMILY_MIGRATION`, presence-checked the same way), and `SCHEMA_VERSION` becomes 13. The presence pass now covers slots 11 to 13 on every writable open.
   - I dropped this PR's slot-11 backfill, which marked pending notices `stale`/`before-migration`. #314's slot 11 has none, and the ruling says slot 11 is exactly #314's.
   - `NOTICE_WAKE_PREDATES` is gone.
-  - As a result, a store upgraded straight from schema 10 keeps its pending notices with an empty wake state. A store that ran #307 keeps #307's own stale marks.
+  - As a result, a store upgraded straight from schema 10 keeps its pending notices with an empty wake state. A store that ran #307 keeps #307's own stale marks. The link-7 merge brought the backfill back (see [Link-7 merge and the migration test](#link-7-merge-and-the-migration-test-670653bf9-e0bb74d2f-4d52eca3e)).
   - If #307 merges later onto these slots, it must do its backfill in a slot of its own.
 - `subfleet/store_schema.sql`: took #314's comment and set the header to version 13.
 - `subfleet/daemon.py` (writer check): took #314's comment. The P2 fix below then replaced the check itself.
@@ -346,7 +346,7 @@ After the fixes, the latest run of each of the 38 test files passed: no test fai
   - Three new unit cases pass on the merge code by design: the recheck test, whose red is the mutant; the lane-pin positive control; and `test_p2_explicit_same_family_or_unknown_default_still_fails_load`, which the build already satisfied.
 - **The reviewer's probe file (`test_zz_rv_a3_r1_probe.py`) is in the reviewer's workspace.** I wrote `test_p2_sol_first_routing_matrix` instead of rerunning the reviewer's `test_probe_routing_matrix`.
 - **`tests/unit/conftest.py` now also drops `SUBFLEET_JOB`, `SUBFLEET_ATTEMPT` and `SUBFLEET_TURN_JOB` from the "outside any session" environment.** These tests run inside a Subfleet job, whose markers would otherwise trip the new consent refusal.
-- **The stale-notice backfill is gone** (see the merge above). That follows D-SCHEMA-SLOTS1 and changes what a direct 10 → head upgrade leaves in `notices`.
+- **The stale-notice backfill is gone** (see the merge above). That follows D-SCHEMA-SLOTS1 and changes what a direct 10 → head upgrade leaves in `notices`. The link-7 merge brought the backfill back (see [Link-7 merge and the migration test](#link-7-merge-and-the-migration-test-670653bf9-e0bb74d2f-4d52eca3e)).
 - **Offline `runs show` (daemon down) shows no caller record.** `same_family_consent` and `caller_family_disagreement` come from the daemon's `show`.
 - **Probe commands created cache folders in the checkout.** Early probes ran without `PYTHONDONTWRITEBYTECODE` and created `subfleet/__pycache__`, `subfleet/sessions/__pycache__` and `tests/__pycache__`; the test runs created `.hypothesis` and `uv sync` created `.venv`. All five are listed under cleanup below.
 - **Parallel runs.** Several pytest runs ran at the same time, each in the foreground, with at most four workers in total.
@@ -406,9 +406,9 @@ The replay uses the reviewer's variant setup at every tier for a Claude caller. 
 
 ### PR body for the hub
 
-- The configured other-family default goes first at every tier, followed by eligible other-family models from that tier upward. The defaults are Sol 6.2 for Claude callers and Opus for Codex callers. The shipped unattributed hard route has an Opus fallback. See `subfleet/policy.py:74`, `subfleet/policy.py:136` and `subfleet/default_policy.json:26`, `subfleet/default_policy.json:63`, `subfleet/default_policy.json:115`.
-- Writer exemption follows a native Codex kind attached to the caller's session id, provided the declared family agrees or is absent. The daemon still enforces target conflicts, revive exclusion and configured caps. Both handoff commands carry the session kind. See `subfleet/daemon.py:714`, `subfleet/daemon.py:4114`, `subfleet/sessions/cli.py:460` and `subfleet/sessions/cli.py:683`.
-- Slot 13 adds the `allow_same_family` boolean after #314's slots 11 and 12. The column is presence-checked on writable open, including for a store already recorded at 13. See `subfleet/store.py:46`, `subfleet/store.py:149`, `subfleet/store.py:158` and `subfleet/store.py:501`.
+- The configured other-family default goes first at every tier, followed by eligible other-family models from that tier upward. The defaults are Sol 6.2 for Claude callers and Opus for Codex callers. The shipped unattributed hard route has an Opus fallback. See `subfleet/policy.py:74`, `subfleet/policy.py:136` and `subfleet/default_policy.json:26–30`, `subfleet/default_policy.json:63–65`, `subfleet/default_policy.json:115`.
+- Writer exemption follows a native Codex kind attached to the caller's session id, provided the declared family agrees or is absent. The daemon still enforces target conflicts, revive exclusion and configured caps. Both handoff commands carry the session kind. See `subfleet/daemon.py:757`, `subfleet/daemon.py:4205`, `subfleet/daemon.py:4217`, `subfleet/sessions/cli.py:460` and `subfleet/sessions/cli.py:683`.
+- Slot 13 adds the `allow_same_family` boolean after #314's slots 11 and 12. The column is presence-checked on writable open, including for a store already recorded at 13. See `subfleet/store.py:48`, `subfleet/store.py:155`, `subfleet/store.py:164–165` and `subfleet/store.py:512`, `subfleet/store.py:524`.
 
 ### Test commands and results
 
@@ -504,3 +504,278 @@ Generated checkout directories moved into scratch for the same cleanup were `.ve
 Guarded removal succeeded. Finished 2026-11-26 at 12:45:08 UTC, within the job budget. The assigned checkout's Git head is still `2cc36dc5e3ae1f0454cbcb8d6038f6a356c8852e`.
 
 no commit. The sandbox denied Git's `index.lock`.
+
+## Link-7 merge and the migration test (670653bf9, e0bb74d2f, 4d52eca3e)
+
+`670653bf9` took #314's link-7 head `8af8616a1`, which contains release/217 at `a4d21501e` and the November 26 chain of #313, #315, #321, #307, #329 and #316. #307 supplied the caller-wake implementation and its migration backfill.
+
+The hub resolved eight conflicted files by hand. `git show --stat` and `git show --remerge-diff 670653bf9` record them.
+
+- `subfleet/daemon.py`
+- `subfleet/store.py`
+- `tests/unit/test_policy_ramp.py`
+- `tests/unit/test_provider_active_cap.py`
+- `tests/unit/test_prune_217.py`
+- `tests/unit/test_store_migration_2.py`
+- `tests/unit/test_store_upgrade_slots.py`
+- `docs/acceptance-contract.md`
+
+The backfill runs in whichever step adds `notices.wake_state` (C-15.9). A direct upgrade from schema 10 marks the notices pending or offered at that step `stale` with reason `before-migration`. When the column is already present, no notices receive new marks. See `subfleet/store.py:536–542`.
+
+`e0bb74d2f` corrected the report's behavior section to cite the review-subject clause as C-3.9. #315 owns C-3.8. `4d52eca3e` changed `tests/unit/test_store_review_family_migration.py::test_i6_schema_10_and_actual_pr307_11_reach_identical_schema_and_keep_existing_rows` to expect the stale marks and to compare the final notices across the direct and #307 upgrade paths. The previous assertion expected an empty wake state after direct upgrade.
+
+The store matrix in section 3 of `review-a3-r3.md` covered 19 starting layouts. Every layout reached schema 13, preserved seeded rows and made no changes on a second open. Stale marks appeared on the notices that were pending or offered when the column was added. The review supplied this matrix.
+
+## Fix round 3
+
+Started at 05:46:27 UTC on 2026-11-28 on `4d52eca3e4b16069d825fe0af75c5ea801c8e33e`. The tracked check was clean and the untracked check listed no files.
+
+### P2 · Gate peer resolution
+
+The CLI omitted `sol62`, and both daemon start and preview hard-coded the old `sol` spelling to `astra`. Preview also accepted arbitrary wire peers. Starts and previews now share a peer resolver that calls `resolve_model` with `key="peer"` and `note=False`. It accepts the resolved names `fable`, `sol62` and `astra`. Invalid peers return exit 2 with the supported choices and the policy's reason when the model is unknown. Resolution runs before gate state, jobs or events are written.
+
+The CLI accepts `--peer sol62`. For local previews and the pre-transport `sol` note, it reads the state-root policy, falling back to the shipped file when the state-root file is absent. The shipped `retired.sol` now maps to `sol62`, so policy-based handoff resolution follows it. Both policy hash tests pin the new raw SHA-256, `299189fa51b5dfc4bfbf2f1e435cc642bb55671db51ca1df0e1ffee9c748d042`. C-6.24, its change log and the gate examples describe the new peer. C-11.1 and the other clauses needed no edits.
+
+The functional rerun on the base, `gate-policy-red-isolated`, had 19 failures and five passing controls. `gate-policy-green` passed all 24. Wire cases override the parsed peer in the payload to reach the daemon on the base.
+
+| Node ID, with shared module prefix where shown | Base result | Patched result |
+| --- | --- | --- |
+| `tests/unit/test_gate_review_family.py::test_claude_gate_submits_sol62[explicit]` | Exit 2 from the daemon's previous allowlist | Records `sol62`, requests `gpt-6.2-sol`, and submits a `sol62` pin with `caller_family="claude"` |
+| Same module, `test_claude_gate_submits_sol62[shipped-alias,live-alias]` | Both store `astra` | Both store and pin `sol62` with the same round model and caller family |
+| Same module, `test_daemon_preview_resolves_retired_sol[shipped,live]` | Both previews report `astra` | Both report `sol62` without writing gate state, events or jobs |
+| Same module, `test_daemon_preview_refuses_unsupported_peer[missing-peer,sol61]` | Both wire requests return 0 and echo the peer | Both return 2 and name the gate choices, with no writes |
+| Same module, `test_gate_refuses_missing_sol62_policy_model` | Exit 2 and no writes because the old allowlist rejects every `sol62` | Exit 2 and no writes with the policy reason `peer: unknown model 'sol62'` |
+| Same module, `test_recorded_caller_family_refuses_same_family_peer[claude-fable]` | Passes | Passes. The message names different model families, with no job or event |
+| Same module, `test_recorded_gate_family_is_retained_on_peer_job[claude-astra]` | Passes | Passes. Explicit Astra remains accepted for Claude |
+| `tests/fake/test_gate_end_to_end.py::test_sol62_gate_round_attests_the_requested_model` | Exit 2 from the daemon's previous allowlist | The parser accepts `sol62` and the round's requested model matches the admitted attempt's `gpt-6.2-sol` through attestation. The next round uses the recorded peer and completes |
+| Same fake module, `test_cli_preview_prints_one_policy_alias_note[shipped,live]` | Reports `astra` and prints the Astra note | Reports `sol62` and prints one note naming it |
+| Same fake module, `test_cli_start_prints_one_policy_alias_note[shipped,live]` | Prints the Astra note before transport | Prints one `sol62` note before transport and submits the `sol62` pin. The usual peer-job progress line follows |
+| Same fake module, `test_cli_preview_prints_one_policy_alias_note[astra-map]` and `test_cli_start_prints_one_policy_alias_note[astra-map]` | Pass | Pass. The synthetic Astra map still gets one note naming Astra |
+| `tests/unit/test_scheduler.py::test_claude_review_pin_routes_to_sol62` | Passes | Passes. With the shipped policy and one Codex lane, `evaluate` chooses `sol62` for the pin |
+| `tests/unit/test_policy.py::test_retired_sol_alias_resolves_to_sol62_with_note` and `::test_retired_note_can_be_suppressed_for_repeat_evaluations`, `tests/unit/test_scheduler.py::test_retired_sol_alias_resolves_with_note`, `tests/unit/test_sessions_cli.py::test_the_retired_sol_target_still_parses` | Shipped alias gives `astra` | Shipped alias gives `sol62` |
+| `tests/unit/test_policy_ramp.py::test_shipped_policy_preserves_raw_hash_and_disabled_ramp_defaults` and `tests/unit/test_provider_active_cap.py::test_missing_cap_preserves_bytes_and_hash[None]` | Old bytes fail new pins | Both match the new raw hash |
+
+The attestation case fixes the fixture's admission decision to `sol62` so it checks the round record and the attempt model in the attestation path. The scheduler case above independently exercises routing. Two existing tests build synthetic policies without Sol, so their raw fixtures now remove the dependent alias before `load_policy` validates them. Those are `tests/unit/test_review_family_fix_r1.py::test_p2_code_defaults_are_checked_at_load_and_a_policy_without_a_reviewer_loads` and `tests/fake/test_review_family_fix_r1_daemon.py::test_bare_other_family_lane_pin_preserves_empty_review_chain`. Their routing assertions are unchanged.
+
+### P2 · Admission comparison clock
+
+`tests/fake/test_review_family_admission.py::test_i3_i4_durable_decision_rows_and_events_match_a2` already froze the daemon and store clocks. The admission passes still reached the live clock in `scheduler.waiting_metadata` when setting `next_check_at`. The test now patches `scheduler.datetime` with the same `FrozenDateTime`. It still compares the complete durable decision and event records.
+
+This scratch pytest plugin delayed only the legacy daemon until about 50 ms past the next whole second. The base run failed all four `True` cases on `job.capacity_waiting.data_json.next_check_at`. `[True-build-claude]` and `[True-review-None]` differed by `05:52:05Z` versus `05:52:06Z`. `[True-build-None]` and `[True-build-codex]` differed by `05:52:06Z` versus `05:52:07Z`. The four `False` cases passed. All three patched probe runs passed all eight cases. The five stability runs passed 40 of 40 cases. Each stability run started above a one-minute load of 20. No other clock patch was needed.
+
+### P3 · Link-7 migration history
+
+The report at the base contained the fix-round-1 behavior and had no link-7 section. The link-7 section above records the merge, restored C-15.9 backfill, citation fix and updated migration test. Both historical bullets now point to it, and the round-2 PR-body notes use the checked citations below. The base evidence is the two unqualified historical statements, the missing section and the six stale citations. The updated report preserves both historical statements and adds the corrective links and citations. The reviewed 19-layout store matrix supplies the detailed migration evidence. The focused migration suite also exercises the direct schema-10 path and the existing-column path, with results in the runs table.
+
+### Forced-second-boundary probe
+
+```python
+import math
+import time
+
+import pytest
+
+from subfleet.daemon import Daemon
+
+
+@pytest.fixture(autouse=True)
+def force_admission_across_second(monkeypatch):
+    original_admit = Daemon._admit
+
+    def admit(daemon, *args, **kwargs):
+        if daemon.root.name == "legacy":
+            now = time.time()
+            time.sleep(math.floor(now) + 1.05 - now)
+        return original_admit(daemon, *args, **kwargs)
+
+    monkeypatch.setattr(Daemon, "_admit", admit)
+```
+
+### PR body for the hub
+
+Suggested replacements for the live draft at `2cc36dc5e`, starting with the sentence about `sol61`.
+
+| Live copy | Replacement and evidence |
+| --- | --- |
+| The `sol61` fallback and the preceding sentence on `routing_chain` | The code defaults are `sol62` for Claude callers and `opus` for Codex callers. An attributed review tries the other family's usable default first at every tier, then that family's models from the requested tier upward. A policy can override the defaults with `review_family_defaults`. If the key is absent, the code reads its defaults without rewriting the policy. Recorded same-family consent appends the eligible unfiltered chain. See `subfleet/policy.py:74`, `subfleet/policy.py:87–100`, `subfleet/policy.py:136–153` and `subfleet/default_policy.json:63–65`. |
+| Opening claim that a review goes to the other provider family | An attributed review goes to the other provider family by default. Without same-family consent, the job waits and names that family when it has no capacity. Recorded consent permits a same-family review. See `subfleet/policy.py:136–153` and `docs/acceptance-contract.md:564`. |
+| Existing same-family pin refusal | An attributed review with an explicit same-family model pin requires consent. A same-family lane pin also needs an explicit model from that family. See `subfleet/daemon.py:3433–3443` and `subfleet/scheduler.py:808–820`. |
+| Gate caller-family sentence | A new gate requires `review.family.v1`. It uses the detected caller family as the main author's even without `--main-model`, and requires a peer of the other family. Choose `fable`, `sol62` or `astra` directly. The retired `sol` alias follows the policy's `retired` map at start and in dry runs. The shipped map points `sol` to `sol62`, so a recorded Claude caller can use GPT-6.2 Sol. See `subfleet/gate/cli.py:41`, `subfleet/gate/cli.py:92–101`, `subfleet/gate/cli.py:116`, `subfleet/gate/service.py:54`, `subfleet/gate/service.py:118`, `subfleet/gate/service.py:204`, `subfleet/gate/service.py:229–246` and `subfleet/default_policy.json:115–122`. |
+| Codex writer exemption | A recorded native Codex session kind skips only the session writer-instance comparison when the declared caller family agrees or is absent. Target conflicts, revive exclusion and configured caps still apply. Both new and cold-continue handoffs carry the session kind. See `subfleet/daemon.py:757–763`, `subfleet/daemon.py:4197–4218`, `subfleet/daemon.py:4236–4239`, `subfleet/sessions/cli.py:460` and `subfleet/sessions/cli.py:683`. |
+| Migration 12 and slot 11's claim about runtime behavior | Slot 11 installs #307's notice-wake schema. When the upgrade adds `notices.wake_state`, it marks pending and offered notices stale. Slot 12 adds #314's review-subject fields. Slot 13 adds this PR's `allow_same_family` boolean. Writable opens reconcile all three by column presence. See `subfleet/store.py:46–48`, `subfleet/store.py:142–166`, `subfleet/store.py:524–542`, `subfleet/store_schema.sql:236–254` and `subfleet/daemon.py:6100`. |
+| Clause numbers and single changelog entry | C-6.23 and C-6.24 state the review and gate rules. C-3.9 records the storage changes. C-6.5, C-6.21 and C-17.2 cover refusals, caller identity and CLI flags. The follow-up changes also cover replay order in C-6.2, public refusal reasons in C-16.1 and capability discovery in C-25.1. The changelog records the review-family work and its fix rounds. See `docs/acceptance-contract.md:497`, `docs/acceptance-contract.md:542`, `docs/acceptance-contract.md:546`, `docs/acceptance-contract.md:562`, `docs/acceptance-contract.md:564`, `docs/acceptance-contract.md:565`, `docs/acceptance-contract.md:684`, `docs/acceptance-contract.md:688`, `docs/acceptance-contract.md:700`, `docs/acceptance-contract.md:842` and `docs/acceptance-contract.md:9–11`. |
+
+### Citation check
+
+The round-2 PR copy cites the following lines. The audit used `git show HEAD:<path> | sed -n '<line>p'` for each line.
+
+| Location | Evidence |
+| --- | --- |
+| `subfleet/policy.py:74` | code defaults, `REVIEW_FAMILY_DEFAULTS = {"claude": "sol62", "codex": "opus"}` |
+| `subfleet/policy.py:136` | routing chain implementation, `def routing_chain(policy: Mapping[str, Any], task: str, tier_index: int = 0, *,` |
+| `subfleet/default_policy.json:26` | review chain, `"review": [` |
+| `subfleet/default_policy.json:30` | hard review fallback, `["sol62", "opus"]` |
+| `subfleet/default_policy.json:63` | shipped family defaults, `"review_family_defaults": {` |
+| `subfleet/default_policy.json:64` | Claude caller default, `"claude": "sol62",` |
+| `subfleet/default_policy.json:65` | Codex caller default, `"codex": "opus"` |
+| `subfleet/default_policy.json:115` | Sol 6.2 model entry, `"sol62": {` |
+| `subfleet/daemon.py:757` | writer exemption definition, `def codex_writer_exempt(job: dict[str, Any]) -> bool:` |
+| `subfleet/daemon.py:4205` | session writer loop, `for row in mine:` |
+| `subfleet/daemon.py:4217` | exemption in the loop, `if codex_writer_exempt(job):` |
+| `subfleet/sessions/cli.py:460` | cold-continue handoff session kind, `caller_session_kind=caller_session_kind,` |
+| `subfleet/sessions/cli.py:683` | new handoff session kind, `caller_session_kind=caller_session_kind,` |
+| `subfleet/store.py:48` | slot 13 constant, `REVIEW_FAMILY_MIGRATION = 13` |
+| `subfleet/store.py:155` | slot 12 DDL, `REVIEW_SUBJECT_MIGRATION: (` |
+| `subfleet/store.py:164` | slot 13 DDL, `REVIEW_FAMILY_MIGRATION: (` |
+| `subfleet/store.py:165` | same-family column, `"ALTER TABLE jobs ADD COLUMN allow_same_family INTEGER NOT NULL DEFAULT 0 "` |
+| `subfleet/store.py:512` | migration entry point, `def _migrate(self, version: int) -> None:` |
+| `subfleet/store.py:524` | presence-aware slot loop, `for step in range(min(version + 1, NOTICE_WAKE_MIGRATION), SCHEMA_VERSION + 1):` |
+
+### Test runs
+
+Times are UTC. The uptime samples show the display time, user count and 1-, 5- and 15-minute loads. Every pre-run `df -k /System/Volumes/Data` sample reported `/dev/disk3s5`, 3,902,614,160 total blocks, 99% capacity and 17% iused. The table records used, available, iused and ifree for each sample. Counts are passed / failed / skipped / xfailed / deselected / errors.
+
+| Run | Start → end UTC | Uptime at start → end | `df -k` used / available / iused / ifree | Counts | Basetemp KiB |
+| --- | --- | --- | --- | --- | ---: |
+| `gate-policy-red` | 05:51:00 → 05:51:34 | 0:51 1 user, load averages: 18.65 54.48 51.43 → 0:51 1 user, load averages: 29.90 53.27 51.11 | 3796000000 / 71200000 / 147964927 / 712738840 | 3 / 21 / 0 / 0 / 0 / 0 | 4264 |
+| `boundary-red` | 05:51:55 → 05:52:06 | 0:51 1 user, load averages: 30.81 51.97 50.69 → 0:52 1 user, load averages: 30.16 51.13 50.41 | 3796000000 / 70800000 / 147960504 / 711353800 | 4 / 4 / 0 / 0 / 0 / 0 | 8824 |
+| `gate-policy-red-serial` | 05:53:17 → 05:53:23 | 0:53 1 user, load averages: 25.69 45.79 48.47 → 0:53 1 user, load averages: 24.36 44.84 48.10 | 3796000000 / 72800000 / 147885536 / 728569760 | 3 / 21 / 0 / 0 / 0 / 0 | 4264 |
+| `gate-policy-red-isolated` | 05:55:12 → 05:55:54 | 0:55 1 user, load averages: 24.34 38.29 45.12 → 0:55 1 user, load averages: 37.05 39.85 45.35 | 3796000000 / 72800000 / 147865224 / 729258520 | 5 / 19 / 0 / 0 / 0 / 0 | 4472 |
+| `gate-policy-green` | 05:57:30 → 05:58:12 | 0:57 1 user, load averages: 26.08 35.39 43.05 → 0:58 1 user, load averages: 37.91 37.16 43.34 | 3796000000 / 72800000 / 147868956 / 729355840 | 24 / 0 / 0 / 0 / 0 / 0 | 4900 |
+| `boundary-green-1` | 05:58:27 → 05:59:05 | 0:58 1 user, load averages: 38.97 37.46 43.33 → 0:59 1 user, load averages: 39.48 37.77 43.18 | 3796000000 / 72800000 / 147868324 / 728513920 | 8 / 0 / 0 / 0 / 0 / 0 | 9188 |
+| `boundary-green-2` | 05:59:06 → 05:59:28 | 0:59 1 user, load averages: 39.48 37.77 43.18 → 0:59 1 user, load averages: 35.77 37.03 42.78 | 3796000000 / 72800000 / 147863080 / 729666240 | 8 / 0 / 0 / 0 / 0 / 0 | 9200 |
+| `boundary-green-3` | 05:59:29 → 05:59:57 | 0:59 1 user, load averages: 34.91 36.83 42.68 → 0:59 1 user, load averages: 35.20 36.73 42.47 | 3796000000 / 72800000 / 147866330 / 729014840 | 8 / 0 / 0 / 0 / 0 / 0 | 9200 |
+| `clock-stability-1` | 05:59:58 → 06:00:19 | 0:59 1 user, load averages: 35.20 36.73 42.47 → 1:00 1 user, load averages: 34.19 36.39 42.19 | 3796000000 / 72400000 / 147880446 / 725984000 | 8 / 0 / 0 / 0 / 0 / 0 | 8812 |
+| `clock-stability-2` | 06:00:21 → 06:00:57 | 1:00 1 user, load averages: 34.19 36.39 42.19 → 1:00 1 user, load averages: 36.11 36.54 42.00 | 3796000000 / 72400000 / 147899105 / 724798720 | 8 / 0 / 0 / 0 / 0 / 0 | 9200 |
+| `clock-stability-3` | 06:00:59 → 06:01:36 | 1:00 1 user, load averages: 37.70 36.87 42.08 → 1:01 1 user, load averages: 38.00 37.01 41.92 | 3796000000 / 72400000 / 147903915 / 724322880 | 8 / 0 / 0 / 0 / 0 / 0 | 9200 |
+| `clock-stability-4` | 06:01:37 → 06:02:04 | 1:01 1 user, load averages: 38.00 37.01 41.92 → 1:02 1 user, load averages: 34.34 36.28 41.49 | 3796000000 / 72000000 / 147904644 / 722927520 | 8 / 0 / 0 / 0 / 0 / 0 | 8868 |
+| `clock-stability-5` | 06:02:05 → 06:02:31 | 1:02 1 user, load averages: 34.34 36.28 41.49 → 1:02 1 user, load averages: 31.69 35.55 41.08 | 3796000000 / 72000000 / 147908871 / 721623320 | 8 / 0 / 0 / 0 / 0 / 0 | 9188 |
+| `review-family-admission` | 06:02:31 → 06:03:01 | 1:02 1 user, load averages: 31.69 35.55 41.08 → 1:03 1 user, load averages: 31.38 35.20 40.77 | 3796000000 / 72000000 / 147912590 / 721722200 | 12 / 0 / 0 / 0 / 0 / 0 | 11024 |
+| `affected-fake` | 06:03:24 → 06:05:19 | 1:03 1 user, load averages: 33.18 35.35 40.66 → 1:05 1 user, load averages: 30.68 33.43 39.21 | 3796000000 / 71600000 / 147915176 / 718610920 | 237 / 5 / 3 / 0 / 0 / 0 | 125324 |
+| `affected-fake-serial` | 06:06:01 → 06:06:35 | 1:06 1 user, load averages: 38.59 35.06 39.54 → 1:06 1 user, load averages: 39.24 35.91 39.68 | 3796000000 / 71200000 / 147954277 / 715442040 | 5 / 0 / 0 / 0 / 0 / 0 | 2092 |
+| `affected-unit-1` | 06:06:46 → 06:21:43 | 1:06 1 user, load averages: 35.45 35.21 39.39 → 1:21 1 user, load averages: 30.35 36.08 37.85 | 3796000000 / 71200000 / 147961456 / 714355520 | 3034 / 0 / 13 / 0 / 0 / 0 | 199120 |
+| `affected-unit-2` | 06:23:21 → 06:45:16 | 1:23 1 user, load averages: 52.44 40.85 39.43 → 1:45 1 user, load averages: 32.09 30.04 32.12 | 3796000000 / 70800000 / 147948975 / 711078320 | 1834 / 0 / 0 / 0 / 0 / 0 | 208852 |
+| `gate-service` | 06:46:03 → 06:46:34 | 1:46 1 user, load averages: 31.54 30.11 32.03 → 1:46 1 user, load averages: 34.20 30.99 32.27 | 3796000000 / 70800000 / 148002693 / 711763400 | 17 / 0 / 0 / 0 / 8 / 0 | 5324 |
+| `contract-migration` | 06:46:36 → 06:47:44 | 1:46 1 user, load averages: 34.20 30.99 32.27 → 1:47 1 user, load averages: 22.34 27.70 30.91 | 3796000000 / 71200000 / 147934340 / 713954920 | 477 / 0 / 0 / 0 / 0 / 0 | 23868 |
+
+The largest measured basetemp was 208,852 KiB (`affected-unit-2`). The largest end-of-run scratch sample was 218,272 KiB (`affected-unit-2`). The basetemps totaled 675,184 KiB at measurement.
+`affected-unit-1` used 194.5 MiB (203.9 decimal MB) in basetemp and 195.5 MiB (205.0 decimal MB) in scratch at measurement.
+`affected-unit-2` used 204.0 MiB (213.9 decimal MB) in basetemp and 213.2 MiB (223.5 decimal MB) in scratch at measurement.
+
+<details>
+<summary>Exact pytest commands</summary>
+
+The runner set `R=$PWD/build/sf-a3-fix3`, `TMPDIR=$R/runtime`, `HYPOTHESIS_STORAGE_DIRECTORY=$R/hypothesis`, `PYTHONDONTWRITEBYTECODE=1`, and the lane's `UV_PROJECT_ENVIRONMENT`. For `second_boundary` and `run_counts`, it set `PYTHONPATH=$R:$PWD`. Other runs used `PYTHONPATH=$PWD`.
+
+```sh
+# gate-policy-red
+uv --no-cache run --no-sync python -m pytest -p no:cacheprovider -n 4 --timeout=540 --basetemp $TMPDIR/pytest-gate-policy-red -q -rs -vv tests/unit/test_gate_review_family.py::test_claude_gate_submits_sol62 tests/unit/test_gate_review_family.py::test_daemon_preview_resolves_retired_sol tests/unit/test_gate_review_family.py::test_daemon_preview_refuses_unsupported_peer tests/unit/test_gate_review_family.py::test_gate_refuses_missing_sol62_policy_model tests/unit/test_gate_review_family.py::test_recorded_caller_family_refuses_same_family_peer\[claude-fable\] tests/unit/test_gate_review_family.py::test_recorded_gate_family_is_retained_on_peer_job\[claude-astra\] tests/fake/test_gate_end_to_end.py::test_sol62_gate_round_attests_the_requested_model tests/fake/test_gate_end_to_end.py::test_cli_preview_prints_one_policy_alias_note tests/fake/test_gate_end_to_end.py::test_cli_start_prints_one_policy_alias_note tests/unit/test_policy.py::test_retired_sol_alias_resolves_to_sol62_with_note tests/unit/test_policy.py::test_retired_note_can_be_suppressed_for_repeat_evaluations tests/unit/test_scheduler.py::test_retired_sol_alias_resolves_with_note tests/unit/test_scheduler.py::test_claude_review_pin_routes_to_sol62 tests/unit/test_sessions_cli.py::test_the_retired_sol_target_still_parses tests/unit/test_policy_ramp.py::test_shipped_policy_preserves_raw_hash_and_disabled_ramp_defaults tests/unit/test_provider_active_cap.py::test_missing_cap_preserves_bytes_and_hash\[None\]
+# boundary-red
+uv --no-cache run --no-sync python -m pytest -p no:cacheprovider -n 4 --timeout=540 --basetemp $TMPDIR/pytest-boundary-red -q -rs -p second_boundary -vvv tests/fake/test_review_family_admission.py::test_i3_i4_durable_decision_rows_and_events_match_a2
+# gate-policy-red-serial
+uv --no-cache run --no-sync python -m pytest -p no:cacheprovider --timeout=540 --basetemp $TMPDIR/pytest-gate-policy-red-serial -q -rs -vvv tests/unit/test_gate_review_family.py::test_claude_gate_submits_sol62 tests/unit/test_gate_review_family.py::test_daemon_preview_resolves_retired_sol tests/unit/test_gate_review_family.py::test_daemon_preview_refuses_unsupported_peer tests/unit/test_gate_review_family.py::test_gate_refuses_missing_sol62_policy_model tests/unit/test_gate_review_family.py::test_recorded_caller_family_refuses_same_family_peer\[claude-fable\] tests/unit/test_gate_review_family.py::test_recorded_gate_family_is_retained_on_peer_job\[claude-astra\] tests/fake/test_gate_end_to_end.py::test_sol62_gate_round_attests_the_requested_model tests/fake/test_gate_end_to_end.py::test_cli_preview_prints_one_policy_alias_note tests/fake/test_gate_end_to_end.py::test_cli_start_prints_one_policy_alias_note tests/unit/test_policy.py::test_retired_sol_alias_resolves_to_sol62_with_note tests/unit/test_policy.py::test_retired_note_can_be_suppressed_for_repeat_evaluations tests/unit/test_scheduler.py::test_retired_sol_alias_resolves_with_note tests/unit/test_scheduler.py::test_claude_review_pin_routes_to_sol62 tests/unit/test_sessions_cli.py::test_the_retired_sol_target_still_parses tests/unit/test_policy_ramp.py::test_shipped_policy_preserves_raw_hash_and_disabled_ramp_defaults tests/unit/test_provider_active_cap.py::test_missing_cap_preserves_bytes_and_hash\[None\]
+# gate-policy-red-isolated
+uv --no-cache run --no-sync python -m pytest -p no:cacheprovider --timeout=540 --basetemp $TMPDIR/pytest-gate-policy-red-isolated -q -rs -vvv tests/unit/test_gate_review_family.py::test_claude_gate_submits_sol62 tests/unit/test_gate_review_family.py::test_daemon_preview_resolves_retired_sol tests/unit/test_gate_review_family.py::test_daemon_preview_refuses_unsupported_peer tests/unit/test_gate_review_family.py::test_gate_refuses_missing_sol62_policy_model tests/unit/test_gate_review_family.py::test_recorded_caller_family_refuses_same_family_peer\[claude-fable\] tests/unit/test_gate_review_family.py::test_recorded_gate_family_is_retained_on_peer_job\[claude-astra\] tests/fake/test_gate_end_to_end.py::test_sol62_gate_round_attests_the_requested_model tests/fake/test_gate_end_to_end.py::test_cli_preview_prints_one_policy_alias_note tests/fake/test_gate_end_to_end.py::test_cli_start_prints_one_policy_alias_note tests/unit/test_policy.py::test_retired_sol_alias_resolves_to_sol62_with_note tests/unit/test_policy.py::test_retired_note_can_be_suppressed_for_repeat_evaluations tests/unit/test_scheduler.py::test_retired_sol_alias_resolves_with_note tests/unit/test_scheduler.py::test_claude_review_pin_routes_to_sol62 tests/unit/test_sessions_cli.py::test_the_retired_sol_target_still_parses tests/unit/test_policy_ramp.py::test_shipped_policy_preserves_raw_hash_and_disabled_ramp_defaults tests/unit/test_provider_active_cap.py::test_missing_cap_preserves_bytes_and_hash\[None\]
+# gate-policy-green
+uv --no-cache run --no-sync python -m pytest -p no:cacheprovider -n 4 --timeout=540 --basetemp $TMPDIR/pytest-gate-policy-green -q -rs -vv tests/unit/test_gate_review_family.py::test_claude_gate_submits_sol62 tests/unit/test_gate_review_family.py::test_daemon_preview_resolves_retired_sol tests/unit/test_gate_review_family.py::test_daemon_preview_refuses_unsupported_peer tests/unit/test_gate_review_family.py::test_gate_refuses_missing_sol62_policy_model tests/unit/test_gate_review_family.py::test_recorded_caller_family_refuses_same_family_peer\[claude-fable\] tests/unit/test_gate_review_family.py::test_recorded_gate_family_is_retained_on_peer_job\[claude-astra\] tests/fake/test_gate_end_to_end.py::test_sol62_gate_round_attests_the_requested_model tests/fake/test_gate_end_to_end.py::test_cli_preview_prints_one_policy_alias_note tests/fake/test_gate_end_to_end.py::test_cli_start_prints_one_policy_alias_note tests/unit/test_policy.py::test_retired_sol_alias_resolves_to_sol62_with_note tests/unit/test_policy.py::test_retired_note_can_be_suppressed_for_repeat_evaluations tests/unit/test_scheduler.py::test_retired_sol_alias_resolves_with_note tests/unit/test_scheduler.py::test_claude_review_pin_routes_to_sol62 tests/unit/test_sessions_cli.py::test_the_retired_sol_target_still_parses tests/unit/test_policy_ramp.py::test_shipped_policy_preserves_raw_hash_and_disabled_ramp_defaults tests/unit/test_provider_active_cap.py::test_missing_cap_preserves_bytes_and_hash\[None\]
+# boundary-green-1
+uv --no-cache run --no-sync python -m pytest -p no:cacheprovider -n 4 --timeout=540 --basetemp $TMPDIR/pytest-boundary-green-1 -q -rs -p second_boundary tests/fake/test_review_family_admission.py::test_i3_i4_durable_decision_rows_and_events_match_a2
+# boundary-green-2
+uv --no-cache run --no-sync python -m pytest -p no:cacheprovider -n 4 --timeout=540 --basetemp $TMPDIR/pytest-boundary-green-2 -q -rs -p second_boundary tests/fake/test_review_family_admission.py::test_i3_i4_durable_decision_rows_and_events_match_a2
+# boundary-green-3
+uv --no-cache run --no-sync python -m pytest -p no:cacheprovider -n 4 --timeout=540 --basetemp $TMPDIR/pytest-boundary-green-3 -q -rs -p second_boundary tests/fake/test_review_family_admission.py::test_i3_i4_durable_decision_rows_and_events_match_a2
+# clock-stability-1
+uv --no-cache run --no-sync python -m pytest -p no:cacheprovider -n 4 --timeout=540 --basetemp $TMPDIR/pytest-clock-stability-1 -q -rs -p no:randomly tests/fake/test_review_family_admission.py::test_i3_i4_durable_decision_rows_and_events_match_a2
+# clock-stability-2
+uv --no-cache run --no-sync python -m pytest -p no:cacheprovider -n 4 --timeout=540 --basetemp $TMPDIR/pytest-clock-stability-2 -q -rs -p no:randomly tests/fake/test_review_family_admission.py::test_i3_i4_durable_decision_rows_and_events_match_a2
+# clock-stability-3
+uv --no-cache run --no-sync python -m pytest -p no:cacheprovider -n 4 --timeout=540 --basetemp $TMPDIR/pytest-clock-stability-3 -q -rs -p no:randomly tests/fake/test_review_family_admission.py::test_i3_i4_durable_decision_rows_and_events_match_a2
+# clock-stability-4
+uv --no-cache run --no-sync python -m pytest -p no:cacheprovider -n 4 --timeout=540 --basetemp $TMPDIR/pytest-clock-stability-4 -q -rs -p no:randomly tests/fake/test_review_family_admission.py::test_i3_i4_durable_decision_rows_and_events_match_a2
+# clock-stability-5
+uv --no-cache run --no-sync python -m pytest -p no:cacheprovider -n 4 --timeout=540 --basetemp $TMPDIR/pytest-clock-stability-5 -q -rs -p no:randomly tests/fake/test_review_family_admission.py::test_i3_i4_durable_decision_rows_and_events_match_a2
+# review-family-admission
+uv --no-cache run --no-sync python -m pytest -p no:cacheprovider -n 4 --timeout=540 --basetemp $TMPDIR/pytest-review-family-admission -q -rs tests/fake/test_review_family_admission.py
+# affected-fake
+uv --no-cache run --no-sync python -m pytest -p no:cacheprovider -n 4 --timeout=540 --basetemp $TMPDIR/pytest-affected-fake -q -rs -p run_counts -m not\ real_lsof\ and\ not\ real_cwd tests/fake/test_admission_route_isolation.py tests/fake/test_daemon_descriptors.py tests/fake/test_gate_end_to_end.py tests/fake/test_launch_env_daemon.py tests/fake/test_launch_env_ignored_hook.py tests/fake/test_reset_credit_incident.py tests/fake/test_review_family_fix_r1_daemon.py tests/fake/test_tier_hold_by_demand.py tests/fake/test_timers_end_to_end.py
+# affected-fake-serial
+uv --no-cache run --no-sync python -m pytest -p no:cacheprovider --timeout=540 --basetemp $TMPDIR/pytest-affected-fake-serial -q -rs -m not\ real_lsof\ and\ not\ real_cwd tests/fake/test_gate_end_to_end.py::test_changed_plan_during_peer_blocks_and_discards_approval tests/fake/test_gate_end_to_end.py::test_unattested_peer_retries_then_stops_at_policy_cap\[mismatch-astra\] tests/fake/test_gate_end_to_end.py::test_c23_43_unattested_codex_round_counts_and_is_recorded tests/fake/test_gate_end_to_end.py::test_changes_requested_continue_requires_new_approval_or_response tests/fake/test_gate_end_to_end.py::test_plan_cli_round_replays_fixture_through_job_store
+# affected-unit-1
+uv --no-cache run --no-sync python -m pytest -p no:cacheprovider -n 4 --timeout=540 --basetemp $TMPDIR/pytest-affected-unit-1 -q -rs -p run_counts -m not\ real_lsof\ and\ not\ real_cwd tests/unit/test_admission_uncapped.py tests/unit/test_app_cutover_daemon.py tests/unit/test_capacity_desktop.py tests/unit/test_claude_cards_wiring.py tests/unit/test_claude_usage.py tests/unit/test_cli.py tests/unit/test_codex_ca_bundle.py tests/unit/test_compat.py tests/unit/test_daemon_fifo_reads.py tests/unit/test_daemon_log_sites.py tests/unit/test_decision_horizon.py tests/unit/test_disk_admission.py tests/unit/test_doctor_ca_bundle.py tests/unit/test_gate_admission.py tests/unit/test_gate_replay.py tests/unit/test_gate_review_family.py tests/unit/test_gate_revision.py tests/unit/test_gate_verdict.py tests/unit/test_guard_trust.py tests/unit/test_hold_note.py tests/unit/test_hold_note_admission.py tests/unit/test_hold_note_review_edges.py tests/unit/test_hold_note_review_r3.py tests/unit/test_importer.py tests/unit/test_launch_env_helpers.py tests/unit/test_launch_env_mutations.py tests/unit/test_launch_env_policy.py tests/unit/test_launch_env_round2.py tests/unit/test_launch_env_round3.py tests/unit/test_launch_env_round8.py tests/unit/test_legacy_hold.py tests/unit/test_operator_hold_closures.py
+# affected-unit-2
+uv --no-cache run --no-sync python -m pytest -p no:cacheprovider -n 4 --timeout=540 --basetemp $TMPDIR/pytest-affected-unit-2 -q -rs -p run_counts -m not\ real_lsof\ and\ not\ real_cwd tests/unit/test_operator_notices.py tests/unit/test_picker.py tests/unit/test_policy.py tests/unit/test_policy_disk.py tests/unit/test_policy_ramp.py tests/unit/test_policy_sandbox_resolution.py tests/unit/test_policy_support.py tests/unit/test_policy_tier_preferences.py tests/unit/test_pr124_fixes.py tests/unit/test_pr124_review_r2_fixes.py tests/unit/test_provider_active_cap.py tests/unit/test_reset_credit_demand.py tests/unit/test_reset_credit_properties.py tests/unit/test_review_contract_prompt.py tests/unit/test_review_family_boundary.py tests/unit/test_review_family_fix_r1.py tests/unit/test_review_family_routing.py tests/unit/test_scheduler.py tests/unit/test_scheduler_split.py tests/unit/test_scheduler_tier_preferences.py tests/unit/test_scheduler_weekly.py tests/unit/test_scoped_stream_capacity.py tests/unit/test_sessions_cli.py tests/unit/test_sessions_handoff_excerpts.py tests/unit/test_sessions_mirror_load_gap.py tests/unit/test_sessions_notice_wake.py tests/unit/test_store_contention_queries.py tests/unit/test_timers_daemon.py tests/unit/test_ultracode_effort.py tests/unit/test_weekly_rank_vs_base.py
+# gate-service
+uv --no-cache run --no-sync python -m pytest -p no:cacheprovider -n 4 --timeout=540 --basetemp $TMPDIR/pytest-gate-service -q -rs -p run_counts -k not\ merge\ and\ not\ test_changed_pr_after_blocked_preflight_can_receive_fresh_peer_approval tests/unit/test_gate_service.py
+# contract-migration
+uv --no-cache run --no-sync python -m pytest -p no:cacheprovider -n 4 --timeout=540 --basetemp $TMPDIR/pytest-contract-migration -q -rs tests/fake/test_state_contract.py tests/unit/test_invariants_index.py tests/unit/test_test_module_names.py tests/unit/test_handler_refusals.py tests/unit/test_store_review_family_migration.py
+```
+
+</details>
+
+### Skips and harness pruning
+
+- `affected-fake` SKIPPED [1] tests/fake/test_daemon_descriptors.py:194: kern.ipc.somaxconn is 0: no room above the old queue of 64
+- `affected-fake` SKIPPED [1] tests/fake/test_gate_end_to_end.py:298: C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+- `affected-fake` SKIPPED [1] tests/fake/test_timers_end_to_end.py:240: sandbox denies process inspection; bounded turn unit tests cover this seam
+- `affected-unit-1` SKIPPED [1] tests/unit/test_daemon_log_sites.py:368: C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+- `affected-unit-1` SKIPPED [1] tests/unit/test_daemon_log_sites.py:390: C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+- `affected-unit-1` SKIPPED [3] tests/unit/test_daemon_log_sites.py:326: the interpreter's subfleet is not this checkout's (/Users/maxghenis/subfleet-v2-lanes/review-family/subfleet/__init__.py)
+- `affected-unit-1` SKIPPED [1] tests/unit/test_importer.py:1693: C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+- `affected-unit-1` SKIPPED [1] tests/unit/test_importer.py:2642: C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+- `affected-unit-1` SKIPPED [2] tests/unit/test_legacy_hold.py:874: C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+- `affected-unit-1` SKIPPED [4] tests/unit/test_legacy_hold.py:905: C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+
+Pytest emitted no kept-root pruning lines.
+
+### Test environment and deviations
+
+- The lane venv ran Python 3.15.2. The first import check resolved `subfleet` to this worktree. The hub added pytest-xdist 3.8.0 and execnet 2.1.2 to `~/subfleet-v2-lanes/review-family/.venv` at 05:10 UTC on 2026-11-28, before dispatch, offline from the uv cache. The base's dev dependencies omit xdist. This job used the existing venv.
+- The first functional red and its first serial rerun hit an additional Git discovery issue. The required basetemp is inside the job checkout, so Git found the outer repository from the peer's synthetic review directory and the gate refused its cwd. The first wrapper attempt was lost when zsh initialized PATH. Subsequent gate and affected runs installed a scratch Git wrapper in the runner's PATH. It supplies `GIT_CEILING_DIRECTORIES=$R/runtime` when unset and delegates to the original Git, so a nested test repository is still discoverable. The final isolated serial red supplies the before results above. The forced-clock red used the base clock fixture once.
+- In `affected-fake`, five existing CLI cases inherited caller-family markers and refused their Astra peers as same-family. They passed on the serial rerun after the runner cleared the outer session markers. The exact nodes are in the rerun command. The remaining runs used the same marker cleanup.
+- The importer search yielded 74 test files and two helpers. The 71 prescribed files ran in batches of 9 fake files, 32 unit files and 30 unit files. The separate gate-service run excluded `test_changed_pr_after_blocked_preflight_can_receive_fresh_peer_approval` in addition to `-k 'not merge'`. That test reaches a merge even though its name omits the word. The xdist deselection counts came from a scratch reporting hook.
+- The raw policy fixtures listed under gate peer resolution needed to remove their alias when they removed its Sol target. They retain their no-reviewer and empty-chain assertions.
+- The shared object directory refused the remerge diff's temporary object directory. With an isolated scratch object directory and read-only access to the shared objects as alternates, `git show --remerge-diff 670653bf9` exposed the eight conflict entries above.
+- The first unit batch's basetemp and scratch readings exceeded 200 MB in decimal units. The second unit batch exceeded 200 MiB in both readings. Counting the measured basetemps once as writes and once as deletions gives approximately 1.38 GB of churn. The runner removed each basetemp before the next run.
+
+### Tests left to CI and scope kept for the hub
+
+- The whole suite, `tests/e2e` and process suites, host-push tests, `tests/unit/test_gate_merge.py`, and the merge cases of `tests/unit/test_gate_service.py` stayed with CI. The reviewed 19-layout store matrix was used from the review. The contract run includes the ordinary focused migration suite.
+- `run -m sol` still uses the CLI's Astra remap. See `subfleet/cli.py:92`, its help at `subfleet/cli.py:3915` and C-17.2 at `docs/acceptance-contract.md:700`. `docs/invariants.md:184`, row 109, still describes that remap and already points to C-11.1 for gates and handoff.
+- Review section 6 also notes that an operator policy can retain Astra in its hard review chain without a warning. The synthetic Astra-map controls exercise explicit policy compatibility. The hub owns any operator policy change and the PR body.
+- The three storage slot numbers, store code, README and the stacked branches are outside this round's changes.
+
+### Cleanup
+
+- The job created `build/` and `build/sf-a3-fix3/` with `bin/`, `logs/`, `link7-objects/`, `runtime/` and `hypothesis/` (including `constants/` and `unicode_data/`). Each of the 20 `runtime/pytest-<run>` basetemps in the table was removed after its run. Git discovery was checked in `runtime/check-ceiling/`, which was removed after the checks. Temporary pytest session homes were removed by the harness.
+- The remaining synthetic runtime trees were `runtime/sf-64b4175f-952_xj9z` (2,760 KiB), `runtime/sf-f3bffcea-0wj75_nj` (2,748 KiB) and `runtime/sf-f3bffcea-a_rd5hdx` (2,748 KiB). They were removed with the guarded scratch cleanup.
+- Synthetic subprocesses created `subfleet/__pycache__/` (1,332 KiB), `subfleet/adapters/__pycache__/` (16 KiB), `subfleet/conversations/__pycache__/` (264 KiB) and `subfleet/sessions/__pycache__/` (724 KiB) inside the checkout. Those job-created caches were removed.
+- The first and last listings of `/private/tmp/sf-*` and `/private/tmp/sf-failed/*` matched, as did the intermediate listings. The short socket fixtures left no new `/private/tmp/sfd-*` or `/private/tmp/sfg-*` directories. There were no new external directories left in place to size. Pre-existing external paths were left to the harness or their owners.
+
+Guarded cleanup completed at 2026-11-28T06:49:29Z.
+
+### Git result
+
+no commit. The sandbox refused the worktree index lock in the shared repository with `Operation not permitted`. The named-path staging steps for tests, production code, contract and docs, and this report all hit that lock.
+
+The requested `git log --format="%H %s" 4d52eca3e4b16069d825fe0af75c5ea801c8e33e..HEAD` returned no entries.
+
+Final HEAD is `4d52eca3e4b16069d825fe0af75c5ea801c8e33e`. The worktree status is below.
+
+```text
+ M docs/acceptance-contract.md
+ M docs/gates.md
+ M docs/reports/2026-11-13-review-family.md
+ M subfleet/default_policy.json
+ M subfleet/gate/cli.py
+ M subfleet/gate/service.py
+ M tests/fake/test_gate_end_to_end.py
+ M tests/fake/test_review_family_admission.py
+ M tests/fake/test_review_family_fix_r1_daemon.py
+ M tests/unit/test_gate_review_family.py
+ M tests/unit/test_policy.py
+ M tests/unit/test_policy_ramp.py
+ M tests/unit/test_provider_active_cap.py
+ M tests/unit/test_review_family_fix_r1.py
+ M tests/unit/test_scheduler.py
+ M tests/unit/test_sessions_cli.py
+```

@@ -119,6 +119,7 @@ def test_bare_other_family_lane_pin_preserves_empty_review_chain(state_daemon, t
     service, harness = state_daemon
     raw = json.loads(policy.DEFAULT_POLICY_PATH.read_text())
     raw.pop("review_family_defaults")
+    raw["retired"].pop("sol")
     raw["models"].pop("sol62", None)
     raw["models"].pop("sol61", None)
     raw["chains"]["review"][-1] = "opus"

@@ -86,6 +86,7 @@ def test_i3_i4_durable_decision_rows_and_events_match_a2(state_daemon, tmp_path,
             return frozen if tz else frozen.replace(tzinfo=None)
 
     monkeypatch.setattr(daemon_module, "datetime", FrozenDateTime)
+    monkeypatch.setattr(scheduler, "datetime", FrozenDateTime)
     monkeypatch.setattr(daemon_module, "utcnow", lambda: STAMP)
     monkeypatch.setattr(store_module, "utc_now", lambda: STAMP)
     monkeypatch.setattr(daemon_module.ids, "job_id", lambda *args, **kwargs: "comparison-job")

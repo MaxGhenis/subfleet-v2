@@ -69,7 +69,7 @@ def test_missing_cap_preserves_bytes_and_hash(tmp_path, section):
     if section is None:
         assert not provider_caps_on(loaded)
         # Shipped bytes after D-WAKE-CALLER1 and D-REVIEW-FAMILY1, including the trailing newline.
-        assert hashlib.sha256(raw).hexdigest() == "435f7bf6dafbe51514ccb298cd617a3b46c1f97283ebeacd29c832d7f0b27e8f"
+        assert hashlib.sha256(raw).hexdigest() == "299189fa51b5dfc4bfbf2f1e435cc642bb55671db51ca1df0e1ffee9c748d042"
 
 
 @pytest.mark.parametrize("providers,on", [

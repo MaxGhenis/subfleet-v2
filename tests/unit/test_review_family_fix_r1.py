@@ -148,6 +148,7 @@ def test_p2_code_defaults_are_checked_at_load_and_a_policy_without_a_reviewer_lo
     a policy that cannot serve it still loads, with a warning naming the family."""
     raw = json.loads(DEFAULT_POLICY.read_text())
     raw.pop("review_family_defaults")
+    raw["retired"].pop("sol")
     raw["models"].pop("sol62", None)
     raw["models"].pop("sol61", None)
     raw["chains"]["review"] = ["haiku", "sonnet", "opus", "opus"]

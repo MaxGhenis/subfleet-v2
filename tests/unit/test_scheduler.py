@@ -237,10 +237,19 @@ def test_provider_label_without_numeric_window_does_not_grant_second_slot(policy
 
 
 def test_retired_sol_alias_resolves_with_note(policy, capsys):
-    """C-11.1, C-17.2: the retired Sol pin resolves to Astra with a stderr note."""
+    """C-11.1, C-17.2: a retired Sol pin sent to the scheduler resolves to Sol 6.2 with a stderr note."""
     decision = evaluate(policy, view([lane("codex-1")]), job(pinned_model="sol"))
-    assert decision.chosen_model == "astra"
-    assert "sol" in capsys.readouterr().err
+    assert decision.chosen_model == "sol62"
+    assert "sol62" in capsys.readouterr().err
+
+
+def test_claude_review_pin_routes_to_sol62():
+    """C-6.24: the shipped policy routes a Sol 6.2 pin to an available Codex lane."""
+    policy = load_policy(DEFAULT_POLICY_PATH)
+    decision = evaluate(policy, view([lane("codex-1")]),
+                        job(task="review", pinned_model="sol62", caller_family="claude"))
+    assert decision.chosen_model == "sol62"
+    assert decision.chosen_lane == "codex-1"
 
 
 def test_unknown_model_names_input_key(policy):

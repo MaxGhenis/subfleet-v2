@@ -3,13 +3,13 @@
 `subfleet gate plan|pr|continue` and `subfleet-gate plan|pr|continue` use the same native implementation. Main approval always names the exact reviewed plan SHA-256 or the full PR head and base OIDs. Selecting the complementary peer is the caller's family attestation, as in v1; optional `--main-model` checks an explicit model against the peer's family.
 
 ```sh
-subfleet gate plan plan.md --peer astra --dry-run
-subfleet gate plan plan.md --peer astra --main-approve --expect-sha256 <sha256>
-subfleet gate pr 42 --peer astra --main-approve --expect-head <head> --expect-base <base> --on-agreement merge --merge-method squash
+subfleet gate plan plan.md --peer sol62 --dry-run
+subfleet gate plan plan.md --peer sol62 --main-approve --expect-sha256 <sha256>
+subfleet gate pr 42 --peer sol62 --main-approve --expect-head <head> --expect-base <base> --on-agreement merge --merge-method squash
 subfleet gate continue <gate-id> --main-approve --expect-sha256 <new-sha256> --response response.md
 ```
 
-`--peer sol` maps to Astra. Fable accepts per-dispatch `--peer-account` and repeated `--exclude-account`; repeat these on continuation when needed. PR methods are `merge` and `squash`. `--dry-run` reads the artifact and prints the revision and its canonical fingerprint, without opening a writable store, changing state, or submitting a job/action.
+`--peer sol` resolves through the policy's `retired` map (C-11.1), which ships with `sol` set to `sol62`. With that map, select `--peer astra` explicitly to use Astra. Fable accepts per-dispatch `--peer-account` and repeated `--exclude-account`; repeat these on continuation when needed. PR methods are `merge` and `squash`. `--dry-run` reads the artifact and prints the revision and its canonical fingerprint, without opening a writable store, changing state, or submitting a job/action.
 
 | Exit | Meaning preserved from v1 |
 |---|---|

@@ -157,11 +157,11 @@ def test_v1_handoff_spellings_reach_the_handoff_verb(argv):
 
 
 def test_the_retired_sol_target_still_parses():
-    """`--to sol` is a retired alias; `policy.retired` resolves it at submit."""
+    """C-11.1: handoff accepts `--to sol` and the shipped policy resolves it to Sol 6.2."""
     args = parse(["handoff", "--last", "--to", "sol"])
     assert args.target == "sol"
     from subfleet.policy import DEFAULT_POLICY_PATH, load_policy, resolve_model
-    assert resolve_model(load_policy(DEFAULT_POLICY_PATH), "sol", note=False) == "astra"
+    assert resolve_model(load_policy(DEFAULT_POLICY_PATH), "sol", note=False) == "sol62"
 
 
 def test_a_v1_only_revive_flag_is_dropped_with_one_note():

@@ -38,7 +38,7 @@ def configure(parser: argparse.ArgumentParser) -> None:
         child.add_argument("--json", action="store_true")
         child.add_argument("--dry-run", action="store_true")
         if kind != "continue":
-            child.add_argument("--peer", required=True, choices=("fable", "astra", "sol"))
+            child.add_argument("--peer", required=True, choices=("fable", "sol62", "astra", "sol"))
             child.add_argument("--main-model", help="main model for explicit family validation")
             child.add_argument("--brief")
             child.add_argument("-C", dest="workdir", default=None)
@@ -80,21 +80,27 @@ def _poll(client, gate_id: str) -> dict:
 
 def run(args, *, client=None, runner=subprocess.run, root: Path | None = None,
         poll_interval: float = .25) -> int:
-    from .service import preview
+    from ..policy import DEFAULT_POLICY_PATH, PolicyError, load_policy
+    from .service import preview, resolve_peer
     root = Path(root) if root is not None else state_root()
     try:
         if args.gate_command not in {"plan", "pr", "continue"}:
             raise GateError("choose gate pr, plan, or continue")
-        if getattr(args, "peer", None) == "sol":
-            print("subfleet gate: sol is retired from dispatch; using astra", file=sys.stderr)
-        if args.dry_run:
+        peer = getattr(args, "peer", None)
+        if args.dry_run or peer == "sol":
             try:
-                policy = json.loads((root / "policy.json").read_text())
-            except FileNotFoundError:
-                policy = {}
-            result = preview(args, root, runner=runner, policy=policy)
-            print(json.dumps(result, sort_keys=True, indent=None if args.json else 2))
-            return 0
+                policy = load_policy(root / "policy.json")
+            except PolicyError as exc:
+                if not isinstance(exc.__cause__, FileNotFoundError):
+                    raise
+                policy = load_policy(DEFAULT_POLICY_PATH)
+            if peer == "sol":
+                resolved = resolve_peer(policy, peer)
+                print(f"subfleet gate: sol is retired from dispatch; using {resolved}", file=sys.stderr)
+            if args.dry_run:
+                result = preview(args, root, runner=runner, policy=policy)
+                print(json.dumps(result, sort_keys=True, indent=None if args.json else 2))
+                return 0
         for key in MANAGED:
             if key in os.environ:
                 raise GateError(f"isolated review refused: inherited {key}; review the managed policy before retrying", 4)

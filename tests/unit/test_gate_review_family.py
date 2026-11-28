@@ -12,7 +12,7 @@ from tests.unit.test_gate_admission import core
 
 @pytest.mark.parametrize("family,peer", [("claude", "fable"), ("codex", "astra")])
 def test_recorded_caller_family_refuses_same_family_peer(core, tmp_path, family, peer):
-    """A missing --main-model cannot turn known identity into an attestation."""
+    """C-6.24: a missing --main-model cannot turn known identity into an attestation."""
     plan = tmp_path / "plan.md"
     plan.write_text("Review this revision.\n")
     before = core.store.list_events()
@@ -35,7 +35,7 @@ def test_invalid_gate_caller_family_is_a_reported_input_error(core, tmp_path, fa
 
 @pytest.mark.parametrize("family,peer", [("claude", "astra"), ("codex", "fable"), (None, "astra")])
 def test_recorded_gate_family_is_retained_on_peer_job(core, tmp_path, family, peer):
-    """Known callers reach both durable gate state and the submitted review job."""
+    """C-6.24: known callers reach durable gate state and the submitted peer job."""
     plan = tmp_path / "plan.md"
     plan.write_text("Review this revision.\n")
     result = dispatch(core, "gate.start", {**wire(arguments(plan, peer=peer)), "caller_family": family})
@@ -44,6 +44,73 @@ def test_recorded_gate_family_is_retained_on_peer_job(core, tmp_path, family, pe
     assert state["caller_family"] == family
     assert state["main_family"] == (family or "claude")
     assert core.store.get_job(result["job_id"])["caller_family"] == family
+
+
+@pytest.mark.parametrize("peer,live", [
+    pytest.param("sol62", False, id="explicit"),
+    pytest.param("sol", False, id="shipped-alias"),
+    pytest.param("sol", True, id="live-alias"),
+])
+def test_claude_gate_submits_sol62(core, tmp_path, peer, live):
+    """C-6.24, C-11.1: explicit Sol 6.2 and the policy alias pin the Claude author's peer."""
+    if live:
+        core.policy["retired"]["sol"] = "sol62"
+    plan = tmp_path / "plan.md"
+    plan.write_text("Review this revision.\n")
+    payload = {**wire(arguments(plan)), "peer": peer, "caller_family": "claude"}
+    result = dispatch(core, "gate.start", payload)
+    assert result.get("job_id"), result
+    state = core._gate_service._load(result["gate_id"])
+    assert state["peer"] == "sol62"
+    assert state["rounds"][0]["requested_model"] == "gpt-6.2-sol"
+    job = core.store.get_job(result["job_id"])
+    assert job["pinned_model"] == "sol62"
+    assert job["caller_family"] == "claude"
+
+
+@pytest.mark.parametrize("live", [False, True], ids=["shipped", "live"])
+def test_daemon_preview_resolves_retired_sol(core, tmp_path, live):
+    """C-6.24, C-11.1: a daemon preview follows its policy's retired model map."""
+    if live:
+        core.policy["retired"]["sol"] = "sol62"
+    plan = tmp_path / "plan.md"
+    plan.write_text("Preview this revision.\n")
+    before = core.store.list_events()
+    result = dispatch(core, "gate.start", wire(arguments(plan, "--dry-run", peer="sol")))
+    assert result["code"] == 0 and result["peer"] == "sol62", result
+    assert core.store.list_jobs() == []
+    assert core.store.list_events() == before
+    assert not (core.root / "gates").exists()
+
+
+@pytest.mark.parametrize("peer", ["missing-peer", "sol61"])
+def test_daemon_preview_refuses_unsupported_peer(core, tmp_path, peer):
+    """C-6.24: a wire preview refuses both unknown and unsupported policy models."""
+    plan = tmp_path / "plan.md"
+    plan.write_text("Preview this revision.\n")
+    before = core.store.list_events()
+    payload = {**wire(arguments(plan, "--dry-run")), "peer": peer}
+    result = dispatch(core, "gate.start", payload)
+    assert result["code"] == 2, result
+    assert all(choice in result["message"] for choice in ("fable", "sol62", "astra"))
+    assert core.store.list_jobs() == []
+    assert core.store.list_events() == before
+    assert not (core.root / "gates").exists()
+
+
+def test_gate_refuses_missing_sol62_policy_model(core, tmp_path):
+    """C-6.24, C-11.1: a missing peer model fails before submission or journaling."""
+    del core.policy["models"]["sol62"]
+    plan = tmp_path / "plan.md"
+    plan.write_text("Review this revision.\n")
+    before = core.store.list_events()
+    payload = {**wire(arguments(plan)), "peer": "sol62", "caller_family": "claude"}
+    result = dispatch(core, "gate.start", payload)
+    assert result["code"] == 2
+    assert core.store.list_jobs() == []
+    assert core.store.list_events() == before
+    assert not (core.root / "gates").exists()
+    assert "peer: unknown model 'sol62'" in result["message"]
 
 
 @pytest.mark.parametrize("main_model", ["astra", "missing-model"])
