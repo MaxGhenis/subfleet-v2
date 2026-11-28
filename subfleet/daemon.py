@@ -7075,16 +7075,23 @@ class Daemon:
                            (after(60), record["job_id"]))
         return census.verified_empty
 
-    def _read_probe_json(self, path: Path) -> tuple[dict | None, str | None]:
-        """Read a probe receipt or request, returning only the type of a read error."""
+    @staticmethod
+    def _read_probe_json(path: Path) -> tuple[dict | None, str | None]:
+        """Read a probe JSON record, returning only the type of a read error."""
         try:
-            value = self._read_json(path)
+            value = Daemon._read_json(path)
         except (OSError, ValueError, RecursionError) as exc:
             return None, type(exc).__name__
         if value is not None and not isinstance(value, dict):
             return None, "ValueError"
         if path.name == "exit.json" and value and value.get("child_pid") is not None:
             if type(value["child_pid"]) is not int:
+                return None, "ValueError"
+        if path.name == "start.json" and value:
+            if any(type(value.get(key)) not in (int, type(None)) for key in ("guardian_pid", "pgid")):
+                return None, "ValueError"
+            if any(not isinstance(value.get(key), (str, type(None)))
+                   for key in ("boot_id", "proc_start", "started_at")):
                 return None, "ValueError"
         return value, None
 
@@ -7392,10 +7399,11 @@ class Daemon:
         next probe goes to a lane it has not had such an answer on, so a lane whose
         probes keep saying nothing (a slow one at the top of the ranking) costs it one
         probe a round, not every probe, and every lane that would take it is probed
-        for it within a round. Or this look could not reserve its probe (`busy`: its
-        slot is held, it changed hands; review of #153, P1-2). The job is evaluated
-        again with those lanes left out (only those it could use, `_probe_reach`), and
-        goes to the first lane `evaluate` then ranks, of the same model only (a model
+        for it within a round. Or this look could not create its probe directory
+        or reserve its probe (`busy`: its slot is held, it changed hands; review
+        of #153, P1-2). The job is evaluated again with those lanes left out (only
+        those it could use, `_probe_reach`) and goes to the first lane `evaluate`
+        then ranks, of the same model only (a model
         the chain promotes to is never taken this way); a lane that needs no probe
         there is taken as it is. With no such lane it waits for the older job's turn;
         with none ahead of it, a lane that said nothing starts the round again, and a
@@ -7437,7 +7445,8 @@ class Daemon:
         # The admission worker serializes probes; a distinct durable holder and
         # a gated guardian prevent a restart from launching a duplicate probe.
         approved = set()
-        busy: set[str] = set()                   # C-11.4: lanes this look could not reserve a probe on
+        # C-11.4: lanes where this look could not create or reserve a probe.
+        busy: set[str] = set()
         for _ in range(len(self.store.list_lanes()) * len(self.policy["models"]) + 1):
             desktop = self._desktop_identity()
             current = self._job(job["job_id"])
@@ -7481,7 +7490,8 @@ class Daemon:
                     self.log.warning("probe directory on %s could not be created: %s",
                                      decision.chosen_lane, type(exc).__name__)
                     self._probe_directory_failures.add(decision.chosen_lane)
-                return None, desktop
+                busy.add(decision.chosen_lane)
+                continue
             self._probe_directory_failures.discard(decision.chosen_lane)
             probe_deadline_s = admission_settings(self.policy)["probe_deadline_s"]
             created_at = utcnow()
@@ -7524,7 +7534,7 @@ class Daemon:
                     self._save_probe(record)
                     reserved = True
             except _ProbeLaneBusy:
-                # C-11.4: this lane cannot be probed now; this look tries another of the model.
+                # As with a failed mkdir, this look tries another lane of the model.
                 busy.add(decision.chosen_lane)
                 continue
             finally:
@@ -10800,9 +10810,12 @@ class Daemon:
         """C-5.5: one identity/bounds path for every deciding census, probes too."""
         probe = a.get("directory")
         directory = Path(probe) if probe else attempt_dir(self.root, a["job_id"], a["seq"])
-        start = self._read_json(directory / "start.json") or {}
+        # A probe's start file is only a fallback. Its guardian publishes it
+        # after the daemon saves the identity in the probe record.
+        start_path = directory / "start.json"
+        start = (Daemon._read_probe_json(start_path)[0] if probe else self._read_json(start_path)) or {}
         receipt_path = directory / "exit.json"
-        receipt = (self._read_probe_json(receipt_path)[0] if probe else self._read_json(receipt_path)) or {}
+        receipt = (Daemon._read_probe_json(receipt_path)[0] if probe else self._read_json(receipt_path)) or {}
         evidence = json.loads(a.get("evidence_json") or "{}")
         owned = a.get("owned_identities", evidence.get("owned_identities", {}))
         recorded = {int(pid): procs.ProcessIdentity(**value) for pid, value in owned.items()}

@@ -477,6 +477,117 @@ def test_c11_4_an_unreadable_receipt_ends_the_probe_after_containment(
     assert_probe_settled(service, stuck)
 
 
+UNREADABLE_STARTS = [
+    pytest.param(None, id="mode-000"),
+    pytest.param(b"{", id="torn"),
+    pytest.param(b"[1]", id="nonempty-list"),
+    pytest.param(b'"x"', id="string"),
+    pytest.param(b"\xff", id="not-utf-8"),
+]
+
+
+def write_probe_start(path, content, request):
+    if content is not None:
+        path.write_bytes(content)
+        return
+    path.write_bytes(b'{"guardian_pid": 1, "pgid": 1}')
+    mode = path.stat().st_mode
+
+    def restore_mode():
+        # A completed probe removes its own directory.
+        if path.exists():
+            path.chmod(mode)
+
+    request.addfinalizer(restore_mode)
+    path.chmod(0)
+
+
+@pytest.mark.parametrize("site", ["execute", "recover"])
+@pytest.mark.parametrize("content", [*UNREADABLE_STARTS, pytest.param(b"[]", id="empty-list")])
+def test_c11_4_an_unreadable_probe_start_json_counts_as_absent(fleet, monkeypatch, request, site, content):
+    service, harness = fleet
+    stuck, later = two_jobs(service, harness)
+    censuses = []
+
+    def containment(pgid, guardian, child_pid, holder, **kwargs):
+        censuses.append((holder, guardian, pgid))
+        return procs.Containment()
+
+    monkeypatch.setattr(service, "_probe_census", service._contain)
+    monkeypatch.setattr(service, "_disclaim_guardians", False)
+    monkeypatch.setattr(procs, "containment", containment)
+    monkeypatch.setattr(procs, "same_process", lambda *args, **kwargs: False)
+
+    def publish(receipt):
+        receipt.write_text('{"rc": 3, "child_pid": 900002}')
+        write_probe_start(receipt.with_name("start.json"), content, request)
+
+    probe_ran(service, monkeypatch, rc=3, publish_receipt=publish if site == "execute" else None)
+    if site == "recover":
+        record = recovered_probe(service, stuck, monkeypatch, rc=3)
+        write_probe_start(Path(record["directory"]) / "start.json", content, request)
+
+    admission_pass(service)
+    assert_pass_went_on(service, later)
+    assert_probe_settled(service, stuck)
+    assert service.store.query("SELECT 1 FROM events WHERE kind='probe.completed' AND job_id=?", (stuck,))
+    assert censuses
+    holder, guardian, pgid = censuses[0]
+    if site == "recover":
+        assert holder == record["holder"]
+    completed = service._probe_record(holder)
+    assert completed["state"] == "completed"
+    assert completed["outcome"]["cls"] == OutcomeClass.CONTENT_FILTER
+    assert guardian == completed["guardian_pid"] == 900001
+    assert pgid == completed["pgid"] == 900001
+
+
+@pytest.mark.parametrize("content", UNREADABLE_STARTS)
+def test_c11_4_startup_recovery_survives_an_unreadable_probe_start_json(fleet, monkeypatch, request, content):
+    service, harness = fleet
+    job_id = submit(service, harness, tier="hard")
+    record = recovered_probe(service, job_id, monkeypatch, rc=0)
+    write_probe_start(Path(record["directory"]) / "start.json", content, request)
+    service.close()
+
+    monkeypatch.setattr(procs, "containment", lambda *args, **kwargs: procs.Containment())
+    restarted = daemon_module.Daemon(service.root)
+    try:
+        restarted.workers = Inline(restarted.workers)
+        assert not restarted._recovery_complete.is_set()
+        assert not restarted.timers.started
+        assert restarted.store.list_leases(record["holder"])
+        restarted._recover_then_start_timers()
+        assert restarted._recovery_complete.is_set()
+        assert restarted.timers.started
+        assert not restarted.store.list_leases(record["holder"])
+        assert restarted._probe_record(record["holder"])["outcome"]["cls"] == OutcomeClass.OK
+    finally:
+        restarted.close()
+
+
+@pytest.mark.parametrize(("value", "readable"), [
+    pytest.param({"guardian_pid": "x"}, False, id="guardian-pid-string"),
+    pytest.param({"guardian_pid": True}, False, id="guardian-pid-bool"),
+    pytest.param({"guardian_pid": 1.5}, False, id="guardian-pid-float"),
+    pytest.param({"pgid": []}, False, id="pgid-list"),
+    pytest.param({"boot_id": 3}, False, id="boot-id-int"),
+    pytest.param({"proc_start": True}, False, id="proc-start-bool"),
+    pytest.param({"started_at": 5}, False, id="started-at-int"),
+    pytest.param({"guardian_pid": 12, "pgid": 13, "boot_id": "boot", "proc_start": "start",
+                  "started_at": "2026-11-28T00:00:00Z"}, True, id="well-formed"),
+    pytest.param({"guardian_pid": None, "pgid": None, "boot_id": None, "proc_start": None,
+                  "started_at": None}, True, id="null-fields"),
+    pytest.param({}, True, id="absent-fields"),
+])
+def test_c11_4_a_probe_start_json_field_of_the_wrong_type_is_unreadable(fleet, tmp_path, value, readable):
+    service, _ = fleet
+    path = tmp_path / "start.json"
+    path.write_text(json.dumps(value))
+    expected = (value, None) if readable else (None, "ValueError")
+    assert service._read_probe_json(path) == expected
+
+
 @pytest.mark.parametrize("site", ["execute", "recover", "timer"])
 def test_c11_4_an_unreadable_request_is_treated_as_absent(fleet, monkeypatch, site):
     service, harness = fleet
@@ -580,3 +691,87 @@ def test_c11_4_an_incompatible_recovered_launch_ends_the_probe_unknown(fleet, mo
     assert outcome["detail"] == "probe receipt could not be classified: TypeError"
     assert outcome["evidence"]["error_type"] == "TypeError"
     assert not service.store.list_leases(record["holder"])
+
+
+@pytest.mark.parametrize("blocked", ["mkdir-fails", "slot-held"])
+def test_c11_4_an_unwritable_probe_directory_sends_the_probe_to_another_lane_of_the_model(
+        fleet, monkeypatch, blocked):
+    service, harness = fleet
+    home = service.root / "home-codex-3"
+    home.mkdir()
+    service.store.put_lane(Lane("codex-3", "codex", "codex:codex-3",
+                                Credential("codex", str(home), "home"), str(home),
+                                LaneOwner.V2, False))
+    job_id = submit(service, harness, tier="hard")
+    probe_ran(service, monkeypatch)
+    route = service._route
+    timer_holder = None
+    probes = service.root / "lanes" / "codex-1" / "probes"
+    probes.mkdir(parents=True)
+
+    def timer_wins(job, **kwargs):
+        nonlocal timer_holder
+        decision = route(job, **kwargs)
+        if timer_holder is None and job["job_id"] == job_id and decision.chosen_lane == "codex-1":
+            # The slot becomes held after evaluation, before reservation.
+            timer_holder = service.timers._reserve(service.store.get_lane("codex-1"), "read")
+            assert timer_holder is not None
+        return decision
+
+    if blocked == "mkdir-fails":
+        probes.chmod(0o500)
+    else:
+        monkeypatch.setattr(service, "_route", timer_wins)
+    probe_lanes = []
+    seen = 0
+    try:
+        for _ in range(3):
+            service.store.update_job(job_id, next_check_at=None)
+            service._wake_admission()
+            admission_pass(service)
+            completed = [row["lane_id"] for row in service.store.list_events(job_id)
+                         if row["kind"] == "probe.completed"]
+            probe_lanes.append(completed[seen:])
+            seen = len(completed)
+            if timer_holder is not None:
+                service.timers._release(timer_holder)
+                timer_holder = None
+    finally:
+        probes.chmod(0o700)
+        if timer_holder is not None:
+            service.timers._release(timer_holder)
+    assert probe_lanes[0] == ["codex-3"], probe_lanes
+    assert "worker admission failed" not in log_text(service)
+    if blocked == "mkdir-fails":
+        assert log_text(service).count("probe directory on codex-1 could not be created: PermissionError") == 1
+
+
+def test_c11_4_the_probe_directory_warning_returns_after_a_success(fleet, monkeypatch):
+    service, harness = fleet
+    job_id = submit(service, harness, tier="hard")
+    probe_ran(service, monkeypatch)
+    probes = service.root / "lanes" / "codex-1" / "probes"
+    probes.mkdir(parents=True)
+    warning = "probe directory on codex-1 could not be created: PermissionError"
+    try:
+        probes.chmod(0o500)
+        admission_pass(service)
+        assert log_text(service).count(warning) == 1
+        assert not any(row["kind"] == "probe.completed" for row in service.store.list_events(job_id))
+
+        probes.chmod(0o700)
+        service.store.update_job(job_id, next_check_at=None)
+        service._wake_admission()
+        admission_pass(service)
+        assert log_text(service).count(warning) == 1
+        assert [row["lane_id"] for row in service.store.list_events(job_id)
+                if row["kind"] == "probe.completed"] == ["codex-1"]
+
+        probes.chmod(0o500)
+        service.store.update_job(job_id, next_check_at=None)
+        service._wake_admission()
+        admission_pass(service)
+        assert log_text(service).count(warning) == 2
+        assert_probe_settled(service, job_id)
+    finally:
+        probes.chmod(0o700)

@@ -908,10 +908,12 @@ _WALL_CLOCK = st.builds(
 @settings(max_examples=400, deadline=None)
 @given(event=_JSON, text=st.one_of(st.text(max_size=80), _WALL_CLOCK))
 @example(event={}, text=_UNCONVERTIBLE_RESET)
-def test_property_reset_never_raises(event, text):
-    """C-9.4, C-6.12 for all inputs: `_reset` gives a clock or None for any event and any text,
-    and a clock it gives is an instant in UTC. Classification falls back to a guessed clock on
-    None, so nothing a provider prints about its reset can end `classify`."""
+def test_property_reset_gives_a_utc_clock_or_none(event, text):
+    """C-9.4: for events from `_JSON` and any text, `_reset` gives a UTC clock or None.
+
+    Traversing an event nested past the interpreter's recursion limit can raise
+    `RecursionError` in `_objects`.
+    """
     result = codex_module._reset(event if isinstance(event, dict) else {"error": event}, text, NOW)
     assert result is None or (isinstance(result, str) and result.endswith("Z")
                               and datetime.fromisoformat(result.replace("Z", "+00:00")).tzinfo is not None)
