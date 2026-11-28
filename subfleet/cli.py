@@ -1455,18 +1455,18 @@ def _jobs_from_wait(result: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return jobs
 
 
-#: C-15.9: how many skipped job ids `wait`'s one line names before "and N more".
+#: C-15.10: how many skipped job ids `wait`'s one line names before "and N more".
 RETIRED_SHOWN = 5
 
 
 def _retired_from_wait(result: dict[str, Any]) -> list[str]:
-    """C-15.9: the resolved jobs a `wait` answer says retention retired during its poll."""
+    """C-15.10: the resolved jobs a `wait` answer says retention retired during its poll."""
     named = result.get("retired")
     return [job_id for job_id in named if isinstance(job_id, str) and job_id] if isinstance(named, list) else []
 
 
 def _unknown_job(exc: BaseException) -> str | None:
-    """C-15.9: the job id an `unknown job <id>` refusal names (exit 2), else None.
+    """C-15.10: the job id an `unknown job <id>` refusal names (exit 2), else None.
 
     The daemon names the id only when it is a job id's shape (`refusals`); a bare
     `unknown job` names none, and nothing here guesses which job it meant."""
@@ -1477,7 +1477,7 @@ def _unknown_job(exc: BaseException) -> str | None:
 
 
 def _retired_note(retired: set[str]) -> str:
-    """C-15.9: the one line `wait` prints for the resolved jobs it skipped."""
+    """C-15.10: the one line `wait` prints for the resolved jobs it skipped."""
     shown = sorted(retired)
     count = len(shown)
     names = ", ".join(shown[:RETIRED_SHOWN]) + (
@@ -1487,7 +1487,7 @@ def _retired_note(retired: set[str]) -> str:
 
 
 def _note_retired_before_error(retired: set[str], retired_in_answers: set[str], exc: Exception) -> None:
-    """C-15.9: report skipped jobs before the wait's error. Omit a job skipped only
+    """C-15.10: report skipped jobs before the wait's error. Omit a job skipped only
     on an older daemon's refusal when the ending error refuses it again. Keep any
     job an answer named in `retired`."""
     refused = _unknown_job(exc)
@@ -1532,7 +1532,7 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
     # that mentions another job must not change what this call blocks on or
     # what it exits with (C-17.3).
     adopting = bool(mine) or bool(last) or not requested
-    retired: set[str] = set()       # C-15.9: resolved jobs retention retired meanwhile
+    retired: set[str] = set()       # C-15.10: resolved jobs retention retired meanwhile
     retired_in_answers: set[str] = set()
     idle_polls = 0
     busy: DaemonError | None = None
@@ -1572,7 +1572,7 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
                 if timeout is not None and time.monotonic() - started >= timeout:
                     timed_out = True
                     break
-                # C-15.9: a daemon older than `retired` calls a job retention
+                # C-15.10: a daemon older than `retired` calls a job retention
                 # retired under a resolver's poll unknown. One this call did not
                 # name is skipped, once; the next poll's `list` no longer names it.
                 gone = _unknown_job(exc) if adopting else None

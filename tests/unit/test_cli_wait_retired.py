@@ -1,4 +1,4 @@
-"""C-15.9 (D-WAIT-PRUNED1): `subfleet wait --mine` skips the jobs retention retires under it.
+"""C-15.10 (D-WAIT-PRUNED1): `subfleet wait --mine` skips the jobs retention retires under it.
 
 The daemon names a resolved job retention retired during a poll in the answer's
 `retired` (`tests/fake/test_wait_retired.py`). A daemon older than that (2.1.12,
@@ -48,8 +48,8 @@ def session(monkeypatch):
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-hub")
 
 
-def test_c15_9_wait_mine_says_once_which_retired_jobs_the_daemon_skipped(daemon, session, capsys):
-    """C-15.9, C-15.4 the answer's `retired` becomes one line; the live job is reported as ever."""
+def test_c15_10_wait_mine_says_once_which_retired_jobs_the_daemon_skipped(daemon, session, capsys):
+    """C-15.10, C-15.4 the answer's `retired` becomes one line; the live job is reported as ever."""
     server = daemon({"wait": lambda request: {"jobs": [ended(LIVE)], "timeout": False, "retired": [OLD]}})
     assert run_cli(["wait", "--mine"]) == 0
     err = capsys.readouterr().err
@@ -59,8 +59,8 @@ def test_c15_9_wait_mine_says_once_which_retired_jobs_the_daemon_skipped(daemon,
     assert server.args("wait")["mine"] == "sess-hub"
 
 
-def test_c15_9_wait_mine_rides_out_an_older_daemons_unknown_job(daemon, session, capsys):
-    """C-15.9 the live 2.1.12 daemon answers `unknown job <id>` for a job its own `--mine`
+def test_c15_10_wait_mine_rides_out_an_older_daemons_unknown_job(daemon, session, capsys):
+    """C-15.10 the live 2.1.12 daemon answers `unknown job <id>` for a job its own `--mine`
     listed; the CLI skips that job, asks again, and reports the live one."""
     answers = iter([lambda request: protocol.fail(request.id, Exit.INVALID_INPUT, f"unknown job {OLD}"),
                     lambda request: {"jobs": [ended(LIVE)], "timeout": False}])
@@ -73,8 +73,8 @@ def test_c15_9_wait_mine_rides_out_an_older_daemons_unknown_job(daemon, session,
     assert [request.args["job_ids"] for request in server.requests if request.op == "wait"] == [[], []]
 
 
-def test_c15_9_wait_last_rides_out_an_older_daemons_unknown_job(daemon, capsys):
-    """C-15.9 `--last` resolves through `list` as `--mine` does."""
+def test_c15_10_wait_last_rides_out_an_older_daemons_unknown_job(daemon, capsys):
+    """C-15.10 `--last` resolves through `list` as `--mine` does."""
     answers = iter([lambda request: protocol.fail(request.id, Exit.INVALID_INPUT, f"unknown job {OLD}"),
                     lambda request: {"jobs": [], "timeout": False}])
     daemon({"wait": lambda request: next(answers)(request)})
@@ -86,8 +86,8 @@ def test_c15_9_wait_last_rides_out_an_older_daemons_unknown_job(daemon, capsys):
 
 @pytest.mark.parametrize("argv", [["wait", OLD], ["wait", OLD, "--mine"], ["wait", OLD, "--last"]],
                          ids=["alone", "beside-mine", "beside-last"])
-def test_c15_9_a_named_unknown_job_still_exits_2(daemon, session, capsys, argv):
-    """C-15.9, C-17.3 a job the caller named is never skipped, whatever resolver rides beside it."""
+def test_c15_10_a_named_unknown_job_still_exits_2(daemon, session, capsys, argv):
+    """C-15.10, C-17.3 a job the caller named is never skipped, whatever resolver rides beside it."""
     daemon({"wait": lambda request: protocol.fail(request.id, Exit.INVALID_INPUT, f"unknown job {OLD}")})
     assert run_cli(argv) == 2
     err = capsys.readouterr().err
@@ -108,8 +108,8 @@ def refusing(times: int, code: int, message: str):
     return handler, polls
 
 
-def test_c15_9_the_same_unknown_job_twice_is_not_a_retirement(daemon, session, capsys):
-    """C-15.9 a retired job leaves the next `list`; a daemon that names the same job unknown
+def test_c15_10_the_same_unknown_job_twice_is_not_a_retirement(daemon, session, capsys):
+    """C-15.10 a retired job leaves the next `list`; a daemon that names the same job unknown
     again is reporting something else, so the wait ends with it (exit 2), never spins."""
     handler, polls = refusing(5, Exit.INVALID_INPUT, f"unknown job {OLD}")
     daemon({"wait": handler})
@@ -158,8 +158,8 @@ ENDINGS = {"daemon-error": (lambda: DaemonError(int(Exit.OPERATIONAL), "store re
 
 @pytest.mark.parametrize("ending", sorted(ENDINGS))
 @pytest.mark.parametrize("skip", sorted(SKIPS))
-def test_c15_9_an_error_exit_still_says_what_it_skipped(scripted_cli, capsys, skip, ending):
-    """C-15.9, C-17.4 (review r1 of #287, P2) a wait that skipped a retired job and then ends on
+def test_c15_10_an_error_exit_still_says_what_it_skipped(scripted_cli, capsys, skip, ending):
+    """C-15.10, C-17.4 (review r1 of #287, P2) a wait that skipped a retired job and then ends on
     an error keeps the error's exit code and stdout's form, and still prints the skipped line,
     before the error's own line."""
     make_error, code, line = ENDINGS[ending]
@@ -173,8 +173,8 @@ def test_c15_9_an_error_exit_still_says_what_it_skipped(scripted_cli, capsys, sk
     assert line in err and err.index(skipped) < err.index(line)
 
 
-def test_c15_9_a_socket_the_client_cannot_make_still_says_what_it_skipped(daemon, session, monkeypatch, capsys):
-    """C-15.9 the real client can raise a socket creation error after a successful poll."""
+def test_c15_10_a_socket_the_client_cannot_make_still_says_what_it_skipped(daemon, session, monkeypatch, capsys):
+    """C-15.10 the real client can raise a socket creation error after a successful poll."""
     server = daemon({"wait": lambda request: {"timeout": True, "retired": [OLD]}})
     calls = 0
 
@@ -201,8 +201,8 @@ def test_c15_9_a_socket_the_client_cannot_make_still_says_what_it_skipped(daemon
     assert server.ops() == ["wait"]
 
 
-def test_c15_9_an_error_exit_leaves_out_the_job_it_refuses(scripted_cli, capsys):
-    """C-15.9 a job refused as unknown twice was never retired, so the error exit's line leaves
+def test_c15_10_an_error_exit_leaves_out_the_job_it_refuses(scripted_cli, capsys):
+    """C-15.10 a job refused as unknown twice was never retired, so the error exit's line leaves
     it out and still names the jobs the wait did skip."""
     other = "20261006-004418-pr127-review-r7"
 
@@ -217,8 +217,8 @@ def test_c15_9_an_error_exit_leaves_out_the_job_it_refuses(scripted_cli, capsys)
 
 
 @pytest.mark.parametrize("inferred_first", [False, True], ids=["answer-then-refusal", "refusal-answer-refusal"])
-def test_c15_9_a_later_refusal_keeps_a_job_an_answer_named_retired(scripted_cli, capsys, inferred_first):
-    """C-15.9 a job named in an answer's `retired` stays in the error exit's skipped line."""
+def test_c15_10_a_later_refusal_keeps_a_job_an_answer_named_retired(scripted_cli, capsys, inferred_first):
+    """C-15.10 a job named in an answer's `retired` stays in the error exit's skipped line."""
     steps = [SKIPS["retired-field"](), SKIPS["older-daemon"]()]
     if inferred_first:
         steps.insert(0, SKIPS["older-daemon"]())
@@ -234,8 +234,8 @@ def test_c15_9_a_later_refusal_keeps_a_job_an_answer_named_retired(scripted_cli,
 
 
 @pytest.mark.parametrize("message", ["unknown job", "unknown job two words", f"unknown job {OLD} "])
-def test_c15_9_an_unknown_job_naming_no_one_job_is_not_guessed(daemon, session, capsys, message):
-    """C-15.9 only `unknown job <one id>` names a job; anything else is the daemon's error."""
+def test_c15_10_an_unknown_job_naming_no_one_job_is_not_guessed(daemon, session, capsys, message):
+    """C-15.10 only `unknown job <one id>` names a job; anything else is the daemon's error."""
     handler, polls = refusing(1, Exit.INVALID_INPUT, message)
     daemon({"wait": handler})
     assert run_cli(["wait", "--mine"]) == 2
@@ -243,8 +243,8 @@ def test_c15_9_an_unknown_job_naming_no_one_job_is_not_guessed(daemon, session, 
     assert len(polls) == 1
 
 
-def test_c15_9_an_unknown_job_under_another_exit_code_is_not_a_retirement(daemon, session, capsys):
-    """C-15.9, C-17.3 an unknown job is invalid input (2); the same words under another code
+def test_c15_10_an_unknown_job_under_another_exit_code_is_not_a_retirement(daemon, session, capsys):
+    """C-15.10, C-17.3 an unknown job is invalid input (2); the same words under another code
     are not the refusal the daemon gives for a missing row."""
     handler, polls = refusing(1, Exit.OPERATIONAL, f"unknown job {OLD}")
     daemon({"wait": handler})
@@ -253,8 +253,8 @@ def test_c15_9_an_unknown_job_under_another_exit_code_is_not_a_retirement(daemon
     assert len(polls) == 1
 
 
-def test_c15_9_a_named_wait_never_skips_even_a_job_it_did_not_name(daemon, capsys):
-    """C-15.9, C-17.3 without `--mine` or `--last` nothing was resolved, so nothing is skipped:
+def test_c15_10_a_named_wait_never_skips_even_a_job_it_did_not_name(daemon, capsys):
+    """C-15.10, C-17.3 without `--mine` or `--last` nothing was resolved, so nothing is skipped:
     an unknown job is the daemon's error even when it names a job the caller did not."""
     handler, polls = refusing(1, Exit.INVALID_INPUT, f"unknown job {OLD}")
     daemon({"wait": handler})
@@ -263,8 +263,8 @@ def test_c15_9_a_named_wait_never_skips_even_a_job_it_did_not_name(daemon, capsy
     assert len(polls) == 1
 
 
-def test_c15_9_a_timeout_still_says_once_what_it_skipped(daemon, session, capsys):
-    """C-15.9, C-17.3 every poll may name the same retired job; the wait says so once, and
+def test_c15_10_a_timeout_still_says_once_what_it_skipped(daemon, session, capsys):
+    """C-15.10, C-17.3 every poll may name the same retired job; the wait says so once, and
     the timeout is still exit 124."""
     daemon({"wait": lambda request: {"timeout": True, "retired": [OLD]}})
     assert run_cli(["wait", "--mine", "--timeout", "1"]) == 124
@@ -273,8 +273,8 @@ def test_c15_9_a_timeout_still_says_once_what_it_skipped(daemon, session, capsys
     assert "nothing reached a terminal state" in err
 
 
-def test_c15_9_every_job_retired_is_nothing_to_wait_for(daemon, session, capsys):
-    """C-15.9 a session whose only listed job retention retired has nothing to wait for (0)."""
+def test_c15_10_every_job_retired_is_nothing_to_wait_for(daemon, session, capsys):
+    """C-15.10 a session whose only listed job retention retired has nothing to wait for (0)."""
     daemon({"wait": lambda request: {"jobs": [], "timeout": False, "retired": [OLD]}})
     assert run_cli(["wait", "--mine"]) == 0
     err = capsys.readouterr().err.splitlines()
@@ -282,8 +282,8 @@ def test_c15_9_every_job_retired_is_nothing_to_wait_for(daemon, session, capsys)
     assert err[-1] == "subfleet wait: nothing to wait for"
 
 
-def test_c15_9_the_line_names_five_and_counts_the_rest(daemon, session, capsys):
-    """C-15.9 the one line stays one line however many jobs were skipped."""
+def test_c15_10_the_line_names_five_and_counts_the_rest(daemon, session, capsys):
+    """C-15.10 the one line stays one line however many jobs were skipped."""
     many = [f"20261006-0000{k:02d}-old-{k}" for k in range(7)]
     daemon({"wait": lambda request: {"jobs": [ended(LIVE)], "timeout": False, "retired": many}})
     assert run_cli(["wait", "--mine"]) == 0
@@ -292,8 +292,8 @@ def test_c15_9_the_line_names_five_and_counts_the_rest(daemon, session, capsys):
     assert line.endswith(", ".join(many[:cli.RETIRED_SHOWN]) + " and 2 more")
 
 
-def test_c15_9_json_keeps_stdout_to_the_jobs(daemon, session, capsys):
-    """C-17.4, C-15.9 with `--json` stdout carries one object per job and no prose; the
+def test_c15_10_json_keeps_stdout_to_the_jobs(daemon, session, capsys):
+    """C-17.4, C-15.10 with `--json` stdout carries one object per job and no prose; the
     skipped line is human progress, on stderr."""
     daemon({"wait": lambda request: {"jobs": [ended(LIVE)], "timeout": False, "retired": [OLD]}})
     assert run_cli(["wait", "--mine", "--json"]) == 0
@@ -302,15 +302,15 @@ def test_c15_9_json_keeps_stdout_to_the_jobs(daemon, session, capsys):
     assert len(skipped_lines(captured.err)) == 1
 
 
-def test_c15_9_a_named_wait_ignores_a_retired_field(daemon, capsys):
-    """C-15.9, C-17.3 only a resolver's wait skips: a named wait never reports skipping."""
+def test_c15_10_a_named_wait_ignores_a_retired_field(daemon, capsys):
+    """C-15.10, C-17.3 only a resolver's wait skips: a named wait never reports skipping."""
     daemon({"wait": lambda request: {"jobs": [ended(LIVE)], "timeout": False, "retired": [OLD]}})
     assert run_cli(["wait", LIVE]) == 0
     assert not skipped_lines(capsys.readouterr().err)
 
 
 @pytest.mark.parametrize("retired", [None, "x", [None, 7, ""], {"a": 1}])
-def test_c15_9_a_malformed_retired_field_skips_nothing(daemon, session, capsys, retired):
+def test_c15_10_a_malformed_retired_field_skips_nothing(daemon, session, capsys, retired):
     """C-16.2 a field the CLI cannot read is ignored, never trusted."""
     daemon({"wait": lambda request: {"jobs": [ended(LIVE)], "timeout": False, "retired": retired}})
     assert run_cli(["wait", "--mine"]) == 0
@@ -373,8 +373,8 @@ def ledger_cli(monkeypatch, session):
 
 @given(live=LIVE_JOBS, plan=PLANS, fixed=st.booleans())
 @settings(max_examples=200, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
-def test_c15_9_property_wait_mine_waits_exactly_on_the_live_jobs(ledger_cli, capsys, live, plan, fixed):
-    """C-15.9 for any mix of live jobs and jobs retention retires under the polls, from a fixed
+def test_c15_10_property_wait_mine_waits_exactly_on_the_live_jobs(ledger_cli, capsys, live, plan, fixed):
+    """C-15.10 for any mix of live jobs and jobs retention retires under the polls, from a fixed
     daemon or an older one: `wait --mine` exits as its live jobs do, reports exactly them, and
     says once exactly which jobs the daemon told it were retired."""
     n = next(EXAMPLES)
@@ -403,8 +403,8 @@ def test_c15_9_property_wait_mine_waits_exactly_on_the_live_jobs(ledger_cli, cap
 
 @given(live=LIVE_JOBS.filter(bool), plan=PLANS.filter(bool), fixed=st.booleans(), data=st.data())
 @settings(max_examples=100, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
-def test_c15_9_property_a_named_retired_job_exits_2(ledger_cli, capsys, live, plan, fixed, data):
-    """C-15.9, C-17.3 naming a job retention retired is exit 2 with its id, with or without
+def test_c15_10_property_a_named_retired_job_exits_2(ledger_cli, capsys, live, plan, fixed, data):
+    """C-15.10, C-17.3 naming a job retention retired is exit 2 with its id, with or without
     `--mine`, from either daemon; the CLI never skips a job its caller named."""
     n = next(EXAMPLES)
     jobs = [ended(f"20261102-120000-q{n}-live{k}", state, rc) for k, (state, rc) in enumerate(live)]

@@ -1,4 +1,4 @@
-"""C-15.9 (D-WAIT-PRUNED1): a job retention retires under a `wait --mine` poll is skipped.
+"""C-15.10 (D-WAIT-PRUNED1): a job retention retires under a `wait --mine` poll is skipped.
 
 The daemon resolves `--mine` (and `--last`) through `list` when each long poll
 starts, then reads every listed row while the poll lasts (C-15.4, C-15.5).
@@ -6,7 +6,7 @@ Retention (C-8.4) deletes a retired job's rows, and at hundreds of jobs an hour
 it often retires one of a long-lived session's old jobs inside a 60 s poll. The
 waiter's read then raised `unknown job` for a job its own resolver had listed:
 2026-11-02 11:53Z, the Subfleet hub session's `subfleet wait --mine` exited 2
-with `unknown job 20261006-004417-pr127-review-r6`. `test_c15_9_real_retention_*`
+with `unknown job 20261006-004417-pr127-review-r6`. `test_c15_10_real_retention_*`
 replays that against the archive driver's own retirement and fails on the base.
 
 Now a poll that resolved its own ids skips a job whose row is gone and names it
@@ -122,8 +122,8 @@ def hub_session(state_daemon):  # noqa: F811
 
 # --- the incident, against retention's own retirement --------------------------
 
-def test_c15_9_real_retention_under_a_mine_poll_times_out_naming_the_retired_job(hub_session):
-    """C-15.9, C-15.4 the incident: a running job keeps the poll open, retention retires the
+def test_c15_10_real_retention_under_a_mine_poll_times_out_naming_the_retired_job(hub_session):
+    """C-15.10, C-15.4 the incident: a running job keeps the poll open, retention retires the
     session's old job, and the poll's last read raised `unknown job` (exit 2). It now times
     out as any poll whose jobs are still running does, and says which job it skipped."""
     daemon = hub_session
@@ -137,8 +137,8 @@ def test_c15_9_real_retention_under_a_mine_poll_times_out_naming_the_retired_job
     assert out["answer"] == {"timeout": True, "retired": [OLD]}
 
 
-def test_c15_9_real_retention_then_the_live_job_ends_answers_it_alone(hub_session):
-    """C-15.9, C-15.5 the hub wakes the waiter when its last live job ends; the answer is
+def test_c15_10_real_retention_then_the_live_job_ends_answers_it_alone(hub_session):
+    """C-15.10, C-15.5 the hub wakes the waiter when its last live job ends; the answer is
     that job, and the job retention retired meanwhile is named in `retired`, not read."""
     daemon = hub_session
     thread, out = in_thread(lambda: daemon.dispatch("wait", {"mine": HUB, "deadline_s": 30}))
@@ -155,8 +155,8 @@ def test_c15_9_real_retention_then_the_live_job_ends_answers_it_alone(hub_sessio
     assert answer["timeout"] is False and answer["retired"] == [OLD]
 
 
-def test_c15_9_real_retention_under_a_named_wait_is_still_an_unknown_job(hub_session):
-    """C-15.9, C-17.3 an id the caller named is the caller's word: once retention retires
+def test_c15_10_real_retention_under_a_named_wait_is_still_an_unknown_job(hub_session):
+    """C-15.10, C-17.3 an id the caller named is the caller's word: once retention retires
     it, the wait says so, exit 2, as it always did."""
     daemon = hub_session
     thread, out = in_thread(lambda: daemon.dispatch("wait", {"job_ids": [OLD, LIVE], "deadline_s": 2}))
@@ -170,8 +170,8 @@ def test_c15_9_real_retention_under_a_named_wait_is_still_an_unknown_job(hub_ses
     assert str(error) == f"unknown job {OLD}"
 
 
-def test_c15_9_runs_mine_lists_only_what_the_store_holds_after_retention(hub_session):
-    """C-15.9, C-17.1, C-17.5 `runs --mine` reads its rows in one statement, online and
+def test_c15_10_runs_mine_lists_only_what_the_store_holds_after_retention(hub_session):
+    """C-15.10, C-17.1, C-17.5 `runs --mine` reads its rows in one statement, online and
     offline, so a retired job is simply not listed: nothing to skip, nothing to fail."""
     daemon = hub_session
     assert [row["job_id"] for row in daemon.dispatch("list", {"mine": HUB})["jobs"]] == [LIVE, OLD]
@@ -183,8 +183,8 @@ def test_c15_9_runs_mine_lists_only_what_the_store_holds_after_retention(hub_ses
 
 # --- the resolvers, deterministically ------------------------------------------
 
-def test_c15_9_wait_last_skips_its_job_when_retention_retires_it(state_daemon):  # noqa: F811
-    """C-15.9 `--last` resolves through `list` too: its one job, retired under the poll, is
+def test_c15_10_wait_last_skips_its_job_when_retention_retires_it(state_daemon):  # noqa: F811
+    """C-15.10 `--last` resolves through `list` too: its one job, retired under the poll, is
     skipped and named, and there is nothing left to wait for."""
     daemon, _ = state_daemon
     add(daemon, OLD, created_at="2026-10-06T00:44:17Z", session=HUB)
@@ -193,8 +193,8 @@ def test_c15_9_wait_last_skips_its_job_when_retention_retires_it(state_daemon): 
     assert answer == {"jobs": [], "timeout": False, "retired": [OLD]}
 
 
-def test_c15_9_a_job_retired_before_the_poll_is_neither_listed_nor_named(state_daemon):  # noqa: F811
-    """C-15.9 a poll names only what it resolved: a job retired before it started is not in
+def test_c15_10_a_job_retired_before_the_poll_is_neither_listed_nor_named(state_daemon):  # noqa: F811
+    """C-15.10 a poll names only what it resolved: a job retired before it started is not in
     `list`, so it is neither waited on nor reported, and nothing is left to wait for."""
     daemon, _ = state_daemon
     add(daemon, OLD, created_at="2026-10-06T00:44:17Z", session=HUB)
@@ -204,8 +204,8 @@ def test_c15_9_a_job_retired_before_the_poll_is_neither_listed_nor_named(state_d
 
 @pytest.mark.parametrize("beside", [{}, {"mine": HUB}, {"last": True}], ids=["alone", "beside-mine", "beside-last"])
 @pytest.mark.parametrize("when", ["before", "during"])
-def test_c15_9_a_named_retired_job_is_still_unknown(state_daemon, beside, when):  # noqa: F811
-    """C-15.9, C-17.3 a named id is never skipped, whatever resolver rides beside it, and
+def test_c15_10_a_named_retired_job_is_still_unknown(state_daemon, beside, when):  # noqa: F811
+    """C-15.10, C-17.3 a named id is never skipped, whatever resolver rides beside it, and
     whether its row went before the poll or during it."""
     daemon, _ = state_daemon
     add(daemon, OLD, created_at="2026-10-06T00:44:17Z", session=HUB)
@@ -264,8 +264,8 @@ def lay_out(daemon, fates, noise):
 
 @given(fates=JOBS, noise=NOISE)
 @settings(max_examples=150, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
-def test_c15_9_property_wait_mine_waits_exactly_on_the_live_jobs(state_daemon, fates, noise):  # noqa: F811
-    """C-15.9 for any mix of live and retired jobs: `wait --mine` never raises, answers with
+def test_c15_10_property_wait_mine_waits_exactly_on_the_live_jobs(state_daemon, fates, noise):  # noqa: F811
+    """C-15.10 for any mix of live and retired jobs: `wait --mine` never raises, answers with
     exactly the live ones once they have all ended, and names exactly the jobs retired under
     its poll; a turn or another session's job is never in either."""
     daemon, _ = state_daemon
@@ -285,8 +285,8 @@ def test_c15_9_property_wait_mine_waits_exactly_on_the_live_jobs(state_daemon, f
 
 @given(fates=JOBS.filter(bool), picks=st.lists(st.booleans(), min_size=8, max_size=8))
 @settings(max_examples=150, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
-def test_c15_9_property_a_named_wait_fails_exactly_when_it_names_a_retired_job(state_daemon, fates, picks):  # noqa: F811
-    """C-15.9, C-17.3 for any named set: unknown-job (exit 2) when it names a job retired
+def test_c15_10_property_a_named_wait_fails_exactly_when_it_names_a_retired_job(state_daemon, fates, picks):  # noqa: F811
+    """C-15.10, C-17.3 for any named set: unknown-job (exit 2) when it names a job retired
     before or during the poll, and an answer or a timeout when every named job is live."""
     daemon, _ = state_daemon
     session, by_fate, states = lay_out(daemon, fates, [])

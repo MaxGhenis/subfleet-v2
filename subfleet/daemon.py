@@ -394,7 +394,7 @@ def _left_out(skipped: dict) -> str:
 
 
 def _retired_field(retired: set[str] | None) -> dict:
-    """C-15.9: a `wait` answer's `retired`, the resolved jobs retention retired
+    """C-15.10: a `wait` answer's `retired`, the resolved jobs retention retired
     during the poll, sorted; nothing when there are none."""
     return {"retired": sorted(retired)} if retired else {}
 
@@ -5062,7 +5062,7 @@ class Daemon:
         except (TypeError, ValueError):
             raise protocol.ProtocolError("deadline_s must be a number", reason="wait-deadline") from None
         job_ids = args.job_ids
-        # C-15.9: ids this poll resolves itself (`--mine`, `--last`) were rows when
+        # C-15.10: ids this poll resolves itself (`--mine`, `--last`) were rows when
         # `list` read them, and retention (C-8.4) may retire one before the poll
         # ends. Such a job is skipped and named in `retired`; an id the caller
         # named is still unknown when its row is gone (`_job`).
@@ -5093,7 +5093,7 @@ class Daemon:
                     # only after its own read (reviews r2 and r3, P2). It costs one
                     # read per timed-out poll.
                     answer = self._wait_answer(job_ids, retired=retired)
-                    # C-15.9: the next poll's `list` no longer names a job retired
+                    # C-15.10: the next poll's `list` no longer names a job retired
                     # in this one, so a timeout still says which were skipped.
                     return answer if answer is not None else {"timeout": True, **_retired_field(retired)}
                 if client_gone is not None and client_gone():
@@ -5113,7 +5113,7 @@ class Daemon:
     def _wait_answer(self, job_ids: list[str], *, retired: set[str] | None = None) -> dict | None:
         """The answer to a `wait` if every job has ended and every export is done.
 
-        With `retired`, the poll resolved its own ids (C-15.9): a listed job whose
+        With `retired`, the poll resolved its own ids (C-15.10): a listed job whose
         row retention has since deleted is added to it and left out. Without, a
         missing row is an unknown job (exit 2)."""
         with self.store.snapshot():         # one committed state for the whole answer
