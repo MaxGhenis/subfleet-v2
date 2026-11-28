@@ -306,3 +306,21 @@ def test_c10_9_invariant_7_the_signals_change_ranking_and_the_in_use_refusal_onl
             continue
         assert ("desktop" in found) == (the_apps(lane_id) and in_use is not False and not job["allow_desktop"])
     assert {lane for lane, found in after.items() if not found} == set(new["candidates"])
+
+
+def test_c26_2_desktop_possible_outranks_a_turns_affinity():
+    """Review r1 of #318, P3 (affinity), as C-26.2 now says: the app's org is
+    unlinked, claude-0 served the conversation's last turn and is
+    `desktop_possible`, and claude-1 is linked elsewhere. Without the signals
+    the turn stays on claude-0; with them it moves to claude-1 (C-11.3's order)."""
+    lanes = [{"lane_id": f"claude-{n}", "provider": "claude", "owner": "v2", "enabled": True, "desktop": False,
+              "account_key": f"claude:{EMAILS[n]}", "home": f"/lanes/claude-{n}"} for n in range(2)]
+    readings = [{"lane_id": f"claude-{n}", "scope": "account", "window": "seven_day", "utilization": 0.3,
+                 "resets_at": at(3 * 86400), "observed_at": NOW, "label": "provider", "source": "usage"}
+                for n in range(2)]
+    job = {"pinned_model": "opus", "sandbox": "read-only", "kind": "turn", "affinity_lane": "claude-0"}
+    app = resolve(AppSample(ORGS[0], NOW, 5.0, NOW), [AccountEvent(1, ORGS[1], EMAILS[1], uuid(1), "s", at(-60))])
+    for desktop, chosen in ((capacity.DesktopIdentity("unverified", app=app), "claude-1"), (None, "claude-0")):
+        view = capacity.build_view(copy.deepcopy(lanes), readings, now=NOW, desktop=desktop)
+        view["in_flight"] = {}
+        assert scheduler.evaluate(policy(None), view, dict(job)).chosen_lane == chosen

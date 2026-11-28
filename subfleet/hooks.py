@@ -22,9 +22,12 @@ follow `docs/reference/claude-hooks.md` (fetched 2026-09-05) — not memory:
 
   Outside a Subfleet launch, in a session the Claude desktop app started
   (`CLAUDE_CODE_ENTRYPOINT=claude-desktop`), both events also report the app's
-  account to the daemon (C-10.9, `desktop_report`): the three values the app
-  puts in that session's environment, in one call of at most 1 s whose failure
-  changes nothing the hook prints or returns.
+  account to the daemon (C-10.9, `send_desktop_report`): the three values the
+  app puts in that session's environment, in one call that waits at most 1 s
+  for its reply; after a timeout the client takes one look at the lock's holder,
+  bounded by 5 s (`client.HOLDER_PROBE_BUDGET_S`), so it can add up to about
+  6 s (review r1 of #318 measured about 1 s against a daemon that never
+  answered). Its failure changes nothing the hook prints or returns.
 
   Inside a process Subfleet launched (C-26.13) — a conversation turn, a lane
   run, or a probe — both events behave differently. Every such process carries
@@ -488,7 +491,11 @@ def desktop_report(event: str, payload: dict[str, Any], env: Any = None) -> dict
 
 
 def send_desktop_report(root: Path, report: dict[str, str], client: Client | None = None) -> None:
-    """C-10.9: one round trip of at most `desktop_app.REPORT_TIMEOUT_S` (1 s).
+    """C-10.9: one request whose reply is awaited at most `desktop_app.REPORT_TIMEOUT_S`
+    (1 s). After a timeout, `Client.silent` takes one look at the lock's holder,
+    bounded by `client.HOLDER_PROBE_BUDGET_S` (5 s), so the call can take up to
+    about 6 s; review r1 of #318 measured 0.998 s to 1.039 s added against a
+    socket that took the report and never answered.
 
     A refusal, a busy or absent daemon, a timeout or anything else drops the
     report without a word: it never changes the hook's output, notices or exit

@@ -68,7 +68,8 @@ READ_ONLY_OPS = frozenset({"list", "show", "wait", "readings", "why", "pick",
                            "daemon.status", "notice.pending"})
 #: C-16.7, C-10.9: ops that only record an observation nobody waits on: a
 #: desktop session's report of the app's account (`desktop.report`). Its hook
-#: waits at most 1 s and relies on no reply, and the next prompt reports again,
+#: waits at most 1 s for the reply (then at most one look at the lock's holder,
+#: bounded by 5 s) and relies on none, and the next prompt reports again,
 #: so one whose client has hung up is not run, as a read-only op is not: a slow
 #: daemon is not handed writes nobody is waiting for. It runs on the request
 #: pool, never on the lookups' (`daemon.LOOKUP_OPS`), since it writes.
