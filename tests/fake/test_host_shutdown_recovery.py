@@ -37,6 +37,9 @@ from subfleet.contracts import Launch, Outcome, OutcomeClass, Reading, ReadingLa
 from subfleet.daemon import Daemon, after, utcnow
 from subfleet.procs import Containment
 from tests.fake.conftest import Harness
+from tests.fake.test_state_contract import receipt_fixture, reserve, state_daemon  # noqa: F401
+from tests.fake.test_wall_retry import LaneFault, Transient, finish, next_running, retry_wall  # noqa: F401
+from tests.fake.test_wall_running_time import cancel_events, stamp as wall_stamp
 from tests.fake_adapter import FakeAdapter
 from tests.unit.test_salvage import git
 
@@ -719,6 +722,124 @@ def test_c4_7_a_writable_retry_after_a_reboot_starts_as_any_retry_does(rebooted,
     else:
         assert after_reboot["a1_salvaged"] == ["refs/subfleet-salvage/task-example"]
         assert after_reboot["a2_held"] == []
+
+
+# --- with D-WALL-RETRY1 and C-4.5's lane fault (the release merge) -------------
+
+
+def host_shutdown_of(service, attempt, *, rc=143):
+    """End a running attempt as the host's shutdown did: its guardian ran in
+    `OLD_BOOT`, the daemon runs in `NEW_BOOT`, and that boot began just after the
+    receipt's end, so the verdict's next-boot window holds (C-4.7)."""
+    service.store.update_attempt(attempt["attempt_id"], boot_id=OLD_BOOT)
+    service._ident["boot_id"], service._boot_at = NEW_BOOT, after(5)
+    finish(service, service.store.get_attempt(attempt["attempt_id"]), FakeAdapter, rc=rc)
+    return service.store.get_attempt(attempt["attempt_id"])
+
+
+def notice_lines(service, job_id) -> list[str]:
+    [text] = notices(service, job_id)
+    return text.splitlines()
+
+
+def test_c4_7_a_host_shutdown_gives_its_wall_time_back(retry_wall, monkeypatch):
+    """D-WALL-RETRY1, C-4.7: a host shutdown settles `failed`, `transient`, with no
+    `killed_by`, so D-WALL1's sum gives its provider time back, charged or not, as
+    it does a limited retry's (`test_limited_retry_has_its_own_full_wall_cap`).
+    Uncharged, it is retried at once even on a one-attempt job, and the retry has
+    the job's whole wall: the wall stops a2 at its own 10 s, not at 4 s as the old
+    sum would. The job's notice carries a1's host-shutdown line, before the launch
+    evidence, which C-15.1 keeps last."""
+    service, harness, advance = retry_wall
+    jid, first, _ = reserve(service, harness, max_wall_s=10, max_attempts=1)
+    service.store.update_attempt(first["attempt_id"], state="running", started_at=wall_stamp(-6))
+    a1 = host_shutdown_of(service, first)
+    assert (a1["state"], a1["outcome_class"], a1["killed_by"]) == ("failed", "transient", None)
+    found = evidence(a1)[host_shutdown.EVIDENCE_KEY]
+    assert found["basis"] == "next-boot" and "charged" not in found
+    job = service.store.get_job(jid)
+    assert job["state"] == "waiting" and job["next_check_at"] <= utcnow()
+    assert service._running_s(jid) == 0
+
+    second = next_running(service, jid)
+    assert second["seq"] == 2
+    stopped = []
+    monkeypatch.setattr(service, "_kill_attempt", lambda a: stopped.append(a["attempt_id"]))
+    advance(5)  # The old sum is 11 seconds; this attempt has used only five.
+    service._process_attempt(second["attempt_id"])
+    assert stopped == [] and cancel_events(service, jid) == []
+    assert service._running_s(jid) == 5
+    advance(5)
+    row = next(row for row in service.store.query(daemon_module.LIVE_TICK)
+               if row["attempt_id"] == second["attempt_id"])
+    assert row["prior_running_s"] == 0 and service._has_work(row)      # LIVE_TICK leaves a1 out too
+    service._process_attempt(second["attempt_id"])
+    assert stopped == [second["attempt_id"]]
+    assert service.store.get_attempt(second["attempt_id"])["killed_by"] == "max_wall_s"
+    assert cancel_events(service, jid) == [{"by": "daemon", "reason": "max_wall_s", "running_s": 10.0}]
+
+    finish(service, service.store.get_attempt(second["attempt_id"]), FakeAdapter, rc=143,
+           killed_by="max_wall_s")
+    a2 = service.store.get_attempt(second["attempt_id"])
+    assert a2["state"] == "interrupted" and host_shutdown.EVIDENCE_KEY not in evidence(a2)
+    job = service.store.get_job(jid)
+    assert (job["state"], job["rc"]) == ("cancelled", 130)
+    service._admit()
+    assert len(service.store.list_attempts(jid)) == 2
+    lines = notice_lines(service, jid)
+    [shutdown] = [n for n, line in enumerate(lines) if line.startswith("host shutdown:")]
+    assert lines[shutdown].startswith(
+        f"host shutdown: the host shut down or restarted under attempt a1 at {found['ended_at']}; "
+        "that was not the work, and it does not count against the job's 1 attempts (C-4.7)")
+    assert shutdown < len(lines) - 1 and lines[-1].startswith("ran read-only on ")     # C-15.1
+
+
+@pytest.mark.parametrize("last", ["transient", "ok"])
+def test_c4_7_a_lane_fault_and_three_host_shutdowns_are_all_uncharged(retry_wall, last):
+    """C-4.5, C-4.7: `max_attempts` leaves out both a job's one lane fault and its
+    first three host shutdowns. A two-attempt job whose first lane is auth-dead
+    moves on; the host then shuts down under a2, a3 and a4 (uncharged) and a5
+    (charged); a6, an ordinary attempt in this boot, is its second charged one,
+    so the job runs `RETRIES + max_attempts + 1` attempts. The notice's host-shutdown
+    line follows the lane-fault line and precedes the launch evidence (C-15.1)."""
+    service, harness, advance = retry_wall
+    jid, first, _ = reserve(service, harness, max_attempts=2)
+    service.store.update_attempt(first["attempt_id"], state="running", started_at=wall_stamp(-6))
+    finish(service, first, LaneFault)
+    fault = service.store.get_attempt(first["attempt_id"])
+    assert json.loads(fault["evidence_json"])["lane_fault"]["class"] == "auth-dead"
+    assert service.store.get_job(jid)["state"] == "waiting"
+    for seq in (2, 3, 4, 5):
+        attempt = next_running(service, jid)
+        assert (attempt["seq"], attempt["lane_id"]) == (seq, "codex-2")
+        advance(1)
+        done = host_shutdown_of(service, attempt)
+        assert (done["state"], done["outcome_class"], done["killed_by"]) == ("failed", "transient", None)
+        assert bool(evidence(done)[host_shutdown.EVIDENCE_KEY].get("charged")) == (seq == 5)
+        job = service.store.get_job(jid)
+        assert job["state"] == "waiting" and job["next_check_at"] <= utcnow()
+
+    sixth = next_running(service, jid)
+    assert sixth["seq"] == 6
+    service.store.update_attempt(sixth["attempt_id"], boot_id=NEW_BOOT)      # this boot: no host shutdown
+    advance(1)
+    if last == "transient":
+        finish(service, sixth, Transient)
+    else:
+        finish(service, sixth, FakeAdapter, rc=0)
+    a6 = service.store.get_attempt(sixth["attempt_id"])
+    assert a6["outcome_class"] == last and host_shutdown.EVIDENCE_KEY not in evidence(a6)
+    job = service.store.get_job(jid)
+    assert job["state"] == ("failed" if last == "transient" else "succeeded")
+    service._admit()
+    attempts = service.store.list_attempts(jid)
+    assert len(attempts) == 6 == host_shutdown.RETRIES + job["max_attempts"] + 1
+    assert [host_shutdown.exempt(a) for a in attempts] == [False, True, True, True, False, False]
+    lines = notice_lines(service, jid)
+    [moved] = [n for n, line in enumerate(lines) if line.startswith("attempt a1: lane codex-1 went auth-dead")]
+    [shutdown] = [n for n, line in enumerate(lines) if line.startswith("host shutdown:")]
+    assert "past the first 3, a5 counted against the job's 2 attempts (C-4.7)" in lines[shutdown]
+    assert moved < shutdown < len(lines) - 1 and lines[-1].startswith("ran read-only on ")
 
 
 # --- end to end: a daemon, guardians and a real SIGTERM ------------------------
