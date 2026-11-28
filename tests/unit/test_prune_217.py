@@ -79,6 +79,14 @@ def _tables(database):
         conn.close()
 
 
+def _events(database):
+    conn = sqlite3.connect(database.resolve().as_uri() + '?mode=ro', uri=True)
+    try:
+        return conn.execute('SELECT kind, data_json FROM events ORDER BY rowid').fetchall()
+    finally:
+        conn.close()
+
+
 def _service(store, root):
     """The real why reader with a fixed admission context, without starting a daemon."""
     service = object.__new__(Daemon)
@@ -248,6 +256,14 @@ def test_the_release_daemon_and_prune_share_the_lifetime_lock(tmp_path, monkeypa
     _seed(tmp_path, [])
     original = _tables(tmp_path / 'state.sqlite3')
     service = Daemon(tmp_path)
+    # C-4.7: the start itself appends its `daemon.started` event (plus C-3.2's audit row
+    # for that write, which carries `{}`) and changes nothing else.
+    started = _tables(tmp_path / 'state.sqlite3')
+    assert {name for name in started if started[name] != original.get(name)} <= {'events', 'sqlite_sequence'}
+    assert started['events'][:len(original['events'])] == original['events']
+    added = _events(tmp_path / 'state.sqlite3')[len(original['events']):]
+    assert {kind for kind, _ in added} == {'daemon.started'}
+    assert len([data for _, data in added if data != '{}']) == 1
     try:
         with pytest.raises(pruning.PruneRefused, match='a daemon holds') as refusal:
             pruning.prune(tmp_path, apply=True, confirm=True, write_report=False)
@@ -256,7 +272,8 @@ def test_the_release_daemon_and_prune_share_the_lifetime_lock(tmp_path, monkeypa
         assert pruning.prune(tmp_path, write_report=False).decisions['delete'] == 3
     finally:
         service.close()
-    assert _tables(tmp_path / 'state.sqlite3') == original
+    # The refused prune, the read-only plan and close() change nothing.
+    assert _tables(tmp_path / 'state.sqlite3') == started
     handle = pruning._hold_daemon_lock(tmp_path)
     try:
         with pytest.raises(DaemonUnavailable, match='another daemon holds'):
