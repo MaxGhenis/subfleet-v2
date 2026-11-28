@@ -1,0 +1,39 @@
+"""Keep this review's pytest evidence inside its own scratch directory."""
+from pathlib import Path
+import os
+import shlex
+import sys
+import pytest
+from tests import failed_keep
+
+failed_keep.ROOT = Path(__file__).parent / "failed-state"
+
+
+def forbidden_execution(event, args):
+    if event == 'subprocess.Popen':
+        command = args[1]
+    elif event in ('os.exec', 'os.posix_spawn', 'os.spawn'):
+        command = args[1]
+    elif event == 'os.system':
+        command = args[0]
+    else:
+        return
+    if isinstance(command, bytes):
+        command = os.fsdecode(command)
+    words = shlex.split(command) if isinstance(command, str) else [os.fsdecode(word) for word in command]
+    # Inspect shell commands as data before the shell can run them.
+    if len(words) >= 3 and Path(words[0]).name in ('sh', 'bash', 'zsh') and '-c' in words:
+        words = shlex.split(words[words.index('-c') + 1])
+    names = [Path(word).name for word in words]
+    if any(name in ('agent-secret', 'security', 'launchctl', 'ps', 'lsof') for name in names):
+        pytest.skip('round-3 brief prohibits this fixture command or live process inspection')
+    for index, name in enumerate(names):
+        tail = words[index + 1:]
+        if name == 'git' and tail[:1] == ['push']:
+            pytest.skip('round-3 brief prohibits executing git push, including fixtures')
+        if name == 'gh' and (tail[:2] in (['pr', 'merge'], ['pr', 'edit'], ['run', 'rerun'])
+                             or tail[:1] == ['api'] and any('POST' in word or 'PATCH' in word or 'DELETE' in word for word in tail)):
+            pytest.skip('round-3 brief prohibits executing write-shaped gh commands, including fixtures')
+
+
+sys.addaudithook(forbidden_execution)

@@ -1,0 +1,356 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.15.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5
+configfile: pyproject.toml
+plugins: xdist-3.8.0, timeout-2.4.0, hypothesis-6.168.1
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+created: 4/4 workers
+4 workers [166 items]
+
+.........F........FF.F....F.......F.............................s....... [ 43%]
+...........s........s................................................... [ 86%]
+F.....................                                                   [100%]
+=================================== FAILURES ===================================
+__________ test_c16_7_end_stream_records_only_a_connection_still_held __________
+[gw1] darwin -- Python 3.15.2 /Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5/.venv/bin/python
+
+serve = <function serve.<locals>.start at 0x1089be770>
+
+    def test_c16_7_end_stream_records_only_a_connection_still_held(serve):
+        """Review P2 (Opus): a queued request a stalled pool ran after its reader had
+        closed and released the socket added it to `_shut_down`, where nothing removed it."""
+>       service = serve()
+                  ^^^^^^^
+
+tests/unit/test_descriptor_review_fixes.py:349: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_daemon_connections.py:63: in start
+    until(lambda: answered(service))
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+predicate = <function serve.<locals>.start.<locals>.<lambda> at 0x10897d640>
+timeout = 5.0
+
+    def until(predicate, timeout=5.0):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if result := predicate():
+                return result
+            time.sleep(.01)
+>       raise AssertionError("condition not reached in time")
+E       AssertionError: condition not reached in time
+
+tests/unit/test_daemon_connections.py:81: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4439503072:daemon.py:1011 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4439503072:daemon.py:1104 reset credits: automatic redemption off; no-reset marker absent
+___ test_c16_7_a_malformed_line_is_answered_and_the_connection_goes_on[deep] ___
+[gw1] darwin -- Python 3.15.2 /Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5/.venv/bin/python
+
+serve = <function serve.<locals>.start at 0x1080f7ab0>
+line = b'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[...]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]'
+
+    @pytest.mark.parametrize("line", [
+        b"[" * 100_000 + b"]" * 100_000,                        # nests past the parser
+        b'{"v":1,"id":"x","op":"ping","args":{"n":' + b"9" * 5000 + b"}}",   # past int_max_str_digits
+        b'{"v":1,"id":"\xff","op":"ping","args":{}}',            # not UTF-8
+    ], ids=["deep", "long-integer", "not-utf8"])
+    def test_c16_7_a_malformed_line_is_answered_and_the_connection_goes_on(serve, line):
+>       service = serve()
+                  ^^^^^^^
+
+tests/unit/test_descriptor_review_fixes.py:371: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_daemon_connections.py:63: in start
+    until(lambda: answered(service))
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+predicate = <function serve.<locals>.start.<locals>.<lambda> at 0x1080a1dd0>
+timeout = 5.0
+
+    def until(predicate, timeout=5.0):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if result := predicate():
+                return result
+            time.sleep(.01)
+>       raise AssertionError("condition not reached in time")
+E       AssertionError: condition not reached in time
+
+tests/unit/test_daemon_connections.py:81: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4439566928:daemon.py:1011 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4439566928:daemon.py:1104 reset credits: automatic redemption off; no-reset marker absent
+_____ test_c16_7_a_pool_that_cannot_start_a_thread_does_not_end_the_reader _____
+[gw0] darwin -- Python 3.15.2 /Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5/.venv/bin/python
+
+serve = <function serve.<locals>.start at 0x10d385430>
+
+    def test_c16_7_a_pool_that_cannot_start_a_thread_does_not_end_the_reader(serve):
+        """Review P2 (Opus): `_start_request` raising RuntimeError ended the reader with
+        an unhandled exception; the connection's later requests went unread."""
+>       service = serve()
+                  ^^^^^^^
+
+tests/unit/test_descriptor_review_fixes.py:336: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_daemon_connections.py:63: in start
+    until(lambda: answered(service))
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+predicate = <function serve.<locals>.start.<locals>.<lambda> at 0x10d387950>
+timeout = 5.0
+
+    def until(predicate, timeout=5.0):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if result := predicate():
+                return result
+            time.sleep(.01)
+>       raise AssertionError("condition not reached in time")
+E       AssertionError: condition not reached in time
+
+tests/unit/test_daemon_connections.py:81: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4516079872:daemon.py:1011 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4516079872:daemon.py:1104 reset credits: automatic redemption off; no-reset marker absent
+_ test_c16_7_a_malformed_line_is_answered_and_the_connection_goes_on[long-integer] _
+[gw1] darwin -- Python 3.15.2 /Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5/.venv/bin/python
+
+serve = <function serve.<locals>.start at 0x1080f7950>
+line = b'{"v":1,"id":"x","op":"ping","args":{"n":9999999999999999999999999999999999999999999999999999999999999999999999999999...99999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999}}'
+
+    @pytest.mark.parametrize("line", [
+        b"[" * 100_000 + b"]" * 100_000,                        # nests past the parser
+        b'{"v":1,"id":"x","op":"ping","args":{"n":' + b"9" * 5000 + b"}}",   # past int_max_str_digits
+        b'{"v":1,"id":"\xff","op":"ping","args":{}}',            # not UTF-8
+    ], ids=["deep", "long-integer", "not-utf8"])
+    def test_c16_7_a_malformed_line_is_answered_and_the_connection_goes_on(serve, line):
+>       service = serve()
+                  ^^^^^^^
+
+tests/unit/test_descriptor_review_fixes.py:371: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_daemon_connections.py:63: in start
+    until(lambda: answered(service))
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+predicate = <function serve.<locals>.start.<locals>.<lambda> at 0x1080a3ed0>
+timeout = 5.0
+
+    def until(predicate, timeout=5.0):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if result := predicate():
+                return result
+            time.sleep(.01)
+>       raise AssertionError("condition not reached in time")
+E       AssertionError: condition not reached in time
+
+tests/unit/test_daemon_connections.py:81: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4430105296:daemon.py:1011 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4430105296:daemon.py:1104 reset credits: automatic redemption off; no-reset marker absent
+_ test_c16_7_a_malformed_line_is_answered_and_the_connection_goes_on[not-utf8] _
+[gw1] darwin -- Python 3.15.2 /Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5/.venv/bin/python
+
+serve = <function serve.<locals>.start at 0x1089beda0>
+line = b'{"v":1,"id":"\xff","op":"ping","args":{}}'
+
+    @pytest.mark.parametrize("line", [
+        b"[" * 100_000 + b"]" * 100_000,                        # nests past the parser
+        b'{"v":1,"id":"x","op":"ping","args":{"n":' + b"9" * 5000 + b"}}",   # past int_max_str_digits
+        b'{"v":1,"id":"\xff","op":"ping","args":{}}',            # not UTF-8
+    ], ids=["deep", "long-integer", "not-utf8"])
+    def test_c16_7_a_malformed_line_is_answered_and_the_connection_goes_on(serve, line):
+>       service = serve()
+                  ^^^^^^^
+
+tests/unit/test_descriptor_review_fixes.py:371: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_daemon_connections.py:63: in start
+    until(lambda: answered(service))
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+predicate = <function serve.<locals>.start.<locals>.<lambda> at 0x10804dd20>
+timeout = 5.0
+
+    def until(predicate, timeout=5.0):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if result := predicate():
+                return result
+            time.sleep(.01)
+>       raise AssertionError("condition not reached in time")
+E       AssertionError: condition not reached in time
+
+tests/unit/test_daemon_connections.py:81: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4430106640:daemon.py:1011 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4430106640:daemon.py:1104 reset credits: automatic redemption off; no-reset marker absent
+_ test_c3_6_a_declined_daemon_whose_lock_write_fails_never_joins_the_advertised _
+[gw0] darwin -- Python 3.15.2 /Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wcall-fix-r5-a1-7x65682i/sf-wcall-fix5/pytest-importers-c/popen-gw0/test_c3_6_a_declined_daemon_wh0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d9d47a0>
+isolated_dumps = None
+
+    def test_c3_6_a_declined_daemon_whose_lock_write_fails_never_joins_the_advertised(tmp_path, monkeypatch,
+                                                                                    isolated_dumps):
+        """Review of 3cac1e8, P2 (GPT; P3-1, Opus): daemon A declined SIGUSR1 (setting it
+        ignored failed), so its lock never said `stack_dumps`; its close then met EIO
+        rewriting the lock, and that put A into `_ADVERTISED`. Daemon B, built next,
+        found the set not empty, skipped the SIG_IGN beneath its fresh registration,
+        and said `stack_dumps` over the default action (GPT: exit -30 at the last
+        close and at exit). A now never joins, and B takes the signal fresh."""
+>       assert not daemon_module._ADVERTISED
+E       AssertionError: assert not {4: (<weakref at 0x10d472d40; to 'subfleet.daemon.Daemon' at 0x10d2de900>, <_io.TextIOWrapper name=14 mode='a' encodin...25-221914-wcall-fix-r5-a1-7x65682i/sf-wcall-fix5/roots/sfc-u91icubm/daemon.lock'), leaving=False, may_advertise=True))}
+E        +  where {4: (<weakref at 0x10d472d40; to 'subfleet.daemon.Daemon' at 0x10d2de900>, <_io.TextIOWrapper name=14 mode='a' encodin...25-221914-wcall-fix-r5-a1-7x65682i/sf-wcall-fix5/roots/sfc-u91icubm/daemon.lock'), leaving=False, may_advertise=True))} = daemon_module._ADVERTISED
+
+tests/unit/test_descriptor_review_fixes.py:1097: AssertionError
+_ test_c3_6_a_settle_prunes_only_a_member_whose_lock_may_no_longer_say_stack_dumps _
+[gw1] darwin -- Python 3.15.2 /Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5/.venv/bin/python
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wcall-fix-r5-a1-7x65682i/sf-wcall-fix5/pytest-importers-c/popen-gw1/test_c3_6_a_settle_prunes_only0')
+isolated_dumps = None
+
+    def test_c3_6_a_settle_prunes_only_a_member_whose_lock_may_no_longer_say_stack_dumps(tmp_path, isolated_dumps):
+        """Review of 8ebe6b6, P3: what a settle needs of a member lives in its entry, so
+        one whose daemon object is gone is judged too. The rule, case by case: a member
+        that began to leave, or whose daemon is gone, leaves once its lock, read back
+        by path, cannot say `stack_dumps` (never came to write the flag, reads back
+        without it, or is missing); one whose lock reads back with the flag, or cannot
+        be read, stays; a live member not leaving always stays (it may be between its
+        take and its flagged write)."""
+        import weakref
+    
+        class Member:
+            pass
+>       assert not daemon_module._ADVERTISED
+E       AssertionError: assert not {0: (<weakref at 0x108ab09a0; to 'subfleet.daemon.Daemon' at 0x1089d70e0>, <_io.TextIOWrapper name=14 mode='a' encodin...25-221914-wcall-fix-r5-a1-7x65682i/sf-wcall-fix5/roots/sfc-9q7uqu36/daemon.lock'), leaving=False, may_advertise=True))}
+E        +  where {0: (<weakref at 0x108ab09a0; to 'subfleet.daemon.Daemon' at 0x1089d70e0>, <_io.TextIOWrapper name=14 mode='a' encodin...25-221914-wcall-fix-r5-a1-7x65682i/sf-wcall-fix5/roots/sfc-9q7uqu36/daemon.lock'), leaving=False, may_advertise=True))} = daemon_module._ADVERTISED
+
+tests/unit/test_descriptor_review_fixes.py:1432: AssertionError
+=============================== warnings summary ===============================
+tests/unit/test_descriptor_review_fixes.py::test_c16_7_end_stream_records_only_a_connection_still_held
+  /Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5/.venv/lib/python3.15/site-packages/_pytest/threadexception.py:58: PytestUnhandledThreadExceptionWarning: Exception in thread Thread-1 (serve_forever)
+  
+  Traceback (most recent call last):
+    File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/threading.py", line 1219, in _bootstrap_inner
+      self._context.run(self.run)
+      ~~~~~~~~~~~~~~~~~^^^^^^^^^^
+    File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/threading.py", line 1161, in run
+      self._target(*self._args, **self._kwargs)
+      ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5/subfleet/daemon.py", line 12992, in serve_forever
+      self._socket.bind(str(sock_path))
+      ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  OSError: AF_UNIX path too long
+  
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnhandledThreadExceptionWarning(msg))
+
+tests/unit/test_descriptor_review_fixes.py::test_c16_7_a_malformed_line_is_answered_and_the_connection_goes_on[deep]
+  /Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5/.venv/lib/python3.15/site-packages/_pytest/threadexception.py:58: PytestUnhandledThreadExceptionWarning: Exception in thread Thread-2 (serve_forever)
+  
+  Traceback (most recent call last):
+    File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/threading.py", line 1219, in _bootstrap_inner
+      self._context.run(self.run)
+      ~~~~~~~~~~~~~~~~~^^^^^^^^^^
+    File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/threading.py", line 1161, in run
+      self._target(*self._args, **self._kwargs)
+      ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5/subfleet/daemon.py", line 12992, in serve_forever
+      self._socket.bind(str(sock_path))
+      ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  OSError: AF_UNIX path too long
+  
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnhandledThreadExceptionWarning(msg))
+
+tests/unit/test_descriptor_review_fixes.py::test_c16_7_a_pool_that_cannot_start_a_thread_does_not_end_the_reader
+  /Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5/.venv/lib/python3.15/site-packages/_pytest/threadexception.py:58: PytestUnhandledThreadExceptionWarning: Exception in thread Thread-6 (serve_forever)
+  
+  Traceback (most recent call last):
+    File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/threading.py", line 1219, in _bootstrap_inner
+      self._context.run(self.run)
+      ~~~~~~~~~~~~~~~~~^^^^^^^^^^
+    File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/threading.py", line 1161, in run
+      self._target(*self._args, **self._kwargs)
+      ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5/subfleet/daemon.py", line 12992, in serve_forever
+      self._socket.bind(str(sock_path))
+      ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  OSError: AF_UNIX path too long
+  
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnhandledThreadExceptionWarning(msg))
+
+tests/unit/test_descriptor_review_fixes.py::test_c16_7_a_malformed_line_is_answered_and_the_connection_goes_on[long-integer]
+  /Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5/.venv/lib/python3.15/site-packages/_pytest/threadexception.py:58: PytestUnhandledThreadExceptionWarning: Exception in thread Thread-3 (serve_forever)
+  
+  Traceback (most recent call last):
+    File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/threading.py", line 1219, in _bootstrap_inner
+      self._context.run(self.run)
+      ~~~~~~~~~~~~~~~~~^^^^^^^^^^
+    File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/threading.py", line 1161, in run
+      self._target(*self._args, **self._kwargs)
+      ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5/subfleet/daemon.py", line 12992, in serve_forever
+      self._socket.bind(str(sock_path))
+      ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  OSError: AF_UNIX path too long
+  
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnhandledThreadExceptionWarning(msg))
+
+tests/unit/test_descriptor_review_fixes.py::test_c16_7_a_malformed_line_is_answered_and_the_connection_goes_on[not-utf8]
+  /Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5/.venv/lib/python3.15/site-packages/_pytest/threadexception.py:58: PytestUnhandledThreadExceptionWarning: Exception in thread Thread-4 (serve_forever)
+  
+  Traceback (most recent call last):
+    File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/threading.py", line 1219, in _bootstrap_inner
+      self._context.run(self.run)
+      ~~~~~~~~~~~~~~~~~^^^^^^^^^^
+    File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/threading.py", line 1161, in run
+      self._target(*self._args, **self._kwargs)
+      ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5/subfleet/daemon.py", line 12992, in serve_forever
+      self._socket.bind(str(sock_path))
+      ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  OSError: AF_UNIX path too long
+  
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnhandledThreadExceptionWarning(msg))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+SKIPPED tests/unit/test_doctor.py::test_cli_doctor_exits_one_when_anything_failed: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/unit/test_doctor.py::test_daemon_lock_row_fails_on_a_dead_pid_by_real_identity: Skipped: C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+SKIPPED tests/unit/test_doctor.py::test_daemon_lock_row_passes_against_a_live_daemon_by_real_identity: Skipped: C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+============================= slowest 8 durations ==============================
+20.95s call     tests/unit/test_hooks_install_differential.py::test_uninstall_agrees_with_release_for_list_valued_events
+20.39s call     tests/unit/test_hooks_install_equality.py::test_install_drifts_exactly_when_it_should_and_preserves_the_rest
+17.40s call     tests/unit/test_descriptor_review_fixes.py::test_c3_6_a_later_daemon_never_takes_a_kept_handler_away[nonholder-fails-clear]
+16.22s call     tests/unit/test_descriptor_review_fixes.py::test_c3_6_a_daemon_says_stack_dumps_only_where_the_signal_stays_safe_through_exit[off-main-exit-expected2]
+12.22s call     tests/unit/test_hooks_install_equality.py::test_any_permutation_holding_the_entry_once_is_installed
+11.46s call     tests/unit/test_hooks_install_differential.py::test_install_agrees_with_release_when_owned_entries_are_alone_and_last
+10.83s call     tests/unit/test_hooks_install_equality.py::test_same_is_json_value_equality
+10.43s call     tests/unit/test_descriptor_review_fixes.py::test_c3_6_a_daemon_says_stack_dumps_only_where_the_signal_stays_safe_through_exit[host-off-main-expected0]
+=========================== short test summary info ============================
+SKIPPED [1] ../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wcall-fix-r5-a1-7x65682i/sf-wcall-fix5/plugins/r4_isolation.py:51: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_doctor.py:605: C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+SKIPPED [1] tests/unit/test_doctor.py:617: C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+FAILED tests/unit/test_descriptor_review_fixes.py::test_c16_7_end_stream_records_only_a_connection_still_held
+FAILED tests/unit/test_descriptor_review_fixes.py::test_c16_7_a_malformed_line_is_answered_and_the_connection_goes_on[deep]
+FAILED tests/unit/test_descriptor_review_fixes.py::test_c16_7_a_pool_that_cannot_start_a_thread_does_not_end_the_reader
+FAILED tests/unit/test_descriptor_review_fixes.py::test_c16_7_a_malformed_line_is_answered_and_the_connection_goes_on[long-integer]
+FAILED tests/unit/test_descriptor_review_fixes.py::test_c16_7_a_malformed_line_is_answered_and_the_connection_goes_on[not-utf8]
+FAILED tests/unit/test_descriptor_review_fixes.py::test_c3_6_a_declined_daemon_whose_lock_write_fails_never_joins_the_advertised
+FAILED tests/unit/test_descriptor_review_fixes.py::test_c3_6_a_settle_prunes_only_a_member_whose_lock_may_no_longer_say_stack_dumps
+======= 7 failed, 156 passed, 3 skipped, 5 warnings in 98.53s (0:01:38) ========

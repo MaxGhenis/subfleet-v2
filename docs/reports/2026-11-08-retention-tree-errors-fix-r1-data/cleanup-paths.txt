@@ -1,0 +1,13 @@
+.hypothesis
+.pytest_cache
+.venv
+docs/reports/2026-11-08-retention-tree-errors-fix-r1-data/__pycache__
+subfleet/__pycache__
+subfleet/adapters/__pycache__
+subfleet/conversations/__pycache__
+subfleet/gate/__pycache__
+subfleet/guard/__pycache__
+subfleet/sessions/__pycache__
+tests/__pycache__
+tests/fake/__pycache__
+tests/unit/__pycache__

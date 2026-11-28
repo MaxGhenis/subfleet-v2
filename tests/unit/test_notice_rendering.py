@@ -136,7 +136,8 @@ def test_c15_1_the_hook_fallback_never_offers_a_cancelled_jobs_o_path(daemon, ro
     daemon({"list": lambda request: {"jobs": [{"job_id": JOB, "request_id": "req-1",
                                                 "state": "running", "rc": None}]},
             "wait": lambda request: {"jobs": [row("cancelled", 130)]},
-            "notice.pending": lambda request: {"notices": []}})
+            # C-15.9: the daemon says the session has no notice for the job.
+            "notice.pending": lambda request: {"notices": [], "absent": True}})
     stderr = io.StringIO()
     clock = [1000.0]                         # a clock the sleeps advance; no real seconds
     assert hooks.post_tool_use(

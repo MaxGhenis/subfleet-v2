@@ -1,0 +1,498 @@
+[
+  {
+    "path": "activity-final.log",
+    "bytes": 99
+  },
+  {
+    "path": "affected-n4-final.log",
+    "bytes": 16342
+  },
+  {
+    "path": "affected-n4.log",
+    "bytes": 263178
+  },
+  {
+    "path": "baseline-clusters-command.json",
+    "bytes": 921
+  },
+  {
+    "path": "baseline-clusters-summary.json",
+    "bytes": 3323
+  },
+  {
+    "path": "baseline-clusters.log",
+    "bytes": 18739
+  },
+  {
+    "path": "baseline-import.txt",
+    "bytes": 50
+  },
+  {
+    "path": "baseline-source-proof.json",
+    "bytes": 282
+  },
+  {
+    "path": "baseline_clusters.py",
+    "bytes": 683
+  },
+  {
+    "path": "caller-final-commands.jsonl",
+    "bytes": 5644
+  },
+  {
+    "path": "caller-final.log",
+    "bytes": 100
+  },
+  {
+    "path": "caller-postio-final.log",
+    "bytes": 100
+  },
+  {
+    "path": "caller-tests-commands.txt",
+    "bytes": 3282
+  },
+  {
+    "path": "caller-wake-complete.log",
+    "bytes": 110
+  },
+  {
+    "path": "caller-wake-conversation-binding-fixed.log",
+    "bytes": 4295
+  },
+  {
+    "path": "caller-wake-conversation-binding.log",
+    "bytes": 2527
+  },
+  {
+    "path": "caller-wake-conversation-bound.log",
+    "bytes": 114
+  },
+  {
+    "path": "caller-wake-final.log",
+    "bytes": 100
+  },
+  {
+    "path": "caller-wake-fixed.log",
+    "bytes": 110
+  },
+  {
+    "path": "caller-wake-new.log",
+    "bytes": 10863
+  },
+  {
+    "path": "capture_changes.py",
+    "bytes": 818
+  },
+  {
+    "path": "change-lines.txt",
+    "bytes": 3409
+  },
+  {
+    "path": "cleanup_workspace.py",
+    "bytes": 1502
+  },
+  {
+    "path": "commands.jsonl",
+    "bytes": 43366
+  },
+  {
+    "path": "contract-index.log",
+    "bytes": 99
+  },
+  {
+    "path": "conversation.patch",
+    "bytes": 976
+  },
+  {
+    "path": "deliver.py",
+    "bytes": 2223
+  },
+  {
+    "path": "drop_quiet_gate.patch",
+    "bytes": 472
+  },
+  {
+    "path": "exact-shape-audit.txt",
+    "bytes": 33662
+  },
+  {
+    "path": "final-review-commands.txt",
+    "bytes": 1280
+  },
+  {
+    "path": "finalize_artifacts.py",
+    "bytes": 1772
+  },
+  {
+    "path": "generated-paths-before-cleanup.json",
+    "bytes": 1600
+  },
+  {
+    "path": "hook_shown.patch",
+    "bytes": 2648
+  },
+  {
+    "path": "hooks-final.log",
+    "bytes": 190
+  },
+  {
+    "path": "hooks-regression-fixed.log",
+    "bytes": 191
+  },
+  {
+    "path": "hooks-regression.log",
+    "bytes": 3020
+  },
+  {
+    "path": "implementation.patch",
+    "bytes": 138882
+  },
+  {
+    "path": "install-xdist.log",
+    "bytes": 190
+  },
+  {
+    "path": "lose_record_restart.patch",
+    "bytes": 565
+  },
+  {
+    "path": "mutant-conversation.log",
+    "bytes": 1766
+  },
+  {
+    "path": "mutant-delivery-conversation.log",
+    "bytes": 1766
+  },
+  {
+    "path": "mutant-delivery-drop_quiet_gate.log",
+    "bytes": 3672
+  },
+  {
+    "path": "mutant-delivery-hook_shown.log",
+    "bytes": 1277
+  },
+  {
+    "path": "mutant-delivery-lose_record_restart.log",
+    "bytes": 1385
+  },
+  {
+    "path": "mutant-delivery-output_text.log",
+    "bytes": 2174
+  },
+  {
+    "path": "mutant-delivery-wake_twice.log",
+    "bytes": 1385
+  },
+  {
+    "path": "mutant-drop_quiet_gate.log",
+    "bytes": 3672
+  },
+  {
+    "path": "mutant-final-conversation.log",
+    "bytes": 1766
+  },
+  {
+    "path": "mutant-final-drop_quiet_gate.log",
+    "bytes": 3672
+  },
+  {
+    "path": "mutant-final-hook_shown.log",
+    "bytes": 1277
+  },
+  {
+    "path": "mutant-final-lose_record_restart.log",
+    "bytes": 1385
+  },
+  {
+    "path": "mutant-final-output_text.log",
+    "bytes": 2174
+  },
+  {
+    "path": "mutant-final-wake_twice.log",
+    "bytes": 1385
+  },
+  {
+    "path": "mutant-hook_shown.log",
+    "bytes": 1277
+  },
+  {
+    "path": "mutant-lose_record_restart.log",
+    "bytes": 1385
+  },
+  {
+    "path": "mutant-output_text.log",
+    "bytes": 2174
+  },
+  {
+    "path": "mutant-wake_twice.log",
+    "bytes": 1385
+  },
+  {
+    "path": "mutants-delivery/caller_wakes.py.pristine",
+    "bytes": 15489
+  },
+  {
+    "path": "mutants-delivery/conversation.patch",
+    "bytes": 976
+  },
+  {
+    "path": "mutants-delivery/drop_quiet_gate.patch",
+    "bytes": 472
+  },
+  {
+    "path": "mutants-delivery/hook_shown.patch",
+    "bytes": 2648
+  },
+  {
+    "path": "mutants-delivery/lose_record_restart.patch",
+    "bytes": 565
+  },
+  {
+    "path": "mutants-delivery/nudge.py.pristine",
+    "bytes": 23793
+  },
+  {
+    "path": "mutants-delivery/output_text.patch",
+    "bytes": 522
+  },
+  {
+    "path": "mutants-delivery/results.json",
+    "bytes": 5359
+  },
+  {
+    "path": "mutants-delivery/wake_twice.patch",
+    "bytes": 2557
+  },
+  {
+    "path": "mutants-final/caller_wakes.py.pristine",
+    "bytes": 15100
+  },
+  {
+    "path": "mutants-final/conversation.patch",
+    "bytes": 976
+  },
+  {
+    "path": "mutants-final/drop_quiet_gate.patch",
+    "bytes": 472
+  },
+  {
+    "path": "mutants-final/hook_shown.patch",
+    "bytes": 2648
+  },
+  {
+    "path": "mutants-final/lose_record_restart.patch",
+    "bytes": 565
+  },
+  {
+    "path": "mutants-final/mutant-final-conversation.log",
+    "bytes": 1766
+  },
+  {
+    "path": "mutants-final/mutant-final-drop_quiet_gate.log",
+    "bytes": 3672
+  },
+  {
+    "path": "mutants-final/mutant-final-hook_shown.log",
+    "bytes": 1277
+  },
+  {
+    "path": "mutants-final/mutant-final-lose_record_restart.log",
+    "bytes": 1385
+  },
+  {
+    "path": "mutants-final/mutant-final-output_text.log",
+    "bytes": 2174
+  },
+  {
+    "path": "mutants-final/mutant-final-wake_twice.log",
+    "bytes": 1385
+  },
+  {
+    "path": "mutants-final/nudge.py.pristine",
+    "bytes": 23793
+  },
+  {
+    "path": "mutants-final/output_text.patch",
+    "bytes": 522
+  },
+  {
+    "path": "mutants-final/results.json",
+    "bytes": 5305
+  },
+  {
+    "path": "mutants-final/wake_twice.patch",
+    "bytes": 2557
+  },
+  {
+    "path": "notice-claims-commands.txt",
+    "bytes": 6292
+  },
+  {
+    "path": "notice-claims-fixed.log",
+    "bytes": 99
+  },
+  {
+    "path": "notice-claims.log",
+    "bytes": 9529
+  },
+  {
+    "path": "notify-push-regression.log",
+    "bytes": 100
+  },
+  {
+    "path": "nudge-commands.txt",
+    "bytes": 14752
+  },
+  {
+    "path": "nudge-final-integration.log",
+    "bytes": 99
+  },
+  {
+    "path": "nudge-precision.log",
+    "bytes": 99
+  },
+  {
+    "path": "nudge-registry-integration.log",
+    "bytes": 99
+  },
+  {
+    "path": "nudge-regression.log",
+    "bytes": 99
+  },
+  {
+    "path": "nudge-tests.log",
+    "bytes": 100
+  },
+  {
+    "path": "offline-activity-commands.txt",
+    "bytes": 3065
+  },
+  {
+    "path": "offline-activity.patch",
+    "bytes": 15468
+  },
+  {
+    "path": "output_text.patch",
+    "bytes": 522
+  },
+  {
+    "path": "postio-before-fix.log",
+    "bytes": 6632
+  },
+  {
+    "path": "postio-identity.patch",
+    "bytes": 4363
+  },
+  {
+    "path": "presend.patch",
+    "bytes": 8069
+  },
+  {
+    "path": "regression-failures.json",
+    "bytes": 22774
+  },
+  {
+    "path": "regression-files.txt",
+    "bytes": 8116
+  },
+  {
+    "path": "required-guards-delivery.log",
+    "bytes": 501
+  },
+  {
+    "path": "required-guards-final.log",
+    "bytes": 501
+  },
+  {
+    "path": "required-guards.log",
+    "bytes": 2457
+  },
+  {
+    "path": "results.json",
+    "bytes": 5197
+  },
+  {
+    "path": "root-commands.txt",
+    "bytes": 27749
+  },
+  {
+    "path": "run.py",
+    "bytes": 2034
+  },
+  {
+    "path": "run_final_regression.py",
+    "bytes": 852
+  },
+  {
+    "path": "run_mutants.py",
+    "bytes": 5087
+  },
+  {
+    "path": "run_mutants_delivery.py",
+    "bytes": 5114
+  },
+  {
+    "path": "run_mutants_final.py",
+    "bytes": 5105
+  },
+  {
+    "path": "runs.json",
+    "bytes": 53528
+  },
+  {
+    "path": "schema-commands.txt",
+    "bytes": 3256
+  },
+  {
+    "path": "schema-existing.log",
+    "bytes": 99
+  },
+  {
+    "path": "schema-new.log",
+    "bytes": 99
+  },
+  {
+    "path": "schema-qos-fixed.log",
+    "bytes": 99
+  },
+  {
+    "path": "schema-qos.log",
+    "bytes": 2048
+  },
+  {
+    "path": "sf_baseline_verify.py",
+    "bytes": 501
+  },
+  {
+    "path": "sf_job_isolation.py",
+    "bytes": 289
+  },
+  {
+    "path": "staged-files.json",
+    "bytes": 9046
+  },
+  {
+    "path": "transcript-precision-regression.log",
+    "bytes": 100
+  },
+  {
+    "path": "transport-final.log",
+    "bytes": 99
+  },
+  {
+    "path": "uv-sync-dev.log",
+    "bytes": 601
+  },
+  {
+    "path": "uv-sync.log",
+    "bytes": 197
+  },
+  {
+    "path": "wake_twice.patch",
+    "bytes": 2557
+  },
+  {
+    "path": "workspace-cleanup.json",
+    "bytes": 2116
+  }
+]

@@ -1,0 +1,47 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.15.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/maxghenis/.subfleet/worktrees/20261117-083630-wcall-fix-r4
+configfile: pyproject.toml
+plugins: xdist-3.8.0, timeout-2.4.0, hypothesis-6.168.1
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+created: 4/4 workers
+4 workers [9 items]
+
+.........                                                                [100%]
+==================================== PASSES ====================================
+__________ test_c15_9_an_offline_hook_does_not_wait_out_a_wake_claim ___________
+[gw1] darwin -- Python 3.15.2 $TMPDIR/uv-cache/builds-v0/.tmpQBX4Bo/bin/python
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4446602304:daemon.py:1011 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4446602304:daemon.py:1104 reset credits: automatic redemption off; no-reset marker absent
+__ test_c15_9_a_held_activity_lock_skips_its_caller_without_stalling_the_pass __
+[gw3] darwin -- Python 3.15.2 $TMPDIR/uv-cache/builds-v0/.tmpQBX4Bo/bin/python
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4435542096:daemon.py:1011 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4435542096:daemon.py:1104 reset credits: automatic redemption off; no-reset marker absent
+============================= slowest 12 durations =============================
+2.38s setup    tests/fake/test_caller_notice_wakes.py::test_c15_9_an_offline_hook_does_not_wait_out_a_wake_claim
+2.29s setup    tests/fake/test_caller_notice_wakes.py::test_c15_9_a_held_activity_lock_skips_its_caller_without_stalling_the_pass
+1.22s call     tests/unit/test_notice_claims.py::test_c15_9_offline_hooks_keep_a_constant_number_of_activity_files
+0.90s call     tests/unit/test_notice_claims.py::test_c15_9_an_offline_hook_returns_while_another_process_holds_the_activity_lock
+0.89s call     tests/fake/test_caller_notice_wakes.py::test_c15_9_a_held_activity_lock_skips_its_caller_without_stalling_the_pass
+0.63s call     tests/unit/test_notice_claims.py::test_c15_9_a_corrupt_activity_record_still_fences_only_its_own_caller
+0.63s call     tests/fake/test_caller_notice_wakes.py::test_c15_9_an_offline_hook_does_not_wait_out_a_wake_claim
+0.39s call     tests/unit/test_notice_claims.py::test_c15_9_a_record_published_during_a_fold_survives_it[before-replace]
+0.35s call     tests/unit/test_notice_claims.py::test_c15_9_a_crash_between_a_folds_replace_and_its_unlinks_loses_nothing
+0.27s setup    tests/unit/test_notice_claims.py::test_c15_9_offline_hooks_keep_a_constant_number_of_activity_files
+0.24s setup    tests/unit/test_notice_claims.py::test_c15_9_a_crash_between_a_folds_replace_and_its_unlinks_loses_nothing
+0.23s setup    tests/unit/test_notice_claims.py::test_c15_9_an_offline_hook_returns_while_another_process_holds_the_activity_lock
+=========================== short test summary info ============================
+PASSED tests/unit/test_notice_claims.py::test_c15_9_a_record_published_during_a_fold_survives_it[before-replace]
+PASSED tests/unit/test_notice_claims.py::test_c15_9_a_crash_between_a_folds_replace_and_its_unlinks_loses_nothing
+PASSED tests/unit/test_notice_claims.py::test_c15_9_a_record_published_during_a_fold_survives_it[after-replace]
+PASSED tests/unit/test_notice_claims.py::test_c15_9_the_activity_lock_waits_a_bounded_time
+PASSED tests/unit/test_notice_claims.py::test_c15_9_an_offline_hook_returns_while_another_process_holds_the_activity_lock
+PASSED tests/unit/test_notice_claims.py::test_c15_9_offline_hooks_keep_a_constant_number_of_activity_files
+PASSED tests/unit/test_notice_claims.py::test_c15_9_a_corrupt_activity_record_still_fences_only_its_own_caller
+PASSED tests/fake/test_caller_notice_wakes.py::test_c15_9_an_offline_hook_does_not_wait_out_a_wake_claim
+PASSED tests/fake/test_caller_notice_wakes.py::test_c15_9_a_held_activity_lock_skips_its_caller_without_stalling_the_pass
+========================= 9 passed in 61.58s (0:01:01) =========================

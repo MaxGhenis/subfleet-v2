@@ -1,0 +1,17 @@
+Final read-only review. Every shell command exited 0; no tests or production edits in this step.
+
+cat subfleet/caller_wakes.py
+cat subfleet/notice_claims.py
+sed -n '98,148p' subfleet/notify_push.py
+sed -n '482,528p' subfleet/hooks.py
+sed -n '238,291p' subfleet/sessions/nudge.py
+Result: reviewed durable claims/retries, hook fencing, receipt validation, and shared quiet/cooldown decisions.
+
+sed -n '143,190p' subfleet/notify_push.py
+Result: confirmed busy/activity checks combine every live duplicate registry row.
+rg -n 'Path\.home|home_path|~\/|exec_command|git|schema-new|notice-claims-fixed' /private/tmp/sf-wc-b1/schema-commands.txt /private/tmp/sf-wc-b1/notice-claims-commands.txt
+Result: command artifacts contain only assigned-workspace code reads and task-scratch test commands; no live home path was opened.
+rg --files docs/reports/2026-11-12-wake-caller-data | head -25
+Result: confirmed report artifact directory already contains schema and receipt command logs and mutant evidence.
+
+Review result sent to parent: no remaining definite normal-path invariant violation found. Defensive malformed-created_at parsing edge mentioned without recommending scope expansion. Interrupted/ambiguous sends intentionally stay terminal to avoid duplicate messages across restart.

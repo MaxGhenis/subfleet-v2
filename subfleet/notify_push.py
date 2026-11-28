@@ -33,6 +33,7 @@ Two rules this module keeps from v1 and one it adds:
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import socket
@@ -48,6 +49,9 @@ _TRANSCRIPT_TAIL = 1024 * 1024
 _TRANSCRIPT_MAX = 64 * 1024 * 1024
 _MODE_RE = re.compile(rb'"permissionMode"\s*:\s*"([A-Za-z]+)"')
 _ENVELOPE_CLOSE = "</cross-session-message>"
+#: The fixed first words of `push_to_session`'s lane refusal, made before any
+#: token or socket use, so a caller can tell it from a failed send (C-15.9).
+LANE_REFUSAL = "lane-session"
 
 #: v1's lane-session markers. `notify.push_to_session` refuses a lane session by
 #: asking `lanes.is_lane_session`, which reads the v1 run ledger; v2 has no such
@@ -55,6 +59,10 @@ _ENVELOPE_CLOSE = "</cross-session-message>"
 #: a headless lane has no inbox socket, and the daemon knows its own lane
 #: sessions. `refuse_session` lets the caller supply that set.
 DEFAULT_TIMEOUT_S = 5.0
+
+
+class BeforeSendError(OSError):
+    """The inbox connection failed before any message bytes were attempted."""
 
 
 def claude_dir() -> Path:
@@ -97,6 +105,15 @@ def _load_json(path: Path) -> Any:
         return None
 
 
+def _activity_time(value: Any) -> float | None:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    try:
+        return float(value) if math.isfinite(value) and value >= 0 else None
+    except OverflowError:
+        return None
+
+
 def find_session(session_id: str) -> dict[str, Any] | None:
     """The registry row for `session_id` — the LIVE one when several exist.
 
@@ -109,6 +126,7 @@ def find_session(session_id: str) -> dict[str, Any] | None:
     if not session_id:
         return None
     best: tuple[tuple, dict[str, Any]] | None = None
+    live = []
     try:
         entries = list(sessions_dir().glob("*.json"))
     except OSError:
@@ -120,6 +138,9 @@ def find_session(session_id: str) -> dict[str, Any] | None:
         pid = data.get("pid") if isinstance(data.get("pid"), int) else None
         sock = data.get("messagingSocketPath")
         started = data.get("startedAt")
+        activity = {key: data.get(key) for key in ("statusUpdatedAt", "updatedAt")}
+        invalid_activity = any(value is not None and _activity_time(value) is None
+                               for value in activity.values())
         candidate = {
             "session_id": session_id,
             "pid": pid,
@@ -130,12 +151,29 @@ def find_session(session_id: str) -> dict[str, Any] | None:
             "alive": _pid_alive(pid),
             "socket_present": _is_socket(sock if isinstance(sock, str) else None),
             "registry_path": str(entry),
+            "status": data.get("status"),
+            "status_updated_at": None if invalid_activity else _activity_time(activity["statusUpdatedAt"]),
+            "updated_at": None if invalid_activity else _activity_time(activity["updatedAt"]),
+            "activity_invalid": invalid_activity,
         }
         key = (candidate["alive"], candidate["socket_present"],
                candidate["started_at"] or 0)
         if best is None or key > best[0]:
             best = (key, candidate)
-    return best[1] if best else None
+        if candidate["alive"]:
+            live.append(candidate)
+    if best is None:
+        return None
+    chosen = best[1]
+    if live:
+        # An older live instance can still be working. Pick one address, but
+        # gate delivery against every live instance's activity.
+        chosen["activity_invalid"] = any(row["activity_invalid"] for row in live)
+        if any(row["status"] == "busy" for row in live):
+            chosen["status"] = "busy"
+        for key in ("status_updated_at", "updated_at"):
+            chosen[key] = max((row[key] or 0 for row in live), default=0) or None
+    return chosen
 
 
 def peer_token(pid: int | None) -> str | None:
@@ -251,6 +289,25 @@ def envelope(body: str, *, from_name: str = FROM_NAME,
     return f"<cross-session-message{attrs}>\n{safe_body.strip()}\n{_ENVELOPE_CLOSE}"
 
 
+def is_own_envelope(prompt: object) -> bool:
+    """Whether a prompt is the envelope `envelope` writes under Subfleet's own name.
+
+    The turn an inbox push starts fires UserPromptSubmit with the pushed text
+    as its prompt, so a completion wake would otherwise read as personal input
+    and reset the bounds that limit unattended wakes (C-15.9; review r1 of #307,
+    finding 2). Any other prompt, another session's message included, is not.
+    """
+    if not isinstance(prompt, str):
+        return False
+    text = prompt.strip()
+    head = f'<cross-session-message from-name="{_clean_name(FROM_NAME)}"'
+    if not text.startswith(head) or not text.endswith(_ENVELOPE_CLOSE):
+        return False
+    rest = text[len(head):]
+    return any(rest.startswith(attrs + ">\n") for attrs in
+               ("", *(f' from-mode="{mode}"' for mode in MODE_CLASSES)))
+
+
 def send_to_socket(socket_path: str, token: str | None, content: str, *,
                    timeout: float = DEFAULT_TIMEOUT_S) -> None:
     """Deliver one user message into a session inbox. Raises OSError on failure."""
@@ -263,7 +320,10 @@ def send_to_socket(socket_path: str, token: str | None, content: str, *,
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     client.settimeout(timeout)
     try:
-        client.connect(socket_path)
+        try:
+            client.connect(socket_path)
+        except OSError as exc:
+            raise BeforeSendError(*exc.args) from exc
         client.sendall(payload)
         try:
             client.shutdown(socket.SHUT_WR)
@@ -306,7 +366,7 @@ def push_to_session(session_id: str, body: str, *, from_name: str = FROM_NAME,
     if not force and session_id in set(lane_sessions):
         # A lane's deliverable is its last message; a pushed notice would become
         # that message. Relay to the lane's orchestrator instead (v1 rule).
-        result["reason"] = ("lane-session: headless run, a notice would overwrite "
+        result["reason"] = (f"{LANE_REFUSAL}: headless run, a notice would overwrite "
                             "its deliverable (relay to its orchestrator)")
         return result
     if not entry["socket_present"]:
@@ -322,6 +382,11 @@ def push_to_session(session_id: str, body: str, *, from_name: str = FROM_NAME,
         send_to_socket(entry["socket"], token,
                        envelope(body, from_name=from_name, mode_class=declared),
                        timeout=timeout)
+    except BeforeSendError as exc:
+        cause = exc.__cause__ or exc
+        result["reason"] = f"send-failed: {cause.__class__.__name__}: {cause}"
+        result["retryable"] = True
+        return result
     except (OSError, ValueError) as exc:
         result["reason"] = f"send-failed: {exc.__class__.__name__}: {exc}"
         return result

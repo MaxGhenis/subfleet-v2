@@ -32,6 +32,7 @@ import stat
 import subprocess
 import sys
 import threading
+import tempfile
 import time
 import weakref
 from uuid import uuid4
@@ -48,7 +49,7 @@ from . import __version__
 from . import capacity, dependencies, descriptors, disk, folders, host_push, ids, lanes_transfer, machine, procs, protocol, ramp, render, route_check, scheduler
 from . import daemon_log, refusals, resource_leases, task_holds
 from .actions import demand_verdict
-from . import attempt_tmp
+from . import attempt_tmp, worktree_add
 from .attempt_tmp import AttemptTemp, env_value, probe_tmpdir_rows
 from .conversations.store import canonical_native, native_any_case
 from .conversations.peers import peer_token
@@ -287,6 +288,12 @@ READER_JOIN_S = 2.0
 ADMISSION_IDLE_LOG_S = 60
 ADMISSION_IDLE_REPEAT_S = 600
 ADMISSION_IDLE_REPEAT_EXPECTED_S = 3600
+#: C-3.8: the name admission's reserving transaction opens under. Every arm but the
+#: reservation (`RESERVATION_EVENT`, named with its attempt and lane once the attempt
+#: row is in) and a skipped revive (`job.revive_skipped`) is a wait, or writes nothing.
+#: Tests and `tools/store_contention_repro.py` key on it by this name, never a copy.
+ADMISSION_EVENT = "job.capacity_waiting"
+RESERVATION_EVENT = "attempt.reserved"
 #: C-6.11: waits that are a person's or a retry's to end, not admission's. A
 #: turn held for its conversation (C-24.5, C-30.4) is not admission's to place.
 #: An operator's hold on a job's task (C-11.10) is the operator's own act: it is no
@@ -984,6 +991,10 @@ class Daemon:
         # C-6.8: job id -> consecutive transient workspace failures. In memory on
         # purpose: a restart forgives the count, and the events keep the record.
         self._workspace_deferrals: dict[str, int] = {}
+        # F3: retain the group across admission passes until a verified empty census.
+        # A restart loses this map; the marker is still checked (C-5.5).
+        self._worktree_adds: dict[str, tuple[int, procs.ProcessIdentity | None]] = {}
+        self._worktree_add_children: dict[str, subprocess.Popen] = {}
         self._reset_admission_state()
         # C-5.10: worker key -> consecutive failures, and the earliest next try.
         self._worker_failures: dict[str, int] = {}
@@ -1693,7 +1704,11 @@ class Daemon:
         `task-held` for a hold that ended before this one began, with no pass and no commit
         between the two (a store a daemon before fix round 2 wrote), has that hold ended
         where it ended first, so the time between them counts against its grace, as time
-        with no hold does."""
+        with no hold does.
+
+        C-3.8: inside the caller's transaction (`tx`, admission's), that transaction records
+        `job.task_hold_moved` (`{task, until}`, or `{sandbox, until}` for the sandbox hold, C-11.10)
+        when only the job's end moved, and nothing of its own beside a take's `job.task_held` row."""
         job_id = job["job_id"]
         paused = None
         if not (job["state"] == "waiting" and job["wait_reason"] == "task-held"
@@ -1709,6 +1724,9 @@ class Daemon:
                        "AND wait_reason='task-held' AND cancel_requested_at IS NULL")
                 if tx is not None:
                     tx.execute(sql, (hold["until"], job_id))
+                    # C-3.8: the caller's transaction (admission's) says only the end moved.
+                    self.store.audit_as("job.task_hold_moved",
+                                        {**task_holds.target(hold), "until": hold["until"]})
                 else:
                     with self.store.transaction("job.task_hold_moved", job_id=job_id,
                                                 data={**task_holds.target(hold), "until": hold["until"]}) as inner:
@@ -1719,6 +1737,9 @@ class Daemon:
                     hold = current
             elif tx is not None:
                 paused = self._take_for_hold(tx, job, hold)
+                # C-3.8: the take writes its own `job.task_held` row in `tx`; the caller's
+                # transaction records nothing beside it.
+                self.store.audit_as(None)
             else:
                 data: dict[str, Any] = {**task_holds.target(hold), "until": hold["until"]}
                 with self.store.transaction("job.task_held", job_id=job_id, data=data) as inner:
@@ -4514,8 +4535,11 @@ class Daemon:
         if op.startswith("notice."):
             a = protocol.coerce_args(
                 protocol.NoticeMarkArgs if op == "notice.mark" else
-                protocol.NoticeAckArgs if op == "notice.ack" else protocol.NoticeArgs,
+                protocol.NoticeAckArgs if op == "notice.ack" else protocol.NoticePendingArgs,
                 args)
+            if op == "notice.pending" and a.surface:
+                from .caller_wakes import surface
+                return surface(self, a, arrived=arrived, client_gone=client_gone)
             # C-15.3: a negated id is a service notice, on every op that takes
             # ids back (`protocol.notice_row`), and `acknowledged` is terminal
             # in both tables: a notice is acknowledged once.
@@ -5962,6 +5986,7 @@ class Daemon:
                 for job_id in self._pending_worktree_holds():
                     self._schedule("cwd:" + job_id, self._release_worktree_hold, job_id, paced=True)
                 if self._recovery_complete.is_set():
+                    self._schedule("caller-notices", self._wake_callers, paced=True)
                     self._schedule("conversations", self.conversations.tick, paced=True)
                     self._schedule("admission", self._admit, paced=True)
                     # C-26.9: turns also have a pass of their own, so a person's
@@ -5975,6 +6000,17 @@ class Daemon:
             except Exception as exc:
                 self.log.error("control iteration failed: %s", type(exc).__name__)
             self.stopping.wait(self.tick_s)
+
+    def _wake_callers(self) -> None:
+        """C-15.9: startup and periodic scans share durable delivery state."""
+        now = time.monotonic()
+        if now < self.__dict__.get("_caller_wake_next", 0):
+            return
+        self._caller_wake_next = now + 1
+        from .caller_wakes import CallerWakeEngine
+        if "_caller_wakes" not in self.__dict__:
+            self._caller_wakes = CallerWakeEngine(self)
+        self._caller_wakes.pass_once()
 
     def _timer_notice(self, notice: dict) -> bool:
         """C-15.8, C-18.1: an alert is a notice for `alerts.operator_session` when
@@ -6640,51 +6676,41 @@ class Daemon:
         if job["sandbox"] == "workspace-write" and not job["in_place"] and not job.get("worktree"):
             workdir = str(self.root / "worktrees" / job["job_id"])
             jobdir = self.root / "jobs" / job["job_id"]
-            copy = (jobdir / uncommitted.DIRECTORY).is_dir()
-            if Path(workdir).exists() and (not (Path(workdir) / ".git").is_file()
-                                           or git_head(workdir, timeout_s=cap) is None
-                                           or (copy and not uncommitted.applied(jobdir, workdir))):
-                # A `worktree add` killed at its cap can leave a directory that is
-                # not a worktree. `.git` is checked first because git run in a
-                # bare directory answers for whatever repository encloses it.
-                # A daemon stopped between the cut and the end of the copy leaves
-                # a worktree without the caller's changes, which would be
-                # reviewed as complete (#221 review r2, P3-1): its copy has no
-                # marker. Nothing has run here (the job has no attempt), so it is
-                # rebuilt rather than handed to a provider. A lock on it, whoever took it, stops that (C-6.20):
-                # git would refuse to add it again, so the job fails with the files still there.
-                if self._tree_locked(job, workdir, cap):
-                    raise AdapterError("the job's worktree needs cutting again and a lock stands on its registration",
-                                       fix="run git worktree unlock on it, then submit again", reason="worktree-locked")
-                self._discard_worktree(job["workdir"], workdir, cap, self._recorded_common(job))
-            if not Path(workdir).exists():
-                common = self._recorded_common(job)
-                # A removal stopped before its registration went, or a tree someone deleted, leaves
-                # a registration with no tree, and git refuses to add one. A lock still stops the add.
-                discard_registration(job["workdir"], workdir, timeout=cap, common=common)
+            try:
+                copy = stat.S_ISDIR(os.stat(jobdir / uncommitted.DIRECTORY).st_mode)
+            except FileNotFoundError:
+                copy = False
+            except OSError as exc:
+                worktree_add.check_transient(exc, "the job's kept copy could not be read")
+                raise
+            self._require_add_empty(job)
+            common, _ = self._tree_registration(job, workdir, cap)
+            if not worktree_add.container_ok(self.root):
+                self._unproven_worktree(job, "the worktrees folder resolves elsewhere")
+            if os.path.lexists(workdir):
+                _, unfinished = worktree_add.finished(workdir, common, job["workdir_head"], timeout_s=cap)
                 try:
-                    # `backslashreplace`: git's messages can quote a file name that is
-                    # not UTF-8, which a strict read raised as `UnicodeDecodeError`
-                    # out of the admission pass on every try (review of cda4c161, N1).
-                    result = subprocess.run([*self._tree_git(job, common, cap), "worktree", "add", "--detach", workdir, job["workdir_head"]],
-                                            capture_output=True, text=True, errors="backslashreplace",
-                                            env=_git_env(None),
-                                            timeout=self.policy["caps"]["worktree_add_timeout_s"])
-                except (OSError, subprocess.SubprocessError):
+                    copied = not copy or uncommitted.applied(jobdir, workdir, strict=True)
+                except OSError as exc:
+                    worktree_add.check_transient(exc, "the job's applied-copy marker could not be read")
+                    copied = False
+                if unfinished is not None or not copied:
+                    self._discard_worktree(job["workdir"], workdir, cap, common)
+            if not os.path.lexists(workdir):
+                # F1: a missing path can still have an index holding someone's work.
+                self._discard_worktree(job["workdir"], workdir, cap, common)
+                try:
+                    result = self._add_worktree(job, workdir, common, cap)
+                except (OSError, subprocess.SubprocessError, SalvageError):
+                    # A holder or an uncertain census prevents even cleanup of the path.
+                    self._require_add_empty(job)
                     self._discard_worktree(job["workdir"], workdir, cap, common)
                     raise
                 if result.returncode:
                     self._discard_worktree(job["workdir"], workdir, cap, common)
-                    # A git killed by a signal did not finish, as a timed-out one did not.
                     killed = _failure("worktree", result) if result.returncode < 0 else None
                     if killed:
                         raise SalvageError(f"could not allocate worktree: {killed}", transient=True)
-                    # What it printed can be the repository's own: a `post-checkout`
-                    # hook's stderr, or a smudge filter's. It goes to daemon.log only,
-                    # scrubbed whole; the job's records say how git ended (C-25.7;
-                    # review r6 of #181, P1). Its words still say whether to wait (C-6.8).
-                    self.log.warning("job %s: %s", job["job_id"], refusals.scrubbed_line(
-                        f"git worktree add exited {result.returncode}: {result.stderr}"))
                     if _transient_git(result.stderr):
                         raise SalvageError(f"could not allocate worktree: git worktree add exited {result.returncode}; "
                                            "daemon.log has its output", transient=True)
@@ -6803,7 +6829,15 @@ class Daemon:
             given = self.store.one("SELECT data_json FROM events WHERE job_id=? AND +kind='job.worktree_given_back' "
                                    "ORDER BY event_id DESC LIMIT 1", (job["job_id"],))
             common = json.loads(given["data_json"]).get("common_dir") if given else None
-        return common if common is not None and os.path.isdir(common) else None
+        if common is not None:
+            try:
+                return common if stat.S_ISDIR(os.stat(common).st_mode) else None
+            except FileNotFoundError:
+                return None
+            except OSError as exc:
+                worktree_add.check_transient(exc, "the recorded repository could not be read")
+                raise
+        return None
 
     def _tree_git(self, job: dict, common: str | None, cap: float) -> list[str]:
         """C-6.20: the git that cuts a job's tree: in the caller's checkout while it belongs to
@@ -6811,8 +6845,10 @@ class Daemon:
         settings (sparse patterns) on; else in that repository's common directory, `common`.
 
         A job can wait for hours with no tree, and a session's isolated checkout can go
-        meanwhile. A job with no record still needs its checkout. A checkout that does not
-        answer in time is taken as it stands: `worktree add` then reports what is wrong (C-6.8).
+        meanwhile. A job with no record still needs its checkout. A transient failure
+        reading the checkout's repository waits under C-6.8; it cannot establish which
+        repository owns the checkout. A permanent lookup failure takes the checkout as
+        it stands, so `worktree add` reports what is wrong.
 
         The common directory is named, never discovered. Git discovers no bare repository under
         `safe.bareRepository=explicit`, and `--git-dir` alone still enters a submodule's
@@ -6822,9 +6858,18 @@ class Daemon:
         if common is None:
             return checkout
         try:
-            if os.path.isdir(job["workdir"]) and git_common_dir(job["workdir"], timeout_s=cap) == common:
+            source_exists = stat.S_ISDIR(os.stat(job["workdir"]).st_mode)
+        except (FileNotFoundError, NotADirectoryError):
+            source_exists = False
+        except OSError as exc:
+            worktree_add.check_transient(exc, "the caller's checkout could not be read")
+            source_exists = False
+        try:
+            if source_exists and git_common_dir(job["workdir"], timeout_s=cap) == common:
                 return checkout
-        except SalvageError:
+        except SalvageError as exc:
+            if exc.transient:
+                raise
             return checkout
         return ["git", "-C", common, f"--git-dir={common}", f"--work-tree={common}"]
 
@@ -6837,18 +6882,29 @@ class Daemon:
         The record comes first, because what the tree holds can be missing or name somewhere
         else. For a job older than the record: the tree's gitfile, believed only if the
         repository it names registers this tree; then the caller's checkout."""
-        common = self._recorded_common(job)
-        if common is None:
-            admin = gitfile_admin(Path(tree))[0]
-            if admin is not None:
-                found = registration_of(admin.parent.parent, tree)
-                if found is not None:
-                    return str(admin.parent.parent), found
-            try:
-                common = git_common_dir(job["workdir"], timeout_s=cap) if os.path.isdir(job["workdir"]) else None
-            except SalvageError:
-                return None, None
-        return (common, registration_of(common, tree)) if common else (None, None)
+        try:
+            common = self._recorded_common(job)
+            if common is None:
+                admin = gitfile_admin(Path(tree), strict=True)[0]
+                if admin is not None:
+                    found = registration_of(admin.parent.parent, tree, strict=True)
+                    if found is not None:
+                        return str(admin.parent.parent), found
+                try:
+                    try:
+                        source_exists = stat.S_ISDIR(os.stat(job["workdir"]).st_mode)
+                    except (FileNotFoundError, NotADirectoryError):
+                        source_exists = False
+                    common = git_common_dir(job["workdir"], timeout_s=cap) if source_exists else None
+                except SalvageError as exc:
+                    if exc.transient:
+                        raise
+                    return None, None
+            return (common, registration_of(common, tree, strict=True)) if common else (None, None)
+
+        except OSError as exc:
+            worktree_add.check_transient(exc, "the repository's worktrees could not be read")
+            raise
 
     def _tree_locked(self, job: dict, tree: str, cap: float) -> bool:
         """C-6.20: whether a lock stands on the tree's registration, as far as can be read. A lock
@@ -6859,22 +6915,182 @@ class Daemon:
             return False
         return admin is not None and os.path.lexists(admin / "locked")
 
-    @staticmethod
-    def _discard_worktree(repository: str, workdir: str, cap: float, common: str | None = None) -> None:
-        """Best effort: a failure here is reported by the add that follows it.
+    def _add_census(self, job: dict) -> procs.Containment:
+        """A fresh census on every pass and add generation; never cache by directory identity.
 
-        `.git` goes first, so a removal cut short (a reboot, a kill) leaves no tree a later
-        look reuses: its check reads `.git`, never the files (`_workspace`). Never through a
-        link, which would take the `.git` of the tree it names. Only this path's
-        registration is removed, from the common directory `common` when it is known, else
-        from the repository `repository` is in. A repository-wide `git worktree prune` would
-        also drop every other registration whose tree is missing at that moment (d635: never
-        run a repository-wide prune)."""
-        if not os.path.islink(workdir):
-            with contextlib.suppress(OSError):
-                os.unlink(os.path.join(workdir, ".git"))
-        shutil.rmtree(workdir, ignore_errors=True)
-        discard_registration(repository, workdir, timeout=cap, common=common)
+        C-5.4, C-6.8: while the cap's stop has left an add's leader the daemon's unreaped child,
+        each census KILLs its group again before the poll that may reap it (review r1 of #329: a
+        failed first `killpg` was never sent again). The signal releases nothing: the live leader
+        and every member the census reads still hold the job."""
+        tracked = self.__dict__.setdefault("_worktree_adds", {})
+        group, known = tracked.get(job["job_id"], (None, None))
+        children = self.__dict__.setdefault("_worktree_add_children", {})
+        stopped = self.__dict__.setdefault("_worktree_add_stopped", {})
+        child = children.get(job["job_id"])
+        live_child = False
+        if child is not None:
+            if stopped.get(job["job_id"]) is child and child.returncode is None:
+                # Not yet reaped, so its pid, and the group it leads, cannot have been reused.
+                try:
+                    os.killpg(child.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                except OSError as exc:
+                    self.log.warning("job %s: worktree add group could not be signalled again: %s",
+                                     job["job_id"], refusals.scrubbed_line(str(exc)))
+            try:
+                if child.poll() is None:
+                    live_child = True
+                else:
+                    children.pop(job["job_id"], None)
+                    stopped.pop(job["job_id"], None)
+            except OSError as exc:
+                raise SalvageError("worktree add leader could not be reaped", transient=True) from exc
+        try:
+            census = procs.containment(group, None, None, worktree_add.marker(job["job_id"]),
+                                       root=str(self.root),
+                                       recorded_identities={group: known} if known is not None else {})
+        except (procs.InspectionError, OSError) as exc:
+            raise SalvageError("worktree add census unavailable", transient=True) from exc
+        if live_child:
+            census = dataclasses.replace(census, group_pids=census.group_pids | {child.pid})
+        # Containment's ordinary empty predicate assumes errors imply unverifiable.
+        # Treat errors explicitly as well, including synthetic/incomplete censuses.
+        if census.verified_empty and not census.errors:
+            tracked.pop(job["job_id"], None)
+        return census
+
+    def _require_add_empty(self, job: dict) -> None:
+        census = self._add_census(job)
+        if not census.verified_empty or census.errors:
+            raise SalvageError("worktree add still has processes or its census is unverifiable", transient=True)
+
+    def _settle_worktree_add(self, job: dict) -> None:
+        deadline = time.monotonic() + self.kill_settle_s
+        while True:
+            try:
+                self._require_add_empty(job)
+                return
+            except SalvageError:
+                if time.monotonic() >= deadline:
+                    raise
+            time.sleep(min(0.05, max(0, deadline - time.monotonic())))
+
+    def _add_worktree(self, job: dict, workdir: str, common: str | None, cap: float):
+        """C-6.8: the checkout has its own group, marked environment, and file-backed stderr."""
+        # C-6.8: `core.fsmonitor=false` pinned, so git starts no detached helper with the marker.
+        # Entries git would refuse refuse the job before any add starts (review r2 of #329, P2).
+        try:
+            env = worktree_add.pinned({**_git_env(None), "SUBFLEET_ATTEMPT": worktree_add.marker(job["job_id"]),
+                                       "SUBFLEET_ROOT": str(self.root)})
+        except worktree_add.ConfigRefused as exc:
+            self.log.warning("job %s: worktree add refused: git would refuse its config entries: %s",
+                             job["job_id"], refusals.scrubbed_line(str(exc)))
+            raise AdapterError("git would refuse the daemon's GIT_CONFIG_COUNT entries, so no worktree can be "
+                               "added; daemon.log has git's reason",
+                               fix="correct or remove GIT_CONFIG_COUNT and its GIT_CONFIG_KEY_<n> and "
+                                   "GIT_CONFIG_VALUE_<n> entries where the daemon is started, then restart it",
+                               reason="worktree-git-config") from None
+        self._require_add_empty(job)
+        command = [*self._tree_git(job, common, cap), "worktree", "add", "--detach", workdir, job["workdir_head"]]
+        timeout = self.policy["caps"]["worktree_add_timeout_s"]
+        failure = None
+        with tempfile.TemporaryFile(dir=self.root / "jobs" / job["job_id"]) as stderr:
+            child = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                     stderr=stderr, env=env, start_new_session=True)
+            children = self.__dict__.setdefault("_worktree_add_children", {})
+            children[job["job_id"]] = child
+            stopped = self.__dict__.setdefault("_worktree_add_stopped", {})
+            stop_attempted = False
+
+            def stop_and_reap():
+                nonlocal stop_attempted
+                stop_attempted = True
+                stopped[job["job_id"]] = child     # later censuses signal it again (`_add_census`)
+                signal_error = None
+                # C-5.4: this remains our unreaped child; its pid cannot be reused.
+                try:
+                    os.killpg(child.pid, signal.SIGKILL)
+                except OSError as exc:
+                    signal_error = exc
+                try:
+                    child.wait(timeout=max(0.01, self.kill_settle_s))
+                except subprocess.TimeoutExpired as exc:
+                    # Keep the handle as well as the group. Later passes poll/reap
+                    # it, and no census can release a child we still know is alive.
+                    raise SalvageError("worktree add leader has not exited after group stop", transient=True) from (signal_error or exc)
+
+            try:
+                try:
+                    known = procs.identity(child.pid)
+                except (procs.InspectionError, OSError):
+                    known = None
+                self.__dict__.setdefault("_worktree_adds", {})[job["job_id"]] = (child.pid, known)
+                try:
+                    child.wait(timeout=timeout)
+                except subprocess.TimeoutExpired as exc:
+                    failure = exc
+                    stop_and_reap()
+            finally:
+                try:
+                    if child.returncode is None and not stop_attempted:
+                        stop_and_reap()
+                finally:
+                    if child.returncode is not None:
+                        children.pop(job["job_id"], None)
+                        if stopped.get(job["job_id"]) is child:
+                            stopped.pop(job["job_id"], None)
+                    stderr.seek(0)
+                    words = stderr.read().decode("utf-8", "backslashreplace")
+                    if words:
+                        self.log.warning("job %s: %s", job["job_id"], refusals.scrubbed_line(
+                            f"git worktree add exited {child.returncode}: {words}"))
+            self._settle_worktree_add(job)
+            if failure is not None:
+                raise failure
+            return subprocess.CompletedProcess(command, child.returncode, "", words)
+
+    def _unproven_worktree(self, job: dict, why: str) -> None:
+        self.log.warning("job %s: worktree removal refused: %s", job["job_id"], refusals.scrubbed_line(why))
+        raise AdapterError("the job's worktree could not be proved safe to rebuild; daemon.log has details",
+                           fix="preserve any work there and resolve the worktree before submitting again",
+                           reason="worktree-unproven")
+
+    def _worktree_proof(self, job: dict, tree: str, cap: float, common: str | None):
+        if not worktree_add.container_ok(self.root):
+            self._unproven_worktree(job, "the worktrees folder resolves elsewhere")
+        expected = self.root / "worktrees" / job["job_id"]
+        if Path(tree) != expected:
+            self._unproven_worktree(job, "the path is not the job's allocation")
+        self._require_add_empty(job)
+        named_common, admin = self._tree_registration(job, tree, cap)
+        common = named_common or common
+        if common is None:
+            self._unproven_worktree(job, "its repository cannot be identified")
+        if worktree_add.lock_state(admin) == worktree_add.OTHER:
+            raise AdapterError("the job's worktree needs cutting again and a lock stands on its registration",
+                               fix="run git worktree unlock on it, then submit again", reason="worktree-locked")
+        kept = worktree_add.kept_paths(self.root / "jobs" / job["job_id"], timeout_s=cap)
+        why = worktree_add.prove(tree, admin, common, job["workdir_head"], timeout_s=cap, kept=kept)
+        if why is not None:
+            self._unproven_worktree(job, why)
+        return common, admin
+
+    def _discard_worktree(self, repository: str, workdir: str, cap: float, common: str | None = None) -> None:
+        """Prove a never-run allocation before removal, .git before files; never broad prune."""
+        job = self.store.get_job(Path(workdir).name)
+        if job is None:
+            return
+        common, admin = self._worktree_proof(job, workdir, cap, common)
+        if worktree_add.lock_state(admin) == worktree_add.OTHER:
+            self._unproven_worktree(job, "a lock came before removal")
+        error = worktree_add.remove_tree(workdir)
+        if error is not None:
+            worktree_add.check_transient(error, "the worktree could not be removed")
+            self._unproven_worktree(job, "the worktree could not be removed")
+        _, why = worktree_add.drop_registration(common, workdir, job["workdir_head"], timeout_s=cap)
+        if why is not None:
+            self._unproven_worktree(job, why)
 
     def _probe_record(self, holder: str) -> dict | None:
         # C-8.4: probe state and results live in events, never synthetic jobs.
@@ -7559,20 +7775,21 @@ class Daemon:
                 reserved_at = (self._probe_record(holder) or record)["created_at"]
                 next_check = after(60) if quarantined else max(utcnow(), _later(reserved_at, PROBE_RETRY_S))
                 note["next_check_at"] = next_check
-                repeat = self._capacity_wait(job["job_id"], "probe-wait:" + scheduler.verdict_signature(decision),
-                                             {"reason": "probe-pending", **note}, expedite=False)
-                with self.store.transaction("job.probe_waiting", job_id=job["job_id"], lane_id=pair[0],
-                                            data={"model": pair[1], "class": outcome.cls.value,
-                                                  "next_check_at": next_check}) as tx:
-                    # C-11.10 (review r3 of #260, R3-1): a hold committed while the probe ran takes
-                    # the job here instead of its capacity wait (the caller finds it `task-held`).
-                    # A quarantined probe's wait is a person's (`uncertain`), which a hold leaves.
-                    if quarantined or self._task_held_at_write(tx, job, None) is None:
-                        if not repeat:
-                            self.store.add_decision(job["job_id"], decision)
-                        tx.execute("UPDATE jobs SET state='waiting',wait_reason=?,next_check_at=? WHERE job_id=? "
-                                   "AND state IN ('queued','waiting')",
-                                   ("uncertain" if quarantined else "capacity", next_check, job["job_id"]))
+                with self._capacity_wait_rollback(job["job_id"]):
+                    repeat = self._capacity_wait(job["job_id"], "probe-wait:" + scheduler.verdict_signature(decision),
+                                                 {"reason": "probe-pending", **note}, expedite=False)
+                    with self.store.transaction("job.probe_waiting", job_id=job["job_id"], lane_id=pair[0],
+                                                data={"model": pair[1], "class": outcome.cls.value,
+                                                      "next_check_at": next_check}) as tx:
+                        # C-11.10 (review r3 of #260, R3-1): a hold committed while the probe ran takes
+                        # the job here instead of its capacity wait (the caller finds it `task-held`).
+                        # A quarantined probe's wait is a person's (`uncertain`), which a hold leaves.
+                        if quarantined or self._task_held_at_write(tx, job, None) is None:
+                            if not repeat:
+                                self.store.add_decision(job["job_id"], decision)
+                            tx.execute("UPDATE jobs SET state='waiting',wait_reason=?,next_check_at=? WHERE job_id=? "
+                                       "AND state IN ('queued','waiting')",
+                                       ("uncertain" if quarantined else "capacity", next_check, job["job_id"]))
                 return None, desktop
         return None, desktop
 
@@ -7760,6 +7977,25 @@ class Daemon:
             "lane_wait": lane_wait}
         return self._capacity_waits[job_id]["rechecks"]
 
+    def _audit_wait(self, opened: tuple, job: dict, rechecks: int | None, hold: dict, next_check: str | None, *,
+                    state: str | None = "waiting", wait_reason: str | None = "capacity") -> None:
+        """C-3.8: the event of admission's transaction for a look that left `job` waiting.
+
+        `job.capacity_waiting` (`ADMISSION_EVENT`) when the look reached a new verdict
+        (`rechecks` 0, C-6.10) or changed something besides the job's clock: its `state`,
+        `wait_reason` or `exclusions`, against `opened`, the (state, wait_reason, exclusions)
+        the transaction first read. Its data is the hold's reason and the job's next look,
+        with the lane and model the hold names; never the decision, whose row holds it.
+        Otherwise none (`audit_as(None)`): a repeated verdict that only moved the clock adds
+        no event, as it adds no decision row. `rechecks` None is a look that reached no
+        verdict (a folder absent, a ramp hold): only an exclusions change records it.
+        `_capacity_waits` is memory, so after a restart each waiting job records one."""
+        if rechecks == 0 or opened != (state, wait_reason, job["exclusions"]):
+            self.store.audit_as(ADMISSION_EVENT, {"reason": hold["reason"], "next_check_at": next_check,
+                                                  **{key: hold[key] for key in ("lane", "model") if hold.get(key)}})
+        else:
+            self.store.audit_as(None)
+
     def _refresh_hold(self, job_id: str, hold: dict) -> None:
         """C-6.11: a look that changed no verdict and no clock still reports what it found."""
         wait = self._capacity_waits.get(job_id)
@@ -7871,7 +8107,8 @@ class Daemon:
 
         if not fences(self.store.query):
             return False
-        with self.store.transaction("job.fenced", job_id=job["job_id"]) as tx:
+        with (self._capacity_wait_rollback(job["job_id"]),
+              self.store.transaction("job.fenced", job_id=job["job_id"]) as tx):
             current = tx.execute("SELECT state, cancel_requested_at FROM jobs WHERE job_id=?",
                                  (job["job_id"],)).fetchone()
             if current is None or current[1] or current[0] not in ("queued", "waiting"):
@@ -8873,10 +9110,15 @@ class Daemon:
                 evaluated_decision = decision
                 try:
                     # C-6.12: outside the transaction, so a route that fails here rolls it back first.
+                    # C-3.8: named for what it does. It opens as the wait; the reservation
+                    # renames it where the attempt row goes in.
                     with self._isolated_route(job, holds) as route, \
-                            self.store.transaction("attempt.reserved", job_id=job["job_id"]) as tx:
+                            self.store.transaction(ADMISSION_EVENT, job_id=job["job_id"]) as tx:
                         read = lambda sql, params: tx.execute(sql, params).fetchall()   # noqa: E731
                         job = self._job(job["job_id"])
+                        # C-3.8: what a wait compares with to learn whether it changed anything
+                        # besides the job's clock (`job["exclusions"]` is replaced below).
+                        opened = (job["state"], job["wait_reason"], job["exclusions"])
                         if job["cancel_requested_at"] or job["state"] in TERMINAL:
                             status = "gone"
                             break
@@ -8887,6 +9129,8 @@ class Daemon:
                                 self._refuse_conversation_session(native_session, job["kind"])
                             except AdapterError as exc:
                                 self._fail_queued(job, self._refused_job(job["job_id"], exc), rc=exc.code)
+                                # C-3.8: its nested `job.failed` names what happened; this one adds nothing.
+                                self.store.audit_as(None)
                                 status = "settled"
                                 break
                         if tx.execute("SELECT 1 FROM attempts WHERE job_id=? AND state IN "
@@ -8933,6 +9177,7 @@ class Daemon:
                             next_check = after(scheduler.capacity_recheck_delay(rechecks))
                             tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?",
                                        (next_check, job["job_id"]))
+                            self._audit_wait(opened, job, rechecks, hold, next_check)            # C-3.8
                             holds[job["job_id"]] = {**hold, "next_check_at": next_check}
                             status = "held"
                             break
@@ -9074,6 +9319,8 @@ class Daemon:
                                 self.store.add_decision(job["job_id"], decision)
                             tx.execute("UPDATE jobs SET state='waiting',wait_reason=?,next_check_at=? WHERE job_id=?",
                                        (waiting["wait_reason"], waiting["next_check_at"], job["job_id"]))
+                            self._audit_wait(opened, job, rechecks, hold, waiting["next_check_at"],     # C-3.8
+                                             wait_reason=waiting["wait_reason"])
                             holds[job["job_id"]] = {**hold, "next_check_at": waiting["next_check_at"]}
                             status = "held"
                             if kind == "turn":
@@ -9092,6 +9339,7 @@ class Daemon:
                             rechecks = self._capacity_wait(job["job_id"], "probe-pending", hold)
                             next_check = after(scheduler.capacity_recheck_delay(rechecks))
                             tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?", (next_check, job["job_id"]))
+                            self._audit_wait(opened, job, rechecks, hold, next_check)            # C-3.8
                             holds[job["job_id"]] = {**hold, "next_check_at": next_check}
                             status = "held"
                             break
@@ -9284,10 +9532,14 @@ class Daemon:
                                                            blocked=blocked)
                             next_check = after(scheduler.capacity_recheck_delay(rechecks))
                             tx.execute("UPDATE jobs SET state='waiting',wait_reason='capacity',next_check_at=? WHERE job_id=?", (next_check, job["job_id"]))
+                            self._audit_wait(opened, job, rechecks, hold, next_check)            # C-3.8
                             holds[job["job_id"]] = {**hold, "next_check_at": next_check}
                             status = "held"
                             break
                         if absent is not None:
+                            # C-3.8: only the exclusions write above may have run; an unchanged one is no event.
+                            self._audit_wait(opened, job, None, {"reason": "workspace"}, None,
+                                             state=opened[0], wait_reason=opened[1])
                             status = "absent"           # no row on a folder that is not there now
                             break
                         reserved_at = None
@@ -9300,6 +9552,8 @@ class Daemon:
                             self._begin_ramp_pass(now=reserved_at, read=read)
                             hold = self._ramp.hold(klass, reserved_at)
                             if hold:
+                                # C-3.8: as a folder that is absent, above.
+                                self._audit_wait(opened, job, None, hold, None, state=opened[0], wait_reason=opened[1])
                                 ramp_hold = holds[job["job_id"]] = hold
                                 if saved_news:
                                     self._capacity_news[job["job_id"]] = True
@@ -9331,6 +9585,7 @@ class Daemon:
                         tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,baseline_tree,evidence_json,reserved_at) VALUES(?,?,?,?,?,'reserved',?,?,?)",
                                    (aid, job["job_id"], seq, lane_id, self.policy["models"][decision.chosen_model]["id"],
                                     baseline, json.dumps(evidence), reserved_at))
+                        self.store.audit_as(RESERVATION_EVENT, attempt_id=aid, lane_id=lane_id)     # C-3.8
                         if pinned:
                             self.store.add_artifact(aid, **pinned)      # C-13.1: kept, as a salvage ref is
                         tx.execute("INSERT INTO decisions(job_id,attempt_id,evaluated_at,policy_hash,decision_json) VALUES(?,?,?,?,?)",
@@ -9638,15 +9893,39 @@ class Daemon:
             raise Unroutable(exc) from exc
 
     @contextlib.contextmanager
+    def _capacity_wait_rollback(self, job_id: str):
+        """C-3.8, C-6.10: restore this job's wait record when its transaction fails.
+
+        Enclose the transaction's exit so audit and COMMIT failures restore too.
+        The writer lock keeps snapshot and restore together with task holds that
+        clear the record. Call only around the wait and transaction, never probes.
+        """
+        with self.store._lock:
+            previous = self._capacity_waits.get(job_id)
+            try:
+                yield
+            except BaseException:
+                if previous is None:
+                    self._capacity_waits.pop(job_id, None)
+                else:
+                    self._capacity_waits[job_id] = previous
+                raise
+
+    @contextlib.contextmanager
     def _isolated_route(self, job: dict, holds: dict[str, dict]):
         """C-6.12: an `Unroutable` from the block settles this job and ends the block, not the pass.
 
         Entered outside the reserving transaction, so the transaction has rolled
         back before the job is settled; the caller reads `failed` after the block.
+        C-3.8, C-6.10: an aborted verdict cannot consume its event or decision.
+        Keep this job's previous wait until commit, restoring it on any failure,
+        including one in the transaction's exit. The writer lock also prevents
+        a concurrent task hold from clearing the wait before it is restored.
         """
         route = {"failed": False}
         try:
-            yield route
+            with self._capacity_wait_rollback(job["job_id"]):
+                yield route
         except Unroutable as exc:
             route["failed"] = True
             self._unroutable(job, exc, holds)
@@ -9665,8 +9944,10 @@ class Daemon:
         if (job and job["state"] in TERMINAL and job["sandbox"] == "workspace-write" and not job["in_place"]
                 and not job["worktree"] and path.exists() and not self.store.list_attempts(job_id)):
             cap = self.policy["caps"]["workspace_git_timeout_s"]
-            if not self._tree_locked(job, str(path), cap):      # C-6.20: someone's claim
+            try:
                 self._discard_worktree(job["workdir"], str(path), cap, self._recorded_common(job))
+            except (AdapterError, SalvageError, OSError) as exc:
+                self.log.warning("job %s: refused worktree kept: %s", job_id, refusals.scrubbed_line(str(exc)))
 
     def _offer_unrun_sweep(self) -> None:
         """C-6.20: ask for `_sweep_unrun_worktrees` on a worker; a run already going reads again."""
@@ -9781,22 +10062,18 @@ class Daemon:
                     *folders.turn_folders(self.store.query),
                     *(folder for folder, _ in folders.exclusive_folders(self.store.query))))):
             return False
-        # The repository names the registration, wherever the caller's checkout is now and whatever
-        # the tree holds (`_tree_registration`). A lock there is someone's claim, as git, retention
-        # and `discard_registration` read it. A tree whose repository nothing names might be locked.
         cap = self.policy["caps"]["workspace_git_timeout_s"]
         try:
-            common, admin = self._tree_registration(job, tree, cap)
-        except OSError:
+            common, admin = self._worktree_proof(job, tree, cap, self._recorded_common(job))
+            # C-6.20: registration first, with index and lock checked again there.
+            _, refused = worktree_add.drop_registration(common, tree, job["workdir_head"], timeout_s=cap)
+            if refused is not None:
+                self.log.warning("job %s: give-back kept worktree: %s", job_id, refusals.scrubbed_line(refused))
+                return False
+            self._discard_worktree(job["workdir"], tree, cap, common)
+        except (AdapterError, SalvageError, OSError) as exc:
+            self.log.warning("job %s: give-back kept worktree: %s", job_id, refusals.scrubbed_line(str(exc)))
             return False
-        if common is None or (admin is not None and os.path.lexists(admin / "locked")):
-            return False
-        # The registration goes first. No lock can come after it, one that came just before stops
-        # it with nothing lost, and a stop here leaves a gitfile that names nothing, which a look
-        # cuts again (`_workspace`).
-        if admin is not None and discard_registration(job["workdir"], tree, timeout=cap, common=common) is None:
-            return False
-        self._discard_worktree(job["workdir"], tree, cap, common)
         if os.path.lexists(path):
             return False
         left = admin
@@ -10097,7 +10374,10 @@ class Daemon:
         and `exit_for_job` reports a cancelled job as 130 whatever its rc, which
         would hide the refusal C-17.3 numbers 7. Submit refuses the ordinary
         case; this path is the submit/admission race, and it says the same thing.
+        C-3.8: the caller's transaction (admission's) records `job.revive_skipped`, naming
+        the revive that holds the lease; it reserved nothing and waits for nothing.
         """
+        self.store.audit_as("job.revive_skipped", {"holder": holder})
         tx.execute("UPDATE jobs SET state='failed',rc=7,wait_reason=NULL,"
                    "next_check_at=NULL,finished_at=? WHERE job_id=?",
                    (utcnow(), job["job_id"]))
@@ -12974,7 +13254,7 @@ class Daemon:
         # ordinary read/cancel operations stay responsive.
         pool = (self.workers if req.op == "submit" or req.op.startswith("gate.") else
                 self.waiters if req.op == "wait" else
-                self.lookups if req.op in LOOKUP_OPS else self.requests)
+                self.lookups if req.op in LOOKUP_OPS and descriptors.read_only(req.op, req.args) else self.requests)
         return pool.submit(self._run_worker, self._respond, conn, write_lock, req, arrived,
                            **({"peer": peer} if req.op == "kill" else {}))
 

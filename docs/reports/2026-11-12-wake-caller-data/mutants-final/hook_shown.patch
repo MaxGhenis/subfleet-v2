@@ -1,0 +1,38 @@
+--- subfleet/caller_wakes.py
++++ subfleet/caller_wakes.py
+@@ -113,7 +113,7 @@
+                 next_at = min(deadline, now + min(RETRY_MAX_S, 2 ** min(attempts, 9))) if again else None
+                 tx.execute("UPDATE notices SET wake_state=?,wake_attempts=?,wake_next_at=?,wake_at=?,wake_reason=? "
+                            "WHERE notice_id=? AND job_id=? AND session_id IS ? AND created_at=? AND text=? "
+-                           "AND state IN ('pending','offered') AND wake_state IS NULL",
++                           "AND wake_state IS NULL",
+                            (None if again else "undeliverable", attempts, next_at, now,
+                             reason if again or not retry else "retry-expired", row["notice_id"], row["job_id"],
+                             row["session_id"], row["created_at"], row["text"]))
+@@ -127,7 +127,7 @@
+         now = self.now()
+         pending = self.store.query(
+             "SELECT n.* FROM notices n JOIN jobs j USING(job_id) "
+-            "WHERE n.state IN ('pending','offered') AND n.wake_state IS NULL AND j.kind<>'turn' "
++            "WHERE n.wake_state IS NULL AND j.kind<>'turn' "
+             "AND (n.wake_next_at IS NULL OR n.wake_next_at<=?) ORDER BY n.created_at,n.notice_id", (now,))
+         groups = defaultdict(list)
+         for row in pending:
+@@ -150,7 +150,7 @@
+                 # Hooks and other passes may have consumed the candidate read.
+                 rows = [row for row in candidates if self.store.one(
+                     "SELECT 1 FROM notices WHERE notice_id=? AND job_id=? AND session_id=? AND created_at=? AND text=? "
+-                    "AND state IN ('pending','offered') AND wake_state IS NULL",
++                    "AND wake_state IS NULL",
+                     (row["notice_id"], row["job_id"], session, row["created_at"], row["text"]))]
+                 if not rows:
+                     continue
+@@ -197,7 +197,7 @@
+                         if tx.execute("UPDATE notices SET state='surfaced',transport='caller-wake',"
+                                       "wake_state='claimed',wake_attempts=wake_attempts+1,wake_at=?,wake_next_at=NULL "
+                                       "WHERE notice_id=? AND job_id=? AND session_id=? AND created_at=? AND text=? "
+-                                      "AND state IN ('pending','offered') AND wake_state IS NULL",
++                                      "AND wake_state IS NULL",
+                                       (now, row["notice_id"], row["job_id"], session,
+                                        row["created_at"], row["text"])).rowcount:
+                             claimed.append(row)

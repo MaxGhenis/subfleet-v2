@@ -1,0 +1,20 @@
+label offload-files start 22:48:57 bound 585s basetemp /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T//sf-ao-fix3/bt/pytest-offload-files-224857
+uptime-start: 23:48  up 4 days, 11:09, 1 user, load averages: 30.99 47.23 50.77
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   3996G     14G    102G    12%    487k  996M    0%   /
+args: -n 4 -rfEs tests/unit/test_retention_offload_r3.py tests/unit/test_retention_offload_r2.py tests/unit/test_retention_offload_r1.py tests/unit/test_retention_volume_offload_r1.py
+============================= test session starts ==============================
+platform darwin -- Python 3.15.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/maxghenis/.subfleet/worktrees/20261125-232725-ao-fix-r3
+configfile: pyproject.toml
+plugins: xdist-3.8.0, timeout-2.4.0, hypothesis-6.168.1
+timeout: 1200.0s
+timeout method: signal
+timeout func_only: False
+created: 4/4 workers
+4 workers [53 items]
+
+.....................................................                    [100%]
+============================== 53 passed in 7.96s ==============================
+rc=0 end 22:49:05
+uptime-end: 23:49  up 4 days, 11:09, 1 user, load averages: 28.53 46.17 50.35

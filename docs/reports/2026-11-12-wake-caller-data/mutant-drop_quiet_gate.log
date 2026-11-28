@@ -1,0 +1,61 @@
+FFF                                                                      [100%]
+=================================== FAILURES ===================================
+________ test_c15_9_quiet_only_never_wakes_a_recently_active_session[0] ________
+
+callers = <tests.fake.test_caller_notice_wakes.Callers object at 0x108e382f0>
+age = 0
+
+    @pytest.mark.parametrize("age", [0, 299, 299.999999])
+    def test_c15_9_quiet_only_never_wakes_a_recently_active_session(callers, age):
+        """Invariant 3 Quiet only: a completed transcript still needs the full gate."""
+        callers.register("active-caller", age=age)
+        notice = callers.finish("active-caller")
+        callers.pass_once()
+>       assert callers.counts()[notice] == 0
+E       assert 1 == 0
+
+tests/fake/test_caller_notice_wakes.py:317: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4440750608:daemon.py:994 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4440750608:daemon.py:1082 reset credits: automatic redemption off; no-reset marker absent
+_______ test_c15_9_quiet_only_never_wakes_a_recently_active_session[299] _______
+
+callers = <tests.fake.test_caller_notice_wakes.Callers object at 0x108ec02d0>
+age = 299
+
+    @pytest.mark.parametrize("age", [0, 299, 299.999999])
+    def test_c15_9_quiet_only_never_wakes_a_recently_active_session(callers, age):
+        """Invariant 3 Quiet only: a completed transcript still needs the full gate."""
+        callers.register("active-caller", age=age)
+        notice = callers.finish("active-caller")
+        callers.pass_once()
+>       assert callers.counts()[notice] == 0
+E       assert 1 == 0
+
+tests/fake/test_caller_notice_wakes.py:317: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4442085696:daemon.py:994 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4442085696:daemon.py:1082 reset credits: automatic redemption off; no-reset marker absent
+___ test_c15_9_quiet_only_never_wakes_a_recently_active_session[299.999999] ____
+
+callers = <tests.fake.test_caller_notice_wakes.Callers object at 0x108ec25d0>
+age = 299.999999
+
+    @pytest.mark.parametrize("age", [0, 299, 299.999999])
+    def test_c15_9_quiet_only_never_wakes_a_recently_active_session(callers, age):
+        """Invariant 3 Quiet only: a completed transcript still needs the full gate."""
+        callers.register("active-caller", age=age)
+        notice = callers.finish("active-caller")
+        callers.pass_once()
+>       assert callers.counts()[notice] == 0
+E       assert 1 == 0
+
+tests/fake/test_caller_notice_wakes.py:317: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4442088384:daemon.py:994 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4442088384:daemon.py:1082 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_quiet_only_never_wakes_a_recently_active_session[0]
+FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_quiet_only_never_wakes_a_recently_active_session[299]
+FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_quiet_only_never_wakes_a_recently_active_session[299.999999]
+3 failed in 4.33s

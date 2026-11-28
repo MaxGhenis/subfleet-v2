@@ -23,6 +23,7 @@ for every call.
 from __future__ import annotations
 
 import bisect
+import errno
 import hashlib
 import os
 import re
@@ -233,19 +234,56 @@ def _resolve(base: Path, text: str) -> Path:
     return Path(os.path.realpath(path if path.is_absolute() else base / path))
 
 
-def gitfile_admin(tree: Path) -> tuple[Path | None, bytes, str | None]:
+def same_entry(first: str | os.PathLike, second: str | os.PathLike) -> bool:
+    """Compare names using the filesystem, without following their final links.
+
+    A missing final name is compared through its existing ancestors. This also
+    covers an add whose tree or gitfile has not been written yet. No case or
+    Unicode folding is safe on all filesystems (C-6.8, F6).
+    """
+    first, second = Path(first), Path(second)
+    first = first if first.is_absolute() else Path.cwd() / first
+    second = second if second.is_absolute() else Path.cwd() / second
+    try:
+        left = os.lstat(first)
+    except (FileNotFoundError, NotADirectoryError):
+        left = None
+    try:
+        right = os.lstat(second)
+    except (FileNotFoundError, NotADirectoryError):
+        right = None
+    if left is not None and right is not None:
+        if stat.S_ISLNK(left.st_mode) or stat.S_ISLNK(right.st_mode):
+            return os.path.samestat(left, right)
+        return os.path.samefile(first, second)
+    if (left is None) != (right is None):
+        return False
+    if first == second:
+        return True
+    return (first.name == second.name and first.parent != first and second.parent != second
+            and same_entry(first.parent, second.parent))
+
+
+def gitfile_admin(tree: Path, *, strict: bool = False) -> tuple[Path | None, bytes, str | None]:
     """(the admin directory the tree's gitfile names, the gitfile, None), or
     (None, b"", why) when the tree has no gitfile naming one."""
     try:
         gitfile = rfs.read_regular(tree / ".git", limit=65536)
-    except FileNotFoundError:
+    except (FileNotFoundError, NotADirectoryError):
         return None, b"", "no-gitfile"
     except (IsADirectoryError, OSError) as exc:
+        if strict:
+            raise
         return None, b"", f"gitfile-unreadable: {exc}"
     text = gitfile.decode("utf-8", "surrogateescape").strip()
     if not text.startswith("gitdir:") or "\0" in text:      # no path holds a NUL: realpath raises on one
         return None, b"", "gitfile-malformed"
-    return _resolve(tree, text[len("gitdir:"):].strip()), gitfile, None
+    spelling = text[len("gitdir:"):].strip()
+    named = Path(spelling)
+    named = named if named.is_absolute() else tree / named
+    # Keep a final link visible to strict ownership reads.
+    admin = Path(os.path.realpath(named.parent, strict=True)) / named.name if strict else _resolve(tree, spelling)
+    return admin, gitfile, None
 
 
 #: What is left of an admin directory whose files a temporary directory's
@@ -271,7 +309,7 @@ def is_remnant(admin: Path) -> bool:
     return True
 
 
-def registration(tree: Path, read: tuple[Path | None, bytes, str | None] | None = None
+def registration(tree: Path, read: tuple[Path | None, bytes, str | None] | None = None, *, strict: bool = False
                  ) -> tuple[Registration | None, str | None]:
     """(registration, None), or (None, why) when the tree has none we may use.
 
@@ -283,22 +321,36 @@ def registration(tree: Path, read: tuple[Path | None, bytes, str | None] | None 
     answer is then about those bytes, not a second read of a gitfile that
     another tool may have moved in between.
     """
-    admin, gitfile, why = read if read is not None else gitfile_admin(tree)
+    admin, gitfile, why = read if read is not None else gitfile_admin(tree, strict=strict)
     if admin is None:
         return None, why
-    if not admin.is_dir():
+    try:
+        if not stat.S_ISDIR(os.lstat(admin).st_mode):
+            return None, "admin-missing"
+    except FileNotFoundError:
         return None, "admin-missing"
+    except OSError:
+        if strict:
+            raise
+        return None, "admin-unreadable"
     try:
         backlink = rfs.read_regular(admin / "gitdir", limit=65536).decode("utf-8", "surrogateescape").strip()
         commondir = rfs.read_regular(admin / "commondir", limit=65536).decode("utf-8", "surrogateescape").strip()
     except OSError as exc:
+        if strict:
+            raise
         if isinstance(exc, FileNotFoundError) and is_remnant(admin):
             return None, "admin-remnant"
         return None, f"admin-unreadable: {exc}"
-    if _resolve(admin, backlink) != Path(os.path.realpath(tree / ".git")):
+    if "\0" in backlink or "\0" in commondir:
+        return None, "registration-malformed"
+    named = Path(backlink)
+    named = named if named.is_absolute() else admin / named
+    if not (same_entry(named.parent, tree) and same_entry(named, tree / ".git")):
         return None, "registration-mismatch"
-    common = _resolve(admin, commondir)
-    if admin.parent != common / "worktrees":
+    common = (Path(os.path.realpath(admin / commondir, strict=True)) if strict
+              else _resolve(admin, commondir))
+    if not same_entry(admin.parent, common / "worktrees"):
         return None, "registration-not-direct"
     return Registration(admin, common, gitfile), None
 
@@ -697,29 +749,49 @@ def refs_under(common: Path, prefix: str, *, timeout: float = 120,
     return dict(line.split(" ", 1) for line in out.splitlines() if " " in line)
 
 
-def registration_of(common: str | os.PathLike, tree: str | os.PathLike) -> Path | None:
+def registration_of(common: str | os.PathLike, tree: str | os.PathLike, *, strict: bool = False) -> Path | None:
     """`tree`'s registration in the repository whose common directory is `common`: the admin
     directory directly under ``<common>/worktrees`` whose ``gitdir`` backlink names ``tree/.git``,
     or None. The repository answers, not the tree: a gitfile can be missing or name somewhere
     else (C-6.20). A backlink that cannot be read, or holds a NUL, names no tree. A ``worktrees``
     folder that cannot be read raises OSError, not None."""
-    wanted = os.path.realpath(Path(tree) / ".git")
+    wanted = Path(tree) / ".git"
+    container = Path(common) / "worktrees"
     try:
-        admins = sorted((Path(common) / "worktrees").iterdir())
+        if strict and not stat.S_ISDIR(os.lstat(container).st_mode):
+            raise OSError(errno.ELOOP, "the registration container is not a real directory")
+        admins = sorted(container.iterdir())
     except FileNotFoundError:
         return None
+    matches = []
     for admin in admins:
-        if admin.is_symlink() or not admin.is_dir():
+        try:
+            is_directory = stat.S_ISDIR(os.lstat(admin).st_mode)
+        except FileNotFoundError:
+            continue
+        except OSError:
+            if strict:
+                raise
+            continue
+        if not is_directory:
             continue       # never follow a link out of the repository
         try:
             backlink = rfs.read_regular(admin / "gitdir", limit=65536).decode("utf-8", "surrogateescape").strip()
+        except FileNotFoundError:
+            continue       # another add has not written its backlink, or an admin just went
         except OSError:
+            if strict:
+                raise
             continue
         if "\0" in backlink:
             continue       # corrupt: no path holds a NUL, and realpath raises ValueError on one
-        if os.path.realpath(_resolve(admin, backlink)) == wanted:
-            return admin
-    return None
+        named = Path(backlink)
+        named = named if named.is_absolute() else admin / named
+        if same_entry(named.parent, Path(tree)) and same_entry(named, wanted):
+            matches.append(admin)
+    if strict and len(matches) > 1:
+        raise OSError(errno.EINVAL, "more than one registration names the worktree")
+    return matches[0] if len(matches) == 1 else None
 
 
 def discard_registration(repository: str | os.PathLike, tree: str | os.PathLike, *,
