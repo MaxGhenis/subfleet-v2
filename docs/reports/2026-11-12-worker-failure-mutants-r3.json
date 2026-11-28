@@ -1,0 +1,127 @@
+{
+  "checkout_sha256": {
+    "subfleet/conversations/redact.py": "98aa3ab563bc4a9a01eb086e50e7cfdd45fa3a0980190f0ba473992b30d0f7b7",
+    "subfleet/daemon.py": "9e4bf85ed1928eb3b9658b2def9e2008cddff9d012f499f86defec433d894b96",
+    "subfleet/daemon_log.py": "802ebf4b3d472e8dcf45efcf14e1b77d51e0ad979f6c29985c9e1f2b9154206b",
+    "subfleet/sessions/handoff.py": "cefe4e108aa4ff12ea763efeb40adc0f81b1ef1df82916acc75a68710ca5e230"
+  },
+  "results": [
+    {
+      "name": "H1-bb118f63d-reading-dropped",
+      "file": "subfleet/daemon_log.py",
+      "what": "a text is read only as fix r2 read it",
+      "tests": [
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r3_a_format_character_before_bearer_keeps_bb118f63ds_mask",
+        "tests/unit/test_worker_failure_r3_properties.py::test_r3_no_character_bb118f63d_masked_is_written"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "summary": "6 failed in 129.00s (0:02:08)",
+      "failed": [
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r3_a_format_character_before_bearer_keeps_bb118f63ds_mask[message]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r3_a_format_character_before_bearer_keeps_bb118f63ds_mask[control]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r3_a_format_character_before_bearer_keeps_bb118f63ds_mask[request]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r3_a_format_character_before_bearer_keeps_bb118f63ds_mask[tail]",
+        "tests/unit/test_worker_failure_url_and_terminal.py::test_r3_a_format_character_before_bearer_keeps_bb118f63ds_mask[follow]",
+        "tests/unit/test_worker_failure_r3_properties.py::test_r3_no_character_bb118f63d_masked_is_written"
+      ],
+      "restored_sha256": "802ebf4b3d472e8dcf45efcf14e1b77d51e0ad979f6c29985c9e1f2b9154206b",
+      "seconds": 167.1,
+      "load_start": 169.1,
+      "load_end": 120.0
+    },
+    {
+      "name": "H2-follower-context-not-read",
+      "file": "subfleet/daemon_log.py",
+      "what": "the follower's earlier text is not read as a terminal shows it",
+      "tests": [
+        "tests/unit/test_worker_failure_r3_properties.py::test_r3_an_invisible_key_split_across_feeds_is_still_a_password",
+        "tests/unit/test_worker_failure_r3_properties.py::test_r3_a_follower_fed_in_any_split_hides_what_it_hides_whole"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "summary": "1 failed, 1 passed in 39.65s",
+      "failed": [
+        "tests/unit/test_worker_failure_r3_properties.py::test_r3_a_follower_fed_in_any_split_hides_what_it_hides_whole"
+      ],
+      "restored_sha256": "802ebf4b3d472e8dcf45efcf14e1b77d51e0ad979f6c29985c9e1f2b9154206b",
+      "seconds": 50.9,
+      "load_start": 120.0,
+      "load_end": 96.6
+    },
+    {
+      "name": "H3-follower-settles-in-the-text-only",
+      "file": "subfleet/daemon_log.py",
+      "what": "a break is settled by the text alone, not its terminal readings",
+      "tests": [
+        "tests/unit/test_worker_failure_r3_properties.py::test_r3_a_private_key_an_invisible_character_splits_is_held_until_it_ends"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "summary": "1 failed in 14.60s",
+      "failed": [
+        "tests/unit/test_worker_failure_r3_properties.py::test_r3_a_private_key_an_invisible_character_splits_is_held_until_it_ends"
+      ],
+      "restored_sha256": "802ebf4b3d472e8dcf45efcf14e1b77d51e0ad979f6c29985c9e1f2b9154206b",
+      "seconds": 22.7,
+      "load_start": 96.6,
+      "load_end": 78.9
+    },
+    {
+      "name": "H4-approval-password-stops-at-a-mask",
+      "file": "subfleet/conversations/redact.py",
+      "what": "the head's URL password cannot read through release's mask",
+      "tests": [
+        "tests/unit/test_worker_failure_r3_properties.py::test_r3_review_urls_mask_their_whole_password"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "summary": "1 failed in 8.91s",
+      "failed": [
+        "tests/unit/test_worker_failure_r3_properties.py::test_r3_review_urls_mask_their_whole_password"
+      ],
+      "restored_sha256": "98aa3ab563bc4a9a01eb086e50e7cfdd45fa3a0980190f0ba473992b30d0f7b7",
+      "seconds": 16.8,
+      "load_start": 78.9,
+      "load_end": 60.5
+    },
+    {
+      "name": "H5-approval-password-refused-for-a-metacharacter",
+      "file": "subfleet/conversations/redact.py",
+      "what": "a URL password holding a shell metacharacter is shown whole, as fix r2 had it",
+      "tests": [
+        "tests/unit/test_worker_failure_r3_properties.py::test_r3_review_urls_mask_their_whole_password",
+        "tests/unit/test_worker_failure_r3_properties.py::test_r3_an_approval_masks_every_password_character_but_shell_metacharacters"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "summary": "2 failed in 46.81s",
+      "failed": [
+        "tests/unit/test_worker_failure_r3_properties.py::test_r3_review_urls_mask_their_whole_password",
+        "tests/unit/test_worker_failure_r3_properties.py::test_r3_an_approval_masks_every_password_character_but_shell_metacharacters"
+      ],
+      "restored_sha256": "98aa3ab563bc4a9a01eb086e50e7cfdd45fa3a0980190f0ba473992b30d0f7b7",
+      "seconds": 61.0,
+      "load_start": 60.5,
+      "load_end": 93.8
+    },
+    {
+      "name": "H6-approval-password-hides-metacharacters",
+      "file": "subfleet/conversations/redact.py",
+      "what": "a shell metacharacter in a URL password is masked with it",
+      "tests": [
+        "tests/unit/test_worker_failure_r3_properties.py::test_r3_an_approval_masks_every_password_character_but_shell_metacharacters"
+      ],
+      "returncode": 1,
+      "killed": true,
+      "summary": "1 failed in 88.84s (0:01:28)",
+      "failed": [
+        "tests/unit/test_worker_failure_r3_properties.py::test_r3_an_approval_masks_every_password_character_but_shell_metacharacters"
+      ],
+      "restored_sha256": "98aa3ab563bc4a9a01eb086e50e7cfdd45fa3a0980190f0ba473992b30d0f7b7",
+      "seconds": 120.4,
+      "load_start": 93.8,
+      "load_end": 172.6
+    }
+  ]
+}

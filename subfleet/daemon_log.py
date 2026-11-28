@@ -81,7 +81,9 @@ import logging
 import re
 import sys
 import threading
+import traceback
 import warnings
+from collections import deque
 from typing import Any, Callable
 
 from . import refusals
@@ -98,6 +100,15 @@ SCRUB_FAILED = "[scrub failed]"
 RECORD_SCRUB_MAX = 16_384
 #: What logging's report of a record it could not write becomes.
 WRITE_FAILED = "[log write failed]"
+#: The most exceptions, chained or grouped, a record's traceback is rendered with as
+#: Python renders it (C-5.10). Python's renderer reads every one, its frames' source lines
+#: included, before the handler's cut keeps `RECORD_SCRUB_MAX` characters of them all.
+EXCEPTIONS_RENDERED_MAX = 64
+#: A traceback with more is rendered as this many links of its chain from each end: the
+#: exception logged and those nearest it, and the first raised, with no group's members.
+CHAIN_ENDS_RENDERED = 16
+#: The most links of one chain read to find its first raised.
+CHAIN_READ_MAX = 100_000
 #: What the handler writes, and what a person reads of daemon.log shows, in place of a
 #: reminder tag (C-25.7, review r4 of #233). One run with no whitespace, quote, `,`, `;`,
 #: `:`, `=`, `/` or `@` and no key's ending, so every scrub rule reads it as it reads a tag,
@@ -126,6 +137,127 @@ _GROUP_MARGIN = re.compile(r"(?:  )+[|+](?: |$)")
 _GROUP_MARGIN_LINE = re.compile(r"(?m)^(?:  )+[|+](?: |$)")
 #: A whitespace-free run, as a value is.
 _RUN = re.compile(r"\S+")
+
+#: The control characters a terminal acts on rather than shows, but for tab, line feed and
+#: carriage return: C0, DEL and C1 (C-5.10, C-25.7). What the handler writes and what a
+#: person reads of daemon.log show each as its `\xNN` escape (`_controls_shown`).
+_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+#: Unicode's format characters (category Cf, as of Unicode 17): the zero-width space
+#: (U+200B), the soft hyphen (U+00AD), the word joiner (U+2060), the byte-order mark,
+#: bidirectional marks and the like. A terminal draws nothing of most of them, so a key
+#: one splits (`pass\u200bword=`) reads whole. They are written as they are.
+#: `test_worker_failure_url_and_terminal` checks this against the running Python's
+#: `unicodedata`.
+_FORMAT = ("\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f"
+           "\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb\U000110bd\U000110cd"
+           "\U00013430-\U0001343f\U0001bca0-\U0001bca3\U0001d173-\U0001d17a\U000e0001"
+           "\U000e0020-\U000e007f")
+#: What a terminal's reading of a text drops (`_rendered`): the control characters that
+#: are not whitespace to the scrubber (`\s`); the information separators `\x1c` to `\x1f`,
+#: which are whitespace to it but which a terminal ignores (ECMA-48); and the format
+#: characters. The controls left (tab, line feed, vertical tab, form feed, carriage
+#: return and NEL) are whitespace to the scrubber and space or break a terminal's line,
+#: so they separate runs in either reading.
+_INVISIBLE = re.compile(r"[\x00-\x08\x0e-\x1f\x7f-\x84\x86-\x9f" + _FORMAT + "]")
+#: What bb118f63d's reading (fix r1's) drops (`_rendered_controls`): only the control
+#: characters that are not whitespace to the scrubber. It keeps the format characters,
+#: which end a word as the scrubber reads one, so `x\u200bBearer\x1b[0m <token>` reads
+#: `x\u200bBearer <token>` there, a `Bearer` token, where `_rendered` reads `xBearer`, no
+#: word `Bearer` at all (review r3 of #308, P1). Each reading is kept: what either hides
+#: stays hidden.
+_HIDDEN_CONTROL = re.compile(r"[\x00-\x08\x0e-\x1b\x7f-\x84\x86-\x9f]")
+#: A text holding any of these is also read as a terminal shows it (`_terminal_safe`,
+#: the formatter): a control character or a format character.
+_UNSHOWN = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f" + _FORMAT + "]")
+#: A run as a terminal shows it: a whitespace-free run, joined across the separators
+#: `\x1c` to `\x1f` that the terminal draws nothing for (`_controls_shown`).
+_SHOWN_RUN = re.compile(r"(?:[^\s]|[\x1c-\x1f])+")
+#: A terminal control sequence, which a terminal shows nothing of (ECMA-48): CSI (`ESC [`
+#: or C1 `\x9b`) with its parameters, intermediates and final byte; a string (OSC `ESC ]`,
+#: DCS `ESC P`, SOS `ESC X`, PM `ESC ^`, APC `ESC _`, or their C1 forms) to its BEL or ST
+#: terminator, else to its line's end; any other escape with its intermediates and final.
+_TERMINAL_SEQUENCE = re.compile(
+    r"(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]?"
+    r"|(?:\x1b[\]PX^_]|[\x90\x98\x9d\x9e\x9f])[^\x07\x1b\x9c\n]*(?:\x07|\x1b\\|\x9c)?"
+    r"|\x1b[ -/]*[0-~]?")
+
+
+def _rendered(text: str) -> str:
+    """`text` as a terminal shows it: its control sequences and what `_INVISIBLE` names
+    left out, so a key a sequence, an information separator or a format character splits
+    (`pass\\x1b[0mword=`, `pass\\x1fword=`, `pass\\u200bword=`) reads whole, as a person
+    reading the terminal sees it."""
+    return _INVISIBLE.sub("", _TERMINAL_SEQUENCE.sub("", text))
+
+
+def _rendered_controls(text: str) -> str:
+    """`text` as bb118f63d read it for a terminal: its control sequences and what
+    `_HIDDEN_CONTROL` names left out, its format characters and information separators
+    kept (`_HIDDEN_CONTROL`)."""
+    return _HIDDEN_CONTROL.sub("", _TERMINAL_SEQUENCE.sub("", text))
+
+
+def _readings(source: str) -> list[tuple[Callable[[str], str], re.Pattern]]:
+    """The terminal readings `source` is also scrubbed in (C-5.10), each with the run a
+    value is read in there: none for a text holding no control or format character
+    (`_UNSHOWN`); else `_rendered`'s, a run joined across the information separators
+    (`_SHOWN_RUN`); and, for one holding a control character, bb118f63d's
+    (`_rendered_controls`), a whitespace-free run (`_RUN`). A text holding no control
+    character reads in bb118f63d's reading as it is, so that reading would hide nothing
+    the text's own scrub does not."""
+    if not _UNSHOWN.search(source):
+        return []
+    if not _CONTROL.search(source):
+        return [(_rendered, _SHOWN_RUN)]
+    return [(_rendered, _SHOWN_RUN), (_rendered_controls, _RUN)]
+
+
+def _visible(text: str) -> str:
+    """`text` with each control character `_CONTROL` names written as its `\\xNN` escape."""
+    return _CONTROL.sub(lambda match: f"\\x{ord(match.group()):02x}", text)
+
+
+def _terminal_safe(source: str, scrubbed: str, scrub: Callable[[str], str], around: str = "") -> str:
+    """`scrubbed`, the scrub of `source`, as written for a terminal: unchanged when
+    `source` and `around` hold no control or format character (`_UNSHOWN`), else with
+    `source` read in each of its terminal readings (`_readings`) and scrubbed by `scrub`
+    too (`_controls_shown`). `around`, for the follower, is the text `source` follows
+    with `source` itself: each reading of it is scrubbed too, and a run is written only
+    if that scrub holds it as well, so a key the earlier text ends with hides its value
+    (review r3 of #308, P2). A margin's mark (`|`, `+`) alone counts as held there, as
+    the follower's own rule has it."""
+    readings = _readings(around + source)
+    if not readings:
+        return scrubbed
+    checks = []
+    for reading, runs in readings:
+        shown = [set(_RUN.findall(scrub(reading(source))))]
+        if around:
+            shown.append(set(_RUN.findall(scrub(reading(around)))) | {"|", "+"})
+        checks.append((reading, runs, shown))
+    return _controls_shown(scrubbed, checks)
+
+
+def _controls_shown(text: str, checks: list[tuple[Callable[[str], str], re.Pattern, list[set[str]]]]) -> str:
+    """`text`, a scrubbed record or tail holding control or format characters, as written
+    (C-5.10, C-25.7): each control character as its `\\xNN` escape, so no escape sequence
+    reaches daemon.log or a person's terminal and a reader still sees where one was; and
+    each run as a terminal shows it (`_SHOWN_RUN`) `[REDACTED]` unless, in every reading
+    of `checks` (a reading, the run a value is read in there, and the runs each scrub of
+    the same text read so holds), each of its runs reads as nothing or as a run every
+    such scrub holds: what any reading hides stays hidden. A run that is only control
+    sequences or invisible characters reads as nothing and is kept. Format characters
+    are written as they are."""
+
+    def run(match: re.Match) -> str:
+        for reading, runs, shown in checks:
+            for piece in runs.findall(match.group()):
+                plain = reading(piece)
+                if plain and not all(plain in held for held in shown):
+                    return REDACTED
+        return match.group()
+
+    return _visible(_SHOWN_RUN.sub(run, text))
 
 
 def scrubbed_block(text: str, *, group: bool = False, keep_lines: bool = False) -> str:
@@ -283,6 +415,20 @@ class ScrubbingFormatter(logging.Formatter):
         # never less.
         groups = [_GROUP_MARK in part for part in parts]
         (line, *blocks), message = _within(parts, RECORD_SCRUB_MAX), parts[0]
+        text = self._scrubbed_parts(record, line, blocks, message, groups)
+        readings = _readings("".join((line, *blocks)))
+        if readings:
+            # The cut parts read as a terminal shows them, in each reading, scrubbed alike
+            # (C-5.10).
+            text = _controls_shown(text, [(reading, runs, [set(_RUN.findall(self._scrubbed_parts(
+                record, reading(line), [reading(block) for block in blocks], message, groups)))])
+                for reading, runs in readings])
+        return text
+
+    @staticmethod
+    def _scrubbed_parts(record: logging.LogRecord, line: str, blocks: list[str], message: str,
+                        groups: list[bool]) -> str:
+        """The record's cut line and blocks, scrubbed: the line form or the block form."""
         if line != message and line == cut_marker(len(message)) + "\n":
             # Nothing of the line is kept: the marker names the record's level and
             # logger, fixed metadata, never its words.
@@ -300,11 +446,95 @@ class ScrubbingFormatter(logging.Formatter):
         # Formatted from `exc_info` each time: an `exc_text` another formatter cached
         # on the record is used only when the record has nothing else.
         if record.exc_info:
-            yield self.formatException(record.exc_info)
+            yield self._exception_text(record.exc_info)
         elif record.exc_text:
             yield record.exc_text
         if record.stack_info:
             yield self.formatStack(record.stack_info)
+
+
+    def _exception_text(self, exc_info: Any) -> str:
+        """`formatException(exc_info)`, its cost bounded before Python renders it (C-5.10):
+        a traceback of at most `EXCEPTIONS_RENDERED_MAX` exceptions as Python renders it,
+        a longer one as its chain's two ends (`_chain_ends`, `_ends_text`)."""
+        value = exc_info[1] if type(exc_info) is tuple and len(exc_info) == 3 else None
+        ends = _chain_ends(value) if isinstance(value, BaseException) else None
+        if ends is None:
+            return self.formatException(exc_info)
+        return _ends_text(exc_info[2], *ends)
+
+
+def _chain_ends(exc: BaseException) -> tuple[list[BaseException], list[BaseException], int] | None:
+    """None when `exc` and the exceptions Python's renderer reads with it (`__cause__`, else
+    `__context__` unless suppressed, and each group's members) number at most
+    `EXCEPTIONS_RENDERED_MAX`, or cannot be read. Otherwise its chain's first
+    `CHAIN_ENDS_RENDERED` links from the exception logged, its last as many (the first
+    raised), and how many links between them are left out. Stored attributes are read past
+    any exception class's hooks, cycles end, and at most `CHAIN_READ_MAX` links are read."""
+    try:
+        count, seen, queue = 0, set(), [exc]
+        while queue:
+            link = queue.pop()
+            if link is None or id(link) in seen:
+                continue
+            seen.add(id(link))
+            count += 1
+            if count > EXCEPTIONS_RENDERED_MAX:
+                break
+            queue.append(_next_link(link))
+            if issubclass(type(link), BaseExceptionGroup):
+                queue.extend(BaseExceptionGroup.exceptions.__get__(link)[:EXCEPTIONS_RENDERED_MAX + 1])
+        else:
+            return None
+        nearest, last, seen, link, length = [], deque(maxlen=CHAIN_ENDS_RENDERED), set(), exc, 0
+        while link is not None and id(link) not in seen and length < CHAIN_READ_MAX:
+            seen.add(id(link))
+            length += 1
+            if len(nearest) < CHAIN_ENDS_RENDERED:
+                nearest.append(link)
+            else:
+                last.append(link)
+            link = _next_link(link)
+        first_raised = list(last) if link is None or id(link) in seen else []
+        return nearest, first_raised, length - len(nearest) - len(first_raised)
+    except Exception:                       # noqa: BLE001 - unreadable: Python's own rendering decides
+        return None
+
+
+def _next_link(link: BaseException) -> BaseException | None:
+    """The exception Python's renderer prints before `link`, read past its class's hooks."""
+    cause = BaseException.__cause__.__get__(link)
+    if cause is not None or BaseException.__suppress_context__.__get__(link):
+        return cause
+    return BaseException.__context__.__get__(link)
+
+
+def _ends_text(tb: Any, nearest: list[BaseException], first_raised: list[BaseException], omitted: int) -> str:
+    """A traceback of `nearest` (the exception logged, with `tb`, then those chained before
+    it) and `first_raised`, each part as Python renders that much of a chain, with a line
+    between them saying how many links it leaves out. Each link is read alone (CPython's
+    `_seen` reads no chain) and linked to the next as Python's renderer would link it; a
+    group is rendered without its members."""
+    def rendered(links: list[BaseException], first_tb: Any) -> str:
+        if not links:
+            return ""
+        parts = []
+        for index, link in enumerate(links):
+            link_tb = first_tb if index == 0 else BaseException.__traceback__.__get__(link)
+            part = traceback.TracebackException(type(link), link, link_tb, compact=True, _seen=set())
+            part.__cause__ = part.__context__ = part.exceptions = None
+            parts.append(part)
+        for link, part, following in zip(links, parts, parts[1:]):
+            if BaseException.__cause__.__get__(link) is not None:
+                part.__cause__ = following
+            else:
+                part.__context__ = following
+        return "".join(parts[0].format())
+
+    marker = (f"… [{omitted:,} chained exceptions not rendered; at most "
+              f"{EXCEPTIONS_RENDERED_MAX} are, and no group's members] …\n")
+    first = rendered(first_raised, BaseException.__traceback__.__get__(first_raised[0])) if first_raised else ""
+    return first + ("\n" if first else "") + marker + "\n" + rendered(nearest, tb)
 
 
 class ScrubbingStreamHandler(logging.StreamHandler):
@@ -444,7 +674,9 @@ def scrubbed_tail(text: str, count: int) -> list[str]:
             resolved = _reminders_resolved(text)
             if resolved is not None:        # else the marker rule: a tag keeps only the marker
                 text = resolved
-        block = scrubbed_block(cut_whole(text, _tail_limit(text, count)), group=group, keep_lines=True)
+        cut = cut_whole(text, _tail_limit(text, count))
+        block = _terminal_safe(cut, scrubbed_block(cut, group=group, keep_lines=True),
+                               lambda rendered: scrubbed_block(rendered, group=group, keep_lines=True))
         return neutralised(block).splitlines()[-count:]
     except Exception as exc:                # noqa: BLE001 - the marker alone, never the text
         return [failed_line(_record("", logging.INFO), exc)]
@@ -619,6 +851,24 @@ def _context_of(text: str) -> str:
     return "" if newline < 0 else text[newline + 1:]
 
 
+def _settled_end(text: str, start: int) -> int:
+    """`handoff.settled_end` of `text` from `start`, in `text` as it is and in each of its
+    terminal readings (`_readings`), whichever is earliest: a break is settled only where
+    no reading's scrub could cross it either, so a key an invisible character splits
+    (`pass\\u200bword:`) holds its line until its value can be read (review r3 of #308,
+    P2). A reading drops no line feed (`_TERMINAL_SEQUENCE` and the characters it drops
+    end before one), so its `n`th line start is the text's."""
+    settled = settled_end(text, start)
+    for reading, _ in _readings(text):
+        read = reading(text)
+        lines = read.count("\n", 0, settled_end(read, len(reading(text[:start]))))
+        at = 0
+        for _ in range(lines):
+            at = text.index("\n", at) + 1
+        settled = min(settled, at)
+    return settled
+
+
 class LogFollower:
     """daemon.log's new text, as `daemon logs --follow` writes it (C-25.7).
 
@@ -648,7 +898,7 @@ class LogFollower:
             newline = before.find("\n", start - 1, complete)
             start = complete if newline < 0 else newline + 1
         try:
-            settled = start + settled_end(before[start:complete], 0)
+            settled = start + _settled_end(before[start:complete], 0)
         except Exception:                   # noqa: BLE001 - unsettled, so read again to the bound
             settled = start
         if complete - settled > FOLLOW_HOLD_MAX:
@@ -665,7 +915,7 @@ class LogFollower:
             return []
         before = self.context + self.shown
         try:
-            settled = settled_end(before + self.pending[:complete], len(self.context)) - len(before)
+            settled = _settled_end(before + self.pending[:complete], len(self.context)) - len(before)
         except Exception:                   # noqa: BLE001 - unsettled, so held to the bound
             settled = 0
         if settled <= 0:
@@ -688,6 +938,9 @@ class LogFollower:
                 shown = neutralised(scrubbed_block(around, group=_GROUP_MARK in around, keep_lines=True))
                 # A margin's mark alone is no value; `shown` may be written without margins.
                 own = _only(own, set(_RUN.findall(shown)) | {"|", "+"})
+            own = _terminal_safe(written, own, lambda rendered: neutralised(
+                scrubbed_block(rendered, group=_GROUP_MARK in rendered, keep_lines=True)),
+                before + written if before else "")
             lines = own.splitlines()
         except Exception as exc:            # noqa: BLE001 - the marker alone, never the text
             lines = [failed_line(_record("", logging.INFO), exc)]

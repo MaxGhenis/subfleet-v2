@@ -1,0 +1,23 @@
+{
+  "method": "Single time.perf_counter() elapsed around ScrubbingStreamHandler.handle(record), using logging.makeLogRecord and io.StringIO; handler initialized before timing. No traceback costs subtracted and no minima selected.",
+  "record_scrub_max": 16384,
+  "selected_fixture_emitted_regression_guard_chars_including_terminator": 32968,
+  "source_budget_note": "16384 is the shared input budget before scrubbing, plus cut-marker overhead. There is no universal emitted-character cap of 32968: redaction markers expand short values.",
+  "untimed_expansion_probe": {"input": "token=x followed by newline, repeated 2048 times", "input_chars": 16384, "output_chars": 34816, "redaction_markers": 2048},
+  "credential": "q7Wd9Zk2Lp4Xv8Nm3Rt6Yh1Bs5Gc0Jf",
+  "timings": [
+    {"row": "RuntimeError: refused: Authorization: Basic <marker>", "input_chars": 75, "seconds": 0.01283558300929144, "output_chars": 60, "credential_or_12_char_fragment_present": false},
+    {"row": "curl -fsS -H 'Authorization: Basic <marker>' https://example.test", "input_chars": 88, "seconds": 0.000396332994569093, "output_chars": 72, "credential_or_12_char_fragment_present": false},
+    {"row": "Command '['curl', '-H', 'X-Request-ID: 7\\nAuthorization: Basic <marker>', 'https://x.test']'", "input_chars": 115, "seconds": 0.00021279096836224198, "output_chars": 90, "credential_or_12_char_fragment_present": false},
+    {"row": "KeyError: 'response headers\\nAuthorization: Basic <marker>'", "input_chars": 82, "seconds": 0.0001970840385183692, "output_chars": 66, "credential_or_12_char_fragment_present": false},
+    {"row": "x_ repeated 3000 times, then password=<marker>", "input_chars": 6040, "seconds": 0.12848791701253504, "output_chars": 2001, "credential_or_12_char_fragment_present": false},
+    {"row": "65536 newlines", "input_chars": 65536, "seconds": 0.41876750002847984, "output_chars": 8224},
+    {"row": "262144 characters of repeated -----BEGIN PRIVATE KEY----- plus newline", "input_chars": 262144, "seconds": 0.5100794589961879, "output_chars": 8218},
+    {"row": "my_postgres://app:<marker>@db", "input_chars": 52, "seconds": 0.0001320409937761724, "output_chars": 53, "credential_or_12_char_fragment_present": true, "status": "documented limitation; route to hub"},
+    {"row": "16384 newlines (exact record scrub bound)", "input_chars": 16384, "seconds": 0.2046499159769155, "output_chars": 1},
+    {"row": "16384 characters of repeated -----BEGIN PRIVATE KEY----- plus newline (exact record scrub bound)", "input_chars": 16384, "seconds": 0.9052178339916281, "output_chars": 16385},
+    {"row": "x_ assignment of exactly 16384 characters ending password=<marker>", "input_chars": 16384, "seconds": 0.08376137498999014, "output_chars": 2001, "credential_or_12_char_fragment_present": false}
+  ],
+  "gate": "passed; no measured record exceeded one second",
+  "excluded_probe": "An initial oversized assignment probe contained 16424 characters, not the exact bound; it took 0.0010782500030472875 seconds, emitted only a 68-character omission line, and was replaced by the exact-bound measurement above."
+}

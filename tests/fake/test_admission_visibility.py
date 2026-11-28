@@ -353,7 +353,7 @@ def test_c5_10_a_worker_that_raises_is_retried_with_backoff_and_logged_sparsely(
 
     def boom():
         calls.append(len(calls))
-        raise RuntimeError("secret-bearing detail that must not be logged")
+        raise RuntimeError("pinned_lane: ambiguous lane; password=SECRET7admissionFixtureValue")
 
     for _ in range(40):
         service._schedule("fixture/a1", boom, paced=True)
@@ -364,9 +364,11 @@ def test_c5_10_a_worker_that_raises_is_retried_with_backoff_and_logged_sparsely(
             service._schedule("fixture/a1", boom, paced=True)
         assert len(calls) == expected
     service._log_handler.flush()
-    lines = [line for line in (service.root / "daemon.log").read_text().splitlines() if "fixture/a1" in line]
+    logged = (service.root / "daemon.log").read_text()
+    lines = [line for line in logged.splitlines() if "worker fixture/a1 failed:" in line]
     assert [line.split("(")[1].split(",")[0] for line in lines] == ["1 in a row", "2 in a row", "4 in a row"]
-    assert "secret" not in "\n".join(lines) and all("RuntimeError" in line for line in lines)
+    assert "pinned_lane: ambiguous lane" in logged and "SECRET7admissionFixtureValue" not in logged
+    assert all("RuntimeError" in line for line in lines)
     assert service._worker_failures["fixture/a1"] == 5 and "fixture/a1" not in service._busy
 
 

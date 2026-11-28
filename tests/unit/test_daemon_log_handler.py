@@ -117,11 +117,19 @@ def _text(parts) -> tuple[str, list[str]]:
 @given(message=st.text(max_size=300).filter(lambda text: len(text.splitlines()) <= 1))
 def test_a_one_line_record_is_exactly_its_line_form(message):
     """Differential: what the handler writes for a one-line record is
-    `refusals.scrubbed_line` of its message, whatever the message."""
+    `refusals.scrubbed_line` of its message, whatever the message; one holding a control
+    character also hides what the line form of each of its terminal readings hides, and
+    writes each control character as its escape (#308 fixes r1 and r3)."""
     log = Written("subfleet.daemon.test-differential")
     try:
         log.log.warning("%s", message)
-        assert log.text() == refusals.scrubbed_line(message) + "\n"
+        expected = refusals.scrubbed_line(message)
+        readings = daemon_log._readings(message)
+        if readings:
+            expected = daemon_log._controls_shown(expected, [
+                (reading, runs, [set(daemon_log._RUN.findall(refusals.scrubbed_line(reading(message))))])
+                for reading, runs in readings])
+        assert log.text() == expected + "\n"
     finally:
         log.close()
 
@@ -591,7 +599,11 @@ FOUR_MIB = 4 * 1024 * 1024
 #: as the cost shapes' guard. The bound itself is counted, not timed
 #: (`test_a_cut_s_work_does_not_grow_with_the_text`, and the regex and scan counts of
 #: `test_daemon_log_cut_windows`): at 0.1 s this failed once at load 18 to 21, 0.1297 s
-#: as the best of three (review r3 of #233, P3-2), and passed on rerun.
+#: as the best of three (review r3 of #233, P3-2), and passed on rerun. The record's
+#: guard is CPU time (`time.process_time`), which a loaded host's other work does not add
+#: to: as wall time it failed at load alone (1.016 s and 1.524 s at four workers, #308
+#: fix r3; review r4, P3). The short line's wait below is a wait, which CPU time can't
+#: measure, so it stays wall time.
 TIME_BOUND_S = 1.0
 FRAME = '  File "/x/subfleet/module.py", line 12, in work\n    do_the_work(item, attempt)\n'
 
@@ -617,12 +629,12 @@ class Scrubbed:
         monkeypatch.setattr(handoff, "_scrub", spy)
 
 
-def best_of_three(work) -> float:
+def best_of_three(work, clock=time.perf_counter) -> float:
     best = float("inf")
     for _ in range(3):
-        started = time.perf_counter()
+        started = clock()
         work()
-        best = min(best, time.perf_counter() - started)
+        best = min(best, clock() - started)
     return best
 
 
@@ -644,7 +656,7 @@ def test_a_four_mib_record_is_written_bounded_and_scrubbed_within_the_time_bound
             outs.append(log.text())
         finally:
             log.close()
-    elapsed = best_of_three(write)
+    elapsed = best_of_three(write, time.process_time)
     out = outs[-1]
     assert "SECRET7" not in out
     assert "characters omitted] …" in out
