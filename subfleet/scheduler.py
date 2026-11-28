@@ -18,7 +18,7 @@ from typing import Any
 from .capacity import credential_gone, desktop_excluded, fresh_provider, identity_blocked, pilot_block
 from .launch_env import refused_reference
 from .protocol import PROVIDER_QOS_REQUESTS
-from .contracts import (CAPACITY_RECHECK_BASE_S, CAPACITY_RECHECK_CEILING_S, DEFAULT_CAPS,
+from .contracts import (CAPACITY_RECHECK_BASE_S, CAPACITY_RECHECK_CEILING_S, CAPACITY_RECHECK_EVENT_CEILING_S, DEFAULT_CAPS,
                         HEADROOM_FLOOR, Decision, Exit, hold_source_shown, launch_has_shell)
 from .policy import (MEMORY_PRESSURE_LEVELS, PolicyError, admission_settings, cap, flatten_chain, lane_slot_cap,
                      provider_cap, provider_caps_on, resolve_model, resolve_sandbox, turn_cap, job_needs_shell)
@@ -1104,7 +1104,8 @@ def standing_refusals(reasons: Iterable[str], detail: Mapping[str, Any], lane: M
     return found
 
 
-def pin_unadmittable(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dict[str, Any] | None:
+def pin_unadmittable(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any, *,
+                     far_s: float | None = None) -> dict[str, Any] | None:
     """C-11.8: why the lane a job is pinned to can never admit it, or None.
 
     The pin is resolved and its lane judged exactly as `evaluate` resolves and
@@ -1131,7 +1132,7 @@ def pin_unadmittable(policy: Mapping[str, Any], view: Mapping[str, Any], job: An
         reasons, detail = judge_lane(setup, setup["chain"][0], lane, (), closures, in_flight=0,
                                      unavailable=view.get("unavailable_lanes") or {})
         found = standing_refusals(reasons, detail, lane, closures, setup["now"],
-                                  admission_settings(policy)["pin_hold_far_s"])
+                                  admission_settings(policy)["pin_hold_far_s"] if far_s is None else far_s)
     except _ROUTE_RAISES:
         return None
     if not found:
@@ -1148,7 +1149,8 @@ def pin_unadmittable(policy: Mapping[str, Any], view: Mapping[str, Any], job: An
 
 
 def unadmittable(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any,
-                 memo: dict | None = None, *, permanent_only: bool = False) -> list[str] | None:
+                 memo: dict | None = None, *, permanent_only: bool = False,
+                 far_s: float | None = None) -> list[str] | None:
     """C-11.8, C-6.9: the standing refusals that keep every lane from a job now,
     whatever capacity does, or None when some lane could take it once capacity
     comes back. With `permanent_only`, operator holds and provider limits with
@@ -1161,14 +1163,17 @@ def unadmittable(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any,
     `view` is what `pin_unadmittable` reads. `memo`, kept for one pass, answers
     again for a model and the few job fields a standing refusal turns on
     (exclusions, `allow_desktop`, a turn): a queue of like jobs costs one look
-    per model. None too for a job whose route cannot be evaluated (C-6.12)."""
+    per model. None too for a job whose route cannot be evaluated (C-6.12).
+    `far_s` replaces `admission.pin_hold_far_s` as the horizon a closure must
+    end beyond: with 0, every closure in force now counts, which answers "would
+    any lane take this job now, given room" (C-6.20)."""
     job = _row(job)
     if job.get("pinned_lane"):
-        found = pin_unadmittable(policy, view, job)
+        found = pin_unadmittable(policy, view, job, far_s=far_s)
         return found["reasons"] if found else None
     try:
         setup = prepare(policy, view, job)
-        far = admission_settings(policy)["pin_hold_far_s"]
+        far = admission_settings(policy)["pin_hold_far_s"] if far_s is None else far_s
         closures: dict[str, list[dict[str, Any]]] = {}
         for item in view.get("closures", ()):
             row = _row(item)
@@ -1176,7 +1181,7 @@ def unadmittable(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any,
         found: list[str] = []
         for short in setup["chain"]:
             key = (short, frozenset(setup["excluded"]), bool(job.get("allow_desktop")), setup["is_turn"],
-                   permanent_only)
+                   permanent_only, far)
             if memo is not None and key in memo:
                 refusals = memo[key]
             else:
@@ -1490,6 +1495,44 @@ def capacity_recheck_delay(rechecks: int, ceiling_s: float = CAPACITY_RECHECK_CE
     return min(ceiling_s, CAPACITY_RECHECK_BASE_S * 2 ** min(max(rechecks, 0), 16))
 
 
+def capacity_reason_event_only(reason: Any, *, closures: Iterable[Mapping[str, Any]] = (),
+                               lane_id: str | None = None) -> bool:
+    """C-6.10: only a change admission observes can end this rejection.
+
+    The allowlist is deliberately narrow: new or unrecognized reasons retain
+    the ordinary clock. A closure's rendered reason omits its cause, so its
+    actual rows must all identify operator holds; a provider limit with the
+    same scope and deadline must not inherit an operator hold's longer clock.
+    """
+    if not isinstance(reason, str):
+        return False
+    if reason == "disabled" or reason.startswith("needs a shell: "):
+        return True
+    if not reason.startswith("closed:"):
+        return False
+    matched = [row for row in closures if (lane_id is None or row.get("lane_id") == lane_id)
+               and reason == f"closed:{row.get('scope')}:{row.get('until_at')}"]
+    return bool(matched) and all(row.get("reason") == "operator-hold" for row in matched)
+
+
+def capacity_recheck_ceiling(decision: Decision | Mapping[str, Any]) -> float:
+    """C-6.10: every lane of the verdict must have only event-only rejections."""
+    value = _row(decision)
+    evaluations = value.get("evaluations") or ()
+    if value.get("chosen_lane") or not evaluations:
+        return CAPACITY_RECHECK_CEILING_S
+    for evaluation in evaluations:
+        rejections = evaluation.get("rejections") or ()
+        if evaluation.get("candidates") or not rejections:
+            return CAPACITY_RECHECK_CEILING_S
+        for row in rejections:
+            reasons = row.get("reasons") or [row.get("reason")]
+            if not all(capacity_reason_event_only(reason, closures=evaluation.get("closures") or (),
+                                                 lane_id=row.get("lane_id")) for reason in reasons):
+                return CAPACITY_RECHECK_CEILING_S
+    return CAPACITY_RECHECK_EVENT_CEILING_S
+
+
 def waiting_metadata(decision: Decision, now: str | datetime | None = None, *,
                      rechecks: int = 0, ceiling_s: float = CAPACITY_RECHECK_CEILING_S,
                      capacity_steer: Mapping[str, str] | None = None) -> dict[str, str]:
@@ -1539,6 +1582,17 @@ def verdict_signature(decision: Decision | Mapping[str, Any]) -> str:
     material = [list(value.get("chain", ())), value.get("chosen_lane"), value.get("chosen_model"),
                 value.get("policy_hash"), walked]
     return hashlib.sha256(json.dumps(material, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def refusal_label(reasons: Iterable[str]) -> str:
+    """C-6.11, C-6.20: one short label for the refusals `unadmittable` names,
+    grouped as `dominant_rejection` groups a decision's: a closure by its scope,
+    without its end. The commonest wins, the first named on a tie."""
+    counts: dict[str, int] = {}
+    for reason in reasons:
+        label = ":".join(reason.split(":")[:2]) if reason.startswith("closed:") else reason
+        counts[label] = counts.get(label, 0) + 1
+    return max(counts, key=counts.__getitem__) if counts else "not-evaluated"
 
 
 def dominant_rejection(decision: Decision | Mapping[str, Any] | None) -> str:

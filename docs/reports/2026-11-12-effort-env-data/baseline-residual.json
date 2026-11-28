@@ -1,0 +1,26 @@
+{
+  "label": "baseline-residual",
+  "command": [
+    "uv",
+    "--cache-dir",
+    "/private/tmp/sf-eff-b1/uv-cache",
+    "run",
+    "--no-sync",
+    "--with",
+    "pytest-xdist>=3.6",
+    "python",
+    "/Users/maxghenis/.subfleet/worktrees/20261111-122612-eff-build-r1s/docs/reports/2026-11-12-effort-env-data/run-tests.py",
+    "--inner",
+    "baseline-residual",
+    "-n",
+    "4",
+    "-q",
+    "--tb=short",
+    "tests/fake/test_canonical_identity.py::test_two_legacy_alias_holders_oldest_exports_and_releases",
+    "tests/process/test_provider_shell_environment.py::test_codex_exec_and_resume_commands_see_neither_dummy",
+    "tests/process/test_provider_shell_environment.py::test_codex_conversation_turn_commands_see_neither_dummy"
+  ],
+  "rc": 1,
+  "basetemp": "/private/tmp/sf-eff-b1/baseline-residual",
+  "seconds": 21.98
+}

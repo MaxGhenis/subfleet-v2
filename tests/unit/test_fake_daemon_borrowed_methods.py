@@ -45,6 +45,10 @@ _NO_EARLIER_ATTEMPT = (
     "read by `_earlier_attempt` only for a job cancelled with no active attempt after an "
     "earlier one ended: these fakes retry nothing, and their tests give an ended attempt only "
     "to a job that is terminal, which `_request_cancel` leaves alone, or is never cancelled")
+_NO_UNRUN_TREE = (
+    "read by `_request_cancel` only when it ends a job in the unrun-tree sweep's scope "
+    "(`_unrun_scope`, C-6.20), a writable job that runs outside its workdir: the conversation "
+    "service cancels turn jobs only, which run in place")
 
 #: (fake, name): why a name a borrowed method reads may be missing from that fake.
 EXEMPT = {
@@ -60,6 +64,8 @@ EXEMPT = {
     (FakeDaemon, "_salvage_summary"): _NO_EARLIER_ATTEMPT,
     (HandoffDaemon, "_held_line"): _NO_EARLIER_ATTEMPT,
     (FakeDaemon, "_held_line"): _NO_EARLIER_ATTEMPT,
+    (HandoffDaemon, "_offer_unrun_sweep"): _NO_UNRUN_TREE,
+    (FakeDaemon, "_offer_unrun_sweep"): _NO_UNRUN_TREE,
 }
 
 

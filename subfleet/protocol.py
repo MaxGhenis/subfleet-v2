@@ -44,11 +44,24 @@ JOBS_KIND_CAPABILITY = "jobs.kind.v1"
 #: the field (C-16.2) and never pushes, so a client sends it only to one that lists this.
 PUSH_CAPABILITY = "push.v1"
 
+#: C-11.10: the original conditional encoding, kept for clients using plain
+#: `hold` and `release` with `if_note_prefix`.
+TASKS_IF_NOTE_PREFIX_CAPABILITY = "tasks.if_note_prefix.v1"
+
+#: C-11.10: `hold-if` and `release-if` require `if_note_prefix` and check it in
+#: the write transaction. Older daemons refuse these actions before any write.
+TASKS_IF_NOTE_PREFIX_V2_CAPABILITY = "tasks.if_note_prefix.v2"
+
+#: C-11.10 (D-RO-ADMIT1): `tasks` takes a `sandbox` target. An older daemon drops
+#: the field (C-16.2), sees no task and refuses "unknown task None", so a client
+#: sends a sandbox target only to a daemon that lists this.
+TASKS_SANDBOX_CAPABILITY = "tasks.sandbox.v1"
+
 OPS = (
     "submit", "list", "show", "wait", "kill", "lanes", "readings", "why",
     "notice.pending", "notice.ack", "notice.mark", "notice.list", "notice.withdraw", "ping", "daemon.status",
     "gate.start", "gate.poll", "gate.continue",
-    "sessions", "pick", "operations", "tasks",
+    "sessions", "pick", "operations", "tasks", "retention.delete",
     *CONVERSATION_OPS,
 )
 
@@ -122,6 +135,10 @@ class ErrorBody:
     code: int
     message: str
     fix: str | None = None
+    # Additive, reason-specific checked data. Absent on legacy refusal shapes;
+    # old clients ignore these keys and still read code/message/fix.
+    reason: str | None = None
+    details: dict[str, Any] | None = None
 
 
 @dataclass
@@ -349,11 +366,24 @@ class LanesArgs:
 @dataclass
 class TasksArgs:
     """`tasks` (C-11.10, D-TASKHOLD1): `list` the holds in force, `hold` a task
-    until an instant with a note, or `release` it."""
+    until an instant with a note, or `release` it. `hold-if` and `release-if`
+    require a note prefix; plain actions retain the original optional field."""
     action: str = "list"
     task: str | None = None
     until: str | None = None
     note: str | None = None
+    if_note_prefix: str | None = None
+    sandbox: str | None = None
+
+
+@dataclass
+class RetentionDeleteArgs:
+    """`retention.delete` (C-8.7, d2660): `dry-run` or `apply` an operator's
+    request (the request file's JSON), read its `status`, or `stop` it at the
+    next job boundary. `limit` ends an apply after that many deletions."""
+    action: str
+    request: dict[str, Any] | None = None
+    limit: int | None = None
 
 
 @dataclass
@@ -472,6 +502,10 @@ def encode(obj: Any) -> bytes:
         omit_id = (isinstance(obj, Response) and not obj.id and obj.error is not None
                    and obj.error.message == REFUSAL_MESSAGES["bad-id"])
         obj = asdict(obj)
+        if isinstance(obj.get("error"), dict):
+            for name in ("reason", "details"):
+                if obj["error"].get(name) is None:
+                    obj["error"].pop(name, None)
         if omit_id:
             obj.pop("id", None)
     return (json.dumps(obj, separators=(",", ":"), ensure_ascii=False) + "\n").encode("utf-8")
@@ -514,7 +548,7 @@ def decode_response(line: bytes | str) -> Response:
         id=str(data.get("id", "")),
         ok=bool(data.get("ok")),
         result=data.get("result"),
-        error=ErrorBody(**{k: err.get(k) for k in ("code", "message", "fix")}) if err else None,
+        error=ErrorBody(**{k: err.get(k) for k in ("code", "message", "fix", "reason", "details")}) if err else None,
         v=int(data.get("v", PROTOCOL_VERSION)),
     )
 
@@ -533,12 +567,15 @@ def ok(req_id: str, result: dict[str, Any]) -> Response:
     return Response(id=correlation_id(req_id), ok=True, result=result)
 
 
-def fail(req_id: str, code: Exit | int, message: str, fix: str | None = None) -> Response:
+def fail(req_id: str, code: Exit | int, message: str, fix: str | None = None, *,
+         reason: str | None = None, details: dict[str, Any] | None = None) -> Response:
     try:
         req_id = correlation_id(req_id)
     except ProtocolError:
         req_id, code, message, fix = "", Exit.INVALID_INPUT, REFUSAL_MESSAGES["bad-id"], None
-    return Response(id=req_id, ok=False, error=ErrorBody(code=int(code), message=message, fix=fix))
+        reason, details = None, None
+    return Response(id=req_id, ok=False, error=ErrorBody(code=int(code), message=message, fix=fix,
+                                                       reason=reason, details=details))
 
 
 def refusal_text(error: BaseException, *, reason: str = "invalid-args") -> tuple[str, str | None]:
@@ -566,4 +603,10 @@ def refuse(req_id: str, error: BaseException, *, reason: str = "invalid-args") -
     code = getattr(error, "code", Exit.INVALID_INPUT)
     if type(code) not in (int, Exit) or code not in tuple(Exit):
         code = Exit.INVALID_INPUT
-    return fail(req_id, code, message, fix)
+    # `details` is not a generic reflection channel. Only this reason's checked
+    # hold can cross it; exception prose and every other detail remain excluded.
+    from .refusals import task_hold_condition_details
+    condition = getattr(error, "reason", None) == "task-hold-condition"
+    hold_details = task_hold_condition_details(getattr(error, "details", None)) if condition else None
+    return fail(req_id, code, message, fix,
+                reason="task-hold-condition" if condition else None, details=hold_details)

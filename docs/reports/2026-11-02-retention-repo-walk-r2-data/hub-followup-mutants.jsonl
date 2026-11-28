@@ -1,0 +1,11 @@
+{"name": "baseline", "rc": 0, "note": "590 passed in 101.08s (0:01:41)", "seconds": 101.6}
+{"name": "unterminated-quote-passes", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_config_line_matches_real_git[[branch \"a\"]\\n\\tx = \"unterminated\\n]", "seconds": 4.4}
+{"name": "config-value-hash-allowed", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_doubtful_config_goes_to_git[[core]\\n\\thookspath = value#comment\\n]", "seconds": 2.3}
+{"name": "config-value-semicolon-allowed", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_doubtful_config_goes_to_git[[core]\\n\\thookspath = value;comment\\n]", "seconds": 7.1}
+{"name": "config-value-quote-allowed", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_doubtful_config_goes_to_git[[branch \"a\"]\\n\\tx = \"unterminated\\n]", "seconds": 3.0}
+{"name": "packed-nonascii-refname-accepted", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_packed_refs_r2.py::test_no_refs_under_refuses_noncanonical_packed_format[nonascii-refname]", "seconds": 1.7}
+{"name": "packed-spaced-refname-accepted", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_packed_refs_r2.py::test_no_refs_under_refuses_noncanonical_packed_format[trailing-space]", "seconds": 1.6}
+{"name": "packed-dotted-refname-refused", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_packed_refs_r2.py::test_no_refs_under_accepts_printable_ascii_refnames[dotted-tag]", "seconds": 1.3}
+{"name": "quoted-core-value-accepted", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_doubtful_config_goes_to_git[[core]\\n\\thookspath = \"value\"\\n]", "seconds": 6.4}
+{"name": "quoted-unread-value-refused", "killed": true, "rc": 1, "note": "FAILED tests/unit/test_retention_git_common_dir.py::test_safe_config_needs_no_process[[branch \"a\"]\\n\\tgithub-pr-owner-number = \"owner#repository#1\"\\n]", "seconds": 1.5}
+{"name": "summary", "killed": 9, "equivalent": 0, "survived": 0, "unapplied": 0, "errors": 0}

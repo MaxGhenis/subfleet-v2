@@ -396,13 +396,23 @@ def test_close_waits_for_a_read_in_progress_and_refuses_later_ones(tmp_path):
     assert store._in_use == {} and store._readers == []
 
 
-def test_close_does_not_wait_forever_for_a_read(tmp_path, monkeypatch):
+@pytest.mark.parametrize("expired_deadline", [False, True])
+def test_close_does_not_wait_forever_for_a_read(tmp_path, monkeypatch, expired_deadline):
     from subfleet import store as store_module
     monkeypatch.setattr(store_module, "CLOSE_WAIT_S", .2)
     store = Store(tmp_path / "state.sqlite3", readers=2)
+    waits = []
+    original_wait = store._returned.wait_for
+
+    def wait(predicate, timeout):
+        waits.append(timeout)
+        return original_wait(predicate, timeout=timeout)
+
+    monkeypatch.setattr(store._returned, "wait_for", wait)
     with Holding(store, 1) as holding:
         started = time.monotonic()
-        store.close()
+        store.close(deadline=started - 1 if expired_deadline else None)
+        assert waits == [0 if expired_deadline else .2]
         assert time.monotonic() - started < 3
         assert len(store._in_use) == 1                     # still reading, on its own open connection
         holding.release.set()

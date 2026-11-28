@@ -1,0 +1,181 @@
+{
+  "files": 19,
+  "tests": 1065,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "seconds": 2025.1239209980704,
+  "rows": [
+    {
+      "file": "tests/unit/test_notice_keep.py",
+      "tests": 49,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 122.35576708405279,
+      "exit_code": 0
+    },
+    {
+      "file": "tests/unit/test_retention_outcomes.py",
+      "tests": 22,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 57.00289820798207,
+      "exit_code": 0
+    },
+    {
+      "file": "tests/fake/test_notice_keep_delivery.py",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 42.603670749929734,
+      "exit_code": 0
+    },
+    {
+      "file": "tests/unit/test_policy.py",
+      "tests": 242,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 73.9099115000572,
+      "exit_code": 0
+    },
+    {
+      "file": "tests/unit/test_retention_archive.py",
+      "tests": 109,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 771.2937675829744,
+      "exit_code": 0
+    },
+    {
+      "file": "tests/unit/test_retention_archive_properties.py",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 133.7643923329888,
+      "exit_code": 0
+    },
+    {
+      "file": "tests/unit/test_notice_rendering.py",
+      "tests": 40,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 18.053411958971992,
+      "exit_code": 0
+    },
+    {
+      "file": "tests/unit/test_operator_notices.py",
+      "tests": 79,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 35.123321291059256,
+      "exit_code": 0
+    },
+    {
+      "file": "tests/fake/test_notice_delivery.py",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 101.08355600002687,
+      "exit_code": 0
+    },
+    {
+      "file": "tests/fake/test_notice_header.py",
+      "tests": 24,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 114.98282037500758,
+      "exit_code": 0
+    },
+    {
+      "file": "tests/unit/test_timers_retention.py",
+      "tests": 20,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 118.99204508308321,
+      "exit_code": 0
+    },
+    {
+      "file": "tests/fake/test_retention_dormant.py",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 56.77321054099593,
+      "exit_code": 0
+    },
+    {
+      "file": "tests/fake/test_state_contract.py",
+      "tests": 37,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 65.33274033293128,
+      "exit_code": 0
+    },
+    {
+      "file": "tests/unit/test_test_module_names.py",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 21.82151116593741,
+      "exit_code": 0
+    },
+    {
+      "file": "tests/unit/test_invariants_index.py",
+      "tests": 25,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 21.543734958046116,
+      "exit_code": 0
+    },
+    {
+      "file": "tests/unit/test_handler_refusals.py",
+      "tests": 360,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 68.22136387496721,
+      "exit_code": 0
+    },
+    {
+      "file": "tests/unit/test_pin_notice_identity.py",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 60.2743670840282,
+      "exit_code": 0
+    },
+    {
+      "file": "tests/unit/test_retention_outcome_pages.py",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 84.13946666696575,
+      "exit_code": 0
+    },
+    {
+      "file": "tests/unit/test_retention_outcome_permissions.py",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 57.8519642080646,
+      "exit_code": 0
+    }
+  ]
+}

@@ -126,8 +126,9 @@ def argv(spec: TurnSpec, *, claude_bin: str = "claude", read_only_flags: tuple[s
                "--thinking-display", "summarized",
                "--model", spec.model_id]
     ultracode = spec.effort == ULTRACODE
-    if spec.effort:
-        command += ["--effort", ULTRACODE_EFFORT if ultracode else spec.effort]
+    effort = ULTRACODE_EFFORT if ultracode else spec.effort
+    if effort:
+        command += ["--effort", effort]
     if spec.native_session_id:
         command += ["--resume", spec.native_session_id]
     elif spec.new_session_id:
@@ -153,7 +154,7 @@ def argv(spec: TurnSpec, *, claude_bin: str = "claude", read_only_flags: tuple[s
         settings["ultracode"] = True
     # One `--settings` for every permission, with Claude Code's retry watchdog
     # off (C-26.11, d1031), intended to end a turn at its plan's ceiling rather than wait.
-    return command + lane_settings_args(settings)
+    return command + lane_settings_args(settings, effort=effort)
 
 
 def environment() -> dict[str, str]:

@@ -1,0 +1,48 @@
+[
+ {
+  "mutant": "R1-resume-pin-dropped-p2",
+  "file": "subfleet/adapters/claude.py",
+  "killers": [
+   "tests/unit/test_effort_env.py::test_resumed_attempt_pins_the_effort_its_fresh_launch_pins"
+  ],
+  "rc": 1,
+  "killed": true,
+  "summary": "1 failed in 16.22s",
+  "seconds": 24.5,
+  "load_start": [
+   148.783203125,
+   118.47314453125,
+   107.3779296875
+  ],
+  "load_end": [
+   155.44482421875,
+   122.388671875,
+   109.10595703125
+  ],
+  "restored_sha256": "510c649c37137de490a954d03c0c0de39c17ae224a3733f13816089e3435f3a7",
+  "restored_matches_head": true
+ },
+ {
+  "mutant": "R3-resume-flag-dropped-p2",
+  "file": "subfleet/adapters/claude.py",
+  "killers": [
+   "tests/unit/test_effort_env.py::test_resumed_attempt_pins_the_effort_its_fresh_launch_pins"
+  ],
+  "rc": 1,
+  "killed": true,
+  "summary": "1 failed in 15.63s",
+  "seconds": 25.1,
+  "load_start": [
+   155.44482421875,
+   122.388671875,
+   109.10595703125
+  ],
+  "load_end": [
+   161.23974609375,
+   126.35107421875,
+   110.916015625
+  ],
+  "restored_sha256": "510c649c37137de490a954d03c0c0de39c17ae224a3733f13816089e3435f3a7",
+  "restored_matches_head": true
+ }
+]

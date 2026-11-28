@@ -96,6 +96,13 @@ class OutcomeClass(str, enum.Enum):  # C-9.2
     UNKNOWN = "unknown"
 
 
+# D-WALL1, D-WALL-RETRY1: settled outside faults give back their provider time.
+# State and killed_by must also permit exclusion; a live or stopped attempt counts.
+WALL_EXEMPT_OUTCOME_CLASSES = (
+    OutcomeClass.LIMITED.value, OutcomeClass.TRANSIENT.value, OutcomeClass.AUTH_DEAD.value,
+)
+
+
 class ReadingLabel(str, enum.Enum):  # C-9.1
     PROVIDER = "provider"
     STALE_PROVIDER = "stale-provider"
@@ -251,6 +258,7 @@ WORKSPACE_RETRY_CEILING_S = 300
 #: consecutive recheck that reaches the same verdict, to the ceiling.
 CAPACITY_RECHECK_BASE_S = 1
 CAPACITY_RECHECK_CEILING_S = 30
+CAPACITY_RECHECK_EVENT_CEILING_S = 600
 #: C-6.10: one job's admission probes are reserved at least this far apart. The
 #: clock runs from the reservation, so a probe that ran this long (its deadline
 #: stopped it) leaves its vehicle due at once, and one that failed in a second
@@ -290,6 +298,9 @@ EXIT_SETTLE_S = 3
 # wall clock are still read every tick; a death verdict is never taken from a
 # shared table.
 INSPECT_INTERVAL_S = 1.0
+# C-5.12, D-WALL1: unchanged live membership needs a durable observation only
+# once per minute. Identity changes still carry their newest observation.
+LIVENESS_WRITE_S = 60
 # C-5.11: how often a probe's guardian re-records the group members it owns
 # (C-5.4); it runs inside the probe monitor's paced liveness check, which uses
 # `INSPECT_INTERVAL_S`, so at most that often too. A running attempt records its
@@ -331,6 +342,11 @@ RETENTION_MAX_BYTES = 2 * 1024 ** 3
 TURN_RETENTION_MAX_JOBS = 2000
 TURN_RETENTION_MAX_BYTES = 4 * 1024 ** 3
 TURN_RETENTION_KEEP_DAYS = 14
+# C-8.4 (D-NOTICE-KEEP1): an unread notice addressed to a session keeps its job
+# this many days after the notice was written, and no longer; 0 keeps it for
+# ever. A session that never runs again never reads its notice, and on
+# 2026-11-05 such notices alone kept 88 trees (25.47 GB) on disk.
+NOTICE_RETENTION_KEEP_DAYS = 7
 # d635, final review of e50716e8 (N1): a job whose baseline no network remote
 # holds bundles the shared history no remote holds as well as its own; above
 # this many bytes (git's measure on disk) the job is kept instead. 0 keeps

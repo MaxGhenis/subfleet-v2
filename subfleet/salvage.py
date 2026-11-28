@@ -275,6 +275,14 @@ def git_toplevel(workdir: str | Path, *, timeout_s: float | None = None) -> str 
     return os.path.realpath(top) if top else None
 
 
+def git_common_dir(workdir: str | Path, *, timeout_s: float | None = None) -> str | None:
+    """C-6.20: the real path of the common directory of the repository that holds
+    ``workdir``, or None outside one, a folder that has gone included."""
+    raw = _git_bytes(workdir, "rev-parse", "--git-common-dir", timeout_s=timeout_s)
+    common = os.fsdecode(raw[:-1] if raw and raw.endswith(b"\n") else raw or b"")
+    return os.path.realpath(os.path.join(workdir, common)) if common else None
+
+
 def git_tree(workdir: str | Path, commit: str, *, timeout_s: float | None = None) -> str | None:
     """The tree of ``commit``, or None when the repository cannot name it."""
     return _git(workdir, "rev-parse", "--verify", f"{commit}^{{tree}}", optional=True,

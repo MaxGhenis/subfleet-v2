@@ -1,0 +1,30 @@
+ambient index sparse guard False fast /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261102-091908-ret-walk-fix-r3-a1-vmbsvrl0/pytest-of-maxghenis/pytest-12/test_template_cannot_mask_bad_0/existing/.git git None
+.ambient core commitGraph guard False fast /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261102-091908-ret-walk-fix-r3-a1-vmbsvrl0/pytest-of-maxghenis/pytest-12/test_template_cannot_mask_bad_1/existing/.git git None
+.worktree # fast None git None
+.worktree ; fast None git None
+.packed b'\t' negative False refs {'refs/subfleet-salvage/job-a1': '1531b43eba89c113ea72677b19adfdf4459a71be'}
+.packed b'\r' negative False refs {'refs/subfleet-salvage/job-a1': '46059bf1cfb0405f28d25f4a89d88a228d8dda4a'}
+.listing timeout=[]; cached=False
+.listing timeout=[]; cached=False
+...fast fallback timeout=[]
+.census fallback timeout=[]
+..old pruned: [] deferred: {'job-gone': 'salvage not archivable: refs/subfleet-salvage/repository-walk-a1: repository not found (workdir /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261102-091908-ret-walk-fix-r3-a1-vmbsvrl0/pytest-of-maxghenis/pytest-12/test_gone_job_retirement_depen0/gone-lane is gone)'} errors: []
+.new pruned: [] deferred: {'job-gone': 'salvage not archivable: refs/subfleet-salvage/repository-walk-a1: repository not found (workdir /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261102-091908-ret-walk-fix-r3-a1-vmbsvrl0/pytest-of-maxghenis/pytest-12/test_gone_job_retirement_depen1/gone-lane is gone)'} errors: []
+.first: [] {'job-gone': 'repository discovery deadline'} []
+second: [] {'job-gone': 'repository discovery deadline'} []
+third: ['job-gone'] {} []
+..CREATE TABLE events (
+  event_id INTEGER PRIMARY KEY,
+  ts TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  job_id TEXT,
+  attempt_id TEXT,
+  lane_id TEXT,
+  data_json TEXT NOT NULL
+)
+CREATE INDEX events_job ON events(job_id, event_id)
+CREATE INDEX events_kind ON events(kind, event_id DESC)
+ALL-JOBS PLAN: [(2, 0, 91, 'SEARCH events USING INTEGER PRIMARY KEY (rowid=?)'), (6, 0, 0, 'LIST SUBQUERY 1'), (13, 6, 62, 'SEARCH events USING INDEX events_kind (kind=?)'), (21, 6, 0, 'USE TEMP B-TREE FOR GROUP BY')]
+ONE-JOB PLAN: [(2, 0, 91, 'SEARCH events USING INTEGER PRIMARY KEY (rowid=?)'), (6, 0, 0, 'LIST SUBQUERY 1'), (13, 6, 62, 'SEARCH events USING INDEX events_job (job_id=?)'), (25, 6, 0, 'USE TEMP B-TREE FOR GROUP BY')]
+.
+18 passed, 1 deselected in 78.90s (0:01:18)

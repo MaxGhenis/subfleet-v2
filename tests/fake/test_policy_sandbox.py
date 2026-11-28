@@ -102,7 +102,8 @@ def test_a_writable_job_is_told_its_workspace_and_starts_where_its_caller_stands
     assert (submitted["sandbox"], submitted["worktree"]) == ("workspace-write", str(daemon.root / "worktrees" / job_id))
     manifest = json.loads((jobdir / "manifest.json").read_text())
     worktree = daemon.root / "worktrees" / job_id
-    assert manifest["workspace"] == {"worktree": str(worktree), "prefix": "pkg"}
+    assert manifest["workspace"] == {"worktree": str(worktree), "prefix": "pkg",
+                                     "common_dir": str((workdir / ".git").resolve())}      # C-6.20
     prepared = (jobdir / "prompt.prepared.md").read_text()
     assert f"Your workspace is {worktree}:" in prepared
     assert f"is relative to {worktree / 'pkg'} here" in prepared
@@ -141,7 +142,8 @@ def test_a_directory_the_commit_lacks_starts_the_job_at_the_top_and_says_so(stat
                                                            tier="standard", workdir=str(scratch)))["job_id"]
     jobdir = daemon.root / "jobs" / job_id
     worktree = daemon.root / "worktrees" / job_id
-    assert json.loads((jobdir / "manifest.json").read_text())["workspace"] == {"worktree": str(worktree), "prefix": "."}
+    assert json.loads((jobdir / "manifest.json").read_text())["workspace"] == {
+        "worktree": str(worktree), "prefix": ".", "common_dir": str((workdir / ".git").resolve())}      # C-6.20
     prepared = (jobdir / "prompt.prepared.md").read_text()
     assert "/scratch, which commit" in prepared and "your workspace has no scratch" in prepared
     daemon._admit()
@@ -335,8 +337,9 @@ def test_the_callers_place_is_named_as_git_spells_it(state_daemon):
         job_id = daemon.dispatch("submit", harness.submit_args(sandbox="workspace-write", workdir=str(spelled)))["job_id"]
         jobdir = daemon.root / "jobs" / job_id
         worktree = daemon.root / "worktrees" / job_id
-        assert json.loads((jobdir / "manifest.json").read_text())["workspace"] == {
-            "worktree": str(worktree), "prefix": committed}, spelled
+        workspace = json.loads((jobdir / "manifest.json").read_text())["workspace"]
+        assert Path(workspace.pop("common_dir")).samefile(workdir / ".git"), spelled      # C-6.20
+        assert workspace == {"worktree": str(worktree), "prefix": committed}, spelled
         prepared = (jobdir / "prompt.prepared.md").read_text()
         assert f"is relative to {worktree / committed} here" in prepared and ".." not in prepared.split("worktrees")[1][:80]
         daemon.dispatch("kill", {"job_id": job_id})

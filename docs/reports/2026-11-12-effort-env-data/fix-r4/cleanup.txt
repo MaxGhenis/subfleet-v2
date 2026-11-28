@@ -1,0 +1,44 @@
+Removed /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/pytest-new-before-20261125T212430Z
+Removed /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/pytest-new-after-20261125T212658Z
+Removed /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/pytest-resume-contract-20261125T212825Z
+Cleanup started 2026-11-25T21:42:45.867427+00:00
+Removed /Users/maxghenis/.subfleet/worktrees/20261125-221915-eff-fix-r4/.venv
+Removed /Users/maxghenis/.subfleet/worktrees/20261125-221915-eff-fix-r4/.hypothesis
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/pytest-guards-20261125T214006Z
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/pytest-handler-refusals-20261125T213225Z
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/pytest-hygiene-20261125T213704Z
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/pytest-hygiene-final-20261125T214105Z
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/pytest-hygiene-report-20261125T214154Z
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/pytest-importers-20261125T213736Z
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/pytest-legacy-hold-20261125T213032Z
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/pytest-review-needs-shell-20261125T213602Z
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/sf-test-homes-0g9hcgjh
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/sf-test-homes-1h742ahh
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/sf-test-homes-1wtw4fzt
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/sf-test-homes-2kbg6rm6
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/sf-test-homes-3kag70wg
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/sf-test-homes-3mfrobpw
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/sf-test-homes-4t21wgnd
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/sf-test-homes-53c_4e36
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/sf-test-homes-5v2fjlcv
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/sf-test-homes-672nd1ac
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/sf-test-homes-7_rw7ith
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/sf-test-homes-89s3cxe7
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/sf-test-homes-8dx_9g_n
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/sf-test-homes-_modg8va
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/sf-test-homes-hs73abu6
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/sf-test-homes-i_oelrho
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/sf-test-homes-mps1q3hc
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/sf-test-homes-ndgkj_f0
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/sf-test-homes-oog80ftw
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/sf-test-homes-pq83qxv1
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/sf-test-homes-pvb12i4o
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/sf-test-homes-r9d_aq3f
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/sf-test-homes-sa_clook
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/sf-test-homes-ukz7kh6x
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/sf-test-homes-waixrx2c
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/sf-test-homes-xsujjk_x
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/sf-test-homes-zbni9lzv
+Removed with scratch /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4/uv-cache
+Removed /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221915-eff-fix-r4-a1-7lydussp/sf-eff-fix4
+Cleanup finished 2026-11-25T21:42:54.403185+00:00, exit 0

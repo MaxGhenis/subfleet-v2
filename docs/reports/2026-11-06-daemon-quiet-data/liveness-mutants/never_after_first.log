@@ -1,0 +1,12 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______ test_liveness_age_stays_within_one_minute_plus_inspection_interval ______
+/Users/maxghenis/.subfleet/worktrees/20261106-082944-daemon-quiet-build/tests/unit/test_liveness_write_pacing.py:117: in test_liveness_age_stays_within_one_minute_plus_inspection_interval
+    assert 0 <= (current - saved).total_seconds() <= 60 + daemon.inspect_interval_s
+E   assert 62.4 <= (60 + 1.3)
+E    +  where 62.4 = <built-in method total_seconds of datetime.timedelta object at 0x106ae3a50>()
+E    +    where <built-in method total_seconds of datetime.timedelta object at 0x106ae3a50> = (datetime.datetime(2026, 10, 22, 11, 1, 2, 400000, tzinfo=datetime.timezone.utc) - datetime.datetime(2026, 10, 22, 11, 0, tzinfo=datetime.timezone.utc)).total_seconds
+E    +  and   1.3 = <subfleet.daemon.Daemon object at 0x1079302f0>.inspect_interval_s
+=========================== short test summary info ============================
+FAILED tests/unit/test_liveness_write_pacing.py::test_liveness_age_stays_within_one_minute_plus_inspection_interval
+1 failed in 5.10s
