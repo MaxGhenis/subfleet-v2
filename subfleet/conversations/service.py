@@ -34,6 +34,7 @@ from ..launch_env import build_environment, helper_policy
 from .. import descriptors, protocol, refusals
 from ..home_paths import checked_override, codex_app_home, production_state_root, protected_provider_homes
 from ..adapters.base import AdapterError
+from ..adapters.claude import resolve_scoped_model_ids
 from ..contracts import Exit
 from ..ids import holds_credential
 from ..policy import CONVERSATION_DEFAULT_EFFORT, CONVERSATION_DEFAULTS, flatten_chain
@@ -3420,9 +3421,11 @@ class ConversationService:
         except OSError:
             pass
 
-    @staticmethod
-    def adapter(provider: str) -> TurnAdapter:
-        return TurnAdapter(provider)
+    def adapter(self, provider: str) -> TurnAdapter:
+        adapter = TurnAdapter(provider)
+        if provider == "claude":
+            adapter.inner.scoped_models = resolve_scoped_model_ids(self.daemon.policy)
+        return adapter
 
 
 def policy_model(policy: dict, provider: str, value: str) -> str:

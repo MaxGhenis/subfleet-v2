@@ -85,17 +85,39 @@ OAUTH_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 OAUTH_USAGE_BETA = "oauth-2025-04-20"
 SOURCE_OAUTH_USAGE = "oauth-usage"
 USAGE_TIMEOUT_S = 15.0
-#: `limits[].scope.model.display_name` -> policy model id for the model-scoped weekly
-#: windows the usage endpoint reports (C-9.9, C-11.7). An unknown name keeps its
-#: lower-cased display name as scope; the scheduler ignores scopes it has no model for.
-SCOPED_MODEL_IDS = {"fable": "claude-fable-5-1", "opus": "claude-opus-5-5",
+#: Fallback ids for callers without a policy and families with no matching Claude model.
+#: The usage endpoint still rejects the whole response if a display name has
+#: no family in the map (C-9.9, C-11.7).
+SCOPED_MODEL_IDS = {"fable": "claude-fable-5-2", "opus": "claude-opus-5-5",
                     "sonnet": "claude-sonnet-5", "haiku": "claude-haiku-4-5-20251001"}
+
+
+def resolve_scoped_model_ids(policy: Mapping[str, Any] | None = None) -> dict[str, str]:
+    """Use the first Claude model named for each family, then the first id in it."""
+    if policy is None:
+        return dict(SCOPED_MODEL_IDS)
+    models = [(short, model) for short, model in (policy.get("models") or {}).items()
+              if model.get("provider") == PROVIDER]
+    resolved = dict(SCOPED_MODEL_IDS)
+    for family in resolved:
+        named = next((model["id"] for short, model in models
+                      if family in (short.lower(), (model.get("scope") or "").lower())), None)
+        if named is not None:
+            resolved[family] = named
+            continue
+        prefix = f"claude-{family}-"
+        resolved[family] = next((model["id"] for _, model in models
+                                 if model["id"].startswith(prefix) and len(model["id"]) > len(prefix)),
+                                resolved[family])
+    return resolved
+
+
 # Claude Code 2.1.278's own limit labels identify this as the Fable bucket,
 # distinct from the all-model seven_day window (verified 2026-09-20).
 SCOPED_RATE_LIMITS = {
-    "seven_day_overage_included": SCOPED_MODEL_IDS["fable"],
-    "seven_day_opus": SCOPED_MODEL_IDS["opus"],
-    "seven_day_sonnet": SCOPED_MODEL_IDS["sonnet"],
+    "seven_day_overage_included": "fable",
+    "seven_day_opus": "opus",
+    "seven_day_sonnet": "sonnet",
 }
 PROFILE_MAX_BYTES = 1 << 20
 
@@ -155,6 +177,21 @@ of background work is orphaned. Therefore:
 
 
 # --- small shared helpers ----------------------------------------------------
+
+
+def scoped_window_scope(
+    window: str | None, model_id: str | None, scoped_models: Mapping[str, str] | None = None,
+) -> str:
+    """C-9.8: a stream bucket follows the attempt's model or its family's default."""
+    family = SCOPED_RATE_LIMITS.get(window)
+    if family is None:
+        return "account"
+    # The conversation suffix helper imports this adapter, so cannot be reused here.
+    model = (model_id or "").removesuffix("[1m]")
+    match = re.fullmatch(r"claude-([^-\[\]]+)-[^\[\]]+", model)
+    if match and match[1] == family:
+        return model
+    return (SCOPED_MODEL_IDS if scoped_models is None else scoped_models)[family]
 
 
 def iso_utc(when: datetime) -> str:
@@ -676,6 +713,7 @@ class ClaudeAdapter(Adapter):
     ) -> None:
         self.claude_bin = claude_bin
         self.provider_environment = ProviderEnvironment({})
+        self.scoped_models: Mapping[str, str] | None = None
         self._runner = runner or subprocess.run
         # D-ENV1: only the native runner is handed the allowlisted environment.
         from ..credentials import native_runner
@@ -1120,8 +1158,10 @@ class ClaudeAdapter(Adapter):
         """C-9.8, exactly.
 
         `status: allowed` (and `allowed_warning`) yields one `provider` reading per
-        `unifiedWindows` entry, scope `account`, `utilization` as the fraction the
-        server sent and `resetsAt` converted to ISO 8601 UTC.
+        `unifiedWindows` entry, scoped by its family, the attempt's model and
+        the loaded family's default,
+        `utilization` as the fraction the server sent and `resetsAt` converted to
+        ISO 8601 UTC.
 
         `status: rejected` yields no utilization reading at all — only an
         `admission-observed` rejection for the requested model, carrying the event's
@@ -1160,7 +1200,7 @@ class ClaudeAdapter(Adapter):
             if (value.utilization is None or not math.isfinite(value.utilization)
                     or value.utilization < 0):
                 continue
-            scope = SCOPED_RATE_LIMITS.get(window, "account")
+            scope = scoped_window_scope(window, model_id, self.scoped_models)
             readings.append(
                 Reading(
                     lane_id=lane_id,
@@ -1195,8 +1235,8 @@ class ClaudeAdapter(Adapter):
 
         Account windows `five_hour` and `seven_day` become `provider` readings with
         scope `account`; every `limits[]` row of kind `weekly_scoped` becomes a
-        `provider` reading whose scope is the policy model id for the row's
-        display name (window `seven_day`). Utilization is normalised to a fraction.
+        `provider` reading scoped to the loaded model id for the display name's
+        family (window `seven_day`). Utilization is normalised to a fraction.
         HTTP 429 yields no reading and the server's `Retry-After`; 401 is
         `auth-dead`; 403 is `no-scope`; anything else `unavailable`. C-10.6 holds:
         readings are returned only when the profile endpoint, asked with the same
@@ -1268,7 +1308,7 @@ class ClaudeAdapter(Adapter):
                 readings.append(Reading(lane.lane_id, "account", window, float(value) / 100.0,
                                         _iso_or_none(entry.get("resets_at")), ReadingLabel.PROVIDER,
                                         SOURCE_OAUTH_USAGE, observed_at))
-        names = {k.lower(): v for k, v in (scoped_models or SCOPED_MODEL_IDS).items()}
+        names = {k.lower(): v for k, v in (scoped_models or self.scoped_models or SCOPED_MODEL_IDS).items()}
         for limit in limits:
             if limit.get("kind") != "weekly_scoped":
                 continue
@@ -1290,7 +1330,7 @@ class ClaudeAdapter(Adapter):
     def probe_status(self, lane: Lane, credential_env: Mapping[str, str] | None) -> dict[str, Any]:
         """What the timer's probe cycle reads for a Claude lane: the usage endpoint
         (C-9.9), never a model turn. Same shape as the Codex adapter's."""
-        return self.probe_usage(lane, credential_env).as_probe()
+        return self.probe_usage(lane, credential_env, scoped_models=self.scoped_models).as_probe()
 
     def probe(self, lane: Lane, credential_env: dict[str, str]) -> tuple[Reading, ...]:
         """C-9.1, C-11.4: one Haiku turn on the lane, read the sensor, return
@@ -1809,7 +1849,7 @@ class ClaudeAdapter(Adapter):
                     f"for {scope}"
                 )
             else:
-                scope = SCOPED_RATE_LIMITS.get(info.rate_limit_type, "account")
+                scope = scoped_window_scope(info.rate_limit_type, model_id, self.scoped_models)
                 reason = ClosureReason.PROVIDER_LIMIT
                 window = info.rate_limit_type or "account"
                 detail = (

@@ -1,0 +1,37 @@
+[
+  {
+    "command": "sed -n '1,240p' tests/unit/test_scoped_stream_capacity.py",
+    "exit": 0,
+    "result": "Read stream fixture helpers, integration cases, and policy-model equality assertion."
+  },
+  {
+    "command": "sed -n '1,150p' subfleet/adapters/claude.py; sed -n '1010,1085p' subfleet/adapters/claude.py; sed -n '1630,1755p' subfleet/adapters/claude.py",
+    "exit": 0,
+    "result": "Read scoped maps, allowed-reading construction, and rejected-event classifier."
+  },
+  {
+    "command": "rg -n 'hypothesis|seven_day_overage_included|classify_outcome|classify\\(' tests/unit/test_claude* tests/unit/test_scheduler*.py tests/unit/test_scoped* pyproject.toml",
+    "exit": 0,
+    "result": "Located property-test patterns and real-path tests."
+  },
+  {
+    "command": "sed -n '1,190p' tests/unit/test_scheduler.py; sed -n '1,210p' tests/conftest.py; sed -n '1,115p' tests/unit/test_scheduler_weekly.py",
+    "exit": 0,
+    "result": "Read routing helpers, isolated test configuration, and Hypothesis conventions."
+  },
+  {
+    "command": "sed -n '310,430p' subfleet/contracts.py; rg -n 'def _closure|closure\\[|closure.scope|scope.*model_id|model_id.*scope' subfleet/scheduler.py subfleet/contracts.py; rg -n 'strip.*1m|removesuffix|\\[1m\\]' subfleet/models.py subfleet/model_catalog.py subfleet/conversations/claude_turn.py subfleet/conversations/launch.py",
+    "exit": 2,
+    "result": "Read Reading/Closure contracts and found conversation suffix helper. Exploratory guessed paths subfleet/models.py and subfleet/model_catalog.py do not exist."
+  },
+  {
+    "command": "sed -n '230,350p' tests/conftest.py; sed -n '630,675p' subfleet/scheduler.py; rg -n 'closed:|def.*clos' subfleet/scheduler.py; rg -n 'test_module_names|MODULE|same.*name' tests/unit/test_test_module_names.py",
+    "exit": 1,
+    "result": "Read make_launch and closure handling. Final exploratory pattern had no matches."
+  },
+  {
+    "command": "rg --files -g AGENTS.md -g '*scope*' tests subfleet; cat tests/unit/test_invariants_index.py | head -100; sed -n '60,90p' subfleet/default_policy.json",
+    "exit": 0,
+    "result": "Located related files and read invariant-index checks plus shipped Fable model."
+  }
+]
