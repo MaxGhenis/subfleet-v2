@@ -1340,6 +1340,7 @@ class Daemon:
         # this round (`_probe_choice`). In memory as C-6.10's records are; replaced
         # whole on each change.
         self._probe_misses: dict[str, dict[str, frozenset[str]]] = {}
+        self._probe_directory_failures: set[str] = set()
         # C-6.3: reservations whose early decision stood (`reused`) and those
         # whose check chose again from the lanes that changed (`rechosen`); the
         # evaluations made again off the lock after a check refused one, and why
@@ -1556,7 +1557,7 @@ class Daemon:
         safe, receipt = self._await_probe(record, child)
         if not safe:
             raise AdapterError('enrollment containment is quarantined; its lane remains fenced', code=7, reason="enroll-quarantined")
-        if not receipt:
+        if not receipt or isinstance(receipt, Outcome):
             raise AdapterError('enrollment ended without an exit receipt', code=5, reason="enroll-receipt")
         rc = receipt.get('rc')
         if rc is None:
@@ -4234,16 +4235,37 @@ class Daemon:
 
     @staticmethod
     def _validate_home(lane: Lane) -> None:
+        """C-6.5: a Codex home logged in with an API key is refused, at submit (a lane
+        pin), at an attempt's launch and at an admission probe (C-11.4).
+
+        So is one whose `auth.json` is not a JSON object (empty, cut short, not text in
+        UTF-8, UTF-16 or UTF-32, or `[]`, `null`, a string or a number). Each is an
+        `AdapterError` those callers already handle: the probe ends `unknown`, the
+        launch is refused, submit answers code 7. Parsed and `.get` as it stood, such a
+        file raised JSONDecodeError or AttributeError out of the probe and so out of the
+        admission pass (C-6.12), and out of the launch; submit answered it as invalid
+        input or raised; `null` was taken for no file at all. A read the host refuses
+        (an OSError) says nothing about the file and is raised as before: the probe
+        ends `unknown` on it (`_probe_candidate`)."""
         if lane.provider != "codex" or lane.credential.kind != "home":
             return
         path = Path(lane.credential.ref).expanduser() / "auth.json"
         try:
-            auth = json.loads(read_regular(path))                  # never waiting in open()
+            data = read_regular(path)                              # never waiting in open()
         except (FileNotFoundError, NotRegularFile):
-            auth = None                                            # none there, as `is_file()` had said
-        if auth is not None:
-            if auth.get("OPENAI_API_KEY") or auth.get("auth_mode") in ("api_key", "apikey"):
-                raise AdapterError("API-key home refused", fix="log this lane into a subscription account", reason="api-key-home")
+            return                                                 # none there, as `is_file()` had said
+        try:
+            auth, parsed = json.loads(data), True
+        except (ValueError, RecursionError):                       # JSONDecodeError, UnicodeDecodeError
+            auth, parsed = None, False
+        if not parsed:
+            # Raised here, not in the handler: the parser's error keeps the whole document,
+            # the lane's tokens, and would ride along as this error's context.
+            raise AdapterError("lane auth.json is unreadable", fix="log this lane in again", reason="auth-json-unreadable")
+        if not isinstance(auth, dict):
+            raise AdapterError("lane auth.json is not an object", fix="log this lane in again", reason="auth-json-not-object")
+        if auth.get("OPENAI_API_KEY") or auth.get("auth_mode") in ("api_key", "apikey"):
+            raise AdapterError("API-key home refused", fix="log this lane into a subscription account", reason="api-key-home")
 
     def _adapter(self, provider: str):
         adapter = get_adapter(provider)
@@ -6369,7 +6391,7 @@ class Daemon:
             if not safe:
                 return Outcome(OutcomeClass.UNKNOWN, "timer quarantined", evidence={"probe_quarantined": True})
             raise
-        requested = (self._read_json(directory / "request.json") or {}).get("requested_at")
+        requested = self._read_probe_request(record).get("requested_at")
         if requested:
             self.store.add_event("timer.request", lane_id=lane.lane_id,
                                  data={"requested_at": requested, "purpose": purpose,
@@ -7347,16 +7369,48 @@ class Daemon:
                            (after(60), record["job_id"]))
         return census.verified_empty
 
-    def _await_probe(self, record: dict, child=None) -> tuple[bool, dict | None]:
-        """Re-adopt the same gated guardian, bounded by its durable deadline."""
+    @staticmethod
+    def _read_probe_json(path: Path) -> tuple[dict | None, str | None]:
+        """Read a probe JSON record, returning only the type of a read error."""
+        try:
+            value = Daemon._read_json(path)
+        except (OSError, ValueError, RecursionError) as exc:
+            return None, type(exc).__name__
+        if value is not None and not isinstance(value, dict):
+            return None, "ValueError"
+        if path.name == "exit.json" and value and value.get("child_pid") is not None:
+            if type(value["child_pid"]) is not int:
+                return None, "ValueError"
+        if path.name == "start.json" and value:
+            if any(type(value.get(key)) not in (int, type(None)) for key in ("guardian_pid", "pgid")):
+                return None, "ValueError"
+            if any(not isinstance(value.get(key), (str, type(None)))
+                   for key in ("boot_id", "proc_start", "started_at")):
+                return None, "ValueError"
+        return value, None
+
+    def _read_probe_request(self, record: dict) -> dict:
+        request, error = self._read_probe_json(Path(record["directory"]) / "request.json")
+        if error:
+            self.log.warning("probe %s on %s: its request could not be read: %s",
+                             record["holder"], record["lane_id"], error)
+        return request or {}
+
+    def _await_probe(self, record: dict, child=None) -> tuple[bool, dict | Outcome | None]:
+        """Re-adopt the guardian until its deadline, then verify containment.
+
+        A receipt that remains unreadable after verified containment yields an
+        unknown outcome in place of the receipt.
+        """
         directory = Path(record["directory"])
         next_census = next_liveness = 0.0
         while not self.stopping.is_set():
             if child:
                 child.poll()  # Reap our own guardian when it finishes.
-            receipt = self._read_json(directory / "exit.json")
-            if receipt:
-                record["child_pid"] = receipt.get("child_pid")
+            receipt, error = self._read_probe_json(directory / "exit.json")
+            if receipt is not None or error:
+                if receipt is not None:
+                    record["child_pid"] = receipt.get("child_pid")
                 break
             job = self.store.get_job(record["job_id"])
             if not record.get("timer_kind") and (not job or job["cancel_requested_at"] or job["state"] in TERMINAL):
@@ -7400,7 +7454,16 @@ class Daemon:
         safe = self._contain_probe(record)
         if child:
             child.poll()
-        return safe, self._read_json(directory / "exit.json")
+        receipt, error = self._read_probe_json(directory / "exit.json")
+        if safe and error:
+            self.log.warning("probe %s on %s: its receipt could not be read: %s",
+                             record["holder"], record["lane_id"], error)
+            evidence = {"error_type": error}
+            if record.get("stopped"):
+                evidence["stopped"] = record["stopped"]
+            return safe, Outcome(OutcomeClass.UNKNOWN, f"probe receipt could not be read: {error}",
+                                 evidence=evidence)
+        return safe, receipt
 
     def _execute_probe(self, job: dict, lane: Lane, model: dict, holder: str) -> Outcome:
         """C-11.4, C-5.1: run a read-only requested-model probe through the guardian.
@@ -7477,12 +7540,19 @@ class Daemon:
         if not safe:
             return Outcome(OutcomeClass.UNKNOWN, "probe containment is quarantined",
                            evidence={"probe_quarantined": True})
+        if isinstance(receipt, Outcome):
+            return receipt
         stopped = {"stopped": record["stopped"]} if record.get("stopped") else {}
         if not receipt:
             return Outcome(OutcomeClass.UNKNOWN, "probe ended without an exit receipt", evidence=dict(stopped))
-        outcome = adapter.classify(directory, launch, ExitInfo(**{key: receipt.get(key) for key in
-                                ("rc", "signal", "wall_s", "child_pid", "spawn_error")}))
-        request = self._read_json(directory / "request.json") or {}
+        try:
+            outcome = adapter.classify(directory, launch, ExitInfo(**{key: receipt.get(key) for key in
+                                    ("rc", "signal", "wall_s", "child_pid", "spawn_error")}))
+        except sqlite3.Error:
+            raise                                   # C-6.12: a store error is the pass's; C-5.10 retries it
+        except Exception as exc:                    # noqa: BLE001 - the receipt's, never the pass's (C-6.12)
+            outcome = self._unclassified(record, exc)
+        request = {} if record.get("timer_kind") else self._read_probe_request(record)
         return dataclasses.replace(outcome, evidence={**outcome.evidence, **request, **stopped,
                                    "rc": receipt.get("rc"), "signal": receipt.get("signal")})
 
@@ -7496,7 +7566,7 @@ class Daemon:
                 record["lane_id"], record["model_id"], after(3600), ClosureReason.PROVIDER_LIMIT,
                 ClockSource.GUESSED, None))
         if record.get("timer_kind"):
-            sent = (self._read_json(Path(record["directory"]) / "request.json") or {}).get("requested_at")
+            sent = self._read_probe_request(record).get("requested_at")
             if sent:
                 self.store.add_event("timer.request", lane_id=record["lane_id"], data={"requested_at": sent, "rc": outcome.evidence.get("rc"),
                                                                       "native_session_id": outcome.native_session_id})
@@ -7548,23 +7618,51 @@ class Daemon:
             safe, receipt = self._await_probe(record)
             if not safe:
                 continue
+            if isinstance(receipt, Outcome):
+                self._finish_probe(record, receipt)
+                continue
             outcome = Outcome(OutcomeClass.UNKNOWN, "probe recovered without an exit receipt")
-            if receipt and (value := self._read_json(Path(record["directory"]) / "launch.json")):
-                value.update(env_add=self._relaunch_env(record["lane_id"]),
-                             argv=tuple(value["argv"]), env_remove=tuple(value["env_remove"]))
-                adapter = self._adapter(self.store.get_lane(record["lane_id"]).provider)
-                outcome = adapter.classify(Path(record["directory"]), Launch(**value), ExitInfo(**{
-                    key: receipt.get(key) for key in ("rc", "signal", "wall_s", "child_pid", "spawn_error")}))
+            try:
+                # Its launch is rebuilt in here too: one this daemon's `Launch` cannot take
+                # (written by another version) is as unclassifiable as the receipt.
+                if receipt and (value := self._read_json(Path(record["directory"]) / "launch.json")):
+                    value.update(env_add=self._relaunch_env(record["lane_id"]),
+                                 argv=tuple(value["argv"]), env_remove=tuple(value["env_remove"]))
+                    adapter = self._adapter(self.store.get_lane(record["lane_id"]).provider)
+                    outcome = adapter.classify(Path(record["directory"]), Launch(**value), ExitInfo(**{
+                        key: receipt.get(key) for key in ("rc", "signal", "wall_s", "child_pid", "spawn_error")}))
+            except sqlite3.Error:
+                raise                               # C-6.12: a store error is the pass's; C-5.10 retries it
+            except Exception as exc:                # noqa: BLE001 - the receipt's, never the pass's (C-6.12)
+                outcome = self._unclassified(record, exc)
             self._finish_probe(record, outcome)
+
+    def _unclassified(self, record: dict, exc: Exception) -> Outcome:
+        """C-6.12, C-11.4: a probe whose receipt its adapter raised on ends `unknown`.
+
+        Both callers have verified the probe's containment first, so the lease
+        `_finish_probe` then releases holds nothing that runs. What the adapter raised
+        is the receipt's, never the pass's: a reset clock in a zone that does not
+        normalize made the Codex adapter raise ValueError, which ended the pass from
+        `_execute_probe`, and from `_recover_probes` ended every pass after it, since
+        that probe's lease was never released. Its type is recorded and logged, never
+        its message, as C-5.10 logs a worker's: a provider's text can hold a secret."""
+        error = type(exc).__name__
+        self.log.warning("admission: probe %s on %s: its receipt could not be classified: %s",
+                         record["holder"], record["lane_id"], error)
+        return Outcome(OutcomeClass.UNKNOWN, f"probe receipt could not be classified: {error}",
+                       evidence={"error_type": error})
 
     def _probe_candidate(self, job: dict, decision, holder: str) -> Outcome:
         lane = self.store.get_lane(decision.chosen_lane)
         model = self.policy["models"][decision.chosen_model]
         try:
             outcome = self._execute_probe(job, lane, model, holder)
-        except (AdapterError, OSError, subprocess.SubprocessError) as exc:
-            outcome = Outcome(OutcomeClass.UNKNOWN, f"probe unavailable: {type(exc).__name__}")
+        except sqlite3.Error:
+            raise                                   # C-6.12: a store error is the pass's; C-5.10 retries it
+        except Exception as exc:                    # noqa: BLE001 - a probe failure is local after containment
             self._contain_probe(self._probe_record(holder))
+            outcome = Outcome(OutcomeClass.UNKNOWN, f"probe unavailable: {type(exc).__name__}")
         record = self._probe_record(holder)
         if record["state"] not in ("reserved", "contained", "quarantined"):
             self._contain_probe(record)
@@ -7595,10 +7693,11 @@ class Daemon:
         next probe goes to a lane it has not had such an answer on, so a lane whose
         probes keep saying nothing (a slow one at the top of the ranking) costs it one
         probe a round, not every probe, and every lane that would take it is probed
-        for it within a round. Or this look could not reserve its probe (`busy`: its
-        slot is held, it changed hands; review of #153, P1-2). The job is evaluated
-        again with those lanes left out (only those it could use, `_probe_reach`), and
-        goes to the first lane `evaluate` then ranks, of the same model only (a model
+        for it within a round. Or this look could not create its probe directory
+        or reserve its probe (`busy`: its slot is held, it changed hands; review
+        of #153, P1-2). The job is evaluated again with those lanes left out (only
+        those it could use, `_probe_reach`) and goes to the first lane `evaluate`
+        then ranks, of the same model only (a model
         the chain promotes to is never taken this way); a lane that needs no probe
         there is taken as it is. With no such lane it waits for the older job's turn;
         with none ahead of it, a lane that said nothing starts the round again, and a
@@ -7640,7 +7739,8 @@ class Daemon:
         # The admission worker serializes probes; a distinct durable holder and
         # a gated guardian prevent a restart from launching a duplicate probe.
         approved = set()
-        busy: set[str] = set()                   # C-11.4: lanes this look could not reserve a probe on
+        # C-11.4: lanes where this look could not create or reserve a probe.
+        busy: set[str] = set()
         for _ in range(len(self.store.list_lanes()) * len(self.policy["models"]) + 1):
             desktop = self._desktop_identity()
             current = self._job(job["job_id"])
@@ -7677,7 +7777,16 @@ class Daemon:
             token = os.urandom(12).hex()
             holder = f"probe:{token}"
             directory = self.root / "lanes" / decision.chosen_lane / "probes" / token
-            directory.mkdir(mode=0o700, parents=True)
+            try:
+                directory.mkdir(mode=0o700, parents=True)
+            except OSError as exc:
+                if decision.chosen_lane not in self._probe_directory_failures:
+                    self.log.warning("probe directory on %s could not be created: %s",
+                                     decision.chosen_lane, type(exc).__name__)
+                    self._probe_directory_failures.add(decision.chosen_lane)
+                busy.add(decision.chosen_lane)
+                continue
+            self._probe_directory_failures.discard(decision.chosen_lane)
             probe_deadline_s = admission_settings(self.policy)["probe_deadline_s"]
             created_at = utcnow()
             record = {"holder": holder, "job_id": job["job_id"], "lane_id": decision.chosen_lane,
@@ -7719,7 +7828,7 @@ class Daemon:
                     self._save_probe(record)
                     reserved = True
             except _ProbeLaneBusy:
-                # C-11.4: this lane cannot be probed now; this look tries another of the model.
+                # As with a failed mkdir, this look tries another lane of the model.
                 busy.add(decision.chosen_lane)
                 continue
             finally:
@@ -11128,10 +11237,14 @@ class Daemon:
 
     def _contain(self, a: dict):
         """C-5.5: one identity/bounds path for every deciding census, probes too."""
-        directory = (Path(a["directory"]) if a.get("directory") else
-                     attempt_dir(self.root, a["job_id"], a["seq"]))
-        start = self._read_json(directory / "start.json") or {}
-        receipt = self._read_json(directory / "exit.json") or {}
+        probe = a.get("directory")
+        directory = Path(probe) if probe else attempt_dir(self.root, a["job_id"], a["seq"])
+        # A probe's start file is only a fallback. Its guardian publishes it
+        # after the daemon saves the identity in the probe record.
+        start_path = directory / "start.json"
+        start = (Daemon._read_probe_json(start_path)[0] if probe else self._read_json(start_path)) or {}
+        receipt_path = directory / "exit.json"
+        receipt = (Daemon._read_probe_json(receipt_path)[0] if probe else self._read_json(receipt_path)) or {}
         evidence = json.loads(a.get("evidence_json") or "{}")
         owned = a.get("owned_identities", evidence.get("owned_identities", {}))
         recorded = {int(pid): procs.ProcessIdentity(**value) for pid, value in owned.items()}

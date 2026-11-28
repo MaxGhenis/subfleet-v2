@@ -19,8 +19,8 @@ from tests.fake.test_routing_end_to_end import routing_state  # noqa: F401
 REFUSED = "admission.probe_deadline_s: must be a whole number of seconds from 1 to 900"
 
 
-class SimulatedCrash(RuntimeError):
-    pass
+class SimulatedCrash(SystemExit):
+    """An injected daemon exit after the probe reservation has committed."""
 
 
 def reserve_running_probe(service, harness, monkeypatch, seconds):
