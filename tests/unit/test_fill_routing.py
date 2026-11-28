@@ -87,6 +87,24 @@ def test_unknown_model_pick_binds_a_scope_other_than_the_first_model():
     assert first["fill_weekly_used"] == pytest.approx(.9)
 
 
+@pytest.mark.parametrize(
+    "model",
+    [name for name, entry in rules()["models"].items() if entry["provider"] == "claude"],
+)
+def test_unknown_model_pick_binds_each_configured_claude_scope(model):
+    configured = rules(expiring_s=None)
+    model_id = configured["models"][model]["id"]
+    lanes = [lane(f"claude-{n}", label=f"fixture-{n}@example.invalid") for n in range(2)]
+    rows = [reading("claude-0", .8, reset(400_000)),
+            reading("claude-0", .1, reset(500_000), scope=model_id),
+            reading("claude-1", .5, reset(400_000))]
+    snapshot = capacity.build_view(lanes, rows, now=NOW)
+    result = picker.rank(configured, snapshot, family="claude")
+    first = result["ranked"][0]
+    assert first["lane_id"] == "claude-0"
+    assert first["fill_weekly_used"] == pytest.approx(.9)
+
+
 @pytest.mark.parametrize("boundary", ["expiring", "reset"])
 @settings(max_examples=100, deadline=None, derandomize=True)
 @given(seconds=st.integers(1, 100), threshold=st.integers(1000, 100_000), age=st.integers(121, 500_000))

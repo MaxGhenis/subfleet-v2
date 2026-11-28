@@ -19,6 +19,7 @@ from subfleet.contracts import Credential, Lane, LaneOwner, Reading, ReadingLabe
 from subfleet.daemon import Daemon
 from subfleet.policy import DEFAULT_POLICY_PATH, admission_settings, load_policy
 from subfleet.store import Store
+from subfleet.timers import Timers
 from tests.routing_strategies import NOW, policies, route_jobs, stores, view_of
 
 
@@ -95,6 +96,26 @@ def test_snapshots_query_fill_rows_only_when_requested(tmp_path, monkeypatch):
         }
         assert daemon._capacity_rows(route=True)["view"]["fill_readings"] == []
         query.assert_not_called()
+
+
+def test_timer_snapshot_queries_fill_rows_only_when_requested(tmp_path, monkeypatch):
+    with Store(tmp_path / "state.sqlite3") as store:
+        put(store, [reading()])
+        query = Mock(wraps=store.fill_reading_candidates)
+        monkeypatch.setattr(store, "fill_reading_candidates", query)
+        configured = load_policy(DEFAULT_POLICY_PATH)
+        timers = Timers(store, tmp_path, configured, now=lambda: CLOCK)
+        try:
+            view = timers.snapshot()
+            query.assert_not_called()
+            assert view["fill_readings"] == []
+
+            configured["admission"]["lane_order"]["claude"] = "fill"
+            view = timers.snapshot()
+            query.assert_called_once_with(now=CLOCK)
+            assert view["fill_readings"]
+        finally:
+            timers.stop()
 
 
 @settings(max_examples=300, deadline=None, derandomize=True)

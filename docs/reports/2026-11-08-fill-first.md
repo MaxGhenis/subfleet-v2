@@ -44,7 +44,7 @@ The full export has 41,803 numeric rows from **2026-10-24T00:05:21Z through 2026
 
 ## Invariants and tests
 
-`tests/unit/test_scheduler_fill.py` contains 42 cases with 4,500 configured Hypothesis examples. The frozen full base evaluator permits complete decision/error comparisons without Git history at test time. Its SHA-256 is `f6c9ad0cae11fd8b9d624f856b0782ddb7e155cbc4dfca1ab85ce141d1da7d54`; extracted `rank_key` is `1e100b7a9681f7bf7dc19ebf5d8e701785ce3fb8d5d0d57d5041e45f88bc6a54`, and `ranking_usage` is `ade25eea6e4bdbed6f569d7812bafbd64c1c3a093bbf87341d01d338083a7e21`. The frozen bytes were checked against `git show 266c3ab8b0be:subfleet/scheduler.py` while building. Both evaluators receive the same policy, view and job, including the input policy hash; changed default-policy bytes naturally have a different hash.
+`tests/unit/test_scheduler_fill.py` contains 43 cases with 4,500 configured Hypothesis examples. The frozen full base evaluator permits complete decision/error comparisons without Git history at test time. Its SHA-256 is `f6c9ad0cae11fd8b9d624f856b0782ddb7e155cbc4dfca1ab85ce141d1da7d54`; extracted `rank_key` is `1e100b7a9681f7bf7dc19ebf5d8e701785ce3fb8d5d0d57d5041e45f88bc6a54`, and `ranking_usage` is `ade25eea6e4bdbed6f569d7812bafbd64c1c3a093bbf87341d01d338083a7e21`. The frozen bytes were checked against `git show 266c3ab8b0be:subfleet/scheduler.py` while building. Both evaluators receive the same policy, view and job, including the input policy hash; changed default-policy bytes naturally have a different hash.
 
 | Invariant | Test in `test_scheduler_fill.py` |
 | --- | --- |
@@ -63,7 +63,7 @@ Additional generated tests cover bounded store candidates versus full histories 
 
 ## Mutants
 
-`tools/fill_rank_mutations.py` applied each mutant alone to a pristine file copy, ran its named test, restored the original bytes in `finally`, and verified SHA-256. No Git checkout was needed. The first build's six mutants failed by assertion. “Default fix r2” records eight mutants and “Review fix r1” records this round's run. Evidence: [2026-11-08-fill-first-mutants.json](2026-11-08-fill-first-mutants.json).
+`tools/fill_rank_mutations.py` applied each mutant alone to a pristine file copy, ran its named test, restored the original bytes in `finally`, and verified SHA-256. No Git checkout was needed. The first build's six mutants failed by assertion. “Default fix r2” records eight assertion kills, “Review fix r1” records thirteen, and “Review fix r2” records seventeen. Evidence: [2026-11-08-fill-first-mutants.json](2026-11-08-fill-first-mutants.json).
 
 | Mutant | Killing test in `test_scheduler_fill.py` |
 | --- | --- |
@@ -634,7 +634,8 @@ The list groups parameter variants under their function. The JSON holds each ful
   - `test_c6_9_c11_8_the_incident_38_jobs_are_not_held_behind_the_desktop_pin` — Reset with fill covered by `tests/unit/test_unadmittable_pin.py::test_c6_9_c11_8_no_job_waits_behind_a_job_no_lane_can_admit`.
 - `tests/unit/test_weekly_rank_vs_base.py`
   - `test_a_bucket_the_provider_stopped_reporting_does_not_unmeasure_a_freshly_read_lane` — Reset with fill covered by `tests/unit/test_weekly_rank_vs_base.py::test_no_lane_newly_needs_a_pre_launch_probe[claude-True]`.
-  - `test_equal_weekly_headroom_binds_the_earliest_reset` `[False-claude-opus]`, `[True-claude-opus]` — Reset with fill covered by `tests/unit/test_scheduler_fill.py::test_fill_equal_weekly_use_binds_the_earliest_reset`.
+  - `test_equal_weekly_headroom_binds_the_earliest_reset[False-claude-opus]` — Reset with fill covered by `tests/unit/test_scheduler_fill.py::test_fill_equal_weekly_use_binds_the_earliest_reset[account]`.
+  - `test_equal_weekly_headroom_binds_the_earliest_reset[True-claude-opus]` — Reset with fill covered by `tests/unit/test_scheduler_fill.py::test_fill_equal_weekly_use_binds_the_earliest_reset[model-scope]`.
   - `test_every_lane_is_judged_as_the_base_judged_it` `[64b4175f-claude]` — Both orders.
   - `test_no_lane_newly_needs_a_pre_launch_probe` `[claude-False]`, `[claude-True]` — Both orders.
   - `test_pick_excludes_no_lane_the_base_recommended` `[claude-False]`, `[claude-True]` — Both orders.
@@ -745,7 +746,7 @@ Git also denied `index.lock` for each named-file staging attempt. I tested the t
 | --- | --- |
 | P2 1. Fill query under reset | Fixed. `policy.fill_on` checks the provider of each configured model. Daemon route and operator snapshots and `Timers.snapshot` skip fill evidence under the shipped reset policy. Models supplied without a provider by raw timer policies contribute no fill order. `capacity.store_rows` keeps its default and accepts `fill=False`. `test_snapshots_query_fill_rows_only_when_requested` failed before the fix on one unexpected query and passed after it. Its added providerless case exposed a `KeyError` in the first gate and passed with the final guard. The 300-example `test_reset_decisions_and_horizons_ignore_fill_rows` passed before and after. |
 | P2 2. In-flight tie | Fixed. `test_fill_fewer_in_flight_ranks_first_at_equal_use` passed before and after and killed `in-flight-dropped`. At equal weekly use, the lane with zero in-flight jobs ranks ahead of the lane with one. |
-| P2 3. Binding reset tie | Fixed. `test_fill_equal_weekly_use_binds_the_earliest_reset` passed before and after and killed `binding-latest-reset`. The +1 h account reset binds at equal use with the +3 d model reset, so `claude-1` ranks first in the expiring tier. |
+| P2 3. Binding reset tie | The r1 test put the +1 h reset on the account row and the +3 d reset on the model row at equal use. It passed before and after and killed `binding-latest-reset`. Review fix r2 adds the +1 h model-scope reset against the +3 d account reset, so reset order and scope order disagree. In both cases the +1 h reset binds and `claude-1` ranks first in the expiring tier. |
 | P2 4. Future-observation clock | Fixed. `test_fill_horizon_notes_a_future_row_the_admission_view_hides` passed before and after and killed `horizon-fill-future-dropped`. The first of two future observations moves the choice at +10 s and sets the horizon at +10 s. |
 | P2 5. Nonfirst model scope | Fixed. `test_unknown_model_pick_binds_a_scope_other_than_the_first_model` passed before and after and killed `picker-fill-first-model-only`. Opus scope contributes 0.9 weekly use to the unknown-model pick. |
 | P2 6. Reserve order | Text corrected. The proposed body now puts lanes that still hold their weekly reserve first, then applies the same rule to the five-hour reserve. `test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above` pins the pre-existing order at equality and one float above. |
@@ -903,14 +904,14 @@ Run arguments by label. The command passes each module list as `@$SF/<label>.txt
 - **Mutants.** Scoped six assertion kills to the first build, pointed to the eight in Default fix r2 and the thirteen in this round, and gave the Codex omission test its current `[codex-astra-omitted]` ID.
 - **Consumer audit.** Named `picker.rank`. Updated the scheduler, picker, route-check, daemon, capacity, policy and actions references. Described the daemon and timer query gates, put the historical snapshot fallback in past tense, and clarified the horizon effect of a noncanonical observation or a replacement that arrives in the snapshot-to-view gap. `build_view` drops a replaced canonical row when it can see the replacement at its clock.
 - **Default fix r2, Policy and horizons.** Checked and updated each of the startup copy, policy load and hash, scheduler call and decision digest, stored decision digest, reservation policy check, horizon and forwarding references.
-- **Default fix r2, Probe comparison.** Replaced the witness for both `[False-claude-opus]` and `[True-claude-opus]` variants of `test_equal_weekly_headroom_binds_the_earliest_reset` with `test_fill_equal_weekly_use_binds_the_earliest_reset`. The preserved `2026-11-08-fill-first-default-r2-probe.json` still names `test_fill_only_latest_applicable_open_windows_contribute_at_any_age`.
+- **Default fix r2, Probe comparison.** The r1 `test_fill_equal_weekly_use_binds_the_earliest_reset` covered `[False-claude-opus]` of `test_equal_weekly_headroom_binds_the_earliest_reset`. Review fix r2 names that case `[account]` and adds `[model-scope]` to cover `[True-claude-opus]`. The preserved `2026-11-08-fill-first-default-r2-probe.json` still names `test_fill_only_latest_applicable_open_windows_contribute_at_any_age`.
 - **Default fix r2, Proposed PR body.** Corrected the weekly and five-hour reserve direction. A report-wide search found one inverted sentence.
 - **Acceptance contract.** Extended the first D-FILL1 change-log entry in place. C-11.11 states the measured-key and probe rule, and milestone row 3 points to the separate fill order. The check found 261 unique normative clause IDs. All 370 change-log bullets retain their positions, including the existing duplicate from PR #198, and the edit creates no gap. The other D-FILL1 entry, C-11.3 and the desktop integration sentence keep their text.
 
 ### Hub PR body draft
 
 - “The daemon reads fill's evidence through its own store query, `Store.fill_reading_candidates`, so a newer unknown or null reading can't hide provider use that still belongs to an open window.” Qualify the call with the live policy. Daemon route and operator snapshots and the timer status snapshot call it only when a configured model's provider uses fill. The separate evidence still preserves a usable reading behind those masks.
-- “Each of the eight mutants in `tools/fill_rank_mutations.py` fails its named test by assertion (`docs/reports/2026-11-08-fill-first-mutants-default-r2.json`). They sort weekly use ascending, put a 120 s TTL on fill's readings, count expired windows, drop the expiring tier or the desktop term, and make fill the default for Codex, for Claude or in the shipped file.” Eight is the Default fix r2 result. The review-fix run has thirteen assertion kills. It adds in-flight, equal-use binding reset, future observation, unknown-model nonfirst scope and Codex horizon checks. The evidence is `docs/reports/2026-11-08-fill-first-mutants-review-r1.json`.
+- “Each of the eight mutants in `tools/fill_rank_mutations.py` fails its named test by assertion (`docs/reports/2026-11-08-fill-first-mutants-default-r2.json`). They sort weekly use ascending, put a 120 s TTL on fill's readings, count expired windows, drop the expiring tier or the desktop term, and make fill the default for Codex, for Claude or in the shipped file.” Eight is the Default fix r2 result. The review r1 run recorded thirteen assertion kills. It adds in-flight, equal-use binding reset, future observation, unknown-model nonfirst scope and Codex horizon checks. The evidence is `docs/reports/2026-11-08-fill-first-mutants-review-r1.json`.
 - “The report maps each of the 307 to a test that still exercises fill under the shipped map: 233 select fill, 54 run both orders, and 20 rely on a named test that covers the same law under fill (`docs/reports/2026-11-08-fill-first-default-r2-probe.json`).” The historical counts still apply. Cite the corrected report for the equal-use binding tie witness. The historical JSON carries the old witness.
 - “At `0ab7eed83`, this head's first parent, every run passed.” Identify `0ab7eed83` as the Default fix r2 head and keep its counts attached to that SHA.
 - “On this head, two local runs passed 2,115 tests across `tests/fake/test_state_contract.py`, `tests/unit/test_invariants_index.py`, `tests/unit/test_test_module_names.py`, `tests/unit/test_handler_refusals.py`, `tests/unit/test_store_contention_queries.py` and all 35 test files this PR changes.” Attribute those counts to the reviewed head `7f344288a`. The final PR, store and contract runs cover 2,123 passing tests.
@@ -918,7 +919,7 @@ Run arguments by label. The command passes each module list as `@$SF/<label>.txt
 
 ### Left for an issue
 
-All ten review findings are closed. The common `UNION ALL` fallback still scans `readings` for noncanonical timestamps and, under fill, future observations. The measured rewrite closes the requested plan investigation through the covering key scan and indexed seeks.
+Review fix r1 addressed its ten findings as ruled. Review fix r2 adds the follow-up witnesses. The common `UNION ALL` fallback still scans `readings` for noncanonical timestamps and, under fill, future observations. The measured rewrite closes the requested plan investigation through the covering key scan and indexed seeks.
 
 ### Commands and deviations
 
@@ -945,3 +946,52 @@ At 12:34:54 UTC, `python3 -B "$SF/cleanup.py"` inventoried Darwin temp and used 
 I left the 17 MiB `.venv` in the worktree as requested and verified its imports after cleanup. The shared uv cache remains in place. Final free disk was 71 GB and load averages were 11.32, 17.69 and 25.91. The assigned checkout retains the tracked edits and the new mutation JSON for salvage.
 
 Head built: 7f344288ac32fba20f10154379493d6fc339abe9
+
+## Review fix r2
+
+Started at 2026-11-28 02:45:29 UTC. The detached checkout matched `0da60cf72bfc361544b26ea4fcd69644e1217695`, the head approved in review r2, and both the tracked status and the untracked list were empty.
+
+| Finding | Coverage added | Mutation evidence |
+| --- | --- | --- |
+| P2. Binding reset at equal weekly use | The original account case and the new Opus-scope case each bind the +1 h reset, mark `claude-1` expiring and choose it. In the new case both accounts reset at +3 d and `claude-1` also has an Opus-scoped row at equal use resetting at +1 h. | `binding-reset-dropped` and `binding-scope-before-reset` each failed by assertion in `test_fill_equal_weekly_use_binds_the_earliest_reset[model-scope]`. |
+| P3. Last configured model in an unknown-model pick | `test_unknown_model_pick_binds_each_configured_claude_scope` takes its model names from the Claude entries in the configured policy. Each case ranks the lane with 0.2 account use and 0.9 scoped use ahead of the lane with 0.5 account use and asserts 0.9 weekly use. | `picker-fill-drops-last-model` failed by assertion in the `[haiku]` case, the last model in the current fixture order. |
+| P3. Timer snapshot query gate | `test_timer_snapshot_queries_fill_rows_only_when_requested` uses a real `Timers` instance and a store query spy. The shipped reset snapshot makes zero fill queries and the Claude fill snapshot makes one at the snapshot clock. | `timers-fill-ungated` failed the zero-call assertion. |
+
+All 17 mutant children exited 1 with one assertion failure each. The existing set comprises `weekly-ascending`, `ttl-only`, `expired-counts`, `expiring-dropped`, `desktop-dropped`, `default-codex-fill`, `default-claude-fill`, `shipped-default-claude-fill`, `in-flight-dropped`, `binding-latest-reset`, `horizon-fill-future-dropped`, `picker-fill-first-model-only`, and `horizon-fill-claude-only`. Each replacement matched exactly once. SHA-256 checks verified restoration, and byte comparisons matched the base for the three historical mutation JSON files. [Review r2 mutation evidence](2026-11-08-fill-first-mutants-review-r2.json)
+
+The witness list maps `[False-claude-opus]` to `[account]` and `[True-claude-opus]` to `[model-scope]`. The r1 findings table and probe summary now identify r1's account-first coverage and r2's added scope-first case. The scheduler case count is 43 and the mutant summary identifies the six, eight, thirteen and seventeen results by round.
+
+### Ordered verification
+
+| Run | Result | Elapsed |
+| --- | --- | ---: |
+| Targeted cases, test-only diff | 7 passed | 71.17 s pytest |
+| Full mutation run | 17 assertion kills | 1,487.05 s wall |
+| Five fill modules | 138 passed | 424.33 s pytest |
+| Four routing and picker modules | 96 passed, 4 failed | 1,687.82 s pytest |
+| Five timer reader modules | 256 passed, 1 failed | 469.70 s pytest |
+| Four contract and index modules | 437 passed | 257.08 s pytest |
+| Focused routing and timer retry | 5 passed | 894.67 s pytest |
+
+All four routing failures originated in pytest's 540 s timeout while Hypothesis was generating or processing examples in `test_route_check.py`. Three also produced a secondary Hypothesis strategy error after interruption. The timer failure was `test_usage_timeout_does_not_block_cycle_or_shutdown`, whose cycle took 1.17 s against a 0.4 s assertion. Both modules match the base. Across the module runs and focused retry, all 932 requested module cases passed.
+
+### PR-body sentences for the hub
+
+- “Each of the thirteen mutants in `tools/fill_rank_mutations.py` fails its named test by assertion (`docs/reports/2026-11-08-fill-first-mutants-review-r1.json`).” Use 17 and the review-r2 evidence path for the current result.
+- “The other five drop the in-flight key, bind the later reset at equal use, stop the horizon noting a future reading, scope an unknown-model pick to its first model only, and apply the horizon's fill rule to Claude alone.” The current list also covers dropping reset from the binding key, sorting scope before reset, dropping the last picker model and removing the timer query gate.
+- “`docs/reports/2026-11-08-fill-first-default-r2-probe.json` holds the probe's run, and the report names the current test for the equal-use reset tie.” Name the two variant-specific witnesses above. The probe counts describe the historical run.
+- “This head closes all ten:” Scope the ten findings to the r1 rulings and record the three r2 coverage findings separately.
+- “New tests pin four keys that no test covered: fewer jobs in flight at equal weekly use, the earliest binding reset, the horizon's clock for a future reading, and an unknown-model pick's scopes past the first model.” State that r1 covered the account-first reset and Opus pick, and that r2 adds the scope-first reset, every configured Claude pick scope and the timer snapshot gate.
+- “A scoped review of this round's changes.” Identify the remaining scoped review as r3. Review r2 approved the assigned base.
+
+The “On this head, the fix round's PR, store and contract runs passed 2,123 tests” and “The hub's run on this head passed 531 tests” statements describe r1 evidence at `0da60cf72bfc`. Anchor them to that SHA when adding the r2 counts.
+
+### Setup and deviations
+
+Darwin temp denied creation of `$T0/sf-fill-rfix2`, so the runs used the worktree fallback `build/sf-fill-rfix2`. The shared uv cache also denied writes. The import probe failed in the new environment, and `uv sync --group dev` succeeded with `$SF/uv-cache`. The runs used `$SF/t` for `TMPDIR` and `$SF/hypothesis` for Hypothesis storage. A scratch-only pytest hook redirected retained failure state into `$SF`, and Git discovery from test fixtures stopped at the scratch root.
+
+An ephemeral directory disappeared during a `du` sample in the fill group. The sampler exited 1 after pytest printed 138 passes. I recorded the final 4 MiB size, removed that basetemp and corrected sampling for the later groups. The mutation parent and every mutant child had a separate disk and load check. The focused retry used two workers to reduce concurrency and kept the 540 s timeout and configured Hypothesis examples.
+
+The largest recorded scratch peak was 54 MiB excluding the uv cache. The fill peak is unavailable, and cumulative writes were unmetered. I removed each basetemp and the three archived-baseline trees, then used a guarded `shutil.rmtree` on the exact worktree fallback path. The final scratch size was 22 MiB including its uv cache. The worktree retains the 11 MiB ignored `.venv`. The checks found zero owned matching directories directly under Darwin temp and zero worktree-root `.hypothesis` directories.
+
+The sandbox denied Git's `index.lock` on named-file staging. The test-only run therefore used the worktree diff at the assigned HEAD. The three tests, mutation tool, new JSON and this report are available for Subfleet salvage.

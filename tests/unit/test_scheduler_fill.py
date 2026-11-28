@@ -321,11 +321,13 @@ def test_fill_only_latest_applicable_open_windows_contribute_at_any_age(rows):
     assert detail["fill_five_hour_used"] == (five["utilization"] if five else 0)
 
 
-def test_fill_equal_weekly_use_binds_the_earliest_reset():
+@pytest.mark.parametrize("scoped_first", [False, True], ids=["account", "model-scope"])
+def test_fill_equal_weekly_use_binds_the_earliest_reset(scoped_first):
     earlier, later = reset(3600), reset(3 * 86400)
-    case = fill_case(fleet("claude", [(.5, .5, later, 0), (.5, .5, earlier, 0)], spread=None))
+    account_reset, opus_reset = (later, earlier) if scoped_first else (earlier, later)
+    case = fill_case(fleet("claude", [(.5, .5, later, 0), (.5, .5, account_reset, 0)], spread=None))
     opus = case[0]["models"]["opus"]["id"]
-    case[1]["readings"].append(reading("claude-1", .5, later, scope=opus))
+    case[1]["readings"].append(reading("claude-1", .5, opus_reset, scope=opus))
     decision = scheduler.evaluate(*case)
     detail = decision.evaluations[0]["candidate_details"]["claude-1"]
     assert detail["fill_weekly_reset"] == earlier

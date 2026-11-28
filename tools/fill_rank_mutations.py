@@ -70,6 +70,26 @@ MUTANTS = {
         'if (lane_order(policy, providers.get(row["lane_id"], "")) != "fill"'
         ' or providers.get(row["lane_id"]) != "claude"',
         "tests/unit/test_route_check.py::test_c6_3_codex_fill_still_stands_exactly_when_evaluate_now_chooses_the_same"),
+    "binding-reset-dropped": ("subfleet/scheduler.py",
+        'key=lambda row: (-row["utilization"], _time(row["resets_at"]), row["scope"])',
+        'key=lambda row: (-row["utilization"], row["scope"])',
+        "test_fill_equal_weekly_use_binds_the_earliest_reset[model-scope]"),
+    "binding-scope-before-reset": ("subfleet/scheduler.py",
+        'key=lambda row: (-row["utilization"], _time(row["resets_at"]), row["scope"])',
+        'key=lambda row: (-row["utilization"], row["scope"], _time(row["resets_at"]))',
+        "test_fill_equal_weekly_use_binds_the_earliest_reset[model-scope]"),
+    "picker-fill-drops-last-model": ("subfleet/picker.py",
+        'view.get("fill_readings", view.get("readings", []))\n'
+        '                           if reading["lane_id"] == identity and reading["scope"] in\n'
+        '                           ("account", *[policy["models"][name]["id"] for name in models])]',
+        'view.get("fill_readings", view.get("readings", []))\n'
+        '                           if reading["lane_id"] == identity and reading["scope"] in\n'
+        '                           ("account", *[policy["models"][name]["id"] for name in models[:-1]])]',
+        "tests/unit/test_fill_routing.py::test_unknown_model_pick_binds_each_configured_claude_scope[haiku]"),
+    "timers-fill-ungated": ("subfleet/timers.py",
+        "capacity.store_rows(self.store, now=at, fill=fill_on(self.policy))",
+        "capacity.store_rows(self.store, now=at)",
+        "tests/unit/test_fill_evidence.py::test_timer_snapshot_queries_fill_rows_only_when_requested"),
 }
 
 
