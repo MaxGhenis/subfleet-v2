@@ -237,6 +237,11 @@ def lane_slot_cap(caps: Mapping[str, Any] | None, measured: bool) -> int | None:
 #: and it is off (null) by default: Max, 2026-09-28, "remove *all* caps" and
 #: "nothing should be queued".
 #: `MACHINE_GUARD_PROPOSAL` is the setting proposed for when he turns it on.
+#: `lane_starts_per_window` and `global_starts_per_min` bound reservations
+#: in their rolling windows (C-6.25). They share the machine guard's exemptions
+#: and default to null (off). `lane_start_window_s` sets the lane window.
+#: As with the ramp, omitting these defaults in the shipped file preserves
+#: its exact bytes and therefore the C-11.1 policy hash in default decisions.
 #: `pin_grace_s` is how long a queued job pinned to a lane that can never admit
 #: it waits for that to change before it fails with rc 3 (C-11.8); null never
 #: fails it, and the notice still goes. `pin_hold_far_s` is how far out a
@@ -295,6 +300,9 @@ ADMISSION_DEFAULTS: dict[str, Any] = {
     "five_hour_reserve": 0.10,
     "desktop_recent_s": 1800,
     "machine_guard": None,
+    "lane_starts_per_window": None,
+    "lane_start_window_s": 30,
+    "global_starts_per_min": None,
     "disk": DISK_DEFAULTS,
     "ramp": RAMP_DEFAULTS,
     "priority_callers": None,
@@ -695,6 +703,13 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     recent = settings["desktop_recent_s"]
     if not isinstance(recent, (int, float)) or isinstance(recent, bool) or not math.isfinite(recent) or recent < 0:
         fail("admission.desktop_recent_s", "must be a nonnegative finite number of seconds")
+    for key in ("lane_starts_per_window", "global_starts_per_min"):
+        limit = settings[key]
+        if limit is not None and (not isinstance(limit, int) or isinstance(limit, bool) or limit < 1):
+            fail(f"admission.{key}", "must be a positive integer, or null for no start budget")
+    window = settings["lane_start_window_s"]
+    if not isinstance(window, int) or isinstance(window, bool) or window < 1:
+        fail("admission.lane_start_window_s", "must be a positive integer number of seconds")
     guard = settings["machine_guard"]
     callers = settings["priority_callers"]
     if callers is not None:

@@ -252,6 +252,7 @@ def status(view: Mapping[str, Any]) -> str:
         lines.append(disk_line(view["disk"]))
     if view.get("ramp") is not None:
         lines.append(ramp_line(view["ramp"]))
+    lines.extend(start_budget_lines(view.get("start_budget")))
     if view.get("task_holds"):
         # C-11.10: the operator's holds on tasks; lanes stay open to every other task.
         lines.append("Task holds: " + "; ".join(task_hold_line(hold) for hold in view["task_holds"]))
@@ -350,6 +351,7 @@ _HOLD_TEXT = {
                    "clock ran out); it keeps its place and the next pass looks again (C-6.3)",
     "machine-busy": "the machine is saturated ({machine}) and the guard holds {class} jobs at the door until it "
                     "is not; admission.machine_guard sets the thresholds (C-6.13)",
+    "start-budget": "the reservation budget is full until the next check at {next_check_at} (C-6.25)",
     "pin-unadmittable": "its pinned lane {lane_id} can never admit it: {refusals}; it holds no other job back "
                         "and {ends} (C-11.8)",
     "task-held": "the operator holds {task} jobs at admission until {until} ({note}); it starts once the hold "
@@ -383,6 +385,22 @@ def ramp_line(reading: Mapping[str, Any]) -> str:
     return (f"placement ramp: {reading['used']} of {reading['limit']} starts used "
             f"in the last {reading['window_s']} s; next slot at "
             + (reading.get("next_slot_at") or "now"))
+
+
+def start_budget_lines(reading: Any) -> list[str]:
+    """C-6.25: show the setting and count for each enabled start budget."""
+    if not isinstance(reading, Mapping):
+        return []
+    lines = []
+    if lane := reading.get("lane"):
+        usage = lane["used"] or {"no lanes enrolled": 0}
+        for lane_id, used in sorted(usage.items()):
+            lines.append(f"lane start budget: {used}/{lane['limit']} starts used in the last "
+                         f"{lane['window_s']} s ({lane_id})")
+    if fleet := reading.get("global"):
+        lines.append(f"global start budget: {fleet['used']}/{fleet['limit']} starts used in the last "
+                     f"{fleet['window_s']} s")
+    return lines
 
 
 def disk_line(reading: Mapping[str, Any]) -> str:

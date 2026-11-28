@@ -211,6 +211,31 @@ PIN_NOTICE_ID = "(CASE WHEN json_valid(data_json) THEN json_extract(data_json,'$
 NOTICE_EVENT_KINDS = ("job.pin_noticed", "retention.notice_retired")
 
 
+def priority_job_rows(query: Callable[[str, Sequence[Any]], Iterable[Row]],
+                      jobs: Sequence[Row]) -> dict[str, Row]:
+    """C-6.16: jobs and their caller ancestry, including finished parents.
+
+    Fetch only named parents in indexed batches. Missing rows and cycles
+    terminate without scanning the store.
+    """
+    family = {job["job_id"]: job for job in jobs}
+    seen = set(family)
+    pending = {job["parent_job_id"] for job in jobs if job.get("parent_job_id")} - seen
+    while pending:
+        parents = sorted(pending)
+        seen.update(parents)
+        pending = set()
+        for start in range(0, len(parents), 500):
+            chunk = parents[start:start + 500]
+            for row in query(
+                    "SELECT job_id,caller_session,parent_job_id FROM jobs "
+                    f"WHERE job_id IN ({','.join('?' * len(chunk))})", tuple(chunk)):
+                family[row["job_id"]] = row
+                if row["parent_job_id"] and row["parent_job_id"] not in seen:
+                    pending.add(row["parent_job_id"])
+    return family
+
+
 def batch_submission_rows(query: Callable[[str, Sequence[Any]], Iterable[Any]],
                           job_ids: Sequence[str]) -> list[Any]:
     """Batch-bearing first submissions, bounded by jobs rather than their history.

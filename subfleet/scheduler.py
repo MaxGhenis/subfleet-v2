@@ -427,6 +427,10 @@ class MachineGuard:
         return snapshot
 
 
+def machine_guard_exempt(klass: str) -> bool:
+    return klass in ("attended", "priority")
+
+
 def machine_hold(policy: Mapping[str, Any], machine: Mapping[str, Any] | None, klass: str) -> dict[str, Any] | None:
     """C-6.13: the `machine-busy` hold for a job of `klass`, or None to go on.
 
@@ -441,7 +445,7 @@ def machine_hold(policy: Mapping[str, Any], machine: Mapping[str, Any] | None, k
     does not name, and nothing is held on a reading that is missing.
     """
     guard = admission_settings(policy).get("machine_guard")
-    limits = (guard or {}).get(klass) if klass not in ("attended", "priority") else None
+    limits = None if machine_guard_exempt(klass) else (guard or {}).get(klass)
     if not limits or not machine:
         return None
     hold: dict[str, Any] = {}
@@ -1043,6 +1047,9 @@ def judge_lane(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any],
         # C-6.14: a pilot's block holds detached attempts only; a turn is never held for one.
         detail["slot_block"] = unavailable[identity]
     if capacity_blocks(setup, short) or (slot_cap is not None and in_flight >= slot_cap) or detail.get("slot_block"):
+        reasons.append("no-slot")
+    elif identity in job.get("start_budget_lanes", ()):
+        detail["start_budget"] = True
         reasons.append("no-slot")
     if any(row["utilization"] >= 1 - setup["floor"] for row in measured_readings):
         reasons.append("below-floor")

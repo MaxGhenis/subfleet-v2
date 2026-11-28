@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 
 from . import __version__
 from . import capacity, dependencies, descriptors, disk, folders, host_push, ids, lanes_transfer, machine, procs, protocol, ramp, render, route_check, scheduler
-from . import daemon_log, refusals, resource_leases, task_holds
+from . import daemon_log, refusals, resource_leases, start_budget, task_holds
 from .actions import demand_verdict
 from . import attempt_tmp, worktree_add
 from .attempt_tmp import AttemptTemp, env_value, probe_tmpdir_rows
@@ -92,7 +92,7 @@ from .sessions import registry
 from .sessions.registry import CONVERSATION_FIX
 from .sessions.transcripts import NotRegularFile, open_regular, read_regular
 from .store import (CLOSE_WAIT_S as STORE_CLOSE_WAIT_S, Store, _pin_notice_key, batch_submission_rows, cancel_info,
-                    job_flags, notice_fingerprint, notice_rows, pin_notice_jobs, shell_flags)
+                    job_flags, notice_fingerprint, notice_rows, pin_notice_jobs, priority_job_rows, shell_flags)
 from . import uncommitted
 
 
@@ -316,7 +316,7 @@ RETRY_END_SQL = ("SELECT a.finished_at, CASE WHEN json_valid(a.evidence_json) "
 #: C-6.11: ordinary queueing. A fleet at its cap with lanes to spare is working.
 EXPECTED_HOLDS = frozenset({"fleet-full", "slot-kept", "provider-cap", "provider-slot-kept", "parent-cap", "no-slot", "lease-held",
                             "probe-pending", "behind-older-job", "route-moved", "machine-busy",
-                            "lane-proving", "disk", "ramp"})
+                            "lane-proving", "disk", "ramp", start_budget.REASON})
 #: C-6.9, C-10.3: how long one read of Claude Code's session registry serves:
 #: which callers are live, and whether Claude Code uses the desktop login.
 REGISTRY_READ_TTL_S = 2
@@ -2672,29 +2672,10 @@ class Daemon:
         return known[job_id]
 
     def _priority_jobs(self, jobs: list[dict]) -> dict[str, dict]:
-        """C-6.16: caller ancestry, including finished parents, read once per pass.
-
-        No queries when priority is off. Fetch only named parents in indexed
-        batches; missing rows and cycles terminate without scanning the store.
-        """
+        """C-6.16: caller ancestry, read once per pass when priority is on."""
         if not admission_settings(self.policy)["priority_callers"]:
             return {}
-        family = {job["job_id"]: job for job in jobs}
-        seen = set(family)
-        pending = {job["parent_job_id"] for job in jobs if job.get("parent_job_id")} - seen
-        while pending:
-            parents = sorted(pending)
-            seen.update(parents)
-            pending = set()
-            for start in range(0, len(parents), 500):
-                chunk = parents[start:start + 500]
-                for row in self.store.query(
-                        "SELECT job_id,caller_session,parent_job_id FROM jobs "
-                        f"WHERE job_id IN ({','.join('?' * len(chunk))})", tuple(chunk)):
-                    family[row["job_id"]] = row
-                    if row["parent_job_id"] and row["parent_job_id"] not in seen:
-                        pending.add(row["parent_job_id"])
-        return family
+        return priority_job_rows(self.store.query, jobs)
 
     def _launch_qos(self, job: dict) -> tuple[str, str]:
         """C-5.1, D-QOS-BOOKED1: `scheduler.launch_qos` with the job's caller ancestry read
@@ -4627,6 +4608,12 @@ class Daemon:
                 RESTRICTED_RUNS_SQL, restricted_window(utcnow()))]
             if ramp_settings(self.policy)["enabled"] and self._ramp.snapshot["enabled"]:
                 view["ramp"] = self._ramp.status(utcnow())
+            settings = admission_settings(self.policy)
+            if settings["lane_starts_per_window"] is not None or settings["global_starts_per_min"] is not None:
+                with self.store.snapshot():
+                    budget = start_budget.StartBudget.read(
+                        self.policy, self.store.query, utcnow(), priority_jobs=self._priority_jobs)
+                view["start_budget"] = budget.status(lane["lane_id"] for lane in view["lanes"])
             # C-11.10: the holds in force, a list that is empty when there are none, each with
             # the count of jobs it keeps waiting over the whole store (C-17.4).
             view["task_holds"] = task_holds.listing(
@@ -7825,9 +7812,10 @@ class Daemon:
         active = getattr(self._admission_thread, "active", False)
         self._admission_thread.active = True
         try:
-            placed = self._admit_kind_once(kind, wait=wait)
-            if placed is None:                     # another pass holds the lock
+            outcome = self._admit_kind_once(kind, wait=wait)
+            if outcome is None:                    # another pass holds the lock
                 return
+            placed, budget_due = outcome
             # Include a closure that expired during this pass, even the first
             # pass: its route snapshot may still have seen the hold in force.
             expiry = self.store.one("SELECT min(until_at) AS due FROM closures "
@@ -7846,13 +7834,16 @@ class Daemon:
                 self._admission_rest_until = (ended + max(ADMISSION_IDLE_PACE_S, 4 * (ended - started))
                                               if not placed and wake_seq == self._admission_wake_seq
                                               and self._admission_closure_due > ended else 0.0)
+                if budget_due is not None:
+                    self._admission_rest_until = min(self._admission_rest_until,
+                                                     ended + max(0, budget_due.timestamp() - time.time()))
         except BaseException:
             self._wake_admission()                 # an error gets only C-5.10's rest
             raise
         finally:
             self._admission_thread.active = active
 
-    def _admit_kind_once(self, kind: str, *, wait: bool = True) -> int | None:
+    def _admit_kind_once(self, kind: str, *, wait: bool = True) -> tuple[int, datetime | None] | None:
         """One admission pass over one kind of job, then the record of what it left unplaced (C-6.11)."""
         if kind == "turn" and not self._holds_by_kind["turn"] and not self.store.one(
                 "SELECT 1 FROM jobs WHERE state IN ('queued','waiting') AND kind='turn' "
@@ -7917,7 +7908,7 @@ class Daemon:
                 self._note_admission({"placed": placed}, holds)
             finally:
                 self._note_lock.release()
-        return tally["placed"]
+        return tally["placed"], tally.get("start_budget_due")
 
     def _count_route(self, **counts: int) -> None:
         """C-6.3: add to `daemon.status`'s `route_evaluations`; both passes count."""
@@ -7972,6 +7963,21 @@ class Daemon:
                                                   **{key: hold[key] for key in ("lane", "model") if hold.get(key)}})
         else:
             self.store.audit_as(None)
+
+    def _wait_for_start_budget(self, tx, job: dict, opened: tuple, deadline: datetime,
+                               holds: dict, tally: dict) -> None:
+        """C-6.25: write only a changed wait and remember the earliest due look."""
+        reason = start_budget.REASON
+        next_check = deadline.isoformat().replace("+00:00", "Z")
+        hold = {"reason": reason, "next_check_at": next_check}
+        if opened[:2] != ("waiting", reason) or job["next_check_at"] != next_check:
+            tx.execute("UPDATE jobs SET state='waiting',wait_reason=?,next_check_at=? WHERE job_id=?",
+                       (reason, next_check, job["job_id"]))
+        self._audit_wait(opened, job, None, hold, next_check, wait_reason=reason)
+        self._capacity_waits.pop(job["job_id"], None)
+        self._capacity_news.pop(job["job_id"], None)
+        holds[job["job_id"]] = hold
+        tally["start_budget_due"] = min(deadline, tally.get("start_budget_due", deadline))
 
     def _refresh_hold(self, job_id: str, hold: dict) -> None:
         """C-6.11: a look that changed no verdict and no clock still reports what it found."""
@@ -8300,6 +8306,9 @@ class Daemon:
         reading = self._machine_reading() if kind == "detached" else None
         if kind == "detached":
             reading = self._machine_guard.advance(self.policy, reading)
+        budget = (start_budget.StartBudget.read(self.policy, self.store.query, utcnow(),
+                                               priority_jobs=self._priority_jobs)
+                  if kind == "detached" and queued else None)
         # C-6.9: FIFO within a tier holds among jobs that compete for a model. An
         # older job that cannot be placed holds back the later jobs that could run
         # where it could, and nothing else: on 2026-09-20 an Opus review with no
@@ -8422,6 +8431,7 @@ class Daemon:
             tier = scheduler.waiter_class(job, tier)     # C-26.9: turns queue apart from detached jobs
             klass = (scheduler.priority_class(job, liveness, policy=self.policy, jobs=priority_jobs)
                      if job["kind"] != "turn" else "attended")
+            count_start = budget is not None and budget.enabled and not scheduler.machine_guard_exempt(klass)
             if job["wait_reason"] == "route" and job["next_check_at"] and job["next_check_at"] > utcnow():
                 # C-6.12: not a capacity wait, so it holds nobody back (C-6.9) and
                 # no released lease brings it forward. It says what it met.
@@ -8664,7 +8674,8 @@ class Daemon:
                 waiter[0] == predecessor and not waiter[3] for waiter in older_waiters(tier))
             saved_news = self._capacity_news.pop(job["job_id"], False)
             hurried = bool((freed or saved_news) and known and known["expedite"]) or turn_came or unblocked
-            if job["next_check_at"] and job["next_check_at"] > utcnow() and not hurried:
+            if (job["wait_reason"] != start_budget.REASON and job["next_check_at"]
+                    and job["next_check_at"] > utcnow() and not hurried):
                 # C-11.8: a job every lane refuses now for a reason no wait ends waits
                 # for nothing another job could take, however its clock was set (a
                 # transient retry's 60 s, or lanes that turned since its last look).
@@ -8701,6 +8712,14 @@ class Daemon:
                 continue
             if self.store.one("SELECT 1 FROM attempts WHERE job_id=? AND state IN ('reserved','starting','running','finalizing','quarantined')", (job["job_id"],)):
                 holds[job["job_id"]] = {"reason": "attempt-live"}
+                continue
+            if count_start and budget.global_deadline is not None:
+                with self.store.transaction(ADMISSION_EVENT, job_id=job["job_id"]) as tx:
+                    current = self._job(job["job_id"])
+                    if (current["state"] in ("queued", "waiting") and not current["cancel_requested_at"]
+                            and self._task_held_at_write(tx, current, holds) is None):
+                        opened = (current["state"], current["wait_reason"], current["exclusions"])
+                        self._wait_for_start_budget(tx, current, opened, budget.global_deadline, holds, tally)
                 continue
             if (kind == "detached" and not previous and job["sandbox"] == "workspace-write"
                     and not job["in_place"] and not job.get("worktree") and job.get("push_branch") is None):
@@ -8922,6 +8941,8 @@ class Daemon:
                     decision_job = {**job, "affinity_lane": turn_block["affinity_lane"]}   # C-26.2
             if retry:
                 retry = {**job, "pinned_lane": retry["pinned_lane"], "pinned_model": retry["pinned_model"]}
+                if count_start and budget.lane_deadlines:
+                    retry["start_budget_lanes"] = frozenset(budget.lane_deadlines)
                 kept = self._retry_waits_on_a_slot(retry, extra_exclusions, desktop_account)
                 self._retry_verdicts[job["job_id"]] = (previous[-1]["attempt_id"], kept)
                 if kept:
@@ -8963,6 +8984,8 @@ class Daemon:
                             wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
                         holds[job["job_id"]] = {**hold, "next_check_at": next_check}
                         continue
+            if count_start and budget.lane_deadlines:
+                decision_job["start_budget_lanes"] = frozenset(budget.lane_deadlines)
             try:
                 if extra_exclusions:
                     # C-6.12: checked where the route is prepared, so a failure here counts
@@ -9219,6 +9242,16 @@ class Daemon:
                                 provider_hold = {"provider": provider, "live": provider_count,
                                                  "max_active_attempts": provider_limit,
                                                  "key": f"providers.{provider}.max_active_attempts"}
+                        if count_start and not decision.chosen_lane and not (fifo_behind or provider_behind or at_limit):
+                            deadline, slot_wait = budget.lane_wait(decision)
+                            if deadline is not None:
+                                # A budget-only lane cannot free a slot in this pass.
+                                # Keep FIFO for any lanes that are also waiting for a slot.
+                                if slot_wait:
+                                    wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
+                                self._wait_for_start_budget(tx, job, opened, deadline, holds, tally)
+                                status = "held"
+                                break
                         if not decision.chosen_lane or at_limit or provider_at_limit or provider_behind or fifo_behind:
                             # C-11.8: a job every lane refuses for a reason no wait ends
                             # (the pinned lane turned so since this pass's check) waits
@@ -9662,6 +9695,8 @@ class Daemon:
                 continue
             if status != "placed":
                 continue
+            if count_start:
+                budget.record(lane_id, reserved_at)
             if job["kind"] != "turn":
                 self._disk.reserve(aid, reserved_at)
             if job["kind"] != "turn" and ramp_config["enabled"]:

@@ -298,6 +298,32 @@ PR #59's text stands: turn caps null by default, no turn behind a turn when
 uncapped, FIFO on a lease. Added: turns are the `attended` class, the machine
 guard never holds them, and they take the desktop lane only as A5 allows.
 
+### A9. C-6.25, rolling start budgets (2026-11-28)
+
+Issue #355 recorded bursts after operator holds were released. An outside
+controller can restore a hold between passes. Admission itself can reserve
+several attempts within one pass, so the daemon checks start budgets while
+placing jobs in its existing class, tier and FIFO order.
+
+- `admission.lane_starts_per_window` sets the maximum reservations on each lane
+  during the last `admission.lane_start_window_s` seconds (default 30).
+- `admission.global_starts_per_min` sets the maximum reservations across all
+  lanes during the last 60 seconds.
+
+Both limits default to `null` (off). An enabled limit and the lane window each
+take a positive integer. Admission uses `attempts.reserved_at`, counts completed
+attempts for the rest of their window, and applies each committed reservation
+to the remaining budget in the same pass. Attended turns and priority jobs use
+the machine guard's exemption rules, including priority ancestry.
+
+For budgeted work, a lane at its start limit is excluded like a full lane.
+The existing selection can try another admissible lane for the current job
+before the pass considers a later job. At the global limit, budgeted work waits
+until reservations age out. A job held by the budget waits as `start-budget`
+with a recheck due by the applicable expiry. An unchanged wait writes no event.
+The check runs in the admission pass and uses its existing recheck machinery.
+`subfleet status` reports the settings and rolling counts for enabled budgets.
+
 ## Invariants and the tests that check them
 
 Property tests use Hypothesis. `tests/admission_model.py` is a pure model of one
