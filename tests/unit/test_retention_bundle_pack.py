@@ -24,6 +24,9 @@ SIDE = "refs/heads/side"
 SPARSE_SETTING = "pack.useSparse=false"
 EXTENSION_KEY = "extensions.partialclone"
 PROMISOR_PATTERN = r"^remote\..+\.promisor$"
+FILTER_PATTERN = r"^remote\..+\.partialclonefilter$"
+OFFLINE = {"GIT_NO_LAZY_FETCH": "1"}
+NETWORK_ORIGIN = "https://git.example.invalid/x.git"
 
 
 @pytest.fixture
@@ -87,10 +90,16 @@ def test_anchor_bundle_omits_prerequisite_tree_objects(world, shape):
     prerequisite_objects = {
         line.split()[0] for line in git(w.repo, "rev-list", "--objects", f"{prerequisite}^{{tree}}").splitlines()
     }
-    fmt = git(w.repo, "rev-parse", "--show-object-format")
-    probe = w.base / "pack.git"
-    git(w.base, "init", "--quiet", "--bare", f"--object-format={fmt}", str(probe))
-    (probe / "objects" / "info" / "alternates").write_text(str(w.repo / ".git" / "objects") + "\n")
+    packed = packed_objects(w.repo, bundle, w.base / "pack.git", anchor)
+    assert len(packed) == count
+    assert packed.isdisjoint(prerequisite_objects)
+
+
+def packed_objects(repo, bundle, probe, anchor):
+    fmt = git(repo, "rev-parse", "--show-object-format")
+    git(probe.parent, "init", "--quiet", "--bare", f"--object-format={fmt}", str(probe))
+    (probe / "objects" / "info" / "alternates").write_text(str(repo / ".git" / "objects") + "\n")
+    offset = rgit._pack_offset(bundle)
     with bundle.open("rb") as stream:
         stream.seek(offset)
         rgit.run(["index-pack", "--stdin", "--fix-thin"], git_dir=probe, stdin_file=stream)
@@ -100,9 +109,7 @@ def test_anchor_bundle_omits_prerequisite_tree_objects(world, shape):
     # --fix-thin can append delta bases. Only offsets before the original
     # pack's checksum belong to objects carried in the bundle.
     pack_end = bundle.stat().st_size - offset - len(anchor) // 2
-    packed = {oid for start, oid, _ in (line.split() for line in indexed) if int(start) < pack_end}
-    assert len(packed) == count
-    assert packed.isdisjoint(prerequisite_objects)
+    return {oid for start, oid, _ in (line.split() for line in indexed) if int(start) < pack_end}
 
 
 def test_anchor_bundle_restores_the_worktree_and_every_staged_blob(world, shape):
@@ -139,27 +146,61 @@ def add_side_commit(repo):
     git(repo, "update-ref", SIDE, side)
 
 
-@pytest.fixture(params=("extension", "promisor", "filtered"))
-def partial_repo(world, request):
-    w = world
-    marker = request.param
-    repo = w.repo
-    if marker == "filtered":
-        repo = w.base / "filtered"
-        git(w.remote, "config", "uploadpack.allowFilter", "true")
-        git(w.base, "clone", "--quiet", "--filter=blob:none", "--no-checkout", w.remote.as_uri(), str(repo))
-        missing = git(repo, "rev-list", "--objects", "--missing=print", "refs/remotes/origin/main",
-                      env={"GIT_NO_LAZY_FETCH": "1"}).splitlines()
-        assert any(line.startswith("?") for line in missing)
-    if marker in ("extension", "filtered"):
-        # Modern Git can create a filtered clone with only the remote markers.
-        # Record the legacy extension as well to exercise a clone with both.
-        git(repo, "config", "extensions.partialClone", "origin")
-    if marker == "promisor":
-        git(repo, "config", "remote.origin.promisor", "true")
-    assert git(repo, "config", "--get", EXTENSION_KEY, check=False) == ("" if marker == "promisor" else "origin")
-    assert git(repo, "config", "--get", "remote.origin.promisor", check=False) == ("" if marker == "extension" else "true")
-    git(repo, "remote", "set-url", "origin", "https://git.example.invalid/x.git")
+@pytest.fixture
+def prerequisite_repo(tmp_path):
+    repo = tmp_path / "project"
+    git(tmp_path, "init", "--quiet", "-b", "main", str(repo))
+    folder = repo / "pkg" / "sub"
+    folder.mkdir(parents=True)
+    for number in range(5):
+        (folder / f"f{number}").write_text(f"base content {number}\n")
+    git(repo, "add", "pkg")
+    git(repo, "commit", "--quiet", "-m", "prerequisite with nested blobs")
+    git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    git(repo, "remote", "add", "origin", NETWORK_ORIGIN)
+    return repo
+
+
+def write_config(repo, section, *settings):
+    with (repo / ".git" / "config").open("a") as stream:
+        stream.write(f"\n[{section}]\n")
+        for setting in settings:
+            stream.write(f"\t{setting}\n")
+
+
+def blobless_clone(source, repo):
+    git(source, "config", "uploadpack.allowFilter", "true")
+    git(repo.parent, "clone", "--quiet", "--filter=blob:none", "--no-checkout",
+        source.as_uri(), str(repo))
+    assert git(repo, "config", "--get", EXTENSION_KEY, check=False) == ""
+    assert git(repo, "config", "--get", "remote.origin.promisor") == "true"
+    assert git(repo, "config", "--get", "remote.origin.partialclonefilter") == "blob:none"
+    missing = git(repo, "rev-list", "--objects", "--missing=print", "HEAD", env=OFFLINE).splitlines()
+    assert any(line.startswith("?") for line in missing)
+    return repo
+
+
+@pytest.fixture(params=[
+    pytest.param((), id="extension"),
+    pytest.param(("promisor = true",), id="promisor"),
+    pytest.param(("promisor = yes",), id="promisor-yes"),
+    pytest.param(("promisor = 1",), id="promisor-1"),
+    pytest.param(("promisor = on",), id="promisor-on"),
+    pytest.param(("promisor",), id="promisor-bare"),
+    pytest.param(("partialclonefilter = blob:none",), id="filter-only"),
+    pytest.param(("promisor = false", "partialclonefilter = blob:none"), id="false-with-filter"),
+    pytest.param(None, id="filtered"),
+])
+def partial_repo(prerequisite_repo, request, tmp_path):
+    repo = prerequisite_repo
+    settings = request.param
+    if settings is None:
+        repo = blobless_clone(repo, tmp_path / "filtered")
+        git(repo, "remote", "set-url", "origin", NETWORK_ORIGIN)
+    elif not settings:
+        write_config(repo, "extensions", "partialClone = origin")
+    else:
+        write_config(repo, 'remote "origin"', *settings)
     add_side_commit(repo)
     return repo / ".git"
 
@@ -189,6 +230,119 @@ def test_partial_clone_keeps_default_pack_walk(partial_repo, tmp_path, git_comma
     rgit.create_bundle(partial_repo, tmp_path / "partial.bundle", [SIDE], [HELD], timeout=120)
     assert len(bundle_creates(git_commands)) == 1
     assert not any(has_sparse_setting(call) for call in git_commands)
+    assert rgit.partial_clone(partial_repo)
+
+
+def test_false_promisor_with_true_in_remote_name_uses_non_sparse_walk(prerequisite_repo, tmp_path,
+                                                                     git_commands, monkeypatch):
+    repo = prerequisite_repo
+    write_config(repo, 'remote "untrue"', "promisor = false")
+    add_side_commit(repo)
+    git_dir = repo / ".git"
+    rgit.create_bundle(git_dir, tmp_path / "complete.bundle", [SIDE], [HELD])
+    assert_only_bundle_create_sets_non_sparse(git_commands)
+    trust_temporary_directories(monkeypatch)
+    assert rgit.scratch_reason(git_dir, tmp_path / "state", {"origin": NETWORK_ORIGIN}) is None
+
+
+def test_invalid_promisor_keeps_default_pack_walk(prerequisite_repo, tmp_path, git_commands):
+    repo = prerequisite_repo
+    add_side_commit(repo)
+    write_config(repo, 'remote "origin"', "promisor = maybe")
+    git_dir = repo / ".git"
+    with pytest.raises(rgit.GitError, match=r"config .* exited 128"):
+        rgit.partial_clone(git_dir)
+    rgit.create_bundle(git_dir, tmp_path / "invalid-promisor.bundle", [SIDE], [HELD])
+    (create,) = bundle_creates(git_commands)
+    assert not has_sparse_setting(create)
+
+
+def test_promisor_yes_bundle_supplies_unchanged_staged_blob_offline(prerequisite_repo, tmp_path):
+    sender = blobless_clone(prerequisite_repo, tmp_path / "sender")
+    receiver = blobless_clone(prerequisite_repo, tmp_path / "receiver")
+    git(sender, "checkout", "--quiet", "--force", "HEAD")
+    git(sender, "config", "remote.origin.promisor", "yes")
+    git(sender, "config", "--unset", "remote.origin.partialclonefilter")
+    changed_path = "pkg/sub/f0"
+    unchanged_path = "pkg/sub/f1"
+    (sender / changed_path).write_text("new staged content\n")
+    git(sender, "add", changed_path)
+    unchanged = git(sender, "rev-parse", f":{unchanged_path}")
+    assert unchanged == git(sender, "rev-parse", f"HEAD:{unchanged_path}")
+    staged = {line.split()[1] for line in git(sender, "ls-files", "-s").splitlines()}
+    git_dir = sender / ".git"
+    parent = git(sender, "rev-parse", "refs/remotes/origin/main")
+    anchor = rgit.make_anchor(git_dir, JOB, {"index": staged}, [parent])
+    ref = rgit.anchor_ref(JOB, anchor)
+    rgit.create_ref(git_dir, ref, anchor)
+    bundle = tmp_path / "offline.bundle"
+    rgit.create_bundle(git_dir, bundle, [ref], [HELD])
+
+    receiver_git = receiver / ".git"
+    probe = ["cat-file", "--batch-check=%(objectname) %(objecttype)"]
+    assert rgit.run(probe, git_dir=receiver_git, env=OFFLINE,
+                    stdin=f"{unchanged}\n".encode()).stdout == f"{unchanged} missing\n".encode()
+    git(receiver, "fetch", "--quiet", str(bundle), f"{ref}:{ref}", env=OFFLINE)
+    assert git(receiver, "rev-parse", ref) == anchor
+    ordered = sorted(staged)
+    received = rgit.run(probe, git_dir=receiver_git, env=OFFLINE,
+                        stdin=("\n".join(ordered) + "\n").encode()).stdout.decode().splitlines()
+    assert received == [f"{oid} blob" for oid in ordered]
+
+
+def test_anchor_bundle_omits_admin_objects_already_in_prerequisite(prerequisite_repo, tmp_path):
+    repo = prerequisite_repo
+    receiver = tmp_path / "receiver"
+    git(tmp_path, "clone", "--quiet", "--no-local", str(repo), str(receiver))
+    parent = git(repo, "rev-parse", "HEAD")
+    assert git(receiver, "rev-parse", "HEAD") == parent
+    tree = git(repo, "rev-parse", "HEAD:pkg/sub")
+    blob = git(repo, "rev-parse", "HEAD:pkg/sub/f0")
+    git_dir = repo / ".git"
+    anchor = rgit.make_anchor(git_dir, JOB, {"tree": {tree}, "blob": {blob}}, [parent])
+    ref = rgit.anchor_ref(JOB, anchor)
+    rgit.create_ref(git_dir, ref, anchor)
+    bundle = tmp_path / "admin.bundle"
+    rgit.create_bundle(git_dir, bundle, [ref], [HELD])
+    packed = packed_objects(repo, bundle, tmp_path / "admin-pack.git", anchor)
+    assert packed.isdisjoint({tree, blob})
+
+    git(receiver, "fetch", "--quiet", str(bundle), f"{ref}:{ref}", env=OFFLINE)
+    assert git(receiver, "rev-parse", ref) == anchor
+    assert git(receiver, "rev-parse", f"{ref}:trees/{tree}") == tree
+    assert git(receiver, "rev-parse", f"{ref}:blobs/{blob}") == blob
+    assert git(receiver, "cat-file", "-t", tree, env=OFFLINE) == "tree"
+    assert git(receiver, "cat-file", "-t", blob, env=OFFLINE) == "blob"
+
+
+def test_bundle_creation_propagates_probe_cancellation(prerequisite_repo, tmp_path, monkeypatch):
+    repo = prerequisite_repo
+    add_side_commit(repo)
+    bundle = tmp_path / "cancelled.bundle"
+
+    def cancelled(*args, **kwargs):
+        raise rgit.Cancelled("probe cancelled")
+
+    monkeypatch.setattr(rgit, "partial_clone", cancelled)
+    with pytest.raises(rgit.Cancelled, match="probe cancelled"):
+        rgit.create_bundle(repo / ".git", bundle, [SIDE], [HELD])
+    assert not bundle.exists()
+
+
+def test_bundle_creation_keeps_default_when_probe_raises_git_error(prerequisite_repo, tmp_path, git_commands,
+                                                                 monkeypatch):
+    repo = prerequisite_repo
+    add_side_commit(repo)
+    bundle = tmp_path / "probe-error.bundle"
+
+    def timed_out(*args, **kwargs):
+        raise rgit.GitError("clone config probe timed out")
+
+    monkeypatch.setattr(rgit, "partial_clone", timed_out)
+    rgit.create_bundle(repo / ".git", bundle, [SIDE], [HELD])
+    (create,) = bundle_creates(git_commands)
+    assert not has_sparse_setting(create)
+    assert rgit.bundle_heads(bundle).keys() == {SIDE}
 
 
 def assert_only_bundle_create_sets_non_sparse(calls):
@@ -226,19 +380,35 @@ def test_bundle_has_same_header_as_git_default(world, shape):
     assert actual.read_bytes()[:rgit._pack_offset(actual)] == default.read_bytes()[:rgit._pack_offset(default)]
 
 
-def test_repository_reason_reports_partial_clone(partial_repo, world):
+def test_repository_reason_reports_partial_clone(partial_repo, tmp_path, monkeypatch):
+    trust_temporary_directories(monkeypatch)
     remotes = rgit.network_remotes(partial_repo)
-    assert remotes == {"origin": "https://git.example.invalid/x.git"}
-    assert rgit.scratch_reason(partial_repo, world.root, remotes) == "partial clone"
+    assert remotes == {"origin": NETWORK_ORIGIN}
+    assert rgit.scratch_reason(partial_repo, tmp_path / "state", remotes) == "partial clone"
 
 
-def test_repository_reason_reports_unreadable_config(world):
-    git_dir = world.repo / ".git"
+def test_repository_reason_reports_unreadable_config(prerequisite_repo, tmp_path, monkeypatch):
+    trust_temporary_directories(monkeypatch)
+    git_dir = prerequisite_repo / ".git"
     remotes = rgit.network_remotes(git_dir)
     with (git_dir / "config").open("a") as stream:
         stream.write("\n[broken\n")
-    reason = rgit.scratch_reason(git_dir, world.root, remotes)
+    reason = rgit.scratch_reason(git_dir, tmp_path / "state", remotes)
     assert reason.startswith("config unreadable: ")
+
+
+def test_bundle_creation_fails_with_unparseable_config(prerequisite_repo, tmp_path, git_commands):
+    repo = prerequisite_repo
+    add_side_commit(repo)
+    git_dir = repo / ".git"
+    with (git_dir / "config").open("a") as stream:
+        stream.write("\n[broken\n")
+    bundle = tmp_path / "broken.bundle"
+    with pytest.raises(rgit.GitError, match="git bundle create exited 128"):
+        rgit.create_bundle(git_dir, bundle, [SIDE], [HELD])
+    (create,) = bundle_creates(git_commands)
+    assert not has_sparse_setting(create)
+    assert not bundle.exists()
 
 
 def test_delete_bundle_skips_pack_setting_and_clone_detection(world, git_commands, monkeypatch):
@@ -271,6 +441,6 @@ def test_delete_bundle_skips_pack_setting_and_clone_detection(world, git_command
     # Selection already checks the source repository. Bundling with an
     # empty held list must skip these additional reads in the builder.
     assert not any(
-        EXTENSION_KEY in call or PROMISOR_PATTERN in call
+        {EXTENSION_KEY, PROMISOR_PATTERN, FILTER_PATTERN}.intersection(call)
         for call in git_commands if builders.intersection(call)
     )

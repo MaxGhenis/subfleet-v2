@@ -75,9 +75,42 @@ def test_qos_wrapper_execs_in_the_new_session(monkeypatch, tmp_path, clamped):
     assert json.loads(result.stdout) == [spawned[0]] * 3
 
 
-@pytest.mark.parametrize("cancelled", [False, True])
+@pytest.mark.parametrize("setting", ["gc.auto=1", "Core.HooksPath=/elsewhere", "core.fsmonitor"])
+def test_per_command_config_cannot_override_git_hardening(monkeypatch, setting):
+    def unexpected_popen(*args, **kwargs):
+        pytest.fail("Git started with an override of a hardening setting")
+
+    monkeypatch.setattr(rgit.subprocess, "Popen", unexpected_popen)
+    with pytest.raises(ValueError):
+        rgit.run(["config", "--list"], config=(setting,))
+
+
+def test_per_command_config_cannot_bypass_a_command_guard(monkeypatch):
+    def unexpected_popen(*args, **kwargs):
+        pytest.fail("Git started with per-command config under a guard")
+
+    monkeypatch.setattr(rgit.subprocess, "Popen", unexpected_popen)
+    with rgit.command_guard(lambda args, git_dir, cwd: None), pytest.raises(ValueError):
+        rgit.run(["config", "--get", "pack.useSparse"], config=("pack.useSparse=false",))
+
+
+def test_per_command_config_reaches_git_outside_a_guard(tmp_path):
+    git_dir = tmp_path / "repo.git"
+    rgit.run(["init", "--quiet", "--bare", "--template=", str(git_dir)], cwd=tmp_path)
+    result = rgit.run(["config", "--get", "pack.useSparse"], git_dir=git_dir,
+                      config=("pack.useSparse=false",))
+    assert result.stdout == b"false\n"
+
+
+@pytest.mark.parametrize("args,config,cancelled,message", [
+    (["for-each-ref"], (), False, "timed out"),
+    (["for-each-ref"], ("pack.useSparse=false",), True, "^git for-each-ref cancelled$"),
+    (["-c", "fetch.fsckObjects=true", "-c", "fetch.prune=false", "fetch"], (), True,
+     "^git fetch cancelled$"),
+], ids=["timeout", "cancel-with-git-dir-and-config", "cancel-with-inline-config"])
 @pytest.mark.parametrize("drain_finishes", [False, True])
-def test_timeout_or_cancel_kills_group_and_bounds_drain(monkeypatch, cancelled, drain_finishes):
+def test_timeout_or_cancel_kills_group_and_bounds_drain(monkeypatch, tmp_path, args, config, cancelled, message,
+                                                      drain_finishes):
     """A pipe which never reaches EOF cannot turn cleanup into an unbounded wait."""
     class Process:
         pid = 123456
@@ -112,8 +145,8 @@ def test_timeout_or_cancel_kills_group_and_bounds_drain(monkeypatch, cancelled, 
     if cancelled:
         cancel.set()
     error = rgit.Cancelled if cancelled else rgit.GitError
-    with pytest.raises(error, match="cancelled" if cancelled else "timed out"):
-        rgit.run(["for-each-ref"], timeout=0, cancel=cancel)
+    with pytest.raises(error, match=message):
+        rgit.run(args, git_dir=tmp_path / ".git", timeout=0, cancel=cancel, config=config)
     assert launches[0]["start_new_session"] is True
     assert killed == [(process.pid, signal.SIGKILL)]
     assert len(process.timeouts) == 2

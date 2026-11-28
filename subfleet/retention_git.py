@@ -47,6 +47,7 @@ from . import retention_qos as rqos
 
 GIT_CONFIG = ("-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "gc.auto=0",
               "-c", "maintenance.auto=false", "-c", "core.untrackedCache=false")
+_GIT_CONFIG_KEYS = frozenset(setting.partition("=")[0].lower() for setting in GIT_CONFIG[1::2])
 ANCHOR_IDENTITY = {"GIT_AUTHOR_NAME": "subfleet retention", "GIT_AUTHOR_EMAIL": "retention@subfleet.invalid",
                    "GIT_COMMITTER_NAME": "subfleet retention", "GIT_COMMITTER_EMAIL": "retention@subfleet.invalid",
                    "GIT_AUTHOR_DATE": "@0 +0000", "GIT_COMMITTER_DATE": "@0 +0000"}
@@ -123,10 +124,14 @@ def run(args: Iterable[str], *, git_dir: Path | None = None, cwd: Path | None = 
 
     A wrapper or Git child can retain the output pipes after its parent dies.
     Kill the whole session's group and bound the final drain as well.
+    Per-command config outside a guard may add keys absent from GIT_CONFIG.
     """
     args = tuple(args)
+    config = tuple(config)
     guarded = _COMMAND_GUARD.get()
     if guarded is not None:
+        if config:
+            raise ValueError("per-command Git config is disallowed under a command guard")
         check, forced_environment, default_cwd = guarded
         if cwd is None and git_dir is None:
             cwd = default_cwd
@@ -136,6 +141,9 @@ def run(args: Iterable[str], *, git_dir: Path | None = None, cwd: Path | None = 
             args = ("init", "--template=", *args[1:])
     argv = ["git", *GIT_CONFIG]
     for setting in config:
+        key = setting.partition("=")[0].lower()
+        if key in _GIT_CONFIG_KEYS:
+            raise ValueError(f"per-command Git config cannot override {key}")
         argv.extend(("-c", setting))
     if git_dir is not None:
         argv.append(f"--git-dir={git_dir}")
@@ -167,7 +175,11 @@ def run(args: Iterable[str], *, git_dir: Path | None = None, cwd: Path | None = 
                             pipe.close()
                     process.poll()
                 if cancel is not None and cancel.is_set():
-                    command = args[0] if args else "command"
+                    command_args = iter(args)
+                    command = next(command_args, "command")
+                    while command == "-c":
+                        next(command_args, None)
+                        command = next(command_args, "command")
                     raise Cancelled(f"git {command} cancelled") from None
                 raise GitError(f"git {' '.join(list(args)[:2])} timed out after {timeout:g} s") from None
     result = subprocess.CompletedProcess(argv, process.returncode, out, err)
@@ -864,9 +876,16 @@ def temp_roots() -> set[str]:
 
 def partial_clone(git_dir: Path, *, cancel: threading.Event | None = None) -> bool:
     """Check the config markers for an object store with a promisor remote."""
+    promisor = run(["config", "--type=bool", "--get-regexp", r"^remote\..+\.promisor$"],
+                   git_dir=git_dir, ok=(0, 1), cancel=cancel)
+    if any(line.endswith(b" true") for line in promisor.stdout.splitlines()):
+        return True
+    clone_filter = run(["config", "--get-regexp", r"^remote\..+\.partialclonefilter$"],
+                       git_dir=git_dir, ok=(0, 1), cancel=cancel)
+    if clone_filter.returncode == 0:
+        return True
     partial = run(["config", "--get", "extensions.partialclone"], git_dir=git_dir, ok=(0, 1), cancel=cancel)
-    promisor = run(["config", "--get-regexp", r"^remote\..+\.promisor$"], git_dir=git_dir, ok=(0, 1), cancel=cancel)
-    return bool(partial.stdout.strip() or b"true" in promisor.stdout.lower())
+    return bool(partial.stdout.strip())
 
 
 def scratch_reason(common: Path, state_root: Path, remotes: dict[str, str],
@@ -1259,7 +1278,9 @@ def create_bundle(git_dir: Path, path: Path, refs: list[str], held: list[str], *
             if not partial_clone(git_dir, cancel=cancel):
                 config = ("pack.useSparse=false",)
         except GitError:
-            pass  # Keep Git's default when the clone's config is unreadable.
+            # A failed probe, such as a timeout, leaves the bundle attempt on
+            # Git's default walk. Bundle creation can still fail on bad config.
+            pass
     run(args, git_dir=git_dir, timeout=timeout, cancel=cancel, config=config)
     fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC)
     try:
