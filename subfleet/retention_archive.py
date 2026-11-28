@@ -422,6 +422,12 @@ class Retirement:
         self.journal = journal if journal is not None else load_journal(ctx.root, job_id)
         #: Progress records the last `archive` call wrote (0: it only re-walked).
         self.last_work = 0
+        #: Entries and checks completed by the last `archive` call, in builder
+        #: order. An unchanged tree advances on each parked slice unless the
+        #: walk finds a repository in regenerable output and starts again.
+        self.last_reached = 0
+        #: Repositories found in regenerable output by the last `archive` call.
+        self.last_found = 0
 
     # --- journal ------------------------------------------------------------------
 
@@ -853,6 +859,8 @@ class Retirement:
                 return builder.run()
         finally:
             self.last_work = builder.work
+            self.last_reached = builder.reached
+            self.last_found = builder.found
 
     def manifest(self) -> dict[str, Any]:
         base = self.building
@@ -1687,6 +1695,14 @@ class _Builder:
         #: so a tree whose cached re-walk or one file's read outlasts the slice
         #: still moves forward every pass (review of a9a6cbf4, N3).
         self.work = 0
+        #: Completed entries and checks, cached or new, in builder order: the
+        #: trees' entries, omitted objects, the Git step and stored copies read
+        #: back. A changing file can keep a slice parking at the same step
+        #: even though every read writes a record (review r1 of #286, P3-4).
+        self.reached = 0
+        #: Regenerable roots found to hold a repository in this call. The walk
+        #: restarts at the beginning of the tree and archives the root's files.
+        self.found = 0
 
     # progress --------------------------------------------------------------------------
 
@@ -1778,8 +1794,10 @@ class _Builder:
                 # progress, so a later slice does not walk into it again.
                 prefix = f"nr:{label}:"
                 denied = {k[len(prefix):] for k in self.progress if k.startswith(prefix)}
+                reached = self.reached
                 while True:
                     counts = dict.fromkeys(TOTALS, 0)
+                    self.reached = reached          # a restarted walk counts from the tree's start
                     try:
                         entries, records = self._walk(label, path, omit if label == "worktree" else {}, fmt,
                                                       files_fd, counts, ignored if label == "worktree" else None,
@@ -1788,6 +1806,7 @@ class _Builder:
                     except rfs.NotRegenerable as exc:
                         denied.add(exc.root)
                         self._note({"k": prefix + exc.root})
+                        self.found += 1
                 for key, value in counts.items():
                     totals[key] += value
                 regenerable.extend(records)
@@ -1806,6 +1825,7 @@ class _Builder:
             os.close(files_fd)
         if common is not None:
             git_info.update(self._git(reg, common, fmt))
+            self.reached += 1
         totals["regenerable_bytes"] = sum(r["bytes"] for r in regenerable)
         totals["freed_disk_bytes"] += sum(r["freed_disk_bytes"] for r in regenerable)
         totals["freed_bytes"] = totals["omitted_bytes"] + totals["regenerable_bytes"]
@@ -1880,6 +1900,7 @@ class _Builder:
                                 if st.st_nlink > 1 and "sha256" not in entry:
                                     entry["sha256"] = self._digest(entry, st, parent, name)
                             entries.append(entry)
+                            self.reached += 1
                             continue
                         if t == "l":
                             entry["link"] = os.fsdecode(os.readlink(name, dir_fd=parent))
@@ -1890,6 +1911,7 @@ class _Builder:
                         elif t == "d" and rel and label == "worktree" and name.lower() == ".git":
                             pass       # a nested repository: archived byte for byte like everything else
                         entries.append(entry)
+                        self.reached += 1
             except rfs.TreeError as exc:
                 seconds = (DEFER_CHANGED_S if exc.reason in ("changed", "swapped", "low-space")
                            else DEFER_PERMANENT_S)
@@ -2052,12 +2074,14 @@ class _Builder:
         with rgit.ObjectReader(common, fmt, self.ctx.cancel) as reader:
             for oid in sorted({e["blob"] for e in omitted}):
                 if self.progress.get("obj:" + oid, {}).get("ok"):
+                    self.reached += 1
                     continue
                 self._tick()
                 if reader.verify(oid):
                     self._note({"k": "obj:" + oid, "ok": True})
                 else:
                     bad.add(oid)
+                self.reached += 1
         if not bad:
             return
         root = rfs.open_dir(self.r.q_worktree)
@@ -2250,9 +2274,11 @@ class _Builder:
                     seen = self.progress.get("v:" + name, {})
                     if seen.get("sha256") == entry["sha256"] and seen.get("sig") is not None \
                             and seen["sig"] == _copy_sig(fd, name):
+                        self.reached += 1
                         continue
                     self._tick()
                     digest, sig = _read_back(fd, name, entry, self.ctx.check)
+                    self.reached += 1
                     if digest != entry["sha256"]:
                         self._discard_store(fd, name)
                         bad.append(entry["p"])
