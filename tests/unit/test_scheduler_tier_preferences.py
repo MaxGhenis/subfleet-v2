@@ -32,6 +32,8 @@ def release217():
 @st.composite
 def legacy_cases(draw):
     policy = draw(policies())
+    # The frozen chain evaluator predates fill and its auxiliary evidence.
+    policy["admission"]["lane_order"] = {"claude": "reset", "codex": "reset"}
     policy["tiers"] = list(draw(st.permutations(policy["tiers"])))
     if draw(st.booleans()):
         for model in policy["models"].values():
@@ -92,10 +94,12 @@ def preference_policy():
 
 
 @PROPERTY
-@given(st.lists(st.sampled_from(MODELS), min_size=3, max_size=3, unique=True), st.integers(1, 3))
-def test_closed_first_model_uses_next_in_same_tier_before_higher_tier(names, lane_count):
+@given(st.lists(st.sampled_from(MODELS), min_size=3, max_size=3, unique=True), st.integers(1, 3),
+       st.sampled_from(("reset", "fill")))
+def test_closed_first_model_uses_next_in_same_tier_before_higher_tier(names, lane_count, claude_order):
     first, second, higher = names
     policy = preference_policy()
+    policy["admission"]["lane_order"]["claude"] = claude_order
     policy["chains"]["review"] = [higher, [first, second], higher, higher]
     providers = {policy["models"][name]["provider"] for name in names}
     lanes = [lane(f"{provider}-{n}") for provider in sorted(providers) for n in range(1, lane_count + 1)]
@@ -109,6 +113,7 @@ def test_closed_first_model_uses_next_in_same_tier_before_higher_tier(names, lan
 
 def test_preference_examples_and_pins():
     policy = preference_policy()
+    policy["admission"]["lane_order"]["claude"] = "fill"
     snapshot = view([lane(), lane("codex-1")], [reading("claude-1"), reading("codex-1")])
     assert flatten_chain(policy["chains"]["review"], 1) == ["haiku", "sonnet", "opus", "astra"]
     assert flatten_chain(["haiku", ["haiku", "sonnet"], ["sonnet", "opus"]], 1) == ["haiku", "sonnet", "opus"]
@@ -122,6 +127,7 @@ def test_preference_examples_and_pins():
 
 def test_standing_refusals_check_every_preferred_model():
     policy = preference_policy()
+    policy["admission"]["lane_order"]["claude"] = "fill"
     task = job(task="review", tier="standard")
     # Missing Claude capacity must not hide an available Codex fallback.
     snapshot = view([lane("codex-1")])
@@ -165,7 +171,7 @@ def test_why_renders_flattened_walk():
           suppress_health_check=[HealthCheck.too_slow, HealthCheck.data_too_large])
 @given(st.data())
 def test_reservation_recheck_matches_fresh_routing_for_mixed_chains(data):
-    policy = data.draw(policies())
+    policy = data.draw(policies(vary_lane_order=True))
     for task in policy["chains"]:
         policy["chains"][task] = data.draw(CHAINS)
     store = data.draw(stores())

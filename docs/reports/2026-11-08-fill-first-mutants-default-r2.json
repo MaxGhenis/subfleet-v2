@@ -1,0 +1,161 @@
+{
+  "results": [
+    {
+      "mutant": "weekly-ascending",
+      "killed": true,
+      "returncode": 1,
+      "test": "test_fill_more_weekly_use_never_ranks_after_less_in_equal_earlier_tiers",
+      "failure": "FAILED tests/unit/test_scheduler_fill.py::test_fill_more_weekly_use_never_ranks_after_less_in_equal_earlier_tiers",
+      "command": [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "-x",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp",
+        "$MUTATION_TEMP/weekly-ascending",
+        "tests/unit/test_scheduler_fill.py::test_fill_more_weekly_use_never_ranks_after_less_in_equal_earlier_tiers"
+      ]
+    },
+    {
+      "mutant": "ttl-only",
+      "killed": true,
+      "returncode": 1,
+      "test": "test_fill_keeps_old_open_provider_reading_and_ignores_expired_one[121]",
+      "failure": "FAILED tests/unit/test_scheduler_fill.py::test_fill_keeps_old_open_provider_reading_and_ignores_expired_one[121]",
+      "command": [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "-x",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp",
+        "$MUTATION_TEMP/ttl-only",
+        "tests/unit/test_scheduler_fill.py::test_fill_keeps_old_open_provider_reading_and_ignores_expired_one[121]"
+      ]
+    },
+    {
+      "mutant": "expired-counts",
+      "killed": true,
+      "returncode": 1,
+      "test": "test_fill_keeps_old_open_provider_reading_and_ignores_expired_one[121]",
+      "failure": "FAILED tests/unit/test_scheduler_fill.py::test_fill_keeps_old_open_provider_reading_and_ignores_expired_one[121]",
+      "command": [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "-x",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp",
+        "$MUTATION_TEMP/expired-counts",
+        "tests/unit/test_scheduler_fill.py::test_fill_keeps_old_open_provider_reading_and_ignores_expired_one[121]"
+      ]
+    },
+    {
+      "mutant": "expiring-dropped",
+      "killed": true,
+      "returncode": 1,
+      "test": "test_fill_expiring_precedes_nonexpiring_and_earlier_expiring_reset_wins",
+      "failure": "FAILED tests/unit/test_scheduler_fill.py::test_fill_expiring_precedes_nonexpiring_and_earlier_expiring_reset_wins",
+      "command": [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "-x",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp",
+        "$MUTATION_TEMP/expiring-dropped",
+        "tests/unit/test_scheduler_fill.py::test_fill_expiring_precedes_nonexpiring_and_earlier_expiring_reset_wins"
+      ]
+    },
+    {
+      "mutant": "desktop-dropped",
+      "killed": true,
+      "returncode": 1,
+      "test": "test_fill_desktop_last_and_turn_affinity_leads_its_class[claude-opus]",
+      "failure": "FAILED tests/unit/test_scheduler_fill.py::test_fill_desktop_last_and_turn_affinity_leads_its_class[claude-opus]",
+      "command": [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "-x",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp",
+        "$MUTATION_TEMP/desktop-dropped",
+        "tests/unit/test_scheduler_fill.py::test_fill_desktop_last_and_turn_affinity_leads_its_class[claude-opus]"
+      ]
+    },
+    {
+      "mutant": "default-codex-fill",
+      "killed": true,
+      "returncode": 1,
+      "test": "test_default_decisions_equal_frozen_release217[codex-astra-omitted]",
+      "failure": "FAILED tests/unit/test_scheduler_fill.py::test_default_decisions_equal_frozen_release217[codex-astra-omitted]",
+      "command": [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "-x",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp",
+        "$MUTATION_TEMP/default-codex-fill",
+        "tests/unit/test_scheduler_fill.py::test_default_decisions_equal_frozen_release217[codex-astra-omitted]"
+      ]
+    },
+    {
+      "mutant": "default-claude-fill",
+      "killed": true,
+      "returncode": 1,
+      "test": "test_default_decisions_equal_frozen_release217[claude-opus-omitted]",
+      "failure": "FAILED tests/unit/test_scheduler_fill.py::test_default_decisions_equal_frozen_release217[claude-opus-omitted]",
+      "command": [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "-x",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp",
+        "$MUTATION_TEMP/default-claude-fill",
+        "tests/unit/test_scheduler_fill.py::test_default_decisions_equal_frozen_release217[claude-opus-omitted]"
+      ]
+    },
+    {
+      "mutant": "shipped-default-claude-fill",
+      "killed": true,
+      "returncode": 1,
+      "test": "test_default_decisions_equal_frozen_release217[claude-opus-shipped]",
+      "failure": "FAILED tests/unit/test_scheduler_fill.py::test_default_decisions_equal_frozen_release217[claude-opus-shipped]",
+      "command": [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "-x",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp",
+        "$MUTATION_TEMP/shipped-default-claude-fill",
+        "tests/unit/test_scheduler_fill.py::test_default_decisions_equal_frozen_release217[claude-opus-shipped]"
+      ]
+    }
+  ],
+  "restored_sha256": {
+    "subfleet/default_policy.json": "b362dc60a0c27ba6c45d0a2201cbf52e80c4ab5dadeeb915c59837eee4826e29",
+    "subfleet/scheduler.py": "af9fdfe0f21a4056e0bd441959f73ebb2293cfe916f42bb5b51042b23e81c836",
+    "subfleet/policy.py": "4a03a07f97ebffb5d6f9d96e7552ebc7f593b8d79181da04b187482f1acc53c6"
+  }
+}

@@ -41,6 +41,7 @@ def review(service, harness, **changes):
 
 def test_hard_review_waits_for_codex_then_runs_with_shell(shell_state):
     service, harness = shell_state
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     busy = service.dispatch('submit', harness.submit_args())['job_id']
     service._admit()
     job = review(service, harness)
@@ -66,6 +67,7 @@ def test_hard_review_waits_for_codex_then_runs_with_shell(shell_state):
 ])
 def test_opus_attempt_and_final_notice_line_report_shell(shell_state, sandbox, override, expected):
     service, harness = shell_state
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     if sandbox == 'workspace-write':
         repository(service, harness)
     service.dispatch('submit', harness.submit_args())
@@ -105,6 +107,7 @@ def test_opus_attempt_and_final_notice_line_report_shell(shell_state, sandbox, o
 @pytest.mark.parametrize('model', ['sol61', 'luna'])
 def test_new_policy_models_route_to_codex(shell_state, model):
     service, harness = shell_state
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     job = service.dispatch('submit', harness.submit_args(pinned_model=model))['job_id']
     service._admit()
     attempt, = service.store.list_attempts(job)
@@ -198,9 +201,10 @@ BOUNDED = settings(max_examples=80, derandomize=True, database=None, deadline=No
 
 
 @BOUNDED
-@given(routing_cases())
-def test_needs_shell_only_places_on_capable_launch_or_waits(case):
+@given(routing_cases(), st.sampled_from(('reset', 'fill')))
+def test_needs_shell_only_places_on_capable_launch_or_waits(case, lane_order):
     policy, view, job = case
+    policy['admission'] = {'lane_order': {'claude': lane_order}}
     decision = scheduler.evaluate(policy, view, job)
     needs = job['needs_shell'] if job['needs_shell'] is not None else 'shell' in policy['requires']['review']
     if decision.chosen_lane and needs:
@@ -212,6 +216,8 @@ def test_needs_shell_only_places_on_capable_launch_or_waits(case):
 @given(routing_cases())
 def test_no_requirement_routes_exactly_as_base(case):
     policy, view, job = case
+    # The frozen shell-routing baseline predates C-11.11's fill evidence.
+    policy['admission'] = {'lane_order': {'claude': 'reset', 'codex': 'reset'}}
     job['needs_shell'] = False
     assert scheduler.evaluate(policy, view, job) == _BASE['evaluate'](policy, view, job)
 
@@ -220,6 +226,7 @@ def test_requirement_can_skip_opus_for_later_codex_model():
     policy = {'models': {'opus': {'provider': 'claude', 'id': 'opus'},
                          'luna': {'provider': 'codex', 'id': 'luna'}},
               'retired': {}, 'tiers': ['hard'], 'chains': {'review': [['opus', 'luna']]}}
+    policy['admission'] = {'lane_order': {'claude': 'fill'}}
     view = {'lanes': [{'lane_id': p, 'provider': p, 'owner': 'v2'} for p in ['claude', 'codex']]}
     result = scheduler.evaluate(policy, view, {'task': 'review', 'tier': 'hard',
                                 'sandbox': 'read-only', 'needs_shell': True})
@@ -228,6 +235,7 @@ def test_requirement_can_skip_opus_for_later_codex_model():
 
 def test_resolved_shell_requirement_survives_policy_change(shell_state):
     service, harness = shell_state
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     job = review(service, harness)
     assert service.store.get_job(job)['needs_shell'] is True
     service.policy['requires'] = {}
@@ -248,6 +256,7 @@ def test_shell_requirement_demand_does_not_compete_for_opus():
 
 def test_resume_keeps_explicit_shell_opt_out(shell_state):
     service, harness = shell_state
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     source = service.dispatch('submit', harness.submit_args(pinned_model='opus', task='review', needs_shell=False))['job_id']
     service._admit()
     attempt, = service.store.list_attempts(source)

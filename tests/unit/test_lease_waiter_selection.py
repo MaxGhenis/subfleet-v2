@@ -66,7 +66,7 @@ HELD_FOR_A_COUNT = ("fleet-full", "slot-kept", "behind-older-job")
 def queues(draw, *, leases: bool = True):
     """A pass in a pool that usually has a count cap (C-6.9 holds back only then): a
     store, and a queue of jobs, some waiting for leases and some holding them."""
-    policy = draw(policies())
+    policy = draw(policies(vary_lane_order=True))
     policy["caps"]["max_active_attempts"] = draw(st.sampled_from([None, 1, 2, 3, 6]))
     policy["conversations"]["max_active_turns"] = draw(st.sampled_from([None, 1, 2, 3]))
     store = draw(stores())

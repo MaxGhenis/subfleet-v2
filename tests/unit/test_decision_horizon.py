@@ -30,20 +30,30 @@ fleet's horizon is the earliest of the lanes' own.
 
 from __future__ import annotations
 
+import copy
 import random
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
 import subfleet
 from subfleet import capacity, scheduler
 from subfleet.contracts import Credential, Lane, LaneOwner
-from subfleet.policy import load_policy
+from subfleet.policy import admission_settings, lane_order, load_policy
 
 POLICY = load_policy(Path(subfleet.__file__).parent / "default_policy.json")
 TTL = POLICY["caps"]["reading_ttl_s"]
 T0 = datetime(2026, 9, 26, 12, 0, 0, tzinfo=timezone.utc)
 MODEL_IDS = {name: model["id"] for name, model in POLICY["models"].items()}
 LANES = (("codex-1", "codex"), ("codex-2", "codex"), ("claude-a", "claude"), ("claude-b", "claude"))
+
+
+@pytest.fixture(params=("reset", "fill"))
+def ordered_policy(request):
+    policy = copy.deepcopy(POLICY)
+    policy["admission"]["lane_order"] = {"claude": request.param, "codex": "reset"}
+    return policy
 
 
 def iso(instant: datetime) -> str:
@@ -106,23 +116,27 @@ def view_at(case: dict, instant: datetime) -> tuple[dict, list]:
                                case["attempts"], case["jobs"], now=instant, reading_ttl_s=TTL)
     held = [lane_id for lane_id, end in case["overrides"].items() if end > instant]
     view["readings"] = [row for row in view["readings"] if row["lane_id"] not in held]
+    view["fill_readings"] = [row for row in view["fill_readings"] if row["lane_id"] not in held]
     return view, [case["overrides"][lane_id] for lane_id in held]
 
 
-def decision(case: dict, instant: datetime) -> tuple:
+def decision(case: dict, instant: datetime, policy: dict = POLICY) -> tuple:
     view, _ = view_at(case, instant)
-    made = scheduler.evaluate(POLICY, view, case["job"])
+    made = scheduler.evaluate(policy, view, case["job"])
     return (made.chosen_lane, made.chosen_model, scheduler.probe_required(made, case["job"]),
             [(row["model"], row["candidates"], row["candidate_details"],
               [(rejected["lane_id"], rejected["reasons"]) for rejected in row["rejections"]])
              for row in made.evaluations])
 
 
-def clocks(case: dict, instant: datetime) -> tuple:
+def clocks(case: dict, instant: datetime, policy: dict = POLICY) -> tuple:
     """Every clock the evaluation reads, at `instant`."""
+    providers = {lane.lane_id: lane.provider for lane in case["lanes"]}
     return (tuple(capacity.fresh_provider(row, now=instant, reading_ttl_s=TTL) for row in case["readings"]),
             tuple(window_not_renewed(row, instant) for row in case["readings"]),
             tuple(recent_evidence(row, instant) for row in case["readings"]),
+            tuple(fill_window_clocks(row, instant, providers[row["lane_id"]], policy)
+                  for row in case["readings"]),
             tuple(not row["released_at"] and capacity._time(row["until_at"]) > instant for row in case["closures"]),
             tuple(end > instant for end in case["overrides"].values()))
 
@@ -141,29 +155,41 @@ def recent_evidence(row: dict, instant: datetime) -> bool:
                 and 0 <= (instant - capacity._time(row['observed_at'])).total_seconds() <= TTL)
 
 
-def test_the_clock_alone_changes_no_decision_before_its_horizon():
+def fill_window_clocks(row: dict, instant: datetime, provider: str, policy: dict) -> tuple:
+    """Independent open-window and expiring clocks only for a provider using fill."""
+    if (lane_order(policy, provider) != "fill" or row.get("label") not in ("provider", "stale-provider")
+            or row.get("utilization") is None or not row.get("resets_at")):
+        return ()
+    observed, reset = capacity._time(row["observed_at"]), capacity._time(row["resets_at"])
+    expiring_s = admission_settings(policy)["expiring_s"]
+    return (observed <= instant, reset > instant,
+            row["window"] == "seven_day" and expiring_s is not None
+            and reset - timedelta(seconds=expiring_s) <= instant < reset)
+
+
+def test_the_clock_alone_changes_no_decision_before_its_horizon(ordered_policy):
     reached = {"horizons": 0, "none": 0, "moved": 0}
     for seed in range(600):
         case = fleet(random.Random(seed))
         view, ends = view_at(case, T0)
-        until = capacity.decision_horizon(view, reading_ttl_s=TTL, ends=ends)
-        first = decision(case, T0)
+        until = capacity.decision_horizon(view, reading_ttl_s=TTL, ends=ends, policy=ordered_policy)
+        first = decision(case, T0, ordered_policy)
         if until is None:
             reached["none"] += 1
             for later in (timedelta(seconds=1), timedelta(minutes=5), timedelta(days=3)):
-                assert decision(case, T0 + later) == first, (seed, later)
+                assert decision(case, T0 + later, ordered_policy) == first, (seed, later)
             continue
         reached["horizons"] += 1
         assert until >= T0, (seed, until)
         for step in (0, .3, .7, .999):
             instant = T0 + (until - T0) * step
-            assert decision(case, instant) == first, (seed, step, until)
+            assert decision(case, instant, ordered_policy) == first, (seed, step, until)
         # Not merely early: a clock moves at the horizon or within a second of it
         # (a reading stops being fresh a second after its TTL, the rest at it).
-        start = clocks(case, T0)
-        assert (clocks(case, until) != start
-                or clocks(case, until + timedelta(seconds=1)) != start), (seed, until)
-        if decision(case, until + timedelta(seconds=1)) != first:
+        start = clocks(case, T0, ordered_policy)
+        assert (clocks(case, until, ordered_policy) != start
+                or clocks(case, until + timedelta(seconds=1), ordered_policy) != start), (seed, until)
+        if decision(case, until + timedelta(seconds=1), ordered_policy) != first:
             reached["moved"] += 1
     # The generator reaches every branch: decisions that wait on no clock, and
     # decisions the clock changes just past their horizon.
@@ -189,6 +215,8 @@ def test_a_closure_that_ends_is_a_horizon_even_when_it_closes_a_lane():
     """The review's second case: a reported provider-limit closure on the reserved
     model (Fable) gives claude-a slack behind a probe for Opus; when it ends, with
     no fresh account reading, the reserve is unmeasured and claude-a is rejected."""
+    policy = copy.deepcopy(POLICY)
+    policy["admission"]["lane_order"] = {"claude": "fill", "codex": "reset"}
     case = {"lanes": [lane("claude-a", "claude")], "attempts": [], "jobs": [], "readings": [],
             "closures": [{"lane_id": "claude-a", "scope": MODEL_IDS["fable"],
                           "until_at": iso(T0 + timedelta(seconds=3)), "reason": "provider-limit",
@@ -197,9 +225,9 @@ def test_a_closure_that_ends_is_a_horizon_even_when_it_closes_a_lane():
             "overrides": {},
             "job": {"job_id": "j", "pinned_model": "opus", "sandbox": "read-only", "exclusions": ()}}
     view, ends = view_at(case, T0)
-    assert capacity.decision_horizon(view, reading_ttl_s=TTL, ends=ends) == T0 + timedelta(seconds=3)
-    assert decision(case, T0)[0] == "claude-a"
-    assert decision(case, T0 + timedelta(seconds=4))[0] is None
+    assert capacity.decision_horizon(view, reading_ttl_s=TTL, ends=ends, policy=policy) == T0 + timedelta(seconds=3)
+    assert decision(case, T0, policy)[0] == "claude-a"
+    assert decision(case, T0 + timedelta(seconds=4), policy)[0] is None
 
 
 def test_a_reading_not_yet_observed_is_a_horizon_only_if_it_will_be_fresh():
@@ -219,41 +247,45 @@ def test_a_reading_not_yet_observed_is_a_horizon_only_if_it_will_be_fresh():
     assert capacity.decision_horizon({**view, "readings": [expired]}, reading_ttl_s=TTL) == T0 + timedelta(seconds=2)
 
 
-def judgements(case: dict, instant: datetime) -> dict:
+def judgements(case: dict, instant: datetime, policy: dict = POLICY) -> dict:
     """Every lane, judged alone for every model of its provider, at `instant`."""
     view, _ = view_at(case, instant)
-    setup = scheduler.prepare(POLICY, view, case["job"])
+    setup = scheduler.prepare(policy, view, case["job"])
     found = {}
     for lane_row in setup["lanes"]:
         readings = [row for row in view["readings"] if row["lane_id"] == lane_row["lane_id"]]
         closures = [row for row in view["closures"] if row["lane_id"] == lane_row["lane_id"]]
-        for short, model in POLICY["models"].items():
+        for short, model in policy["models"].items():
             if model["provider"] == lane_row["provider"]:
                 found[(lane_row["lane_id"], short)] = scheduler.judge_lane(
                     setup, short, lane_row, readings, closures,
-                    in_flight=setup["in_flight"].get(lane_row["lane_id"], 0), unavailable={})
+                    in_flight=setup["in_flight"].get(lane_row["lane_id"], 0), unavailable={},
+                    fill_readings=[row for row in view["fill_readings"] if row["lane_id"] == lane_row["lane_id"]])
     return found
 
 
-def lane_clocks(case: dict, lane_id: str, instant: datetime) -> tuple:
+def lane_clocks(case: dict, lane_id: str, instant: datetime, policy: dict = POLICY) -> tuple:
     """The clocks a lane's own judgement reads, at `instant`."""
+    provider = next(lane.provider for lane in case["lanes"] if lane.lane_id == lane_id)
     return (tuple(capacity.fresh_provider(row, now=instant, reading_ttl_s=TTL) for row in case["readings"]
                   if row["lane_id"] == lane_id),
             tuple(window_not_renewed(row, instant) for row in case["readings"] if row["lane_id"] == lane_id),
             tuple(recent_evidence(row, instant) for row in case["readings"] if row["lane_id"] == lane_id),
+            tuple(fill_window_clocks(row, instant, provider, policy)
+                  for row in case["readings"] if row["lane_id"] == lane_id),
             tuple(not row["released_at"] and capacity._time(row["until_at"]) > instant
                   for row in case["closures"] if row["lane_id"] == lane_id))
 
 
-def test_the_clock_alone_changes_no_lane_before_its_own_horizon():
+def test_the_clock_alone_changes_no_lane_before_its_own_horizon(ordered_policy):
     reached = {"lanes": 0, "moved": 0, "others-earlier": 0}
     for seed in range(400):
         case = fleet(random.Random(seed))
         case["overrides"] = {}                    # an override's end is the check's own comparison, per lane
         view, _ = view_at(case, T0)
-        horizons = capacity.lane_horizons(view, reading_ttl_s=TTL)
-        assert capacity.decision_horizon(view, reading_ttl_s=TTL) == min(horizons.values(), default=None)
-        first = judgements(case, T0)
+        horizons = capacity.lane_horizons(view, reading_ttl_s=TTL, policy=ordered_policy)
+        assert capacity.decision_horizon(view, reading_ttl_s=TTL, policy=ordered_policy) == min(horizons.values(), default=None)
+        first = judgements(case, T0, ordered_policy)
         for lane_id, until in horizons.items():
             reached["lanes"] += 1
             assert until > T0 - timedelta(seconds=1), (seed, lane_id, until)
@@ -261,22 +293,22 @@ def test_the_clock_alone_changes_no_lane_before_its_own_horizon():
             if min(horizons.values()) < until:
                 reached["others-earlier"] += 1      # another lane's clock passes first: this one's stands
             for step in (0, .3, .7, .999):
-                later = judgements(case, T0 + (until - T0) * step)
+                later = judgements(case, T0 + (until - T0) * step, ordered_policy)
                 assert {key: later[key] for key in mine} == mine, (seed, lane_id, step, until)
             # Not merely early: one of this lane's own clocks moves at its horizon or within a second of it.
-            start = lane_clocks(case, lane_id, T0)
-            assert (lane_clocks(case, lane_id, until) != start
-                    or lane_clocks(case, lane_id, until + timedelta(seconds=1)) != start), (seed, lane_id)
-            later = judgements(case, until + timedelta(seconds=1))
+            start = lane_clocks(case, lane_id, T0, ordered_policy)
+            assert (lane_clocks(case, lane_id, until, ordered_policy) != start
+                    or lane_clocks(case, lane_id, until + timedelta(seconds=1), ordered_policy) != start), (seed, lane_id)
+            later = judgements(case, until + timedelta(seconds=1), ordered_policy)
             if {key: later[key] for key in mine} != mine:
                 reached["moved"] += 1
     assert reached["lanes"] > 300 and reached["moved"] > 50 and reached["others-earlier"] > 100, reached
 
 
-def rank_keys(case: dict, instant: datetime, lane_id: str | None = None) -> dict:
+def rank_keys(case: dict, instant: datetime, lane_id: str | None = None, policy: dict = POLICY) -> dict:
     """Compare the entire returned key, including any future comparator fields."""
     view, _ = view_at(case, instant)
-    setup = scheduler.prepare(POLICY, view, case["job"])
+    setup = scheduler.prepare(policy, view, case["job"])
     found = {}
     for lane_row in setup["lanes"]:
         identity = lane_row["lane_id"]
@@ -284,29 +316,35 @@ def rank_keys(case: dict, instant: datetime, lane_id: str | None = None) -> dict
             continue
         readings = [row for row in view["readings"] if row["lane_id"] == identity]
         closures = [row for row in view["closures"] if row["lane_id"] == identity]
-        for short, model in POLICY["models"].items():
+        for short, model in policy["models"].items():
             if model["provider"] == lane_row["provider"]:
                 _, detail = scheduler.judge_lane(setup, short, lane_row, readings, closures,
-                    in_flight=setup["in_flight"].get(identity, 0), unavailable={})
+                    in_flight=setup["in_flight"].get(identity, 0), unavailable={},
+                    fill_readings=[row for row in view["fill_readings"] if row["lane_id"] == identity])
                 found[(identity, short)] = scheduler.rank_key(setup, short, identity, detail)
     return found
 
 
-def test_every_rank_key_is_constant_before_its_lanes_horizon():
+def test_every_rank_key_is_constant_before_its_lanes_horizon(ordered_policy):
+    reached = {"horizons": 0, "none": 0, "keys": 0}
     for seed in range(600):
         case = fleet(random.Random(seed))
         case["overrides"] = {}
         view, _ = view_at(case, T0)
-        horizons = capacity.lane_horizons(view, reading_ttl_s=TTL)
-        first = rank_keys(case, T0)
+        horizons = capacity.lane_horizons(view, reading_ttl_s=TTL, policy=ordered_policy)
+        first = rank_keys(case, T0, policy=ordered_policy)
         for lane_id, _ in LANES:
             mine = {key: value for key, value in first.items() if key[0] == lane_id}
             until = horizons.get(lane_id)
+            reached["horizons" if until else "none"] += 1
+            reached["keys"] += len(mine)
             instants = ([T0 + (until - T0) * step for step in (0, .3, .7, .999)] if until else
                         [T0 + delta for delta in (timedelta(seconds=1), timedelta(minutes=5), timedelta(days=3))])
             for instant in instants:
-                later = rank_keys(case, instant, lane_id)
+                later = rank_keys(case, instant, lane_id, policy=ordered_policy)
                 assert {key: later[key] for key in mine} == mine, (seed, lane_id, instant, until)
+
+    assert reached["horizons"] > 300 and reached["none"] > 100 and reached["keys"] > 3000, reached
 
 
 def test_weekly_and_five_hour_resets_bound_only_recent_ranking():

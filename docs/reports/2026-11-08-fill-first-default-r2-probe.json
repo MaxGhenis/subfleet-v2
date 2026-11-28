@@ -1,0 +1,2049 @@
+{
+  "before": {
+    "head": "42da87eb5291e97948776721e153f4f63312bbb1",
+    "command": [
+      ".venv/bin/python",
+      "-m",
+      "pytest",
+      "-q",
+      "-n",
+      "4",
+      "-p",
+      "no:cacheprovider",
+      "-p",
+      "sf_fill_scratch",
+      "--tb=short",
+      "-r",
+      "fEs",
+      "--basetemp",
+      "/private/tmp/sf-fill-def-r2/pytest-probe-before-4",
+      "@docs/reports/2026-11-08-fill-first-test-files.txt",
+      "tests/unit/test_replay_weekly_fill.py",
+      "tests/unit/test_store_contention_queries.py"
+    ],
+    "returncode": 1,
+    "summary": "349 failed, 2539 passed, 2 skipped in 1677.76s (0:27:57)",
+    "counts": {
+      "failed": 349,
+      "passed": 2539,
+      "skipped": 2
+    },
+    "fill_reached": 307,
+    "fill_test_ids": [
+      "tests/fake/test_admission_liveness.py::test_c6_3_c26_9_admission_places_what_e053b2c_placed_pass_for_pass",
+      "tests/fake/test_admission_liveness.py::test_c6_3_readings_ageing_out_on_sixty_unrelated_lanes_never_hold_a_job_back",
+      "tests/fake/test_admission_route_isolation.py::test_c11_2_a_dry_run_resolves_the_same_way",
+      "tests/fake/test_admission_route_isolation.py::test_c11_2_a_later_roster_change_cannot_make_an_accepted_pin_ambiguous",
+      "tests/fake/test_admission_route_isolation.py::test_c11_2_a_pin_follows_its_lane_through_a_reenrolment",
+      "tests/fake/test_admission_route_isolation.py::test_c11_2_evaluate_and_demand_lanes_narrow_the_same_way",
+      "tests/fake/test_admission_route_isolation.py::test_c11_2_the_jobs_provider_narrows_a_pin_that_names_two_lanes[changes0-claude-a]",
+      "tests/fake/test_admission_route_isolation.py::test_c11_2_the_jobs_provider_narrows_a_pin_that_names_two_lanes[changes1-codex-1]",
+      "tests/fake/test_admission_route_isolation.py::test_c11_2_the_jobs_provider_narrows_a_pin_that_names_two_lanes[changes2-claude-a]",
+      "tests/fake/test_admission_route_isolation.py::test_c11_2_the_jobs_provider_narrows_a_pin_that_names_two_lanes[changes3-codex-1]",
+      "tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_let_go_is_evaluated_again_when_it_is_next_due",
+      "tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_that_followed_a_reenrolment_counts_the_account_once",
+      "tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_whose_credential_is_latched_goes_to_the_next_candidate",
+      "tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_whose_lane_is_only_full_keeps_its_lane",
+      "tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_whose_lane_refuses_it_for_more_than_a_slot_goes_to_the_next_candidate[closed]",
+      "tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_whose_lane_refuses_it_for_more_than_a_slot_goes_to_the_next_candidate[desktop]",
+      "tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_whose_lane_refuses_it_for_more_than_a_slot_goes_to_the_next_candidate[excluded]",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_a_pin_that_names_two_lanes_is_refused_and_the_pass_goes_on[later_changes0]",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_a_pin_that_names_two_lanes_is_refused_and_the_pass_goes_on[later_changes1]",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_a_pin_that_names_two_lanes_is_refused_and_the_pass_goes_on[later_changes2]",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_a_refused_check_rolls_back_what_the_reservation_wrote",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_a_transient_retry_on_a_model_id_the_policy_dropped_routes_the_job_itself",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_a_transient_retry_whose_id_is_retired_to_another_provider_routes_the_job_itself",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_a_transient_retry_whose_lane_was_disabled_since_routes_the_job_itself",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_an_authorization_bound_to_a_label_is_refused",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_an_authorization_the_probe_check_rejects_is_refused_and_the_pass_goes_on[1]",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_an_authorization_the_probe_check_rejects_is_refused_and_the_pass_goes_on[2]",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_an_empty_task_or_tier_is_none",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_an_evaluation_error_holds_the_job_visibly_and_holds_nobody_else",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_an_evaluation_made_again_off_the_lock_is_isolated_too",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_an_evaluation_that_succeeds_resets_the_route_count",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_any_evaluation_error_of_one_job_is_that_jobs[error0]",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_any_evaluation_error_of_one_job_is_that_jobs[error1]",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_the_incident_a_job_pinned_by_an_ambiguous_email_does_not_stop_the_pass",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_the_incident_through_the_worker_pool_logs_no_failure",
+      "tests/fake/test_admission_route_isolation.py::test_c6_3_a_cap_that_fills_before_the_reservation_is_judged_on_every_lane",
+      "tests/fake/test_admission_route_isolation.py::test_c6_3_a_commit_that_changes_nothing_the_decision_rests_on_does_not_send_it_back",
+      "tests/fake/test_admission_route_isolation.py::test_c6_3_a_commit_that_moves_the_decision_is_decided_again_from_the_lanes_it_changed",
+      "tests/fake/test_admission_route_isolation.py::test_c6_3_a_long_wait_for_the_store_lock_does_not_void_the_decision",
+      "tests/fake/test_admission_route_isolation.py::test_c6_3_the_reservation_takes_the_early_evaluation_when_nothing_was_committed",
+      "tests/fake/test_admission_route_isolation.py::test_c6_9_a_due_retry_is_looked_at_as_its_pair_before_it_is_evaluated",
+      "tests/fake/test_admission_route_isolation.py::test_c6_9_a_pinned_retry_competes_only_for_its_own_pair",
+      "tests/fake/test_admission_route_isolation.py::test_c6_9_a_retry_that_lets_its_pin_go_keeps_its_place_behind_older_jobs[a-loaded-runner]",
+      "tests/fake/test_admission_route_isolation.py::test_c6_9_a_retry_that_lets_its_pin_go_keeps_its_place_behind_older_jobs[prompt]",
+      "tests/fake/test_admission_route_isolation.py::test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go[after-a-loaded-runner]",
+      "tests/fake/test_admission_route_isolation.py::test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go[after-prompt]",
+      "tests/fake/test_admission_route_isolation.py::test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go[before-the-retry-is-due-a-loaded-runner]",
+      "tests/fake/test_admission_route_isolation.py::test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go[before-the-retry-is-due-prompt]",
+      "tests/fake/test_admission_route_isolation.py::test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go[when-it-is-due-a-loaded-runner]",
+      "tests/fake/test_admission_route_isolation.py::test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go[when-it-is-due-prompt]",
+      "tests/fake/test_admission_stateful.py::TestAdmissionPass::runTest",
+      "tests/fake/test_admission_stateful.py::TestAdmissionPassProviderCaps::runTest",
+      "tests/fake/test_admission_stateful.py::test_adm3_cancelled_job_does_not_remain_an_older_waiter",
+      "tests/fake/test_admission_stateful.py::test_adm3_started_job_does_not_remain_an_older_waiter[1]",
+      "tests/fake/test_admission_stateful.py::test_adm3_started_job_does_not_remain_an_older_waiter[2]",
+      "tests/fake/test_admission_stateful.py::test_r4_simulated_finish_preserves_provider_outcome[limited-limited-claude-sonnet]",
+      "tests/fake/test_admission_stateful.py::test_r4_simulated_finish_preserves_provider_outcome[model-capacity-transient-claude-sonnet]",
+      "tests/fake/test_admission_stateful.py::test_r4_simulated_finish_preserves_provider_outcome[ok-ok-claude-sonnet]",
+      "tests/fake/test_admission_stateful.py::test_r4_simulated_finish_preserves_provider_outcome[transient-transient-claude-sonnet]",
+      "tests/fake/test_policy_sandbox.py::test_a_launch_starts_codex_at_the_top_and_claude_in_the_callers_place[claude]",
+      "tests/fake/test_probe_turn.py::test_a_check_that_walks_back_to_the_jobs_own_model_is_reserved",
+      "tests/fake/test_probe_turn.py::test_no_test_here_bounds_how_long_the_host_takes[rotation-121s-after-the-reading]",
+      "tests/fake/test_probe_turn.py::test_no_test_here_bounds_how_long_the_host_takes[walk-back-121s-after-the-reading]",
+      "tests/fake/test_probe_turn.py::test_rotation_never_promotes_at_the_reservation",
+      "tests/fake/test_probe_turn.py::test_rotation_never_takes_a_model_the_chain_promotes_to",
+      "tests/fake/test_provider_active_cap_fake.py::test_claude_only_cap_is_symmetric",
+      "tests/fake/test_provider_active_cap_fake.py::test_codex_waiter_does_not_hold_a_claude_lane_only_pin",
+      "tests/fake/test_provider_active_cap_fake.py::test_existing_caps_preserve_fifo_for_the_selected_provider[max_active_attempts-3]",
+      "tests/fake/test_provider_active_cap_fake.py::test_existing_caps_preserve_fifo_for_the_selected_provider[max_active_attempts_per_parent-1]",
+      "tests/fake/test_provider_active_cap_fake.py::test_existing_caps_preserve_fifo_for_the_selected_provider[max_in_flight_per_lane-2]",
+      "tests/fake/test_provider_active_cap_fake.py::test_mixed_chains_wait_only_for_selected_provider_with_existing_caps",
+      "tests/fake/test_provider_active_cap_fake.py::test_mixed_provider_chain_keeps_fifo_only_on_the_provider_it_uses[False]",
+      "tests/fake/test_provider_active_cap_fake.py::test_mixed_provider_chain_keeps_fifo_only_on_the_provider_it_uses[True]",
+      "tests/fake/test_provider_active_cap_fake.py::test_n_plus_one_jobs_hold_and_resume_in_fifo[1]",
+      "tests/fake/test_provider_active_cap_fake.py::test_n_plus_one_jobs_hold_and_resume_in_fifo[2]",
+      "tests/fake/test_provider_active_cap_fake.py::test_n_plus_one_jobs_hold_and_resume_in_fifo[3]",
+      "tests/fake/test_provider_active_cap_fake.py::test_other_pool_changes_after_evaluation_are_seen_in_transaction[False-dispatch]",
+      "tests/fake/test_provider_active_cap_fake.py::test_other_pool_changes_after_evaluation_are_seen_in_transaction[False-turn]",
+      "tests/fake/test_provider_active_cap_fake.py::test_other_pool_changes_after_evaluation_are_seen_in_transaction[True-dispatch]",
+      "tests/fake/test_provider_active_cap_fake.py::test_other_pool_changes_after_evaluation_are_seen_in_transaction[True-turn]",
+      "tests/fake/test_provider_active_cap_fake.py::test_probe_reservations_do_not_consume_provider_slots",
+      "tests/fake/test_provider_active_cap_fake.py::test_provider_fifo_respects_lane_only_pins_and_keeps_last_slot",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_census_change_is_revalidated_before_reservation[False-detached]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_census_change_is_revalidated_before_reservation[False-turn]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_census_change_is_revalidated_before_reservation[True-detached]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_census_change_is_revalidated_before_reservation[True-turn]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-detached-False-empty]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-detached-False-live]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-detached-False-unknown]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-detached-True-empty]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-detached-True-live]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-detached-True-unknown]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-turn-False-empty]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-turn-False-live]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-turn-False-unknown]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-turn-True-empty]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-turn-True-live]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-turn-True-unknown]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-detached-False-empty]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-detached-False-live]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-detached-False-unknown]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-detached-True-empty]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-detached-True-live]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-detached-True-unknown]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-turn-False-empty]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-turn-False-live]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-turn-False-unknown]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-turn-True-empty]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-turn-True-live]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-turn-True-unknown]",
+      "tests/fake/test_provider_active_cap_fake.py::test_random_arrivals_and_completions_never_overbook_at_reservation",
+      "tests/fake/test_provider_active_cap_fake.py::test_same_provider_fifo_crosses_models_and_lanes_while_count_is_below_cap",
+      "tests/fake/test_provider_active_cap_fake.py::test_turn_priority_when_a_provider_slot_frees",
+      "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[finalizing-dispatch]",
+      "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[finalizing-turn]",
+      "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[reserved-dispatch]",
+      "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[reserved-turn]",
+      "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[running-dispatch]",
+      "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[running-turn]",
+      "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[starting-dispatch]",
+      "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[starting-turn]",
+      "tests/fake/test_provider_active_cap_fake.py::test_verified_empty_quarantine_census_wakes_provider_waiter[live-detached]",
+      "tests/fake/test_provider_active_cap_fake.py::test_verified_empty_quarantine_census_wakes_provider_waiter[live-turn]",
+      "tests/fake/test_provider_active_cap_fake.py::test_verified_empty_quarantine_census_wakes_provider_waiter[unknown-detached]",
+      "tests/fake/test_provider_active_cap_fake.py::test_verified_empty_quarantine_census_wakes_provider_waiter[unknown-turn]",
+      "tests/fake/test_review_needs_shell.py::test_hard_review_waits_for_codex_then_runs_with_shell",
+      "tests/fake/test_review_needs_shell.py::test_needs_shell_only_places_on_capable_launch_or_waits",
+      "tests/fake/test_review_needs_shell.py::test_new_policy_models_route_to_codex[luna]",
+      "tests/fake/test_review_needs_shell.py::test_new_policy_models_route_to_codex[sol61]",
+      "tests/fake/test_review_needs_shell.py::test_opus_attempt_and_final_notice_line_report_shell[read-only-False-False]",
+      "tests/fake/test_review_needs_shell.py::test_opus_attempt_and_final_notice_line_report_shell[workspace-write-None-True]",
+      "tests/fake/test_review_needs_shell.py::test_requirement_can_skip_opus_for_later_codex_model",
+      "tests/fake/test_review_needs_shell.py::test_resolved_shell_requirement_survives_policy_change",
+      "tests/fake/test_review_needs_shell.py::test_resume_keeps_explicit_shell_opt_out",
+      "tests/fake/test_route_view.py::test_a_route_reads_less_and_decides_the_same",
+      "tests/fake/test_route_view.py::test_pick_reads_the_route_rows_and_status_live_rows",
+      "tests/fake/test_route_view.py::test_the_reservation_recheck_reads_the_same_from_the_route_rows",
+      "tests/fake/test_routing_tier_preferences.py::test_admission_probe_uses_same_tier_fallback_model",
+      "tests/fake/test_routing_tier_preferences.py::test_admission_why_and_status_use_same_tier_fallback[easy-haiku-sonnet-claude-1]",
+      "tests/fake/test_routing_tier_preferences.py::test_admission_why_and_status_use_same_tier_fallback[hard-sol61-opus-claude-1]",
+      "tests/fake/test_routing_tier_preferences.py::test_admission_why_and_status_use_same_tier_fallback[standard-sol61-opus-claude-1]",
+      "tests/fake/test_routing_tier_preferences.py::test_pins_and_probe_reach_use_first_preferred_provider",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_closure_within_the_horizon_is_a_wait_not_a_hold",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_job_every_lane_refuses_for_good_holds_nobody_back_either",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_job_with_an_attempt_still_quarantined_is_held_not_failed",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_lane_that_recovers_takes_its_job_at_once_and_ends_the_episode",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_notice_the_caller_was_shown_stays_when_the_job_fails",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_restart_keeps_the_clock_and_sends_no_second_notice",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_state_that_lasts_one_pass_tells_nobody_anything",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_turn_is_held_and_nothing_more",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[credential-latched]",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[desktop]",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[disabled]",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[excluded]",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[held]",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[identity-mismatch]",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[owner-v1]",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[unknown]",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_one_notice_per_job_however_often_its_lane_flips",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_with_a_null_grace_it_waits_and_is_told_so",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_with_no_grace_it_fails_on_the_pass_that_finds_it_with_one_notice",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c6_9_c11_8_in_the_daemon_no_job_waits_behind_a_job_no_lane_can_admit",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c6_9_c11_8_the_incident_a_desktop_pin_holds_back_none_of_the_opus_jobs_after_it",
+      "tests/unit/test_admission_uncapped.py::test_a_band_as_wide_as_the_per_lane_cap_chooses_as_the_cap_did",
+      "tests/unit/test_admission_uncapped.py::test_a_pass_is_deterministic_whatever_order_rows_arrive_in",
+      "tests/unit/test_admission_uncapped.py::test_bands_fill_lanes_evenly_with_no_cap",
+      "tests/unit/test_admission_uncapped.py::test_jobs_are_considered_by_class_then_tier_then_age",
+      "tests/unit/test_admission_uncapped.py::test_raising_a_cap_never_removes_a_candidate",
+      "tests/unit/test_admission_uncapped.py::test_raising_or_removing_a_cap_never_places_fewer_jobs",
+      "tests/unit/test_admission_uncapped.py::test_the_2026_09_27_jam_places_everything_uncapped",
+      "tests/unit/test_admission_uncapped.py::test_the_desktop_lane_is_out_while_in_use_and_last_otherwise",
+      "tests/unit/test_admission_uncapped.py::test_the_desktop_lane_takes_only_what_no_other_lane_can",
+      "tests/unit/test_admission_uncapped.py::test_the_guard_holds_detached_jobs_at_the_door_and_never_a_turn",
+      "tests/unit/test_admission_uncapped.py::test_uncapped_evaluate_never_says_no_slot_for_want_of_a_count",
+      "tests/unit/test_admission_uncapped.py::test_uncapped_every_admissible_job_is_placed_and_none_waits_for_a_count",
+      "tests/unit/test_admission_uncapped.py::test_with_only_a_parent_cap_a_job_waits_only_behind_its_family",
+      "tests/unit/test_capacity_desktop.py::test_a_mismatched_lane_is_not_a_candidate",
+      "tests/unit/test_capacity_steer_route.py::test_c11_2_a_steer_inside_the_upward_walk_changes_routing",
+      "tests/unit/test_capacity_steer_route.py::test_c11_2_a_steer_on_a_model_outside_the_walk_changes_nothing[standard-expected1]",
+      "tests/unit/test_capacity_steer_route.py::test_c11_2_a_steered_hard_review_goes_to_the_chains_next_model",
+      "tests/unit/test_capacity_steer_route.py::test_c11_2_the_steered_decision_is_the_first_model_of_its_walk_with_a_candidate",
+      "tests/unit/test_capacity_steer_route.py::test_c11_2_with_no_lane_for_the_next_model_the_job_waits",
+      "tests/unit/test_capacity_steer_route.py::test_c6_3_the_reservation_check_of_a_steered_decision_is_a_fresh_evaluation",
+      "tests/unit/test_capacity_steer_route.py::test_c9_5_any_chain_and_admissible_lanes_choose_first_unsteered_or_wait",
+      "tests/unit/test_claude_usage.py::test_c11_7_complete_shared_only_snapshot_releases_removed_reserved_window",
+      "tests/unit/test_cli.py::test_why_renders_exclusion_from_real_policy_decision",
+      "tests/unit/test_decision_horizon.py::test_a_closure_that_ends_is_a_horizon_even_when_it_closes_a_lane",
+      "tests/unit/test_decision_horizon.py::test_every_rank_key_is_constant_before_its_lanes_horizon",
+      "tests/unit/test_decision_horizon.py::test_the_clock_alone_changes_no_decision_before_its_horizon",
+      "tests/unit/test_decision_horizon.py::test_the_clock_alone_changes_no_lane_before_its_own_horizon",
+      "tests/unit/test_fill_evidence.py::test_auxiliary_provider_window_restored_when_reset_override_ends",
+      "tests/unit/test_fill_evidence.py::test_cached_fill_verdict_matches_full_evaluation_before_expiring_and_reset_clocks[1-0]",
+      "tests/unit/test_fill_evidence.py::test_cached_fill_verdict_matches_full_evaluation_before_expiring_and_reset_clocks[14400-1]",
+      "tests/unit/test_fill_evidence.py::test_cached_fill_verdict_matches_full_evaluation_before_expiring_and_reset_clocks[36000-1]",
+      "tests/unit/test_fill_evidence.py::test_equal_observation_ties_are_conservative_and_independent_of_reading_id",
+      "tests/unit/test_fill_evidence.py::test_latest_numeric_observation_with_no_open_window_does_not_revive_an_older_one",
+      "tests/unit/test_fill_evidence.py::test_store_view_preserves_latest_observed_numeric_provider_reading_behind_a_mask[mask0]",
+      "tests/unit/test_fill_evidence.py::test_store_view_preserves_latest_observed_numeric_provider_reading_behind_a_mask[mask1]",
+      "tests/unit/test_fill_evidence.py::test_store_view_preserves_latest_observed_numeric_provider_reading_behind_a_mask[mask2]",
+      "tests/unit/test_fill_evidence.py::test_store_view_preserves_latest_observed_numeric_provider_reading_behind_a_mask[mask3]",
+      "tests/unit/test_fill_routing.py::test_fill_cached_route_matches_evaluate_at_old_window_boundaries[expiring]",
+      "tests/unit/test_fill_routing.py::test_fill_cached_route_matches_evaluate_at_old_window_boundaries[reset]",
+      "tests/unit/test_fill_routing.py::test_fill_expiring_horizon_accepts_arbitrarily_large_whole_seconds",
+      "tests/unit/test_fill_routing.py::test_fill_pick_and_why_show_the_same_fields_and_keep_freshness",
+      "tests/unit/test_fill_routing.py::test_fill_unknown_model_pick_binds_all_applicable_scopes",
+      "tests/unit/test_fill_routing.py::test_per_provider_spread_maps_apply_to_each_ranking_order",
+      "tests/unit/test_lease_waiter_selection.py::test_a_job_that_passes_a_lease_waiter_keeps_the_last_slot_for_it",
+      "tests/unit/test_lease_waiter_selection.py::test_a_lease_waiter_is_held_for_no_count_once_its_lease_is_let_go",
+      "tests/unit/test_lease_waiter_selection.py::test_no_job_is_held_behind_a_job_waiting_for_a_lease",
+      "tests/unit/test_lease_waiter_selection.py::test_with_no_lease_wait_the_pass_is_the_rule_before",
+      "tests/unit/test_picker.py::test_case_insensitive_claude_email_aliases_are_ambiguous",
+      "tests/unit/test_picker.py::test_claude_email_exact_model_reserve_and_exclusion",
+      "tests/unit/test_picker.py::test_matched_stream_windows_can_measure_real_opus_reserve_slack",
+      "tests/unit/test_picker.py::test_reserve_slack_requiring_probe_is_not_a_raw_pick",
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context0-read-only-None]",
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context0-read-only-policy]",
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context1-workspace-write-None]",
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context1-workspace-write-policy]",
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context2-read-only-None]",
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context2-read-only-policy]",
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context3-read-only-None]",
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context3-read-only-policy]",
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context4-read-only-None]",
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context4-read-only-policy]",
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context5-read-only-None]",
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context5-read-only-policy]",
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context6-workspace-write-None]",
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context6-workspace-write-policy]",
+      "tests/unit/test_route_check.py::test_c6_3_lanes_a_decision_never_looks_at_cannot_change_it",
+      "tests/unit/test_route_check.py::test_c6_3_readings_ageing_out_on_another_providers_lanes_are_never_looked_at",
+      "tests/unit/test_route_check.py::test_c6_3_still_stands_exactly_when_commits_land_on_the_lanes_it_walked",
+      "tests/unit/test_route_check.py::test_c6_3_still_stands_exactly_when_evaluate_now_chooses_the_same",
+      "tests/unit/test_route_check.py::test_c6_3_with_nothing_committed_the_early_decision_stands",
+      "tests/unit/test_scheduler_fill.py::test_fill_and_reset_have_identical_candidates_and_refusals[claude-opus]",
+      "tests/unit/test_scheduler_fill.py::test_fill_and_reset_have_identical_candidates_and_refusals[codex-astra]",
+      "tests/unit/test_scheduler_fill.py::test_fill_complete_chain_has_identical_candidates_and_rejection_predicates",
+      "tests/unit/test_scheduler_fill.py::test_fill_desktop_last_and_turn_affinity_leads_its_class[claude-opus]",
+      "tests/unit/test_scheduler_fill.py::test_fill_desktop_last_and_turn_affinity_leads_its_class[codex-astra]",
+      "tests/unit/test_scheduler_fill.py::test_fill_expiring_precedes_nonexpiring_and_earlier_expiring_reset_wins",
+      "tests/unit/test_scheduler_fill.py::test_fill_expiring_reset_order_keeps_fractional_seconds",
+      "tests/unit/test_scheduler_fill.py::test_fill_keeps_old_open_provider_reading_and_ignores_expired_one[121]",
+      "tests/unit/test_scheduler_fill.py::test_fill_keeps_old_open_provider_reading_and_ignores_expired_one[500000]",
+      "tests/unit/test_scheduler_fill.py::test_fill_keeps_old_open_provider_reading_and_ignores_expired_one[86400]",
+      "tests/unit/test_scheduler_fill.py::test_fill_keeps_the_same_probe_predicate_for_each_pinned_lane[claude-opus]",
+      "tests/unit/test_scheduler_fill.py::test_fill_keeps_the_same_probe_predicate_for_each_pinned_lane[codex-astra]",
+      "tests/unit/test_scheduler_fill.py::test_fill_keys_are_unique_total_and_order_independent[claude-opus]",
+      "tests/unit/test_scheduler_fill.py::test_fill_keys_are_unique_total_and_order_independent[codex-astra]",
+      "tests/unit/test_scheduler_fill.py::test_fill_more_weekly_use_never_ranks_after_less_in_equal_earlier_tiers",
+      "tests/unit/test_scheduler_fill.py::test_fill_null_expiring_disables_the_tier",
+      "tests/unit/test_scheduler_fill.py::test_fill_only_latest_applicable_open_windows_contribute_at_any_age",
+      "tests/unit/test_scheduler_fill.py::test_fill_packs_a_prefix_of_starting_use_when_expiry_and_bands_are_off",
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[five_hour-0.02-0.1-claude-opus]",
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[five_hour-0.02-0.1-codex-astra]",
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[five_hour-0.03-0.4-claude-opus]",
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[five_hour-0.03-0.4-codex-astra]",
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[five_hour-0.25-0.125-claude-opus]",
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[five_hour-0.25-0.125-codex-astra]",
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[seven_day-0.02-0.1-claude-opus]",
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[seven_day-0.02-0.1-codex-astra]",
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[seven_day-0.03-0.4-claude-opus]",
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[seven_day-0.03-0.4-codex-astra]",
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[seven_day-0.25-0.125-claude-opus]",
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[seven_day-0.25-0.125-codex-astra]",
+      "tests/unit/test_scheduler_fill.py::test_fill_retains_band_then_claude_stranding_before_usage",
+      "tests/unit/test_scheduler_tier_preferences.py::test_closed_first_model_uses_next_in_same_tier_before_higher_tier",
+      "tests/unit/test_scheduler_tier_preferences.py::test_preference_examples_and_pins",
+      "tests/unit/test_scheduler_tier_preferences.py::test_reservation_recheck_matches_fresh_routing_for_mixed_chains",
+      "tests/unit/test_scheduler_tier_preferences.py::test_standing_refusals_check_every_preferred_model",
+      "tests/unit/test_scoped_stream_capacity.py::test_guessed_operator_expired_or_released_closures_do_not_release_reserve[change0]",
+      "tests/unit/test_scoped_stream_capacity.py::test_guessed_operator_expired_or_released_closures_do_not_release_reserve[change1]",
+      "tests/unit/test_scoped_stream_capacity.py::test_guessed_operator_expired_or_released_closures_do_not_release_reserve[change2]",
+      "tests/unit/test_scoped_stream_capacity.py::test_guessed_operator_expired_or_released_closures_do_not_release_reserve[change3]",
+      "tests/unit/test_scoped_stream_capacity.py::test_incomplete_or_unrelated_stream_windows_do_not_release_reserve[attempt]",
+      "tests/unit/test_scoped_stream_capacity.py::test_incomplete_or_unrelated_stream_windows_do_not_release_reserve[missing]",
+      "tests/unit/test_scoped_stream_capacity.py::test_incomplete_or_unrelated_stream_windows_do_not_release_reserve[time]",
+      "tests/unit/test_scoped_stream_capacity.py::test_reported_fable_exhaustion_requires_opus_probe_even_for_read_only",
+      "tests/unit/test_scoped_stream_capacity.py::test_same_stream_measures_spare_opus_without_spending_fable",
+      "tests/unit/test_scoped_stream_capacity.py::test_shared_exhaustion_still_blocks_opus_with_fable_closed",
+      "tests/unit/test_unadmittable_now.py::test_c6_20_a_job_refused_for_good_is_refused_now",
+      "tests/unit/test_unadmittable_now.py::test_c6_20_a_job_refused_now_is_placed_nowhere_now",
+      "tests/unit/test_unadmittable_now.py::test_c6_20_refused_now_is_exactly_the_oracle_and_the_memo_changes_nothing",
+      "tests/unit/test_unadmittable_pin.py::test_c11_8_a_pin_a_reenrolment_moved_follows_it",
+      "tests/unit/test_unadmittable_pin.py::test_c11_8_a_pin_called_unadmittable_is_placed_nowhere_even_in_the_best_capacity",
+      "tests/unit/test_unadmittable_pin.py::test_c11_8_a_pin_not_called_unadmittable_is_placed_on_its_lane_in_the_best_capacity",
+      "tests/unit/test_unadmittable_pin.py::test_c11_8_a_shorter_horizon_never_frees_a_pin_a_longer_one_holds",
+      "tests/unit/test_unadmittable_pin.py::test_c11_8_each_standing_refusal_is_named",
+      "tests/unit/test_unadmittable_pin.py::test_c11_8_refused_for_good_agrees_with_the_oracle_for_every_job",
+      "tests/unit/test_unadmittable_pin.py::test_c11_8_the_notice_and_the_failure_say_what_and_what_to_do",
+      "tests/unit/test_unadmittable_pin.py::test_c11_8_unadmittable_is_exactly_the_oracle_for_every_job_and_the_memo_changes_nothing",
+      "tests/unit/test_unadmittable_pin.py::test_c11_8_what_a_wait_ends_is_not_standing",
+      "tests/unit/test_unadmittable_pin.py::test_c6_9_c11_8_no_job_waits_behind_a_job_no_lane_can_admit",
+      "tests/unit/test_unadmittable_pin.py::test_c6_9_c11_8_the_incident_38_jobs_are_not_held_behind_the_desktop_pin",
+      "tests/unit/test_weekly_rank_vs_base.py::test_a_bucket_the_provider_stopped_reporting_does_not_unmeasure_a_freshly_read_lane",
+      "tests/unit/test_weekly_rank_vs_base.py::test_equal_weekly_headroom_binds_the_earliest_reset[False-claude-opus]",
+      "tests/unit/test_weekly_rank_vs_base.py::test_equal_weekly_headroom_binds_the_earliest_reset[True-claude-opus]",
+      "tests/unit/test_weekly_rank_vs_base.py::test_every_lane_is_judged_as_the_base_judged_it[64b4175f-claude]",
+      "tests/unit/test_weekly_rank_vs_base.py::test_no_lane_newly_needs_a_pre_launch_probe[claude-False]",
+      "tests/unit/test_weekly_rank_vs_base.py::test_no_lane_newly_needs_a_pre_launch_probe[claude-True]",
+      "tests/unit/test_weekly_rank_vs_base.py::test_pick_excludes_no_lane_the_base_recommended[claude-False]",
+      "tests/unit/test_weekly_rank_vs_base.py::test_pick_excludes_no_lane_the_base_recommended[claude-True]",
+      "tests/unit/test_weekly_rank_vs_base.py::test_pick_keeps_a_freshly_read_lane_beside_a_bucket_the_provider_stopped_reporting",
+      "tests/unit/test_weekly_rank_vs_base.py::test_recent_renewal_uncertainty_ends_at_its_ttl_with_a_stable_horizon",
+      "tests/unit/test_weekly_rank_vs_base.py::test_stopped_windows_do_not_demote_a_lane_forever[account-claude-fable]",
+      "tests/unit/test_weekly_rank_vs_base.py::test_stopped_windows_do_not_demote_a_lane_forever[model-claude-fable]",
+      "tests/unit/test_weekly_rank_vs_base.py::test_why_distinguishes_a_recent_renewal_from_admission_freshness[0]",
+      "tests/unit/test_weekly_rank_vs_base.py::test_why_distinguishes_a_recent_renewal_from_admission_freshness[119]",
+      "tests/unit/test_weekly_rank_vs_base.py::test_why_distinguishes_a_recent_renewal_from_admission_freshness[30]"
+    ],
+    "fill_reached_without_failure_ids": [],
+    "other_failed_test_ids": [
+      "tests/unit/test_cli.py::test_wait_backs_off_when_the_long_poll_returns_at_once",
+      "tests/unit/test_importer.py::test_a_bound_session_the_legacy_writer_takes_up_again_waits_until_it_settles",
+      "tests/unit/test_importer.py::test_a_legacy_hold_and_another_block_are_independent",
+      "tests/unit/test_importer.py::test_a_legacy_id_the_store_holds_as_a_message_of_its_own_is_a_conflict",
+      "tests/unit/test_importer.py::test_a_live_claude_process_outside_subfleet_keeps_history_out_and_fences_nothing[False]",
+      "tests/unit/test_importer.py::test_a_live_cockpit_worker_holds_its_session",
+      "tests/unit/test_importer.py::test_a_message_without_a_transcript_lands_when_the_transcript_appears",
+      "tests/unit/test_importer.py::test_a_missing_outbox_still_reads_the_journal_and_fences",
+      "tests/unit/test_importer.py::test_a_repeated_import_creates_nothing_new",
+      "tests/unit/test_importer.py::test_a_retired_cockpit_lifts_every_hold",
+      "tests/unit/test_importer.py::test_a_retirement_that_dies_midway_retires_nothing",
+      "tests/unit/test_importer.py::test_a_row_with_malformed_payload_metadata_is_reported_and_the_pass_goes_on[image_paths-1-the payload's image_paths is not a list]",
+      "tests/unit/test_importer.py::test_a_row_with_malformed_payload_metadata_is_reported_and_the_pass_goes_on[image_paths-value1-the payload's image_paths is not a list]",
+      "tests/unit/test_importer.py::test_a_row_with_malformed_payload_metadata_is_reported_and_the_pass_goes_on[prompt-he replied \\ud800-the payload or receipt is not UTF-8 text]",
+      "tests/unit/test_importer.py::test_a_row_with_malformed_payload_metadata_is_reported_and_the_pass_goes_on[service_tier-value2-the payload's service_tier is not a string]",
+      "tests/unit/test_importer.py::test_a_running_cockpit_broker_holds_every_session",
+      "tests/unit/test_importer.py::test_a_v1_state_that_is_not_there_releases_nothing",
+      "tests/unit/test_importer.py::test_a_workers_file_naming_a_lone_surrogate_holds_every_session",
+      "tests/unit/test_importer.py::test_an_outbox_that_cannot_be_read_holds_every_session[corrupt]",
+      "tests/unit/test_importer.py::test_an_outbox_that_cannot_be_read_holds_every_session[no messages table]",
+      "tests/unit/test_importer.py::test_an_outbox_that_cannot_be_read_holds_every_session[other columns]",
+      "tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[a directory]",
+      "tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[a lone surrogate]",
+      "tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[a message id that is no string]",
+      "tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[a request naming no session]",
+      "tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[a request that names no session]",
+      "tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[an entry with no request]",
+      "tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[image paths that are no list]",
+      "tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[keyed by something else]",
+      "tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[not an object]",
+      "tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[not json]",
+      "tests/unit/test_importer.py::test_an_unreadable_row_is_reported_and_the_pass_goes_on",
+      "tests/unit/test_importer.py::test_an_unreadable_workers_file_holds_every_session",
+      "tests/unit/test_importer.py::test_each_message_is_classified_by_itself",
+      "tests/unit/test_importer.py::test_image_snapshots_stay_in_v1_and_are_counted",
+      "tests/unit/test_importer.py::test_one_session_has_one_spelling",
+      "tests/unit/test_importer.py::test_one_session_that_cannot_be_read_never_ends_the_pass",
+      "tests/unit/test_importer.py::test_swapped_roots_touch_neither_directory",
+      "tests/unit/test_importer.py::test_terminal_messages_become_history_of_one_legacy_conversation",
+      "tests/unit/test_importer.py::test_the_fence_runs_before_any_history_is_placed",
+      "tests/unit/test_importer.py::test_the_legacy_cockpit_runs_alone_and_its_dry_run_writes_nothing",
+      "tests/unit/test_importer.py::test_the_legacy_import_holds_the_lock_for_its_whole_pass"
+    ],
+    "restored_sha256": {
+      "subfleet/scheduler.py": "af9fdfe0f21a4056e0bd441959f73ebb2293cfe916f42bb5b51042b23e81c836",
+      "subfleet/picker.py": "844b993e602234085b14507f48a5349bb2dbad5d8e1bbc80c3a993b64e3ec617",
+      "subfleet/capacity.py": "078cd6ec3e3715ec5dc44da690ee31b96e4c270804be5457a25a447f286c87cb"
+    }
+  },
+  "after": {
+    "head": "42da87eb5291e97948776721e153f4f63312bbb1",
+    "command": [
+      ".venv/bin/python",
+      "-m",
+      "pytest",
+      "-q",
+      "-n",
+      "4",
+      "-p",
+      "no:cacheprovider",
+      "-p",
+      "sf_fill_scratch",
+      "--tb=short",
+      "-r",
+      "fEs",
+      "--basetemp",
+      "/private/tmp/sf-fill-def-r2/pytest-probe-after-1",
+      "@docs/reports/2026-11-08-fill-first-test-files.txt",
+      "tests/unit/test_replay_weekly_fill.py",
+      "tests/unit/test_store_contention_queries.py"
+    ],
+    "returncode": 1,
+    "summary": "328 failed, 2565 passed, 2 skipped in 1085.87s (0:18:05)",
+    "counts": {
+      "failed": 328,
+      "passed": 2565,
+      "skipped": 2
+    },
+    "fill_reached": 287,
+    "fill_test_ids": [
+      "tests/fake/test_admission_liveness.py::test_c6_3_c26_9_admission_places_what_e053b2c_placed_pass_for_pass",
+      "tests/fake/test_admission_route_isolation.py::test_c11_2_a_dry_run_resolves_the_same_way",
+      "tests/fake/test_admission_route_isolation.py::test_c11_2_a_later_roster_change_cannot_make_an_accepted_pin_ambiguous",
+      "tests/fake/test_admission_route_isolation.py::test_c11_2_a_pin_follows_its_lane_through_a_reenrolment",
+      "tests/fake/test_admission_route_isolation.py::test_c11_2_evaluate_and_demand_lanes_narrow_the_same_way",
+      "tests/fake/test_admission_route_isolation.py::test_c11_2_the_jobs_provider_narrows_a_pin_that_names_two_lanes[changes0-claude-a]",
+      "tests/fake/test_admission_route_isolation.py::test_c11_2_the_jobs_provider_narrows_a_pin_that_names_two_lanes[changes1-codex-1]",
+      "tests/fake/test_admission_route_isolation.py::test_c11_2_the_jobs_provider_narrows_a_pin_that_names_two_lanes[changes2-claude-a]",
+      "tests/fake/test_admission_route_isolation.py::test_c11_2_the_jobs_provider_narrows_a_pin_that_names_two_lanes[changes3-codex-1]",
+      "tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_let_go_is_evaluated_again_when_it_is_next_due",
+      "tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_that_followed_a_reenrolment_counts_the_account_once",
+      "tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_whose_credential_is_latched_goes_to_the_next_candidate",
+      "tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_whose_lane_is_only_full_keeps_its_lane",
+      "tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_whose_lane_refuses_it_for_more_than_a_slot_goes_to_the_next_candidate[closed]",
+      "tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_whose_lane_refuses_it_for_more_than_a_slot_goes_to_the_next_candidate[desktop]",
+      "tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_whose_lane_refuses_it_for_more_than_a_slot_goes_to_the_next_candidate[excluded]",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_a_pin_that_names_two_lanes_is_refused_and_the_pass_goes_on[later_changes0]",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_a_pin_that_names_two_lanes_is_refused_and_the_pass_goes_on[later_changes1]",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_a_pin_that_names_two_lanes_is_refused_and_the_pass_goes_on[later_changes2]",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_a_refused_check_rolls_back_what_the_reservation_wrote",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_a_transient_retry_on_a_model_id_the_policy_dropped_routes_the_job_itself",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_a_transient_retry_whose_id_is_retired_to_another_provider_routes_the_job_itself",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_a_transient_retry_whose_lane_was_disabled_since_routes_the_job_itself",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_an_authorization_bound_to_a_label_is_refused",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_an_authorization_the_probe_check_rejects_is_refused_and_the_pass_goes_on[1]",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_an_authorization_the_probe_check_rejects_is_refused_and_the_pass_goes_on[2]",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_an_empty_task_or_tier_is_none",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_an_evaluation_error_holds_the_job_visibly_and_holds_nobody_else",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_an_evaluation_made_again_off_the_lock_is_isolated_too",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_an_evaluation_that_succeeds_resets_the_route_count",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_any_evaluation_error_of_one_job_is_that_jobs[error0]",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_any_evaluation_error_of_one_job_is_that_jobs[error1]",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_the_incident_a_job_pinned_by_an_ambiguous_email_does_not_stop_the_pass",
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_the_incident_through_the_worker_pool_logs_no_failure",
+      "tests/fake/test_admission_route_isolation.py::test_c6_3_a_cap_that_fills_before_the_reservation_is_judged_on_every_lane",
+      "tests/fake/test_admission_route_isolation.py::test_c6_3_a_commit_that_changes_nothing_the_decision_rests_on_does_not_send_it_back",
+      "tests/fake/test_admission_route_isolation.py::test_c6_3_a_commit_that_moves_the_decision_is_decided_again_from_the_lanes_it_changed",
+      "tests/fake/test_admission_route_isolation.py::test_c6_3_a_long_wait_for_the_store_lock_does_not_void_the_decision",
+      "tests/fake/test_admission_route_isolation.py::test_c6_3_the_reservation_takes_the_early_evaluation_when_nothing_was_committed",
+      "tests/fake/test_admission_route_isolation.py::test_c6_9_a_due_retry_is_looked_at_as_its_pair_before_it_is_evaluated",
+      "tests/fake/test_admission_route_isolation.py::test_c6_9_a_pinned_retry_competes_only_for_its_own_pair",
+      "tests/fake/test_admission_route_isolation.py::test_c6_9_a_retry_that_lets_its_pin_go_keeps_its_place_behind_older_jobs[a-loaded-runner]",
+      "tests/fake/test_admission_route_isolation.py::test_c6_9_a_retry_that_lets_its_pin_go_keeps_its_place_behind_older_jobs[prompt]",
+      "tests/fake/test_admission_route_isolation.py::test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go[after-a-loaded-runner]",
+      "tests/fake/test_admission_route_isolation.py::test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go[after-prompt]",
+      "tests/fake/test_admission_route_isolation.py::test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go[before-the-retry-is-due-a-loaded-runner]",
+      "tests/fake/test_admission_route_isolation.py::test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go[before-the-retry-is-due-prompt]",
+      "tests/fake/test_admission_route_isolation.py::test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go[when-it-is-due-a-loaded-runner]",
+      "tests/fake/test_admission_route_isolation.py::test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go[when-it-is-due-prompt]",
+      "tests/fake/test_admission_stateful.py::TestAdmissionPass::runTest",
+      "tests/fake/test_admission_stateful.py::TestAdmissionPassProviderCaps::runTest",
+      "tests/fake/test_admission_stateful.py::test_adm3_started_job_does_not_remain_an_older_waiter[1]",
+      "tests/fake/test_admission_stateful.py::test_adm3_started_job_does_not_remain_an_older_waiter[2]",
+      "tests/fake/test_admission_stateful.py::test_r4_simulated_finish_preserves_provider_outcome[limited-limited-claude-sonnet]",
+      "tests/fake/test_admission_stateful.py::test_r4_simulated_finish_preserves_provider_outcome[model-capacity-transient-claude-sonnet]",
+      "tests/fake/test_admission_stateful.py::test_r4_simulated_finish_preserves_provider_outcome[ok-ok-claude-sonnet]",
+      "tests/fake/test_admission_stateful.py::test_r4_simulated_finish_preserves_provider_outcome[transient-transient-claude-sonnet]",
+      "tests/fake/test_policy_sandbox.py::test_a_launch_starts_codex_at_the_top_and_claude_in_the_callers_place[claude]",
+      "tests/fake/test_probe_turn.py::test_a_check_that_walks_back_to_the_jobs_own_model_is_reserved",
+      "tests/fake/test_probe_turn.py::test_no_test_here_bounds_how_long_the_host_takes[rotation-121s-after-the-reading]",
+      "tests/fake/test_probe_turn.py::test_no_test_here_bounds_how_long_the_host_takes[walk-back-121s-after-the-reading]",
+      "tests/fake/test_probe_turn.py::test_rotation_never_promotes_at_the_reservation",
+      "tests/fake/test_probe_turn.py::test_rotation_never_takes_a_model_the_chain_promotes_to",
+      "tests/fake/test_provider_active_cap_fake.py::test_claude_only_cap_is_symmetric",
+      "tests/fake/test_provider_active_cap_fake.py::test_existing_caps_preserve_fifo_for_the_selected_provider[max_active_attempts-3]",
+      "tests/fake/test_provider_active_cap_fake.py::test_existing_caps_preserve_fifo_for_the_selected_provider[max_active_attempts_per_parent-1]",
+      "tests/fake/test_provider_active_cap_fake.py::test_existing_caps_preserve_fifo_for_the_selected_provider[max_in_flight_per_lane-2]",
+      "tests/fake/test_provider_active_cap_fake.py::test_mixed_chains_wait_only_for_selected_provider_with_existing_caps",
+      "tests/fake/test_provider_active_cap_fake.py::test_mixed_provider_chain_keeps_fifo_only_on_the_provider_it_uses[False]",
+      "tests/fake/test_provider_active_cap_fake.py::test_n_plus_one_jobs_hold_and_resume_in_fifo[1]",
+      "tests/fake/test_provider_active_cap_fake.py::test_n_plus_one_jobs_hold_and_resume_in_fifo[2]",
+      "tests/fake/test_provider_active_cap_fake.py::test_n_plus_one_jobs_hold_and_resume_in_fifo[3]",
+      "tests/fake/test_provider_active_cap_fake.py::test_other_pool_changes_after_evaluation_are_seen_in_transaction[False-dispatch]",
+      "tests/fake/test_provider_active_cap_fake.py::test_other_pool_changes_after_evaluation_are_seen_in_transaction[False-turn]",
+      "tests/fake/test_provider_active_cap_fake.py::test_other_pool_changes_after_evaluation_are_seen_in_transaction[True-dispatch]",
+      "tests/fake/test_provider_active_cap_fake.py::test_other_pool_changes_after_evaluation_are_seen_in_transaction[True-turn]",
+      "tests/fake/test_provider_active_cap_fake.py::test_probe_reservations_do_not_consume_provider_slots",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_census_change_is_revalidated_before_reservation[False-detached]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_census_change_is_revalidated_before_reservation[False-turn]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_census_change_is_revalidated_before_reservation[True-detached]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_census_change_is_revalidated_before_reservation[True-turn]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-detached-False-empty]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-detached-False-live]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-detached-False-unknown]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-detached-True-empty]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-detached-True-live]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-detached-True-unknown]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-turn-False-empty]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-turn-False-live]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-turn-False-unknown]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-turn-True-empty]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-turn-True-live]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-turn-True-unknown]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-detached-False-empty]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-detached-False-live]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-detached-False-unknown]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-detached-True-empty]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-detached-True-live]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-detached-True-unknown]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-turn-False-empty]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-turn-False-live]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-turn-False-unknown]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-turn-True-empty]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-turn-True-live]",
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-turn-True-unknown]",
+      "tests/fake/test_provider_active_cap_fake.py::test_random_arrivals_and_completions_never_overbook_at_reservation",
+      "tests/fake/test_provider_active_cap_fake.py::test_turn_priority_when_a_provider_slot_frees",
+      "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[finalizing-dispatch]",
+      "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[finalizing-turn]",
+      "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[reserved-dispatch]",
+      "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[reserved-turn]",
+      "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[running-dispatch]",
+      "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[running-turn]",
+      "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[starting-dispatch]",
+      "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[starting-turn]",
+      "tests/fake/test_provider_active_cap_fake.py::test_verified_empty_quarantine_census_wakes_provider_waiter[live-detached]",
+      "tests/fake/test_provider_active_cap_fake.py::test_verified_empty_quarantine_census_wakes_provider_waiter[live-turn]",
+      "tests/fake/test_provider_active_cap_fake.py::test_verified_empty_quarantine_census_wakes_provider_waiter[unknown-detached]",
+      "tests/fake/test_provider_active_cap_fake.py::test_verified_empty_quarantine_census_wakes_provider_waiter[unknown-turn]",
+      "tests/fake/test_review_needs_shell.py::test_hard_review_waits_for_codex_then_runs_with_shell",
+      "tests/fake/test_review_needs_shell.py::test_needs_shell_only_places_on_capable_launch_or_waits",
+      "tests/fake/test_review_needs_shell.py::test_new_policy_models_route_to_codex[luna]",
+      "tests/fake/test_review_needs_shell.py::test_new_policy_models_route_to_codex[sol61]",
+      "tests/fake/test_review_needs_shell.py::test_opus_attempt_and_final_notice_line_report_shell[read-only-False-False]",
+      "tests/fake/test_review_needs_shell.py::test_opus_attempt_and_final_notice_line_report_shell[workspace-write-None-True]",
+      "tests/fake/test_review_needs_shell.py::test_requirement_can_skip_opus_for_later_codex_model",
+      "tests/fake/test_review_needs_shell.py::test_resolved_shell_requirement_survives_policy_change",
+      "tests/fake/test_review_needs_shell.py::test_resume_keeps_explicit_shell_opt_out",
+      "tests/fake/test_route_view.py::test_a_route_reads_less_and_decides_the_same",
+      "tests/fake/test_route_view.py::test_pick_reads_the_route_rows_and_status_live_rows",
+      "tests/fake/test_route_view.py::test_the_reservation_recheck_reads_the_same_from_the_route_rows",
+      "tests/fake/test_routing_tier_preferences.py::test_admission_probe_uses_same_tier_fallback_model",
+      "tests/fake/test_routing_tier_preferences.py::test_admission_why_and_status_use_same_tier_fallback[easy-haiku-sonnet-claude-1]",
+      "tests/fake/test_routing_tier_preferences.py::test_admission_why_and_status_use_same_tier_fallback[hard-sol61-opus-claude-1]",
+      "tests/fake/test_routing_tier_preferences.py::test_admission_why_and_status_use_same_tier_fallback[standard-sol61-opus-claude-1]",
+      "tests/fake/test_routing_tier_preferences.py::test_pins_and_probe_reach_use_first_preferred_provider",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_closure_within_the_horizon_is_a_wait_not_a_hold",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_job_every_lane_refuses_for_good_holds_nobody_back_either",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_job_with_an_attempt_still_quarantined_is_held_not_failed",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_lane_that_recovers_takes_its_job_at_once_and_ends_the_episode",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_notice_the_caller_was_shown_stays_when_the_job_fails",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_restart_keeps_the_clock_and_sends_no_second_notice",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_state_that_lasts_one_pass_tells_nobody_anything",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_turn_is_held_and_nothing_more",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[credential-latched]",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[desktop]",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[disabled]",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[excluded]",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[held]",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[identity-mismatch]",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[owner-v1]",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[unknown]",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_one_notice_per_job_however_often_its_lane_flips",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_with_a_null_grace_it_waits_and_is_told_so",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_with_no_grace_it_fails_on_the_pass_that_finds_it_with_one_notice",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c6_9_c11_8_in_the_daemon_no_job_waits_behind_a_job_no_lane_can_admit",
+      "tests/unit/test_admission_uncapped.py::test_a_band_as_wide_as_the_per_lane_cap_chooses_as_the_cap_did",
+      "tests/unit/test_admission_uncapped.py::test_a_pass_is_deterministic_whatever_order_rows_arrive_in",
+      "tests/unit/test_admission_uncapped.py::test_bands_fill_lanes_evenly_with_no_cap",
+      "tests/unit/test_admission_uncapped.py::test_jobs_are_considered_by_class_then_tier_then_age",
+      "tests/unit/test_admission_uncapped.py::test_raising_a_cap_never_removes_a_candidate",
+      "tests/unit/test_admission_uncapped.py::test_raising_or_removing_a_cap_never_places_fewer_jobs",
+      "tests/unit/test_admission_uncapped.py::test_the_2026_09_27_jam_places_everything_uncapped",
+      "tests/unit/test_admission_uncapped.py::test_the_desktop_lane_is_out_while_in_use_and_last_otherwise",
+      "tests/unit/test_admission_uncapped.py::test_the_guard_holds_detached_jobs_at_the_door_and_never_a_turn",
+      "tests/unit/test_admission_uncapped.py::test_uncapped_evaluate_never_says_no_slot_for_want_of_a_count",
+      "tests/unit/test_admission_uncapped.py::test_uncapped_every_admissible_job_is_placed_and_none_waits_for_a_count",
+      "tests/unit/test_admission_uncapped.py::test_with_only_a_parent_cap_a_job_waits_only_behind_its_family",
+      "tests/unit/test_capacity_steer_route.py::test_c11_2_a_steer_on_a_model_outside_the_walk_changes_nothing[standard-expected1]",
+      "tests/unit/test_capacity_steer_route.py::test_c11_2_the_steered_decision_is_the_first_model_of_its_walk_with_a_candidate",
+      "tests/unit/test_capacity_steer_route.py::test_c6_3_the_reservation_check_of_a_steered_decision_is_a_fresh_evaluation",
+      "tests/unit/test_capacity_steer_route.py::test_c9_5_any_chain_and_admissible_lanes_choose_first_unsteered_or_wait",
+      "tests/unit/test_claude_usage.py::test_c11_7_complete_shared_only_snapshot_releases_removed_reserved_window",
+      "tests/unit/test_cli.py::test_why_renders_exclusion_from_real_policy_decision",
+      "tests/unit/test_decision_horizon.py::test_a_closure_that_ends_is_a_horizon_even_when_it_closes_a_lane",
+      "tests/unit/test_decision_horizon.py::test_every_rank_key_is_constant_before_its_lanes_horizon[fill]",
+      "tests/unit/test_decision_horizon.py::test_the_clock_alone_changes_no_decision_before_its_horizon[fill]",
+      "tests/unit/test_decision_horizon.py::test_the_clock_alone_changes_no_lane_before_its_own_horizon[fill]",
+      "tests/unit/test_fill_evidence.py::test_auxiliary_provider_window_restored_when_reset_override_ends",
+      "tests/unit/test_fill_evidence.py::test_cached_fill_verdict_matches_full_evaluation_before_expiring_and_reset_clocks[1-0]",
+      "tests/unit/test_fill_evidence.py::test_cached_fill_verdict_matches_full_evaluation_before_expiring_and_reset_clocks[14400-1]",
+      "tests/unit/test_fill_evidence.py::test_cached_fill_verdict_matches_full_evaluation_before_expiring_and_reset_clocks[36000-1]",
+      "tests/unit/test_fill_evidence.py::test_equal_observation_ties_are_conservative_and_independent_of_reading_id",
+      "tests/unit/test_fill_evidence.py::test_latest_numeric_observation_with_no_open_window_does_not_revive_an_older_one",
+      "tests/unit/test_fill_evidence.py::test_store_view_preserves_latest_observed_numeric_provider_reading_behind_a_mask[mask0]",
+      "tests/unit/test_fill_evidence.py::test_store_view_preserves_latest_observed_numeric_provider_reading_behind_a_mask[mask1]",
+      "tests/unit/test_fill_evidence.py::test_store_view_preserves_latest_observed_numeric_provider_reading_behind_a_mask[mask2]",
+      "tests/unit/test_fill_evidence.py::test_store_view_preserves_latest_observed_numeric_provider_reading_behind_a_mask[mask3]",
+      "tests/unit/test_fill_routing.py::test_fill_cached_route_matches_evaluate_at_old_window_boundaries[expiring]",
+      "tests/unit/test_fill_routing.py::test_fill_cached_route_matches_evaluate_at_old_window_boundaries[reset]",
+      "tests/unit/test_fill_routing.py::test_fill_expiring_horizon_accepts_arbitrarily_large_whole_seconds",
+      "tests/unit/test_fill_routing.py::test_fill_pick_and_why_show_the_same_fields_and_keep_freshness",
+      "tests/unit/test_fill_routing.py::test_fill_unknown_model_pick_binds_all_applicable_scopes",
+      "tests/unit/test_fill_routing.py::test_per_provider_spread_maps_apply_to_each_ranking_order",
+      "tests/unit/test_lease_waiter_selection.py::test_a_job_that_passes_a_lease_waiter_keeps_the_last_slot_for_it",
+      "tests/unit/test_lease_waiter_selection.py::test_a_lease_waiter_is_held_for_no_count_once_its_lease_is_let_go",
+      "tests/unit/test_lease_waiter_selection.py::test_no_job_is_held_behind_a_job_waiting_for_a_lease",
+      "tests/unit/test_lease_waiter_selection.py::test_with_no_lease_wait_the_pass_is_the_rule_before",
+      "tests/unit/test_picker.py::test_case_insensitive_claude_email_aliases_are_ambiguous",
+      "tests/unit/test_picker.py::test_claude_email_exact_model_reserve_and_exclusion",
+      "tests/unit/test_picker.py::test_matched_stream_windows_can_measure_real_opus_reserve_slack",
+      "tests/unit/test_picker.py::test_reserve_slack_requiring_probe_is_not_a_raw_pick",
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context0-read-only-None]",
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context0-read-only-policy]",
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context1-workspace-write-None]",
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context1-workspace-write-policy]",
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context2-read-only-None]",
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context2-read-only-policy]",
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context3-read-only-None]",
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context3-read-only-policy]",
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context4-read-only-None]",
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context4-read-only-policy]",
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context5-read-only-None]",
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context5-read-only-policy]",
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context6-workspace-write-None]",
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context6-workspace-write-policy]",
+      "tests/unit/test_route_check.py::test_c6_3_lanes_a_decision_never_looks_at_cannot_change_it",
+      "tests/unit/test_route_check.py::test_c6_3_readings_ageing_out_on_another_providers_lanes_are_never_looked_at",
+      "tests/unit/test_route_check.py::test_c6_3_still_stands_exactly_when_commits_land_on_the_lanes_it_walked",
+      "tests/unit/test_route_check.py::test_c6_3_still_stands_exactly_when_evaluate_now_chooses_the_same",
+      "tests/unit/test_route_check.py::test_c6_3_with_nothing_committed_the_early_decision_stands",
+      "tests/unit/test_scheduler_fill.py::test_fill_and_reset_have_identical_candidates_and_refusals[claude-opus]",
+      "tests/unit/test_scheduler_fill.py::test_fill_and_reset_have_identical_candidates_and_refusals[codex-astra]",
+      "tests/unit/test_scheduler_fill.py::test_fill_complete_chain_has_identical_candidates_and_rejection_predicates",
+      "tests/unit/test_scheduler_fill.py::test_fill_desktop_last_and_turn_affinity_leads_its_class[claude-opus]",
+      "tests/unit/test_scheduler_fill.py::test_fill_desktop_last_and_turn_affinity_leads_its_class[codex-astra]",
+      "tests/unit/test_scheduler_fill.py::test_fill_expiring_precedes_nonexpiring_and_earlier_expiring_reset_wins",
+      "tests/unit/test_scheduler_fill.py::test_fill_expiring_reset_order_keeps_fractional_seconds",
+      "tests/unit/test_scheduler_fill.py::test_fill_keeps_old_open_provider_reading_and_ignores_expired_one[121]",
+      "tests/unit/test_scheduler_fill.py::test_fill_keeps_old_open_provider_reading_and_ignores_expired_one[500000]",
+      "tests/unit/test_scheduler_fill.py::test_fill_keeps_old_open_provider_reading_and_ignores_expired_one[86400]",
+      "tests/unit/test_scheduler_fill.py::test_fill_keeps_the_same_probe_predicate_for_each_pinned_lane[claude-opus]",
+      "tests/unit/test_scheduler_fill.py::test_fill_keeps_the_same_probe_predicate_for_each_pinned_lane[codex-astra]",
+      "tests/unit/test_scheduler_fill.py::test_fill_keys_are_unique_total_and_order_independent[claude-opus]",
+      "tests/unit/test_scheduler_fill.py::test_fill_keys_are_unique_total_and_order_independent[codex-astra]",
+      "tests/unit/test_scheduler_fill.py::test_fill_more_weekly_use_never_ranks_after_less_in_equal_earlier_tiers",
+      "tests/unit/test_scheduler_fill.py::test_fill_null_expiring_disables_the_tier",
+      "tests/unit/test_scheduler_fill.py::test_fill_only_latest_applicable_open_windows_contribute_at_any_age",
+      "tests/unit/test_scheduler_fill.py::test_fill_packs_a_prefix_of_starting_use_when_expiry_and_bands_are_off",
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[five_hour-0.02-0.1-claude-opus]",
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[five_hour-0.02-0.1-codex-astra]",
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[five_hour-0.03-0.4-claude-opus]",
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[five_hour-0.03-0.4-codex-astra]",
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[five_hour-0.25-0.125-claude-opus]",
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[five_hour-0.25-0.125-codex-astra]",
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[seven_day-0.02-0.1-claude-opus]",
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[seven_day-0.02-0.1-codex-astra]",
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[seven_day-0.03-0.4-claude-opus]",
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[seven_day-0.03-0.4-codex-astra]",
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[seven_day-0.25-0.125-claude-opus]",
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[seven_day-0.25-0.125-codex-astra]",
+      "tests/unit/test_scheduler_fill.py::test_fill_retains_band_then_claude_stranding_before_usage",
+      "tests/unit/test_scheduler_tier_preferences.py::test_closed_first_model_uses_next_in_same_tier_before_higher_tier",
+      "tests/unit/test_scheduler_tier_preferences.py::test_preference_examples_and_pins",
+      "tests/unit/test_scheduler_tier_preferences.py::test_reservation_recheck_matches_fresh_routing_for_mixed_chains",
+      "tests/unit/test_scheduler_tier_preferences.py::test_standing_refusals_check_every_preferred_model",
+      "tests/unit/test_scoped_stream_capacity.py::test_guessed_operator_expired_or_released_closures_do_not_release_reserve[change0]",
+      "tests/unit/test_scoped_stream_capacity.py::test_guessed_operator_expired_or_released_closures_do_not_release_reserve[change1]",
+      "tests/unit/test_scoped_stream_capacity.py::test_guessed_operator_expired_or_released_closures_do_not_release_reserve[change2]",
+      "tests/unit/test_scoped_stream_capacity.py::test_guessed_operator_expired_or_released_closures_do_not_release_reserve[change3]",
+      "tests/unit/test_scoped_stream_capacity.py::test_incomplete_or_unrelated_stream_windows_do_not_release_reserve[attempt]",
+      "tests/unit/test_scoped_stream_capacity.py::test_incomplete_or_unrelated_stream_windows_do_not_release_reserve[missing]",
+      "tests/unit/test_scoped_stream_capacity.py::test_incomplete_or_unrelated_stream_windows_do_not_release_reserve[time]",
+      "tests/unit/test_scoped_stream_capacity.py::test_reported_fable_exhaustion_requires_opus_probe_even_for_read_only",
+      "tests/unit/test_scoped_stream_capacity.py::test_same_stream_measures_spare_opus_without_spending_fable",
+      "tests/unit/test_scoped_stream_capacity.py::test_shared_exhaustion_still_blocks_opus_with_fable_closed",
+      "tests/unit/test_unadmittable_now.py::test_c6_20_a_job_refused_for_good_is_refused_now",
+      "tests/unit/test_unadmittable_now.py::test_c6_20_a_job_refused_now_is_placed_nowhere_now",
+      "tests/unit/test_unadmittable_now.py::test_c6_20_refused_now_is_exactly_the_oracle_and_the_memo_changes_nothing",
+      "tests/unit/test_unadmittable_pin.py::test_c11_8_a_pin_a_reenrolment_moved_follows_it",
+      "tests/unit/test_unadmittable_pin.py::test_c11_8_a_pin_called_unadmittable_is_placed_nowhere_even_in_the_best_capacity",
+      "tests/unit/test_unadmittable_pin.py::test_c11_8_a_pin_not_called_unadmittable_is_placed_on_its_lane_in_the_best_capacity",
+      "tests/unit/test_unadmittable_pin.py::test_c11_8_a_shorter_horizon_never_frees_a_pin_a_longer_one_holds",
+      "tests/unit/test_unadmittable_pin.py::test_c11_8_each_standing_refusal_is_named",
+      "tests/unit/test_unadmittable_pin.py::test_c11_8_refused_for_good_agrees_with_the_oracle_for_every_job",
+      "tests/unit/test_unadmittable_pin.py::test_c11_8_the_notice_and_the_failure_say_what_and_what_to_do",
+      "tests/unit/test_unadmittable_pin.py::test_c11_8_unadmittable_is_exactly_the_oracle_for_every_job_and_the_memo_changes_nothing",
+      "tests/unit/test_unadmittable_pin.py::test_c6_9_c11_8_no_job_waits_behind_a_job_no_lane_can_admit",
+      "tests/unit/test_weekly_rank_vs_base.py::test_every_lane_is_judged_as_the_base_judged_it[64b4175f-claude]",
+      "tests/unit/test_weekly_rank_vs_base.py::test_no_lane_newly_needs_a_pre_launch_probe[claude-False]",
+      "tests/unit/test_weekly_rank_vs_base.py::test_no_lane_newly_needs_a_pre_launch_probe[claude-True]",
+      "tests/unit/test_weekly_rank_vs_base.py::test_pick_excludes_no_lane_the_base_recommended[claude-False]",
+      "tests/unit/test_weekly_rank_vs_base.py::test_pick_excludes_no_lane_the_base_recommended[claude-True]",
+      "tests/unit/test_weekly_rank_vs_base.py::test_recent_renewal_uncertainty_ends_at_its_ttl_with_a_stable_horizon",
+      "tests/unit/test_weekly_rank_vs_base.py::test_why_distinguishes_a_recent_renewal_from_admission_freshness[0]",
+      "tests/unit/test_weekly_rank_vs_base.py::test_why_distinguishes_a_recent_renewal_from_admission_freshness[119]",
+      "tests/unit/test_weekly_rank_vs_base.py::test_why_distinguishes_a_recent_renewal_from_admission_freshness[30]"
+    ],
+    "fill_reached_without_failure_ids": [],
+    "other_failed_test_ids": [
+      "tests/unit/test_importer.py::test_a_bound_session_the_legacy_writer_takes_up_again_waits_until_it_settles",
+      "tests/unit/test_importer.py::test_a_legacy_hold_and_another_block_are_independent",
+      "tests/unit/test_importer.py::test_a_legacy_id_the_store_holds_as_a_message_of_its_own_is_a_conflict",
+      "tests/unit/test_importer.py::test_a_live_claude_process_outside_subfleet_keeps_history_out_and_fences_nothing[False]",
+      "tests/unit/test_importer.py::test_a_live_cockpit_worker_holds_its_session",
+      "tests/unit/test_importer.py::test_a_message_without_a_transcript_lands_when_the_transcript_appears",
+      "tests/unit/test_importer.py::test_a_missing_outbox_still_reads_the_journal_and_fences",
+      "tests/unit/test_importer.py::test_a_repeated_import_creates_nothing_new",
+      "tests/unit/test_importer.py::test_a_retired_cockpit_lifts_every_hold",
+      "tests/unit/test_importer.py::test_a_retirement_that_dies_midway_retires_nothing",
+      "tests/unit/test_importer.py::test_a_row_with_malformed_payload_metadata_is_reported_and_the_pass_goes_on[image_paths-1-the payload's image_paths is not a list]",
+      "tests/unit/test_importer.py::test_a_row_with_malformed_payload_metadata_is_reported_and_the_pass_goes_on[image_paths-value1-the payload's image_paths is not a list]",
+      "tests/unit/test_importer.py::test_a_row_with_malformed_payload_metadata_is_reported_and_the_pass_goes_on[prompt-he replied \\ud800-the payload or receipt is not UTF-8 text]",
+      "tests/unit/test_importer.py::test_a_row_with_malformed_payload_metadata_is_reported_and_the_pass_goes_on[service_tier-value2-the payload's service_tier is not a string]",
+      "tests/unit/test_importer.py::test_a_running_cockpit_broker_holds_every_session",
+      "tests/unit/test_importer.py::test_a_v1_state_that_is_not_there_releases_nothing",
+      "tests/unit/test_importer.py::test_a_workers_file_naming_a_lone_surrogate_holds_every_session",
+      "tests/unit/test_importer.py::test_an_outbox_that_cannot_be_read_holds_every_session[corrupt]",
+      "tests/unit/test_importer.py::test_an_outbox_that_cannot_be_read_holds_every_session[no messages table]",
+      "tests/unit/test_importer.py::test_an_outbox_that_cannot_be_read_holds_every_session[other columns]",
+      "tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[a directory]",
+      "tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[a lone surrogate]",
+      "tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[a message id that is no string]",
+      "tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[a request naming no session]",
+      "tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[a request that names no session]",
+      "tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[an entry with no request]",
+      "tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[image paths that are no list]",
+      "tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[keyed by something else]",
+      "tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[not an object]",
+      "tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[not json]",
+      "tests/unit/test_importer.py::test_an_unreadable_row_is_reported_and_the_pass_goes_on",
+      "tests/unit/test_importer.py::test_an_unreadable_workers_file_holds_every_session",
+      "tests/unit/test_importer.py::test_each_message_is_classified_by_itself",
+      "tests/unit/test_importer.py::test_image_snapshots_stay_in_v1_and_are_counted",
+      "tests/unit/test_importer.py::test_one_session_has_one_spelling",
+      "tests/unit/test_importer.py::test_one_session_that_cannot_be_read_never_ends_the_pass",
+      "tests/unit/test_importer.py::test_swapped_roots_touch_neither_directory",
+      "tests/unit/test_importer.py::test_terminal_messages_become_history_of_one_legacy_conversation",
+      "tests/unit/test_importer.py::test_the_fence_runs_before_any_history_is_placed",
+      "tests/unit/test_importer.py::test_the_legacy_cockpit_runs_alone_and_its_dry_run_writes_nothing",
+      "tests/unit/test_importer.py::test_the_legacy_import_holds_the_lock_for_its_whole_pass"
+    ],
+    "restored_sha256": {
+      "subfleet/scheduler.py": "af9fdfe0f21a4056e0bd441959f73ebb2293cfe916f42bb5b51042b23e81c836",
+      "subfleet/picker.py": "844b993e602234085b14507f48a5349bb2dbad5d8e1bbc80c3a993b64e3ec617",
+      "subfleet/capacity.py": "078cd6ec3e3715ec5dc44da690ee31b96e4c270804be5457a25a447f286c87cb"
+    }
+  },
+  "coverage": {
+    "same_ids_reached_after": 284,
+    "ids_no_longer_reached_at_same_id": [
+      "tests/fake/test_admission_liveness.py::test_c6_3_readings_ageing_out_on_sixty_unrelated_lanes_never_hold_a_job_back",
+      "tests/fake/test_admission_stateful.py::test_adm3_cancelled_job_does_not_remain_an_older_waiter",
+      "tests/fake/test_provider_active_cap_fake.py::test_codex_waiter_does_not_hold_a_claude_lane_only_pin",
+      "tests/fake/test_provider_active_cap_fake.py::test_mixed_provider_chain_keeps_fifo_only_on_the_provider_it_uses[True]",
+      "tests/fake/test_provider_active_cap_fake.py::test_provider_fifo_respects_lane_only_pins_and_keeps_last_slot",
+      "tests/fake/test_provider_active_cap_fake.py::test_same_provider_fifo_crosses_models_and_lanes_while_count_is_below_cap",
+      "tests/fake/test_unadmittable_pin_admission.py::test_c6_9_c11_8_the_incident_a_desktop_pin_holds_back_none_of_the_opus_jobs_after_it",
+      "tests/unit/test_admission_uncapped.py::test_the_desktop_lane_takes_only_what_no_other_lane_can",
+      "tests/unit/test_capacity_desktop.py::test_a_mismatched_lane_is_not_a_candidate",
+      "tests/unit/test_capacity_steer_route.py::test_c11_2_a_steer_inside_the_upward_walk_changes_routing",
+      "tests/unit/test_capacity_steer_route.py::test_c11_2_a_steered_hard_review_goes_to_the_chains_next_model",
+      "tests/unit/test_capacity_steer_route.py::test_c11_2_with_no_lane_for_the_next_model_the_job_waits",
+      "tests/unit/test_decision_horizon.py::test_every_rank_key_is_constant_before_its_lanes_horizon",
+      "tests/unit/test_decision_horizon.py::test_the_clock_alone_changes_no_decision_before_its_horizon",
+      "tests/unit/test_decision_horizon.py::test_the_clock_alone_changes_no_lane_before_its_own_horizon",
+      "tests/unit/test_unadmittable_pin.py::test_c11_8_what_a_wait_ends_is_not_standing",
+      "tests/unit/test_unadmittable_pin.py::test_c6_9_c11_8_the_incident_38_jobs_are_not_held_behind_the_desktop_pin",
+      "tests/unit/test_weekly_rank_vs_base.py::test_a_bucket_the_provider_stopped_reporting_does_not_unmeasure_a_freshly_read_lane",
+      "tests/unit/test_weekly_rank_vs_base.py::test_equal_weekly_headroom_binds_the_earliest_reset[False-claude-opus]",
+      "tests/unit/test_weekly_rank_vs_base.py::test_equal_weekly_headroom_binds_the_earliest_reset[True-claude-opus]",
+      "tests/unit/test_weekly_rank_vs_base.py::test_pick_keeps_a_freshly_read_lane_beside_a_bucket_the_provider_stopped_reporting",
+      "tests/unit/test_weekly_rank_vs_base.py::test_stopped_windows_do_not_demote_a_lane_forever[account-claude-fable]",
+      "tests/unit/test_weekly_rank_vs_base.py::test_stopped_windows_do_not_demote_a_lane_forever[model-claude-fable]"
+    ],
+    "new_ids_reached_after": [
+      "tests/unit/test_decision_horizon.py::test_every_rank_key_is_constant_before_its_lanes_horizon[fill]",
+      "tests/unit/test_decision_horizon.py::test_the_clock_alone_changes_no_decision_before_its_horizon[fill]",
+      "tests/unit/test_decision_horizon.py::test_the_clock_alone_changes_no_lane_before_its_own_horizon[fill]"
+    ],
+    "outcome_counts": {
+      "named test": 20,
+      "selects fill": 233,
+      "both orders": 54
+    },
+    "outcomes_by_first_probe_id": {
+      "tests/fake/test_admission_liveness.py::test_c6_3_c26_9_admission_places_what_e053b2c_placed_pass_for_pass": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/fake/test_admission_liveness.py::test_c6_3_c26_9_admission_places_what_e053b2c_placed_pass_for_pass"
+      },
+      "tests/fake/test_admission_liveness.py::test_c6_3_readings_ageing_out_on_sixty_unrelated_lanes_never_hold_a_job_back": {
+        "outcome": "named test",
+        "witness": "tests/unit/test_route_check.py::test_c6_3_lanes_a_decision_never_looks_at_cannot_change_it",
+        "second_probe_id": "tests/unit/test_route_check.py::test_c6_3_lanes_a_decision_never_looks_at_cannot_change_it"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c11_2_a_dry_run_resolves_the_same_way": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c11_2_a_dry_run_resolves_the_same_way"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c11_2_a_later_roster_change_cannot_make_an_accepted_pin_ambiguous": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c11_2_a_later_roster_change_cannot_make_an_accepted_pin_ambiguous"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c11_2_a_pin_follows_its_lane_through_a_reenrolment": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c11_2_a_pin_follows_its_lane_through_a_reenrolment"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c11_2_evaluate_and_demand_lanes_narrow_the_same_way": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c11_2_evaluate_and_demand_lanes_narrow_the_same_way"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c11_2_the_jobs_provider_narrows_a_pin_that_names_two_lanes[changes0-claude-a]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c11_2_the_jobs_provider_narrows_a_pin_that_names_two_lanes[changes0-claude-a]"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c11_2_the_jobs_provider_narrows_a_pin_that_names_two_lanes[changes1-codex-1]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c11_2_the_jobs_provider_narrows_a_pin_that_names_two_lanes[changes1-codex-1]"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c11_2_the_jobs_provider_narrows_a_pin_that_names_two_lanes[changes2-claude-a]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c11_2_the_jobs_provider_narrows_a_pin_that_names_two_lanes[changes2-claude-a]"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c11_2_the_jobs_provider_narrows_a_pin_that_names_two_lanes[changes3-codex-1]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c11_2_the_jobs_provider_narrows_a_pin_that_names_two_lanes[changes3-codex-1]"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_let_go_is_evaluated_again_when_it_is_next_due": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_let_go_is_evaluated_again_when_it_is_next_due"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_that_followed_a_reenrolment_counts_the_account_once": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_that_followed_a_reenrolment_counts_the_account_once"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_whose_credential_is_latched_goes_to_the_next_candidate": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_whose_credential_is_latched_goes_to_the_next_candidate"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_whose_lane_is_only_full_keeps_its_lane": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_whose_lane_is_only_full_keeps_its_lane"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_whose_lane_refuses_it_for_more_than_a_slot_goes_to_the_next_candidate[closed]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_whose_lane_refuses_it_for_more_than_a_slot_goes_to_the_next_candidate[closed]"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_whose_lane_refuses_it_for_more_than_a_slot_goes_to_the_next_candidate[desktop]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_whose_lane_refuses_it_for_more_than_a_slot_goes_to_the_next_candidate[desktop]"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_whose_lane_refuses_it_for_more_than_a_slot_goes_to_the_next_candidate[excluded]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c4_5_a_retry_whose_lane_refuses_it_for_more_than_a_slot_goes_to_the_next_candidate[excluded]"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_a_pin_that_names_two_lanes_is_refused_and_the_pass_goes_on[later_changes0]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_12_a_pin_that_names_two_lanes_is_refused_and_the_pass_goes_on[later_changes0]"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_a_pin_that_names_two_lanes_is_refused_and_the_pass_goes_on[later_changes1]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_12_a_pin_that_names_two_lanes_is_refused_and_the_pass_goes_on[later_changes1]"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_a_pin_that_names_two_lanes_is_refused_and_the_pass_goes_on[later_changes2]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_12_a_pin_that_names_two_lanes_is_refused_and_the_pass_goes_on[later_changes2]"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_a_refused_check_rolls_back_what_the_reservation_wrote": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_12_a_refused_check_rolls_back_what_the_reservation_wrote"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_a_transient_retry_on_a_model_id_the_policy_dropped_routes_the_job_itself": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_12_a_transient_retry_on_a_model_id_the_policy_dropped_routes_the_job_itself"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_a_transient_retry_whose_id_is_retired_to_another_provider_routes_the_job_itself": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_12_a_transient_retry_whose_id_is_retired_to_another_provider_routes_the_job_itself"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_a_transient_retry_whose_lane_was_disabled_since_routes_the_job_itself": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_12_a_transient_retry_whose_lane_was_disabled_since_routes_the_job_itself"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_an_authorization_bound_to_a_label_is_refused": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_12_an_authorization_bound_to_a_label_is_refused"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_an_authorization_the_probe_check_rejects_is_refused_and_the_pass_goes_on[1]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_12_an_authorization_the_probe_check_rejects_is_refused_and_the_pass_goes_on[1]"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_an_authorization_the_probe_check_rejects_is_refused_and_the_pass_goes_on[2]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_12_an_authorization_the_probe_check_rejects_is_refused_and_the_pass_goes_on[2]"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_an_empty_task_or_tier_is_none": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_12_an_empty_task_or_tier_is_none"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_an_evaluation_error_holds_the_job_visibly_and_holds_nobody_else": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_12_an_evaluation_error_holds_the_job_visibly_and_holds_nobody_else"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_an_evaluation_made_again_off_the_lock_is_isolated_too": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_12_an_evaluation_made_again_off_the_lock_is_isolated_too"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_an_evaluation_that_succeeds_resets_the_route_count": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_12_an_evaluation_that_succeeds_resets_the_route_count"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_any_evaluation_error_of_one_job_is_that_jobs[error0]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_12_any_evaluation_error_of_one_job_is_that_jobs[error0]"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_any_evaluation_error_of_one_job_is_that_jobs[error1]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_12_any_evaluation_error_of_one_job_is_that_jobs[error1]"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_the_incident_a_job_pinned_by_an_ambiguous_email_does_not_stop_the_pass": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_12_the_incident_a_job_pinned_by_an_ambiguous_email_does_not_stop_the_pass"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_12_the_incident_through_the_worker_pool_logs_no_failure": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_12_the_incident_through_the_worker_pool_logs_no_failure"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_3_a_cap_that_fills_before_the_reservation_is_judged_on_every_lane": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_3_a_cap_that_fills_before_the_reservation_is_judged_on_every_lane"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_3_a_commit_that_changes_nothing_the_decision_rests_on_does_not_send_it_back": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_3_a_commit_that_changes_nothing_the_decision_rests_on_does_not_send_it_back"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_3_a_commit_that_moves_the_decision_is_decided_again_from_the_lanes_it_changed": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_3_a_commit_that_moves_the_decision_is_decided_again_from_the_lanes_it_changed"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_3_a_long_wait_for_the_store_lock_does_not_void_the_decision": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_3_a_long_wait_for_the_store_lock_does_not_void_the_decision"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_3_the_reservation_takes_the_early_evaluation_when_nothing_was_committed": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_3_the_reservation_takes_the_early_evaluation_when_nothing_was_committed"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_9_a_due_retry_is_looked_at_as_its_pair_before_it_is_evaluated": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_9_a_due_retry_is_looked_at_as_its_pair_before_it_is_evaluated"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_9_a_pinned_retry_competes_only_for_its_own_pair": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_9_a_pinned_retry_competes_only_for_its_own_pair"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_9_a_retry_that_lets_its_pin_go_keeps_its_place_behind_older_jobs[a-loaded-runner]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_9_a_retry_that_lets_its_pin_go_keeps_its_place_behind_older_jobs[a-loaded-runner]"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_9_a_retry_that_lets_its_pin_go_keeps_its_place_behind_older_jobs[prompt]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_9_a_retry_that_lets_its_pin_go_keeps_its_place_behind_older_jobs[prompt]"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go[after-a-loaded-runner]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go[after-a-loaded-runner]"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go[after-prompt]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go[after-prompt]"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go[before-the-retry-is-due-a-loaded-runner]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go[before-the-retry-is-due-a-loaded-runner]"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go[before-the-retry-is-due-prompt]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go[before-the-retry-is-due-prompt]"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go[when-it-is-due-a-loaded-runner]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go[when-it-is-due-a-loaded-runner]"
+      },
+      "tests/fake/test_admission_route_isolation.py::test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go[when-it-is-due-prompt]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_route_isolation.py::test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go[when-it-is-due-prompt]"
+      },
+      "tests/fake/test_admission_stateful.py::TestAdmissionPass::runTest": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/fake/test_admission_stateful.py::TestAdmissionPass::runTest"
+      },
+      "tests/fake/test_admission_stateful.py::TestAdmissionPassProviderCaps::runTest": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/fake/test_admission_stateful.py::TestAdmissionPassProviderCaps::runTest"
+      },
+      "tests/fake/test_admission_stateful.py::test_adm3_cancelled_job_does_not_remain_an_older_waiter": {
+        "outcome": "named test",
+        "witness": "tests/fake/test_admission_stateful.py::TestAdmissionPassProviderCaps::runTest",
+        "second_probe_id": "tests/fake/test_admission_stateful.py::TestAdmissionPassProviderCaps::runTest"
+      },
+      "tests/fake/test_admission_stateful.py::test_adm3_started_job_does_not_remain_an_older_waiter[1]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_stateful.py::test_adm3_started_job_does_not_remain_an_older_waiter[1]"
+      },
+      "tests/fake/test_admission_stateful.py::test_adm3_started_job_does_not_remain_an_older_waiter[2]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_stateful.py::test_adm3_started_job_does_not_remain_an_older_waiter[2]"
+      },
+      "tests/fake/test_admission_stateful.py::test_r4_simulated_finish_preserves_provider_outcome[limited-limited-claude-sonnet]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_stateful.py::test_r4_simulated_finish_preserves_provider_outcome[limited-limited-claude-sonnet]"
+      },
+      "tests/fake/test_admission_stateful.py::test_r4_simulated_finish_preserves_provider_outcome[model-capacity-transient-claude-sonnet]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_stateful.py::test_r4_simulated_finish_preserves_provider_outcome[model-capacity-transient-claude-sonnet]"
+      },
+      "tests/fake/test_admission_stateful.py::test_r4_simulated_finish_preserves_provider_outcome[ok-ok-claude-sonnet]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_stateful.py::test_r4_simulated_finish_preserves_provider_outcome[ok-ok-claude-sonnet]"
+      },
+      "tests/fake/test_admission_stateful.py::test_r4_simulated_finish_preserves_provider_outcome[transient-transient-claude-sonnet]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_admission_stateful.py::test_r4_simulated_finish_preserves_provider_outcome[transient-transient-claude-sonnet]"
+      },
+      "tests/fake/test_policy_sandbox.py::test_a_launch_starts_codex_at_the_top_and_claude_in_the_callers_place[claude]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_policy_sandbox.py::test_a_launch_starts_codex_at_the_top_and_claude_in_the_callers_place[claude]"
+      },
+      "tests/fake/test_probe_turn.py::test_a_check_that_walks_back_to_the_jobs_own_model_is_reserved": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_probe_turn.py::test_a_check_that_walks_back_to_the_jobs_own_model_is_reserved"
+      },
+      "tests/fake/test_probe_turn.py::test_no_test_here_bounds_how_long_the_host_takes[rotation-121s-after-the-reading]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_probe_turn.py::test_no_test_here_bounds_how_long_the_host_takes[rotation-121s-after-the-reading]"
+      },
+      "tests/fake/test_probe_turn.py::test_no_test_here_bounds_how_long_the_host_takes[walk-back-121s-after-the-reading]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_probe_turn.py::test_no_test_here_bounds_how_long_the_host_takes[walk-back-121s-after-the-reading]"
+      },
+      "tests/fake/test_probe_turn.py::test_rotation_never_promotes_at_the_reservation": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_probe_turn.py::test_rotation_never_promotes_at_the_reservation"
+      },
+      "tests/fake/test_probe_turn.py::test_rotation_never_takes_a_model_the_chain_promotes_to": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_probe_turn.py::test_rotation_never_takes_a_model_the_chain_promotes_to"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_claude_only_cap_is_symmetric": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_claude_only_cap_is_symmetric"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_codex_waiter_does_not_hold_a_claude_lane_only_pin": {
+        "outcome": "named test",
+        "witness": "tests/fake/test_admission_stateful.py::TestAdmissionPassProviderCaps::runTest",
+        "second_probe_id": "tests/fake/test_admission_stateful.py::TestAdmissionPassProviderCaps::runTest"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_existing_caps_preserve_fifo_for_the_selected_provider[max_active_attempts-3]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_existing_caps_preserve_fifo_for_the_selected_provider[max_active_attempts-3]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_existing_caps_preserve_fifo_for_the_selected_provider[max_active_attempts_per_parent-1]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_existing_caps_preserve_fifo_for_the_selected_provider[max_active_attempts_per_parent-1]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_existing_caps_preserve_fifo_for_the_selected_provider[max_in_flight_per_lane-2]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_existing_caps_preserve_fifo_for_the_selected_provider[max_in_flight_per_lane-2]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_mixed_chains_wait_only_for_selected_provider_with_existing_caps": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_mixed_chains_wait_only_for_selected_provider_with_existing_caps"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_mixed_provider_chain_keeps_fifo_only_on_the_provider_it_uses[False]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_mixed_provider_chain_keeps_fifo_only_on_the_provider_it_uses[False]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_mixed_provider_chain_keeps_fifo_only_on_the_provider_it_uses[True]": {
+        "outcome": "named test",
+        "witness": "tests/fake/test_provider_active_cap_fake.py::test_mixed_chains_wait_only_for_selected_provider_with_existing_caps",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_mixed_chains_wait_only_for_selected_provider_with_existing_caps"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_n_plus_one_jobs_hold_and_resume_in_fifo[1]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_n_plus_one_jobs_hold_and_resume_in_fifo[1]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_n_plus_one_jobs_hold_and_resume_in_fifo[2]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_n_plus_one_jobs_hold_and_resume_in_fifo[2]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_n_plus_one_jobs_hold_and_resume_in_fifo[3]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_n_plus_one_jobs_hold_and_resume_in_fifo[3]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_other_pool_changes_after_evaluation_are_seen_in_transaction[False-dispatch]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_other_pool_changes_after_evaluation_are_seen_in_transaction[False-dispatch]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_other_pool_changes_after_evaluation_are_seen_in_transaction[False-turn]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_other_pool_changes_after_evaluation_are_seen_in_transaction[False-turn]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_other_pool_changes_after_evaluation_are_seen_in_transaction[True-dispatch]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_other_pool_changes_after_evaluation_are_seen_in_transaction[True-dispatch]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_other_pool_changes_after_evaluation_are_seen_in_transaction[True-turn]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_other_pool_changes_after_evaluation_are_seen_in_transaction[True-turn]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_probe_reservations_do_not_consume_provider_slots": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_probe_reservations_do_not_consume_provider_slots"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_provider_fifo_respects_lane_only_pins_and_keeps_last_slot": {
+        "outcome": "named test",
+        "witness": "tests/fake/test_admission_stateful.py::TestAdmissionPassProviderCaps::runTest",
+        "second_probe_id": "tests/fake/test_admission_stateful.py::TestAdmissionPassProviderCaps::runTest"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_census_change_is_revalidated_before_reservation[False-detached]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_quarantine_census_change_is_revalidated_before_reservation[False-detached]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_census_change_is_revalidated_before_reservation[False-turn]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_quarantine_census_change_is_revalidated_before_reservation[False-turn]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_census_change_is_revalidated_before_reservation[True-detached]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_quarantine_census_change_is_revalidated_before_reservation[True-detached]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_census_change_is_revalidated_before_reservation[True-turn]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_quarantine_census_change_is_revalidated_before_reservation[True-turn]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-detached-False-empty]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-detached-False-empty]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-detached-False-live]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-detached-False-live]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-detached-False-unknown]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-detached-False-unknown]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-detached-True-empty]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-detached-True-empty]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-detached-True-live]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-detached-True-live]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-detached-True-unknown]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-detached-True-unknown]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-turn-False-empty]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-turn-False-empty]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-turn-False-live]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-turn-False-live]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-turn-False-unknown]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-turn-False-unknown]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-turn-True-empty]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-turn-True-empty]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-turn-True-live]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-turn-True-live]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-turn-True-unknown]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[detached-turn-True-unknown]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-detached-False-empty]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-detached-False-empty]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-detached-False-live]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-detached-False-live]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-detached-False-unknown]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-detached-False-unknown]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-detached-True-empty]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-detached-True-empty]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-detached-True-live]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-detached-True-live]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-detached-True-unknown]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-detached-True-unknown]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-turn-False-empty]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-turn-False-empty]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-turn-False-live]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-turn-False-live]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-turn-False-unknown]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-turn-False-unknown]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-turn-True-empty]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-turn-True-empty]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-turn-True-live]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-turn-True-live]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-turn-True-unknown]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_quarantine_retains_provider_slot_until_contained_or_released[turn-turn-True-unknown]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_random_arrivals_and_completions_never_overbook_at_reservation": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_random_arrivals_and_completions_never_overbook_at_reservation"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_same_provider_fifo_crosses_models_and_lanes_while_count_is_below_cap": {
+        "outcome": "named test",
+        "witness": "tests/fake/test_admission_stateful.py::TestAdmissionPassProviderCaps::runTest",
+        "second_probe_id": "tests/fake/test_admission_stateful.py::TestAdmissionPassProviderCaps::runTest"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_turn_priority_when_a_provider_slot_frees": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_turn_priority_when_a_provider_slot_frees"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[finalizing-dispatch]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[finalizing-dispatch]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[finalizing-turn]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[finalizing-turn]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[reserved-dispatch]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[reserved-dispatch]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[reserved-turn]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[reserved-turn]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[running-dispatch]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[running-dispatch]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[running-turn]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[running-turn]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[starting-dispatch]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[starting-dispatch]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[starting-turn]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_turns_count_and_are_held_by_detached_attempts[starting-turn]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_verified_empty_quarantine_census_wakes_provider_waiter[live-detached]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_verified_empty_quarantine_census_wakes_provider_waiter[live-detached]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_verified_empty_quarantine_census_wakes_provider_waiter[live-turn]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_verified_empty_quarantine_census_wakes_provider_waiter[live-turn]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_verified_empty_quarantine_census_wakes_provider_waiter[unknown-detached]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_verified_empty_quarantine_census_wakes_provider_waiter[unknown-detached]"
+      },
+      "tests/fake/test_provider_active_cap_fake.py::test_verified_empty_quarantine_census_wakes_provider_waiter[unknown-turn]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_provider_active_cap_fake.py::test_verified_empty_quarantine_census_wakes_provider_waiter[unknown-turn]"
+      },
+      "tests/fake/test_review_needs_shell.py::test_hard_review_waits_for_codex_then_runs_with_shell": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_review_needs_shell.py::test_hard_review_waits_for_codex_then_runs_with_shell"
+      },
+      "tests/fake/test_review_needs_shell.py::test_needs_shell_only_places_on_capable_launch_or_waits": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/fake/test_review_needs_shell.py::test_needs_shell_only_places_on_capable_launch_or_waits"
+      },
+      "tests/fake/test_review_needs_shell.py::test_new_policy_models_route_to_codex[luna]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_review_needs_shell.py::test_new_policy_models_route_to_codex[luna]"
+      },
+      "tests/fake/test_review_needs_shell.py::test_new_policy_models_route_to_codex[sol61]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_review_needs_shell.py::test_new_policy_models_route_to_codex[sol61]"
+      },
+      "tests/fake/test_review_needs_shell.py::test_opus_attempt_and_final_notice_line_report_shell[read-only-False-False]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_review_needs_shell.py::test_opus_attempt_and_final_notice_line_report_shell[read-only-False-False]"
+      },
+      "tests/fake/test_review_needs_shell.py::test_opus_attempt_and_final_notice_line_report_shell[workspace-write-None-True]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_review_needs_shell.py::test_opus_attempt_and_final_notice_line_report_shell[workspace-write-None-True]"
+      },
+      "tests/fake/test_review_needs_shell.py::test_requirement_can_skip_opus_for_later_codex_model": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_review_needs_shell.py::test_requirement_can_skip_opus_for_later_codex_model"
+      },
+      "tests/fake/test_review_needs_shell.py::test_resolved_shell_requirement_survives_policy_change": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_review_needs_shell.py::test_resolved_shell_requirement_survives_policy_change"
+      },
+      "tests/fake/test_review_needs_shell.py::test_resume_keeps_explicit_shell_opt_out": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_review_needs_shell.py::test_resume_keeps_explicit_shell_opt_out"
+      },
+      "tests/fake/test_route_view.py::test_a_route_reads_less_and_decides_the_same": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/fake/test_route_view.py::test_a_route_reads_less_and_decides_the_same"
+      },
+      "tests/fake/test_route_view.py::test_pick_reads_the_route_rows_and_status_live_rows": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_route_view.py::test_pick_reads_the_route_rows_and_status_live_rows"
+      },
+      "tests/fake/test_route_view.py::test_the_reservation_recheck_reads_the_same_from_the_route_rows": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/fake/test_route_view.py::test_the_reservation_recheck_reads_the_same_from_the_route_rows"
+      },
+      "tests/fake/test_routing_tier_preferences.py::test_admission_probe_uses_same_tier_fallback_model": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_routing_tier_preferences.py::test_admission_probe_uses_same_tier_fallback_model"
+      },
+      "tests/fake/test_routing_tier_preferences.py::test_admission_why_and_status_use_same_tier_fallback[easy-haiku-sonnet-claude-1]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_routing_tier_preferences.py::test_admission_why_and_status_use_same_tier_fallback[easy-haiku-sonnet-claude-1]"
+      },
+      "tests/fake/test_routing_tier_preferences.py::test_admission_why_and_status_use_same_tier_fallback[hard-sol61-opus-claude-1]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_routing_tier_preferences.py::test_admission_why_and_status_use_same_tier_fallback[hard-sol61-opus-claude-1]"
+      },
+      "tests/fake/test_routing_tier_preferences.py::test_admission_why_and_status_use_same_tier_fallback[standard-sol61-opus-claude-1]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_routing_tier_preferences.py::test_admission_why_and_status_use_same_tier_fallback[standard-sol61-opus-claude-1]"
+      },
+      "tests/fake/test_routing_tier_preferences.py::test_pins_and_probe_reach_use_first_preferred_provider": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_routing_tier_preferences.py::test_pins_and_probe_reach_use_first_preferred_provider"
+      },
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_closure_within_the_horizon_is_a_wait_not_a_hold": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_closure_within_the_horizon_is_a_wait_not_a_hold"
+      },
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_job_every_lane_refuses_for_good_holds_nobody_back_either": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_job_every_lane_refuses_for_good_holds_nobody_back_either"
+      },
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_job_with_an_attempt_still_quarantined_is_held_not_failed": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_job_with_an_attempt_still_quarantined_is_held_not_failed"
+      },
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_lane_that_recovers_takes_its_job_at_once_and_ends_the_episode": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_lane_that_recovers_takes_its_job_at_once_and_ends_the_episode"
+      },
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_notice_the_caller_was_shown_stays_when_the_job_fails": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_notice_the_caller_was_shown_stays_when_the_job_fails"
+      },
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_restart_keeps_the_clock_and_sends_no_second_notice": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_restart_keeps_the_clock_and_sends_no_second_notice"
+      },
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_state_that_lasts_one_pass_tells_nobody_anything": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_state_that_lasts_one_pass_tells_nobody_anything"
+      },
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_turn_is_held_and_nothing_more": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_a_turn_is_held_and_nothing_more"
+      },
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[credential-latched]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[credential-latched]"
+      },
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[desktop]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[desktop]"
+      },
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[disabled]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[disabled]"
+      },
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[excluded]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[excluded]"
+      },
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[held]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[held]"
+      },
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[identity-mismatch]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[identity-mismatch]"
+      },
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[owner-v1]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[owner-v1]"
+      },
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[unknown]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3[unknown]"
+      },
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_one_notice_per_job_however_often_its_lane_flips": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_one_notice_per_job_however_often_its_lane_flips"
+      },
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_with_a_null_grace_it_waits_and_is_told_so": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_with_a_null_grace_it_waits_and_is_told_so"
+      },
+      "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_with_no_grace_it_fails_on_the_pass_that_finds_it_with_one_notice": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/fake/test_unadmittable_pin_admission.py::test_c11_8_with_no_grace_it_fails_on_the_pass_that_finds_it_with_one_notice"
+      },
+      "tests/fake/test_unadmittable_pin_admission.py::test_c6_9_c11_8_in_the_daemon_no_job_waits_behind_a_job_no_lane_can_admit": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/fake/test_unadmittable_pin_admission.py::test_c6_9_c11_8_in_the_daemon_no_job_waits_behind_a_job_no_lane_can_admit"
+      },
+      "tests/fake/test_unadmittable_pin_admission.py::test_c6_9_c11_8_the_incident_a_desktop_pin_holds_back_none_of_the_opus_jobs_after_it": {
+        "outcome": "named test",
+        "witness": "tests/fake/test_unadmittable_pin_admission.py::test_c6_9_c11_8_in_the_daemon_no_job_waits_behind_a_job_no_lane_can_admit",
+        "second_probe_id": "tests/fake/test_unadmittable_pin_admission.py::test_c6_9_c11_8_in_the_daemon_no_job_waits_behind_a_job_no_lane_can_admit"
+      },
+      "tests/unit/test_admission_uncapped.py::test_a_band_as_wide_as_the_per_lane_cap_chooses_as_the_cap_did": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_admission_uncapped.py::test_a_band_as_wide_as_the_per_lane_cap_chooses_as_the_cap_did"
+      },
+      "tests/unit/test_admission_uncapped.py::test_a_pass_is_deterministic_whatever_order_rows_arrive_in": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_admission_uncapped.py::test_a_pass_is_deterministic_whatever_order_rows_arrive_in"
+      },
+      "tests/unit/test_admission_uncapped.py::test_bands_fill_lanes_evenly_with_no_cap": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_admission_uncapped.py::test_bands_fill_lanes_evenly_with_no_cap"
+      },
+      "tests/unit/test_admission_uncapped.py::test_jobs_are_considered_by_class_then_tier_then_age": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_admission_uncapped.py::test_jobs_are_considered_by_class_then_tier_then_age"
+      },
+      "tests/unit/test_admission_uncapped.py::test_raising_a_cap_never_removes_a_candidate": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_admission_uncapped.py::test_raising_a_cap_never_removes_a_candidate"
+      },
+      "tests/unit/test_admission_uncapped.py::test_raising_or_removing_a_cap_never_places_fewer_jobs": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_admission_uncapped.py::test_raising_or_removing_a_cap_never_places_fewer_jobs"
+      },
+      "tests/unit/test_admission_uncapped.py::test_the_2026_09_27_jam_places_everything_uncapped": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_admission_uncapped.py::test_the_2026_09_27_jam_places_everything_uncapped"
+      },
+      "tests/unit/test_admission_uncapped.py::test_the_desktop_lane_is_out_while_in_use_and_last_otherwise": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_admission_uncapped.py::test_the_desktop_lane_is_out_while_in_use_and_last_otherwise"
+      },
+      "tests/unit/test_admission_uncapped.py::test_the_desktop_lane_takes_only_what_no_other_lane_can": {
+        "outcome": "named test",
+        "witness": "tests/unit/test_admission_uncapped.py::test_the_desktop_lane_is_out_while_in_use_and_last_otherwise",
+        "second_probe_id": "tests/unit/test_admission_uncapped.py::test_the_desktop_lane_is_out_while_in_use_and_last_otherwise"
+      },
+      "tests/unit/test_admission_uncapped.py::test_the_guard_holds_detached_jobs_at_the_door_and_never_a_turn": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_admission_uncapped.py::test_the_guard_holds_detached_jobs_at_the_door_and_never_a_turn"
+      },
+      "tests/unit/test_admission_uncapped.py::test_uncapped_evaluate_never_says_no_slot_for_want_of_a_count": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_admission_uncapped.py::test_uncapped_evaluate_never_says_no_slot_for_want_of_a_count"
+      },
+      "tests/unit/test_admission_uncapped.py::test_uncapped_every_admissible_job_is_placed_and_none_waits_for_a_count": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_admission_uncapped.py::test_uncapped_every_admissible_job_is_placed_and_none_waits_for_a_count"
+      },
+      "tests/unit/test_admission_uncapped.py::test_with_only_a_parent_cap_a_job_waits_only_behind_its_family": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_admission_uncapped.py::test_with_only_a_parent_cap_a_job_waits_only_behind_its_family"
+      },
+      "tests/unit/test_capacity_desktop.py::test_a_mismatched_lane_is_not_a_candidate": {
+        "outcome": "named test",
+        "witness": "tests/unit/test_scheduler_fill.py::test_fill_and_reset_have_identical_candidates_and_refusals[claude-opus]",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_and_reset_have_identical_candidates_and_refusals[claude-opus]"
+      },
+      "tests/unit/test_capacity_steer_route.py::test_c11_2_a_steer_inside_the_upward_walk_changes_routing": {
+        "outcome": "named test",
+        "witness": "tests/unit/test_capacity_steer_route.py::test_c11_2_the_steered_decision_is_the_first_model_of_its_walk_with_a_candidate",
+        "second_probe_id": "tests/unit/test_capacity_steer_route.py::test_c11_2_the_steered_decision_is_the_first_model_of_its_walk_with_a_candidate"
+      },
+      "tests/unit/test_capacity_steer_route.py::test_c11_2_a_steer_on_a_model_outside_the_walk_changes_nothing[standard-expected1]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_capacity_steer_route.py::test_c11_2_a_steer_on_a_model_outside_the_walk_changes_nothing[standard-expected1]"
+      },
+      "tests/unit/test_capacity_steer_route.py::test_c11_2_a_steered_hard_review_goes_to_the_chains_next_model": {
+        "outcome": "named test",
+        "witness": "tests/unit/test_capacity_steer_route.py::test_c11_2_the_steered_decision_is_the_first_model_of_its_walk_with_a_candidate",
+        "second_probe_id": "tests/unit/test_capacity_steer_route.py::test_c11_2_the_steered_decision_is_the_first_model_of_its_walk_with_a_candidate"
+      },
+      "tests/unit/test_capacity_steer_route.py::test_c11_2_the_steered_decision_is_the_first_model_of_its_walk_with_a_candidate": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_capacity_steer_route.py::test_c11_2_the_steered_decision_is_the_first_model_of_its_walk_with_a_candidate"
+      },
+      "tests/unit/test_capacity_steer_route.py::test_c11_2_with_no_lane_for_the_next_model_the_job_waits": {
+        "outcome": "named test",
+        "witness": "tests/unit/test_capacity_steer_route.py::test_c9_5_any_chain_and_admissible_lanes_choose_first_unsteered_or_wait",
+        "second_probe_id": "tests/unit/test_capacity_steer_route.py::test_c9_5_any_chain_and_admissible_lanes_choose_first_unsteered_or_wait"
+      },
+      "tests/unit/test_capacity_steer_route.py::test_c6_3_the_reservation_check_of_a_steered_decision_is_a_fresh_evaluation": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_capacity_steer_route.py::test_c6_3_the_reservation_check_of_a_steered_decision_is_a_fresh_evaluation"
+      },
+      "tests/unit/test_capacity_steer_route.py::test_c9_5_any_chain_and_admissible_lanes_choose_first_unsteered_or_wait": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_capacity_steer_route.py::test_c9_5_any_chain_and_admissible_lanes_choose_first_unsteered_or_wait"
+      },
+      "tests/unit/test_claude_usage.py::test_c11_7_complete_shared_only_snapshot_releases_removed_reserved_window": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_claude_usage.py::test_c11_7_complete_shared_only_snapshot_releases_removed_reserved_window"
+      },
+      "tests/unit/test_cli.py::test_why_renders_exclusion_from_real_policy_decision": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_cli.py::test_why_renders_exclusion_from_real_policy_decision"
+      },
+      "tests/unit/test_decision_horizon.py::test_a_closure_that_ends_is_a_horizon_even_when_it_closes_a_lane": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_decision_horizon.py::test_a_closure_that_ends_is_a_horizon_even_when_it_closes_a_lane"
+      },
+      "tests/unit/test_decision_horizon.py::test_every_rank_key_is_constant_before_its_lanes_horizon": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_decision_horizon.py::test_every_rank_key_is_constant_before_its_lanes_horizon[fill]"
+      },
+      "tests/unit/test_decision_horizon.py::test_the_clock_alone_changes_no_decision_before_its_horizon": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_decision_horizon.py::test_the_clock_alone_changes_no_decision_before_its_horizon[fill]"
+      },
+      "tests/unit/test_decision_horizon.py::test_the_clock_alone_changes_no_lane_before_its_own_horizon": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_decision_horizon.py::test_the_clock_alone_changes_no_lane_before_its_own_horizon[fill]"
+      },
+      "tests/unit/test_fill_evidence.py::test_auxiliary_provider_window_restored_when_reset_override_ends": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_fill_evidence.py::test_auxiliary_provider_window_restored_when_reset_override_ends"
+      },
+      "tests/unit/test_fill_evidence.py::test_cached_fill_verdict_matches_full_evaluation_before_expiring_and_reset_clocks[1-0]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_fill_evidence.py::test_cached_fill_verdict_matches_full_evaluation_before_expiring_and_reset_clocks[1-0]"
+      },
+      "tests/unit/test_fill_evidence.py::test_cached_fill_verdict_matches_full_evaluation_before_expiring_and_reset_clocks[14400-1]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_fill_evidence.py::test_cached_fill_verdict_matches_full_evaluation_before_expiring_and_reset_clocks[14400-1]"
+      },
+      "tests/unit/test_fill_evidence.py::test_cached_fill_verdict_matches_full_evaluation_before_expiring_and_reset_clocks[36000-1]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_fill_evidence.py::test_cached_fill_verdict_matches_full_evaluation_before_expiring_and_reset_clocks[36000-1]"
+      },
+      "tests/unit/test_fill_evidence.py::test_equal_observation_ties_are_conservative_and_independent_of_reading_id": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_fill_evidence.py::test_equal_observation_ties_are_conservative_and_independent_of_reading_id"
+      },
+      "tests/unit/test_fill_evidence.py::test_latest_numeric_observation_with_no_open_window_does_not_revive_an_older_one": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_fill_evidence.py::test_latest_numeric_observation_with_no_open_window_does_not_revive_an_older_one"
+      },
+      "tests/unit/test_fill_evidence.py::test_store_view_preserves_latest_observed_numeric_provider_reading_behind_a_mask[mask0]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_fill_evidence.py::test_store_view_preserves_latest_observed_numeric_provider_reading_behind_a_mask[mask0]"
+      },
+      "tests/unit/test_fill_evidence.py::test_store_view_preserves_latest_observed_numeric_provider_reading_behind_a_mask[mask1]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_fill_evidence.py::test_store_view_preserves_latest_observed_numeric_provider_reading_behind_a_mask[mask1]"
+      },
+      "tests/unit/test_fill_evidence.py::test_store_view_preserves_latest_observed_numeric_provider_reading_behind_a_mask[mask2]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_fill_evidence.py::test_store_view_preserves_latest_observed_numeric_provider_reading_behind_a_mask[mask2]"
+      },
+      "tests/unit/test_fill_evidence.py::test_store_view_preserves_latest_observed_numeric_provider_reading_behind_a_mask[mask3]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_fill_evidence.py::test_store_view_preserves_latest_observed_numeric_provider_reading_behind_a_mask[mask3]"
+      },
+      "tests/unit/test_fill_routing.py::test_fill_cached_route_matches_evaluate_at_old_window_boundaries[expiring]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_fill_routing.py::test_fill_cached_route_matches_evaluate_at_old_window_boundaries[expiring]"
+      },
+      "tests/unit/test_fill_routing.py::test_fill_cached_route_matches_evaluate_at_old_window_boundaries[reset]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_fill_routing.py::test_fill_cached_route_matches_evaluate_at_old_window_boundaries[reset]"
+      },
+      "tests/unit/test_fill_routing.py::test_fill_expiring_horizon_accepts_arbitrarily_large_whole_seconds": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_fill_routing.py::test_fill_expiring_horizon_accepts_arbitrarily_large_whole_seconds"
+      },
+      "tests/unit/test_fill_routing.py::test_fill_pick_and_why_show_the_same_fields_and_keep_freshness": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_fill_routing.py::test_fill_pick_and_why_show_the_same_fields_and_keep_freshness"
+      },
+      "tests/unit/test_fill_routing.py::test_fill_unknown_model_pick_binds_all_applicable_scopes": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_fill_routing.py::test_fill_unknown_model_pick_binds_all_applicable_scopes"
+      },
+      "tests/unit/test_fill_routing.py::test_per_provider_spread_maps_apply_to_each_ranking_order": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_fill_routing.py::test_per_provider_spread_maps_apply_to_each_ranking_order"
+      },
+      "tests/unit/test_lease_waiter_selection.py::test_a_job_that_passes_a_lease_waiter_keeps_the_last_slot_for_it": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_lease_waiter_selection.py::test_a_job_that_passes_a_lease_waiter_keeps_the_last_slot_for_it"
+      },
+      "tests/unit/test_lease_waiter_selection.py::test_a_lease_waiter_is_held_for_no_count_once_its_lease_is_let_go": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_lease_waiter_selection.py::test_a_lease_waiter_is_held_for_no_count_once_its_lease_is_let_go"
+      },
+      "tests/unit/test_lease_waiter_selection.py::test_no_job_is_held_behind_a_job_waiting_for_a_lease": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_lease_waiter_selection.py::test_no_job_is_held_behind_a_job_waiting_for_a_lease"
+      },
+      "tests/unit/test_lease_waiter_selection.py::test_with_no_lease_wait_the_pass_is_the_rule_before": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_lease_waiter_selection.py::test_with_no_lease_wait_the_pass_is_the_rule_before"
+      },
+      "tests/unit/test_picker.py::test_case_insensitive_claude_email_aliases_are_ambiguous": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_picker.py::test_case_insensitive_claude_email_aliases_are_ambiguous"
+      },
+      "tests/unit/test_picker.py::test_claude_email_exact_model_reserve_and_exclusion": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_picker.py::test_claude_email_exact_model_reserve_and_exclusion"
+      },
+      "tests/unit/test_picker.py::test_matched_stream_windows_can_measure_real_opus_reserve_slack": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_picker.py::test_matched_stream_windows_can_measure_real_opus_reserve_slack"
+      },
+      "tests/unit/test_picker.py::test_reserve_slack_requiring_probe_is_not_a_raw_pick": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_picker.py::test_reserve_slack_requiring_probe_is_not_a_raw_pick"
+      },
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context0-read-only-None]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context0-read-only-None]"
+      },
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context0-read-only-policy]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context0-read-only-policy]"
+      },
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context1-workspace-write-None]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context1-workspace-write-None]"
+      },
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context1-workspace-write-policy]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context1-workspace-write-policy]"
+      },
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context2-read-only-None]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context2-read-only-None]"
+      },
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context2-read-only-policy]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context2-read-only-policy]"
+      },
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context3-read-only-None]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context3-read-only-None]"
+      },
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context3-read-only-policy]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context3-read-only-policy]"
+      },
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context4-read-only-None]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context4-read-only-None]"
+      },
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context4-read-only-policy]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context4-read-only-policy]"
+      },
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context5-read-only-None]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context5-read-only-None]"
+      },
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context5-read-only-policy]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context5-read-only-policy]"
+      },
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context6-workspace-write-None]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context6-workspace-write-None]"
+      },
+      "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context6-workspace-write-policy]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_policy_sandbox_resolution.py::test_lane_rejection_resolves_policy_permissions[context6-workspace-write-policy]"
+      },
+      "tests/unit/test_route_check.py::test_c6_3_lanes_a_decision_never_looks_at_cannot_change_it": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_route_check.py::test_c6_3_lanes_a_decision_never_looks_at_cannot_change_it"
+      },
+      "tests/unit/test_route_check.py::test_c6_3_readings_ageing_out_on_another_providers_lanes_are_never_looked_at": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_route_check.py::test_c6_3_readings_ageing_out_on_another_providers_lanes_are_never_looked_at"
+      },
+      "tests/unit/test_route_check.py::test_c6_3_still_stands_exactly_when_commits_land_on_the_lanes_it_walked": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_route_check.py::test_c6_3_still_stands_exactly_when_commits_land_on_the_lanes_it_walked"
+      },
+      "tests/unit/test_route_check.py::test_c6_3_still_stands_exactly_when_evaluate_now_chooses_the_same": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_route_check.py::test_c6_3_still_stands_exactly_when_evaluate_now_chooses_the_same"
+      },
+      "tests/unit/test_route_check.py::test_c6_3_with_nothing_committed_the_early_decision_stands": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_route_check.py::test_c6_3_with_nothing_committed_the_early_decision_stands"
+      },
+      "tests/unit/test_scheduler_fill.py::test_fill_and_reset_have_identical_candidates_and_refusals[claude-opus]": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_and_reset_have_identical_candidates_and_refusals[claude-opus]"
+      },
+      "tests/unit/test_scheduler_fill.py::test_fill_and_reset_have_identical_candidates_and_refusals[codex-astra]": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_and_reset_have_identical_candidates_and_refusals[codex-astra]"
+      },
+      "tests/unit/test_scheduler_fill.py::test_fill_complete_chain_has_identical_candidates_and_rejection_predicates": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_complete_chain_has_identical_candidates_and_rejection_predicates"
+      },
+      "tests/unit/test_scheduler_fill.py::test_fill_desktop_last_and_turn_affinity_leads_its_class[claude-opus]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_desktop_last_and_turn_affinity_leads_its_class[claude-opus]"
+      },
+      "tests/unit/test_scheduler_fill.py::test_fill_desktop_last_and_turn_affinity_leads_its_class[codex-astra]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_desktop_last_and_turn_affinity_leads_its_class[codex-astra]"
+      },
+      "tests/unit/test_scheduler_fill.py::test_fill_expiring_precedes_nonexpiring_and_earlier_expiring_reset_wins": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_expiring_precedes_nonexpiring_and_earlier_expiring_reset_wins"
+      },
+      "tests/unit/test_scheduler_fill.py::test_fill_expiring_reset_order_keeps_fractional_seconds": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_expiring_reset_order_keeps_fractional_seconds"
+      },
+      "tests/unit/test_scheduler_fill.py::test_fill_keeps_old_open_provider_reading_and_ignores_expired_one[121]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_keeps_old_open_provider_reading_and_ignores_expired_one[121]"
+      },
+      "tests/unit/test_scheduler_fill.py::test_fill_keeps_old_open_provider_reading_and_ignores_expired_one[500000]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_keeps_old_open_provider_reading_and_ignores_expired_one[500000]"
+      },
+      "tests/unit/test_scheduler_fill.py::test_fill_keeps_old_open_provider_reading_and_ignores_expired_one[86400]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_keeps_old_open_provider_reading_and_ignores_expired_one[86400]"
+      },
+      "tests/unit/test_scheduler_fill.py::test_fill_keeps_the_same_probe_predicate_for_each_pinned_lane[claude-opus]": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_keeps_the_same_probe_predicate_for_each_pinned_lane[claude-opus]"
+      },
+      "tests/unit/test_scheduler_fill.py::test_fill_keeps_the_same_probe_predicate_for_each_pinned_lane[codex-astra]": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_keeps_the_same_probe_predicate_for_each_pinned_lane[codex-astra]"
+      },
+      "tests/unit/test_scheduler_fill.py::test_fill_keys_are_unique_total_and_order_independent[claude-opus]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_keys_are_unique_total_and_order_independent[claude-opus]"
+      },
+      "tests/unit/test_scheduler_fill.py::test_fill_keys_are_unique_total_and_order_independent[codex-astra]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_keys_are_unique_total_and_order_independent[codex-astra]"
+      },
+      "tests/unit/test_scheduler_fill.py::test_fill_more_weekly_use_never_ranks_after_less_in_equal_earlier_tiers": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_more_weekly_use_never_ranks_after_less_in_equal_earlier_tiers"
+      },
+      "tests/unit/test_scheduler_fill.py::test_fill_null_expiring_disables_the_tier": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_null_expiring_disables_the_tier"
+      },
+      "tests/unit/test_scheduler_fill.py::test_fill_only_latest_applicable_open_windows_contribute_at_any_age": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_only_latest_applicable_open_windows_contribute_at_any_age"
+      },
+      "tests/unit/test_scheduler_fill.py::test_fill_packs_a_prefix_of_starting_use_when_expiry_and_bands_are_off": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_packs_a_prefix_of_starting_use_when_expiry_and_bands_are_off"
+      },
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[five_hour-0.02-0.1-claude-opus]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[five_hour-0.02-0.1-claude-opus]"
+      },
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[five_hour-0.02-0.1-codex-astra]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[five_hour-0.02-0.1-codex-astra]"
+      },
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[five_hour-0.03-0.4-claude-opus]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[five_hour-0.03-0.4-claude-opus]"
+      },
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[five_hour-0.03-0.4-codex-astra]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[five_hour-0.03-0.4-codex-astra]"
+      },
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[five_hour-0.25-0.125-claude-opus]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[five_hour-0.25-0.125-claude-opus]"
+      },
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[five_hour-0.25-0.125-codex-astra]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[five_hour-0.25-0.125-codex-astra]"
+      },
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[seven_day-0.02-0.1-claude-opus]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[seven_day-0.02-0.1-claude-opus]"
+      },
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[seven_day-0.02-0.1-codex-astra]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[seven_day-0.02-0.1-codex-astra]"
+      },
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[seven_day-0.03-0.4-claude-opus]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[seven_day-0.03-0.4-claude-opus]"
+      },
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[seven_day-0.03-0.4-codex-astra]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[seven_day-0.03-0.4-codex-astra]"
+      },
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[seven_day-0.25-0.125-claude-opus]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[seven_day-0.25-0.125-claude-opus]"
+      },
+      "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[seven_day-0.25-0.125-codex-astra]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_reserve_complements_are_clear_at_equality_and_low_one_float_above[seven_day-0.25-0.125-codex-astra]"
+      },
+      "tests/unit/test_scheduler_fill.py::test_fill_retains_band_then_claude_stranding_before_usage": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_retains_band_then_claude_stranding_before_usage"
+      },
+      "tests/unit/test_scheduler_tier_preferences.py::test_closed_first_model_uses_next_in_same_tier_before_higher_tier": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_scheduler_tier_preferences.py::test_closed_first_model_uses_next_in_same_tier_before_higher_tier"
+      },
+      "tests/unit/test_scheduler_tier_preferences.py::test_preference_examples_and_pins": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scheduler_tier_preferences.py::test_preference_examples_and_pins"
+      },
+      "tests/unit/test_scheduler_tier_preferences.py::test_reservation_recheck_matches_fresh_routing_for_mixed_chains": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_scheduler_tier_preferences.py::test_reservation_recheck_matches_fresh_routing_for_mixed_chains"
+      },
+      "tests/unit/test_scheduler_tier_preferences.py::test_standing_refusals_check_every_preferred_model": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scheduler_tier_preferences.py::test_standing_refusals_check_every_preferred_model"
+      },
+      "tests/unit/test_scoped_stream_capacity.py::test_guessed_operator_expired_or_released_closures_do_not_release_reserve[change0]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scoped_stream_capacity.py::test_guessed_operator_expired_or_released_closures_do_not_release_reserve[change0]"
+      },
+      "tests/unit/test_scoped_stream_capacity.py::test_guessed_operator_expired_or_released_closures_do_not_release_reserve[change1]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scoped_stream_capacity.py::test_guessed_operator_expired_or_released_closures_do_not_release_reserve[change1]"
+      },
+      "tests/unit/test_scoped_stream_capacity.py::test_guessed_operator_expired_or_released_closures_do_not_release_reserve[change2]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scoped_stream_capacity.py::test_guessed_operator_expired_or_released_closures_do_not_release_reserve[change2]"
+      },
+      "tests/unit/test_scoped_stream_capacity.py::test_guessed_operator_expired_or_released_closures_do_not_release_reserve[change3]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scoped_stream_capacity.py::test_guessed_operator_expired_or_released_closures_do_not_release_reserve[change3]"
+      },
+      "tests/unit/test_scoped_stream_capacity.py::test_incomplete_or_unrelated_stream_windows_do_not_release_reserve[attempt]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scoped_stream_capacity.py::test_incomplete_or_unrelated_stream_windows_do_not_release_reserve[attempt]"
+      },
+      "tests/unit/test_scoped_stream_capacity.py::test_incomplete_or_unrelated_stream_windows_do_not_release_reserve[missing]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scoped_stream_capacity.py::test_incomplete_or_unrelated_stream_windows_do_not_release_reserve[missing]"
+      },
+      "tests/unit/test_scoped_stream_capacity.py::test_incomplete_or_unrelated_stream_windows_do_not_release_reserve[time]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scoped_stream_capacity.py::test_incomplete_or_unrelated_stream_windows_do_not_release_reserve[time]"
+      },
+      "tests/unit/test_scoped_stream_capacity.py::test_reported_fable_exhaustion_requires_opus_probe_even_for_read_only": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scoped_stream_capacity.py::test_reported_fable_exhaustion_requires_opus_probe_even_for_read_only"
+      },
+      "tests/unit/test_scoped_stream_capacity.py::test_same_stream_measures_spare_opus_without_spending_fable": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scoped_stream_capacity.py::test_same_stream_measures_spare_opus_without_spending_fable"
+      },
+      "tests/unit/test_scoped_stream_capacity.py::test_shared_exhaustion_still_blocks_opus_with_fable_closed": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_scoped_stream_capacity.py::test_shared_exhaustion_still_blocks_opus_with_fable_closed"
+      },
+      "tests/unit/test_unadmittable_now.py::test_c6_20_a_job_refused_for_good_is_refused_now": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_unadmittable_now.py::test_c6_20_a_job_refused_for_good_is_refused_now"
+      },
+      "tests/unit/test_unadmittable_now.py::test_c6_20_a_job_refused_now_is_placed_nowhere_now": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_unadmittable_now.py::test_c6_20_a_job_refused_now_is_placed_nowhere_now"
+      },
+      "tests/unit/test_unadmittable_now.py::test_c6_20_refused_now_is_exactly_the_oracle_and_the_memo_changes_nothing": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_unadmittable_now.py::test_c6_20_refused_now_is_exactly_the_oracle_and_the_memo_changes_nothing"
+      },
+      "tests/unit/test_unadmittable_pin.py::test_c11_8_a_pin_a_reenrolment_moved_follows_it": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_unadmittable_pin.py::test_c11_8_a_pin_a_reenrolment_moved_follows_it"
+      },
+      "tests/unit/test_unadmittable_pin.py::test_c11_8_a_pin_called_unadmittable_is_placed_nowhere_even_in_the_best_capacity": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_unadmittable_pin.py::test_c11_8_a_pin_called_unadmittable_is_placed_nowhere_even_in_the_best_capacity"
+      },
+      "tests/unit/test_unadmittable_pin.py::test_c11_8_a_pin_not_called_unadmittable_is_placed_on_its_lane_in_the_best_capacity": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_unadmittable_pin.py::test_c11_8_a_pin_not_called_unadmittable_is_placed_on_its_lane_in_the_best_capacity"
+      },
+      "tests/unit/test_unadmittable_pin.py::test_c11_8_a_shorter_horizon_never_frees_a_pin_a_longer_one_holds": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_unadmittable_pin.py::test_c11_8_a_shorter_horizon_never_frees_a_pin_a_longer_one_holds"
+      },
+      "tests/unit/test_unadmittable_pin.py::test_c11_8_each_standing_refusal_is_named": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_unadmittable_pin.py::test_c11_8_each_standing_refusal_is_named"
+      },
+      "tests/unit/test_unadmittable_pin.py::test_c11_8_refused_for_good_agrees_with_the_oracle_for_every_job": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_unadmittable_pin.py::test_c11_8_refused_for_good_agrees_with_the_oracle_for_every_job"
+      },
+      "tests/unit/test_unadmittable_pin.py::test_c11_8_the_notice_and_the_failure_say_what_and_what_to_do": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_unadmittable_pin.py::test_c11_8_the_notice_and_the_failure_say_what_and_what_to_do"
+      },
+      "tests/unit/test_unadmittable_pin.py::test_c11_8_unadmittable_is_exactly_the_oracle_for_every_job_and_the_memo_changes_nothing": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_unadmittable_pin.py::test_c11_8_unadmittable_is_exactly_the_oracle_for_every_job_and_the_memo_changes_nothing"
+      },
+      "tests/unit/test_unadmittable_pin.py::test_c11_8_what_a_wait_ends_is_not_standing": {
+        "outcome": "named test",
+        "witness": "tests/unit/test_unadmittable_pin.py::test_c11_8_unadmittable_is_exactly_the_oracle_for_every_job_and_the_memo_changes_nothing",
+        "second_probe_id": "tests/unit/test_unadmittable_pin.py::test_c11_8_unadmittable_is_exactly_the_oracle_for_every_job_and_the_memo_changes_nothing"
+      },
+      "tests/unit/test_unadmittable_pin.py::test_c6_9_c11_8_no_job_waits_behind_a_job_no_lane_can_admit": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_unadmittable_pin.py::test_c6_9_c11_8_no_job_waits_behind_a_job_no_lane_can_admit"
+      },
+      "tests/unit/test_unadmittable_pin.py::test_c6_9_c11_8_the_incident_38_jobs_are_not_held_behind_the_desktop_pin": {
+        "outcome": "named test",
+        "witness": "tests/unit/test_unadmittable_pin.py::test_c6_9_c11_8_no_job_waits_behind_a_job_no_lane_can_admit",
+        "second_probe_id": "tests/unit/test_unadmittable_pin.py::test_c6_9_c11_8_no_job_waits_behind_a_job_no_lane_can_admit"
+      },
+      "tests/unit/test_weekly_rank_vs_base.py::test_a_bucket_the_provider_stopped_reporting_does_not_unmeasure_a_freshly_read_lane": {
+        "outcome": "named test",
+        "witness": "tests/unit/test_weekly_rank_vs_base.py::test_no_lane_newly_needs_a_pre_launch_probe[claude-True]",
+        "second_probe_id": "tests/unit/test_weekly_rank_vs_base.py::test_no_lane_newly_needs_a_pre_launch_probe[claude-True]"
+      },
+      "tests/unit/test_weekly_rank_vs_base.py::test_equal_weekly_headroom_binds_the_earliest_reset[False-claude-opus]": {
+        "outcome": "named test",
+        "witness": "tests/unit/test_scheduler_fill.py::test_fill_only_latest_applicable_open_windows_contribute_at_any_age",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_only_latest_applicable_open_windows_contribute_at_any_age"
+      },
+      "tests/unit/test_weekly_rank_vs_base.py::test_equal_weekly_headroom_binds_the_earliest_reset[True-claude-opus]": {
+        "outcome": "named test",
+        "witness": "tests/unit/test_scheduler_fill.py::test_fill_only_latest_applicable_open_windows_contribute_at_any_age",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_only_latest_applicable_open_windows_contribute_at_any_age"
+      },
+      "tests/unit/test_weekly_rank_vs_base.py::test_every_lane_is_judged_as_the_base_judged_it[64b4175f-claude]": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_weekly_rank_vs_base.py::test_every_lane_is_judged_as_the_base_judged_it[64b4175f-claude]"
+      },
+      "tests/unit/test_weekly_rank_vs_base.py::test_no_lane_newly_needs_a_pre_launch_probe[claude-False]": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_weekly_rank_vs_base.py::test_no_lane_newly_needs_a_pre_launch_probe[claude-False]"
+      },
+      "tests/unit/test_weekly_rank_vs_base.py::test_no_lane_newly_needs_a_pre_launch_probe[claude-True]": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_weekly_rank_vs_base.py::test_no_lane_newly_needs_a_pre_launch_probe[claude-True]"
+      },
+      "tests/unit/test_weekly_rank_vs_base.py::test_pick_excludes_no_lane_the_base_recommended[claude-False]": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_weekly_rank_vs_base.py::test_pick_excludes_no_lane_the_base_recommended[claude-False]"
+      },
+      "tests/unit/test_weekly_rank_vs_base.py::test_pick_excludes_no_lane_the_base_recommended[claude-True]": {
+        "outcome": "both orders",
+        "second_probe_id": "tests/unit/test_weekly_rank_vs_base.py::test_pick_excludes_no_lane_the_base_recommended[claude-True]"
+      },
+      "tests/unit/test_weekly_rank_vs_base.py::test_pick_keeps_a_freshly_read_lane_beside_a_bucket_the_provider_stopped_reporting": {
+        "outcome": "named test",
+        "witness": "tests/unit/test_weekly_rank_vs_base.py::test_pick_excludes_no_lane_the_base_recommended[claude-True]",
+        "second_probe_id": "tests/unit/test_weekly_rank_vs_base.py::test_pick_excludes_no_lane_the_base_recommended[claude-True]"
+      },
+      "tests/unit/test_weekly_rank_vs_base.py::test_recent_renewal_uncertainty_ends_at_its_ttl_with_a_stable_horizon": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_weekly_rank_vs_base.py::test_recent_renewal_uncertainty_ends_at_its_ttl_with_a_stable_horizon"
+      },
+      "tests/unit/test_weekly_rank_vs_base.py::test_stopped_windows_do_not_demote_a_lane_forever[account-claude-fable]": {
+        "outcome": "named test",
+        "witness": "tests/unit/test_scheduler_fill.py::test_fill_only_latest_applicable_open_windows_contribute_at_any_age",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_only_latest_applicable_open_windows_contribute_at_any_age"
+      },
+      "tests/unit/test_weekly_rank_vs_base.py::test_stopped_windows_do_not_demote_a_lane_forever[model-claude-fable]": {
+        "outcome": "named test",
+        "witness": "tests/unit/test_scheduler_fill.py::test_fill_only_latest_applicable_open_windows_contribute_at_any_age",
+        "second_probe_id": "tests/unit/test_scheduler_fill.py::test_fill_only_latest_applicable_open_windows_contribute_at_any_age"
+      },
+      "tests/unit/test_weekly_rank_vs_base.py::test_why_distinguishes_a_recent_renewal_from_admission_freshness[0]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_weekly_rank_vs_base.py::test_why_distinguishes_a_recent_renewal_from_admission_freshness[0]"
+      },
+      "tests/unit/test_weekly_rank_vs_base.py::test_why_distinguishes_a_recent_renewal_from_admission_freshness[119]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_weekly_rank_vs_base.py::test_why_distinguishes_a_recent_renewal_from_admission_freshness[119]"
+      },
+      "tests/unit/test_weekly_rank_vs_base.py::test_why_distinguishes_a_recent_renewal_from_admission_freshness[30]": {
+        "outcome": "selects fill",
+        "second_probe_id": "tests/unit/test_weekly_rank_vs_base.py::test_why_distinguishes_a_recent_renewal_from_admission_freshness[30]"
+      }
+    }
+  }
+}

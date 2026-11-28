@@ -119,6 +119,7 @@ REASONS = ["desktop", "disabled", "owner-v1", "identity-mismatch", "credential-l
 @pytest.mark.parametrize("reason", REASONS)
 def test_c11_8_held_told_once_blocking_nobody_then_failed_rc_3(fleet, reason):
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     capped(service.policy)                                  # C-6.9 holds back only in a capped pool
     stuck = submit(service, harness)
     label = make_unadmittable(service, reason, stuck)
@@ -204,6 +205,7 @@ def test_c6_9_c11_8_the_incident_a_desktop_pin_holds_back_none_of_the_opus_jobs_
 
 def test_c11_8_a_lane_that_recovers_takes_its_job_at_once_and_ends_the_episode(fleet):
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     stuck = submit(service, harness)
     service.store.update_lane("claude-9", enabled=0)
     service._admit()
@@ -220,6 +222,7 @@ def test_c11_8_one_notice_per_job_however_often_its_lane_flips(fleet):
     sends another. (One withdrawn unread, because it stopped being true, does not count:
     tests/fake/test_unadmittable_pin_rereview.py.)"""
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     stuck = submit(service, harness)
     service.store.update_lane("claude-7", enabled=0)       # nowhere else to go, so it keeps waiting
     for flip in range(3):
@@ -248,6 +251,7 @@ def test_c11_8_a_state_that_lasts_one_pass_tells_nobody_anything(fleet):
     """A re-enrolment between its two commits, a registry read that failed once: the job is
     held for the pass, and nobody is told the lane never will."""
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     stuck = submit(service, harness)
     service.store.update_lane("claude-7", enabled=0)
     service.store.update_lane("claude-9", enabled=0)
@@ -263,6 +267,7 @@ def test_c11_8_a_notice_the_caller_was_shown_stays_when_the_job_fails(fleet):
     """C-15.3: a hook that printed the notice marks it `surfaced` (a service notice too,
     by its negated id); only one nobody was shown is withdrawn at the failure."""
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     stuck = submit(service, harness)
     service.store.update_lane("claude-9", enabled=0)
     service._admit()
@@ -280,6 +285,12 @@ def test_c11_8_a_notice_the_caller_was_shown_stays_when_the_job_fails(fleet):
 
 def test_c11_8_a_restart_keeps_the_clock_and_sends_no_second_notice(routing_state):  # noqa: F811
     service, harness = routing_state
+    lane_order = {"claude": "fill"}
+    path = service.root / "policy.json"
+    policy = json.loads(path.read_text())
+    policy["admission"]["lane_order"] = lane_order
+    path.write_text(json.dumps(policy))
+    service.policy["admission"]["lane_order"] = lane_order
     claude(service, "claude-9")
     stuck = submit(service, harness)
     service.store.update_lane("claude-9", enabled=0)
@@ -308,6 +319,7 @@ def test_c11_8_a_restart_keeps_the_clock_and_sends_no_second_notice(routing_stat
 
 def test_c11_8_with_no_grace_it_fails_on_the_pass_that_finds_it_with_one_notice(fleet):
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     service.policy["admission"]["pin_grace_s"] = 0
     stuck = submit(service, harness)
     service.store.update_lane("claude-9", enabled=0)
@@ -319,6 +331,7 @@ def test_c11_8_with_no_grace_it_fails_on_the_pass_that_finds_it_with_one_notice(
 
 def test_c11_8_with_a_null_grace_it_waits_and_is_told_so(fleet):
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     service.policy["admission"]["pin_grace_s"] = None
     stuck = submit(service, harness)
     service.store.update_lane("claude-9", enabled=0)
@@ -332,6 +345,7 @@ def test_c11_8_with_a_null_grace_it_waits_and_is_told_so(fleet):
 
 def test_c11_8_a_closure_within_the_horizon_is_a_wait_not_a_hold(fleet):
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     stuck = submit(service, harness)
     service.store.add_closure(Closure("claude-9", "account", after(6 * 86400), ClosureReason.PROVIDER_LIMIT,
                                       ClockSource.REPORTED, "fixture"))
@@ -353,6 +367,7 @@ def test_c11_8_a_wait_that_is_a_persons_is_left_to_them(fleet, wait_reason):
 
 def test_c11_8_a_job_with_an_attempt_still_quarantined_is_held_not_failed(fleet):
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     stuck = submit(service, harness)
     service.store.update_lane("claude-9", enabled=0)
     service._admit()
@@ -368,6 +383,7 @@ def test_c11_8_a_job_with_an_attempt_still_quarantined_is_held_not_failed(fleet)
 def test_c11_8_a_turn_is_held_and_nothing_more(fleet):
     """C-26.12: a turn's message is the person's and the conversation carries its end."""
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     stuck = submit(service, harness)
     service.store.update_lane("claude-9", enabled=0)
     job = {**service.store.get_job(stuck), "kind": "turn"}
@@ -384,6 +400,7 @@ def test_c11_8_a_job_every_lane_refuses_for_good_holds_nobody_back_either(fleet)
     """C-6.9: not only a pin. An Opus job with every Claude lane disabled waits for no slot,
     so a later job whose chain promotes to Astra is not held behind it."""
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     capped(service.policy)
     service.store.add_reading(Reading("codex-1", "account", "seven_day", .2, after(86400),
                                       ReadingLabel.PROVIDER, "fixture", utcnow()))
@@ -461,6 +478,8 @@ def test_c6_9_c11_8_in_the_daemon_no_job_waits_behind_a_job_no_lane_can_admit(tm
     lane can admit is held `pin-unadmittable`."""
     draw = data.draw
     with daemon_for(tmp_path_factory.mktemp("pins") / "state") as (service, harness):
+        lane_order = draw(st.sampled_from(("reset", "fill")), label="Claude lane order")
+        service.policy["admission"]["lane_order"] = {"claude": lane_order}
         service._desktop_in_use = lambda: True
         service.policy["caps"].update(max_active_attempts=draw(st.sampled_from([1, 2, 4]), label="fleet cap"),
                                       max_in_flight_per_lane=draw(st.sampled_from([1, 2]), label="lane cap"))

@@ -162,7 +162,7 @@ def route_jobs(draw, store: dict) -> dict:
 
 
 @st.composite
-def policies(draw) -> dict:
+def policies(draw, *, vary_lane_order: bool = False) -> dict:
     policy = copy.deepcopy(BASE_POLICY)
     if draw(st.booleans()):
         policy["reserve"] = {**policy.get("reserve", {}), "models": []}
@@ -173,6 +173,10 @@ def policies(draw) -> dict:
                           max_active_attempts_per_parent=draw(st.sampled_from([None, None, 1, 2, 9])))
     # C-11.3: the load band's width; null is no bands.
     policy.setdefault("admission", {})["lane_spread"] = draw(st.sampled_from([None, 1, 2, 2, 3]))
+    if vary_lane_order:
+        policy["admission"]["lane_order"] = {
+            "claude": draw(st.sampled_from(("reset", "fill"))), "codex": "reset",
+        }
     # C-26.9: null (the default) is no cap; a whole number caps turns.
     policy.setdefault("conversations", {}).update(max_active_turns=draw(st.sampled_from([None, 1, 3])),
                                                   turn_slots_per_lane=draw(st.sampled_from([None, 1, 2])))
@@ -185,10 +189,11 @@ def view_of(store: dict, now: datetime, ttl: int = 120) -> dict:
     held out."""
     view = capacity.build_view(store["lanes"], candidates_of(store["readings"]), store["closures"],
                                store["attempts"], store["jobs"], now=now, reading_ttl_s=ttl,
-                               desktop_in_use=store.get("desktop_in_use"))
+                               desktop_in_use=store.get("desktop_in_use"), fill_readings=store["readings"])
     view["unavailable_lanes"] = dict(store["unavailable"])
     view["reserved_probes"] = sum(1 for holder in store["unavailable"].values() if holder.startswith("probe:"))
     view["readings"] = [row for row in view["readings"] if row["lane_id"] not in store["overridden"]]
+    view["fill_readings"] = [row for row in view["fill_readings"] if row["lane_id"] not in store["overridden"]]
     return view
 
 

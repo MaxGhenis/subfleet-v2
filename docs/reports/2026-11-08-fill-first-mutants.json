@@ -1,0 +1,122 @@
+{
+  "results": [
+    {
+      "mutant": "weekly-ascending",
+      "killed": true,
+      "returncode": 1,
+      "test": "test_fill_more_weekly_use_never_ranks_after_less_in_equal_earlier_tiers",
+      "failure": "FAILED tests/unit/test_scheduler_fill.py::test_fill_more_weekly_use_never_ranks_after_less_in_equal_earlier_tiers",
+      "command": [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "-x",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp",
+        "$MUTATION_TEMP/weekly-ascending",
+        "tests/unit/test_scheduler_fill.py::test_fill_more_weekly_use_never_ranks_after_less_in_equal_earlier_tiers"
+      ]
+    },
+    {
+      "mutant": "ttl-only",
+      "killed": true,
+      "returncode": 1,
+      "test": "test_fill_keeps_old_open_provider_reading_and_ignores_expired_one",
+      "failure": "FAILED tests/unit/test_scheduler_fill.py::test_fill_keeps_old_open_provider_reading_and_ignores_expired_one[121]",
+      "command": [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "-x",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp",
+        "$MUTATION_TEMP/ttl-only",
+        "tests/unit/test_scheduler_fill.py::test_fill_keeps_old_open_provider_reading_and_ignores_expired_one"
+      ]
+    },
+    {
+      "mutant": "expired-counts",
+      "killed": true,
+      "returncode": 1,
+      "test": "test_fill_keeps_old_open_provider_reading_and_ignores_expired_one",
+      "failure": "FAILED tests/unit/test_scheduler_fill.py::test_fill_keeps_old_open_provider_reading_and_ignores_expired_one[121]",
+      "command": [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "-x",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp",
+        "$MUTATION_TEMP/expired-counts",
+        "tests/unit/test_scheduler_fill.py::test_fill_keeps_old_open_provider_reading_and_ignores_expired_one"
+      ]
+    },
+    {
+      "mutant": "expiring-dropped",
+      "killed": true,
+      "returncode": 1,
+      "test": "test_fill_expiring_precedes_nonexpiring_and_earlier_expiring_reset_wins",
+      "failure": "FAILED tests/unit/test_scheduler_fill.py::test_fill_expiring_precedes_nonexpiring_and_earlier_expiring_reset_wins",
+      "command": [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "-x",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp",
+        "$MUTATION_TEMP/expiring-dropped",
+        "tests/unit/test_scheduler_fill.py::test_fill_expiring_precedes_nonexpiring_and_earlier_expiring_reset_wins"
+      ]
+    },
+    {
+      "mutant": "desktop-dropped",
+      "killed": true,
+      "returncode": 1,
+      "test": "test_fill_desktop_last_and_turn_affinity_leads_its_class",
+      "failure": "FAILED tests/unit/test_scheduler_fill.py::test_fill_desktop_last_and_turn_affinity_leads_its_class[claude-opus]",
+      "command": [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "-x",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp",
+        "$MUTATION_TEMP/desktop-dropped",
+        "tests/unit/test_scheduler_fill.py::test_fill_desktop_last_and_turn_affinity_leads_its_class"
+      ]
+    },
+    {
+      "mutant": "default-codex-fill",
+      "killed": true,
+      "returncode": 1,
+      "test": "test_default_codex_decisions_equal_frozen_release217",
+      "failure": "FAILED tests/unit/test_scheduler_fill.py::test_default_codex_decisions_equal_frozen_release217[omitted]",
+      "command": [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "-x",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp",
+        "$MUTATION_TEMP/default-codex-fill",
+        "tests/unit/test_scheduler_fill.py::test_default_codex_decisions_equal_frozen_release217"
+      ]
+    }
+  ],
+  "restored_sha256": {
+    "subfleet/scheduler.py": "0b0225a27b8344ff47af4d041d2a0c9999727f09a1d0ba9abc6225af64dbac9a",
+    "subfleet/policy.py": "b5715df9b59ae02b0cadd3b603cf8867123a69dc5dba845863c111a4ccda5faa"
+  }
+}

@@ -85,6 +85,8 @@ def fleets(draw, provider: str, realistic: bool = False):
     """`realistic` draws every reset after its own observation, as providers report them."""
     rules = policy(draw(st.sampled_from([0.0, 0.15])),
                    draw(st.sampled_from([(), ("fable",)])) if provider == "claude" else ())
+    if provider == "claude":
+        rules["admission"]["lane_order"]["claude"] = draw(st.sampled_from(("reset", "fill")))
     model = draw(st.sampled_from(["opus", "fable", "sonnet"] if provider == "claude" else ["astra", "terra"]))
     model_id = rules["models"][model]["id"]
     other_ids = [m["id"] for m in rules["models"].values() if m["provider"] == provider]
@@ -269,6 +271,7 @@ def test_stopped_windows_do_not_demote_a_lane_forever(provider, model, scope_kin
 def test_why_distinguishes_a_recent_renewal_from_admission_freshness(age):
     from subfleet.cli import _format_decision
     rules = policy()
+    rules["admission"]["lane_order"]["claude"] = "fill"
     view = live_claude_9_view(rules)
     view['now'] = '2026-10-03T13:05:30Z'
     # Make the stopped window recent instead: ranking waits for it, admission
@@ -290,6 +293,7 @@ def test_why_distinguishes_a_recent_renewal_from_admission_freshness(age):
 
 def test_recent_renewal_uncertainty_ends_at_its_ttl_with_a_stable_horizon():
     rules = policy()
+    rules["admission"]["lane_order"]["claude"] = "fill"
     view = live_claude_9_view(rules)
     renewed = next(r for r in view['readings'] if r['scope'] != 'account')
     now = datetime.fromisoformat(view['now'].replace('Z', '+00:00'))
@@ -297,7 +301,7 @@ def test_recent_renewal_uncertainty_ends_at_its_ttl_with_a_stable_horizon():
     first = head_scheduler.evaluate(rules, copy.deepcopy(view), {'pinned_model': 'fable'})
     detail = first.evaluations[0]['candidate_details']['claude-9']
     assert not detail.get('ranking_measured', detail['measured'])
-    horizon = head_capacity.lane_horizons(view, reading_ttl_s=TTL)['claude-9']
+    horizon = head_capacity.lane_horizons(view, reading_ttl_s=TTL, policy=rules)['claude-9']
     assert horizon == now + timedelta(seconds=1)
     later = {**copy.deepcopy(view), 'now': (now + timedelta(seconds=2)).isoformat()}
     next_detail = head_scheduler.evaluate(rules, later, {'pinned_model': 'fable'}).evaluations[0]['candidate_details']['claude-9']

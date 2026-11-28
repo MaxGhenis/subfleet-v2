@@ -277,6 +277,7 @@ def test_why_renders_exclusion_from_real_policy_decision():
     from subfleet.policy import DEFAULT_POLICY_PATH, load_policy, pick
 
     policy = load_policy(DEFAULT_POLICY_PATH)
+    policy["admission"]["lane_order"] = {"claude": "fill", "codex": "reset"}
     lanes = [{"lane_id": f"claude-{number}", "provider": "claude", "owner": "v2"}
              for number in (1, 2)]
     decision = asdict(pick(policy, lanes, pinned_model="fable",

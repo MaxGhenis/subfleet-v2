@@ -17,7 +17,7 @@ from uuid import uuid4
 from .provider_env import ProviderEnvironment
 from .launch_env import helper_policy
 from . import capacity, claude_cards
-from .policy import cap as policy_cap, lane_slot_cap
+from .policy import cap as policy_cap, fill_on, lane_slot_cap
 from .adapters.registry import get_adapter
 from .contracts import ClockSource, Closure, ClosureReason, Outcome, OutcomeClass, Reading, ReadingLabel
 from .credentials import resolve_credential, withheld_references
@@ -932,7 +932,7 @@ class Timers:
         # write transaction, and only for the reads: the view (every lane,
         # reading, closure, attempt and job) is built after it, holding nothing.
         with self.store.snapshot():
-            rows = capacity.store_rows(self.store, now=at)
+            rows = capacity.store_rows(self.store, now=at, fill=fill_on(self.policy))
             extra = self.view_rows(rows['lanes'])
             # C-18.1: read with the rows; laid only for status.json, after the
             # reset-credit policy and the alerts judged the view (`publish_status`).

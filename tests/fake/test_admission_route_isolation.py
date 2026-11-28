@@ -96,6 +96,7 @@ def log_text(service):
 def test_c6_12_the_incident_a_job_pinned_by_an_ambiguous_email_does_not_stop_the_pass(incident):
     """C-6.12 the incident exactly: before the fix `_admit` raised ValueError and placed nothing."""
     service, harness = incident
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     stuck = legacy(service, harness, EMAIL, pinned_model=None, task="review", tier="standard")
     later = submit(service, harness, pinned_model="astra")
     service._admit()                                                  # raised "ambiguous lane" before
@@ -108,6 +109,7 @@ def test_c6_12_the_incident_a_job_pinned_by_an_ambiguous_email_does_not_stop_the
 def test_c6_12_the_incident_through_the_worker_pool_logs_no_failure(incident):
     """C-6.12, C-5.10 as the control loop runs it: no `worker admission failed`, no backoff."""
     service, harness = incident
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     service.workers = Inline(service.workers)
     stuck = legacy(service, harness, EMAIL, pinned_model=None, task="build", tier="standard")
     later = submit(service, harness, pinned_model="terra", tier="hard")      # another tier starved too
@@ -126,6 +128,7 @@ def test_c6_12_a_pin_that_names_two_lanes_is_refused_and_the_pass_goes_on(incide
     """C-6.12 a lane pin with no model whose name matches claude-a and codex-1 can never be routed:
     it fails with the message (exit 2, what submit would say) and the next job is placed."""
     service, harness = incident
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     stuck = legacy(service, harness, EMAIL, pinned_model=None)
     later = submit(service, harness, **later_changes)
     service._admit()
@@ -151,6 +154,7 @@ def test_c6_12_an_evaluation_error_holds_the_job_visibly_and_holds_nobody_else(f
     the job waits on `route` with a backoff clock, `why` names the error and `status` counts the hold,
     and it is no C-6.9 waiter, so later jobs of its tier and model still pass it."""
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     service.policy["caps"]["max_in_flight_per_lane"] = 4          # all three astra jobs fit on codex-1
     broken = submit(service, harness, pinned_model="astra")
     later = submit(service, harness, pinned_model="astra")
@@ -324,6 +328,7 @@ def test_c6_12_an_evaluation_made_again_off_the_lock_is_isolated_too(fleet, monk
     goes on. (A fleet that filled meanwhile refused the check until the review of 5d14f98;
     the check now judges every lane again then.)"""
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     service.policy["caps"]["max_active_attempts"] = 1
     reenrol = successor(service)
     raced = submit(service, harness, pinned_model="astra", pinned_lane="codex-1")
@@ -360,6 +365,7 @@ def test_c6_12_a_refused_check_rolls_back_what_the_reservation_wrote(fleet, monk
     refuses its decision (the pin names another lane now), and a route error when it is
     evaluated again, leave it unwritten."""
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     service.policy["caps"]["max_active_attempts"] = 1
     reenrol = successor(service)
     raced = submit(service, harness, pinned_model="astra", pinned_lane="codex-1")
@@ -388,6 +394,7 @@ ZERO = {"reused": 0, "rechosen": 0, "again": 0, "moved": 0, "old": 0, "error": 0
 
 def test_c6_3_the_reservation_takes_the_early_evaluation_when_nothing_was_committed(fleet, monkeypatch):
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     job_id = submit(service, harness, pinned_model="astra")
     real, inside = service._pick, []
     monkeypatch.setattr(service, "_pick", lambda job, **o: inside.append(service.store._holds_writer())
@@ -405,6 +412,7 @@ def test_c6_3_a_commit_that_changes_nothing_the_decision_rests_on_does_not_send_
     decision rests on; a commit that changed none of them leaves it standing, and what it
     reserves is what an evaluation of the rows it reads would choose."""
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     job_id = submit(service, harness, pinned_model="astra")
     real, inside = service._pick, []
 
@@ -427,6 +435,7 @@ def test_c6_3_a_commit_that_moves_the_decision_is_decided_again_from_the_lanes_i
     again, alone, finds codex-2 first now, and reserves there, which is what an evaluation
     of the rows the reservation reads would choose. Nothing is evaluated again."""
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     two_codex_lanes(service)
     job_id = submit(service, harness, pinned_model="astra")
     real, inside = service._pick, []
@@ -454,6 +463,7 @@ def test_c6_3_a_cap_that_fills_before_the_reservation_is_judged_on_every_lane(fl
     route was evaluated again off the lock, until the review of 5d14f98: a cap that
     flipped between each evaluation and its check kept a job out for as long as it did.)"""
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     service.policy["caps"]["max_active_attempts"] = 1
     job_id = submit(service, harness, pinned_model="astra")
     real, inside = service._pick, []
@@ -480,6 +490,7 @@ def test_c6_3_a_long_wait_for_the_store_lock_does_not_void_the_decision(fleet, m
     Age alone no longer does that: while the lock is held elsewhere and commits land, the
     decision stands if the rows it rests on do and no lane it looks at reached its horizon."""
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     job_id = submit(service, harness, pinned_model="astra")
     real, holding, done = service._pick, threading.Event(), threading.Event()
 
@@ -675,6 +686,7 @@ def test_c11_2_submit_resolves_with_the_identities_admission_uses(incident):
 def test_c11_2_the_jobs_provider_narrows_a_pin_that_names_two_lanes(incident, changes, lane):
     """C-11.2 a pinned job evaluates one model; a lane of another provider could never take it."""
     service, harness = incident
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     job_id = submit(service, harness, pinned_lane=EMAIL, **changes)
     assert service.store.get_job(job_id)["pinned_lane"] == lane
     service._admit()
@@ -684,6 +696,7 @@ def test_c11_2_the_jobs_provider_narrows_a_pin_that_names_two_lanes(incident, ch
 def test_c11_2_a_later_roster_change_cannot_make_an_accepted_pin_ambiguous(fleet):
     """C-11.2 the pin is resolved once, at submit; the probe reporting codex-1's email later changes nothing."""
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     job_id = submit(service, harness, pinned_model=None, pinned_lane=EMAIL)
     codex_probe_reports(service)
     later = submit(service, harness, pinned_model="astra")
@@ -703,6 +716,7 @@ def test_c11_2_a_retried_request_still_finds_its_job(fleet):
 
 def test_c11_2_a_dry_run_resolves_the_same_way(incident):
     service, harness = incident
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     result = service.dispatch("submit", harness.submit_args(pinned_model=None, task="review", tier="standard",
                                                             pinned_lane=EMAIL, dry_run=True))
     assert result["decision"]["chosen_lane"] == "claude-a"
@@ -789,13 +803,15 @@ def test_c11_2_pin_provider_is_the_first_model_evaluate_walks(job, provider):
 def test_c11_2_evaluate_and_demand_lanes_narrow_the_same_way():
     view = {"lanes": ROSTER, "readings": [], "closures": [], "now": utcnow()}
     job = {"pinned_lane": EMAIL, "task": "review", "tier": "standard"}
-    decision = scheduler.evaluate(policy(), view, job)
+    rules = policy()
+    rules["admission"]["lane_order"] = {"claude": "fill"}
+    decision = scheduler.evaluate(rules, view, job)
     assert [row["lane_id"] for row in decision.evaluations[0]["rejections"]
             + [{"lane_id": lane} for lane in decision.evaluations[0]["candidates"]]] == ["claude-a"]
-    assert scheduler.demand_lanes(ROSTER, job, policy()) == frozenset({"claude-a"})
-    assert scheduler.demand_lanes(ROSTER, {"pinned_lane": EMAIL}, policy()) is None    # unresolvable: any lane
+    assert scheduler.demand_lanes(ROSTER, job, rules) == frozenset({"claude-a"})
+    assert scheduler.demand_lanes(ROSTER, {"pinned_lane": EMAIL}, rules) is None    # unresolvable: any lane
     with pytest.raises(scheduler.RouteError):
-        scheduler.evaluate(policy(), view, {"pinned_lane": EMAIL})
+        scheduler.evaluate(rules, view, {"pinned_lane": EMAIL})
 
 
 # --- C-11.2: the queue a restart finds --------------------------------------------------------
@@ -854,6 +870,7 @@ def test_c11_2_doctor_without_a_store_is_not_a_failure(tmp_path):
 def test_c6_12_an_authorization_the_probe_check_rejects_is_refused_and_the_pass_goes_on(fleet, monkeypatch, call):
     """C-6.12 `probe_required` checks an unmeasured-reserve authorization and is isolated like `evaluate`."""
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     service.policy["caps"]["max_in_flight_per_lane"] = 4
     broken = submit(service, harness, pinned_model="astra")
     later = submit(service, harness, pinned_model="astra")
@@ -874,6 +891,7 @@ def test_c6_12_an_authorization_the_probe_check_rejects_is_refused_and_the_pass_
 def test_c6_12_an_authorization_bound_to_a_label_is_refused(fleet):
     """C-11.7a an authorization names the lane id it was granted for; a label in its place is refused."""
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     authorized = submit(service, harness, pinned_model="opus", pinned_lane="claude-a",
                         unmeasured_reserve_reason="fixture: operator accepts unknown reserve")
     service.store.update_job(authorized, pinned_lane=EMAIL)
@@ -951,6 +969,7 @@ def test_c6_12_route_waits_double_from_5_s_to_a_300_s_ceiling(fleet, monkeypatch
 
 def test_c6_12_an_evaluation_that_succeeds_resets_the_route_count(fleet, monkeypatch):
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     service.policy["caps"]["max_active_attempts"] = 1
     blocker = submit(service, harness, pinned_model="terra")
     service._admit()
@@ -1034,6 +1053,7 @@ def test_c6_12_a_pass_with_nothing_to_look_at_builds_no_capacity_view(fleet, mon
 def test_c6_12_an_empty_task_or_tier_is_none(fleet):
     """C-6.12 submit accepted tier '' and `evaluate` rejected it on every pass."""
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     job_id = submit(service, harness, pinned_model=None, task="review", tier="", pinned_lane=EMAIL)
     job = service.store.get_job(job_id)
     assert job["tier"] is None and job["pinned_lane"] == "claude-a"
@@ -1066,6 +1086,7 @@ def test_c11_2_a_pin_follows_its_lane_through_a_reenrolment(fleet):
     """C-11.2, C-10.2 a job pinned before its lane was re-enrolled runs on the successor, the same
     account on the same credential; one carrying an authorization stays on the id it was granted for."""
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     pinned = submit(service, harness, pinned_model="opus", pinned_lane=EMAIL)
     authorized = submit(service, harness, pinned_model="opus", pinned_lane="claude-a",
                         unmeasured_reserve_reason="fixture: operator accepts unknown reserve")
@@ -1153,6 +1174,7 @@ def test_c6_12_a_transient_retry_on_a_model_id_the_policy_dropped_routes_the_job
     """C-6.12 the retry pins the last attempt's model id; after an id rename (claude-opus-5 -> -5-5 on
     2026-09-22) that pair is the daemon's, so the job is routed as submitted rather than stranded."""
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     job_id = submit(service, harness, pinned_model=None, task="review", tier="standard")
     service.store.add_attempt(attempt_id=job_id + "/a1", job_id=job_id, seq=1, lane_id="claude-a",
                               model_requested="claude-opus-5", state="failed", outcome_class="transient")
@@ -1186,6 +1208,7 @@ def test_c6_12_a_transient_retry_whose_id_is_retired_to_another_provider_routes_
     """C-6.12 a `retired` alias may point at another provider's model; the retry pair then can never
     run on its lane, so the job routes as submitted instead of waiting until `max_wall_s`."""
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     job_id = submit(service, harness, pinned_model=None, task="review", tier="standard")
     service.store.add_attempt(attempt_id=job_id + "/a1", job_id=job_id, seq=1, lane_id="claude-a",
                               model_requested="claude-old-haiku", state="failed", outcome_class="transient")
@@ -1199,6 +1222,7 @@ def test_c6_12_a_transient_retry_whose_id_is_retired_to_another_provider_routes_
 def test_c6_12_a_transient_retry_whose_lane_was_disabled_since_routes_the_job_itself(fleet):
     """C-4.5 an auth-dead lane is never re-enabled; a retry pinned to it would never be placed."""
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     job_id = submit(service, harness, pinned_model=None, task="review", tier="standard")
     service.store.add_attempt(attempt_id=job_id + "/a1", job_id=job_id, seq=1, lane_id="claude-a",
                               model_requested=service.policy["models"]["opus"]["id"], state="failed",
@@ -1233,6 +1257,7 @@ def test_c4_5_a_retry_whose_lane_refuses_it_for_more_than_a_slot_goes_to_the_nex
     """C-4.5 "same lane after 60 s, once, then next candidate": a closure, the desktop login, or the
     job's own exclusion is not ended by a slot, so the job routes as submitted onto the open lane."""
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     service.store.put_lane(claude_lane("claude-b", label="other@example.invalid"))
     measured(service, "claude-b")
     exclusions = ["claude-a"] if refusal == "excluded" else []
@@ -1250,6 +1275,7 @@ def test_c4_5_a_retry_whose_lane_refuses_it_for_more_than_a_slot_goes_to_the_nex
 def test_c4_5_a_retry_whose_lane_is_only_full_keeps_its_lane(fleet):
     """C-4.5 a slot ends a full lane's refusal: the retry waits for its own lane, not the open one."""
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     capped(service.policy)                          # C-6.4: the caps of before 2026-09-27 (tests/caps.py)
     service.store.put_lane(claude_lane("claude-b", label="other@example.invalid"))
     measured(service, "claude-b")
@@ -1267,6 +1293,7 @@ def test_c4_5_a_retry_whose_lane_is_only_full_keeps_its_lane(fleet):
 def test_c6_9_a_pinned_retry_competes_only_for_its_own_pair(fleet):
     """C-6.9 while a retry is pinned to (claude-a, opus) it holds back nothing pinned elsewhere."""
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     service.store.put_lane(claude_lane("claude-b", label="other@example.invalid"))
     measured(service, "claude-b")
     retry = submit(service, harness, pinned_model=None, task="review", tier="standard")
@@ -1281,6 +1308,7 @@ def test_c6_9_a_pinned_retry_competes_only_for_its_own_pair(fleet):
 def test_c4_5_a_retry_whose_credential_is_latched_goes_to_the_next_candidate(fleet):
     """C-4.5 a revoked Codex login stays enabled but latched (`credential-latched`, a `no-slot` no slot ends)."""
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     service.store.put_lane(Lane("codex-2", "codex", "codex:other", Credential("codex", "/fake/codex-2", "home"),
                                 "/fake/codex-2", LaneOwner.V2, False))
     measured(service, "codex-2")
@@ -1308,6 +1336,7 @@ def test_c6_9_a_retry_that_lets_its_pin_go_keeps_its_place_behind_older_jobs(fle
     the five passes below had them look at the retry again (CI 3.14, run 37389734475, on #133; the
     second review of #133, R2-4, reproduced it with a 3 s pause). `a-loaded-runner` is that runner."""
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     capped(service.policy)                          # C-6.4: the caps of before 2026-09-27 (tests/caps.py)
     HeldClock.at = datetime.now(timezone.utc).replace(microsecond=0)
     monkeypatch.setattr(daemon_module, "datetime", HeldClock)
@@ -1354,6 +1383,7 @@ def test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go(fleet, mon
     deadline positions explicit, while the loaded-runner cases spend a real
     second before the younger job is submitted."""
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     capped(service.policy)                          # C-6.4: the caps of before 2026-09-27 (tests/caps.py)
     HeldClock.at = datetime.now(timezone.utc).replace(microsecond=0)
     monkeypatch.setattr(daemon_module, "datetime", HeldClock)
@@ -1387,6 +1417,7 @@ def test_c4_5_a_retry_let_go_is_evaluated_again_when_it_is_next_due(fleet):
     """C-4.5 the one same-pair retry survives a refusal that ends: the next due look evaluates the pair,
     with or without a restart in between (the look's verdict is in memory)."""
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     service.store.add_closure(Closure("codex-1", "account", after(3 * 86400), ClosureReason.PROVIDER_LIMIT,
                                       ClockSource.REPORTED, "fixture"))
     job_id = submit(service, harness, pinned_model=None, task="review", tier="standard")
@@ -1407,6 +1438,7 @@ def test_c6_9_a_due_retry_is_looked_at_as_its_pair_before_it_is_evaluated(fleet)
     """C-6.9 a due look evaluates the pair, so until then the job's demand is the pair: an older waiter
     pinned to another lane does not hold it, whatever the last look decided."""
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     service.store.put_lane(claude_lane("claude-b", label="other@example.invalid"))
     measured(service, "claude-b")
     service.store.add_closure(Closure("codex-1", "account", after(3 * 86400), ClosureReason.PROVIDER_LIMIT,
@@ -1426,6 +1458,7 @@ def test_c4_5_a_retry_that_followed_a_reenrolment_counts_the_account_once(fleet)
     """C-4.5 "same lane, once, then next candidate": attempts on a lane and on its re-enrolled successor
     are attempts on one lane, so a second transient there excludes it and the job moves on."""
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     service.store.put_lane(claude_lane("claude-b", label="other@example.invalid"))
     measured(service, "claude-b")
     job_id = submit(service, harness, pinned_model=None, task="review", tier="standard")
@@ -1470,6 +1503,7 @@ def test_c6_12_any_evaluation_error_of_one_job_is_that_jobs(fleet, monkeypatch, 
     policy such as a `reserve` list, or a defect in evaluation or the capacity view) is handled like a
     KeyError: the job waits on `route` and the pass goes on."""
     service, harness = fleet
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     broken = submit(service, harness, pinned_model="astra")
     later = submit(service, harness, pinned_model="terra")
     real = service._pick

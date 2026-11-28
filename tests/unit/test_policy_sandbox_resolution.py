@@ -37,6 +37,7 @@ def test_demand_models_resolves_policy_permissions(policy, source, context, expe
 @pytest.mark.parametrize("source", [None, "policy"])
 @pytest.mark.parametrize("context,expected", CONTEXTS)
 def test_lane_rejection_resolves_policy_permissions(policy, source, context, expected):
+    policy["admission"]["lane_order"] = {"claude": "fill", "codex": "reset"}
     job = {"task": "review", "needs_shell": True, "sandbox": source, **context}
     target = lane()
     setup = scheduler.prepare(policy, {"lanes": [target]}, job)

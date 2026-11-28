@@ -82,7 +82,7 @@ def pass_jobs(draw, store: dict) -> list[dict]:
 @st.composite
 def passes(draw):
     store = draw(stores())
-    return draw(policies()), store, draw(pass_jobs(store))
+    return draw(policies(vary_lane_order=True)), store, draw(pass_jobs(store))
 
 
 # --- 1. nothing waits for a count that is not there ------------------------------------------
@@ -298,12 +298,14 @@ def _twin_lanes(count: int, provider: str) -> list[dict]:
 
 @settings(max_examples=150, deadline=None, derandomize=True)
 @given(st.integers(1, 6), st.integers(1, 30), st.sampled_from([1, 2, 3]), st.sampled_from(["claude", "codex"]),
-       st.lists(st.sampled_from([0.1, 0.3, 0.5, 0.7]), min_size=6, max_size=6))
-def test_bands_fill_lanes_evenly_with_no_cap(lanes, jobs, spread, provider, utilization):
+       st.lists(st.sampled_from([0.1, 0.3, 0.5, 0.7]), min_size=6, max_size=6),
+       st.sampled_from(("reset", "fill")))
+def test_bands_fill_lanes_evenly_with_no_cap(lanes, jobs, spread, provider, utilization, claude_order):
     """C-11.3: uncapped, no lane is more than one band ahead of another that
     could take the same work, however their headroom differs."""
     from subfleet import capacity
     policy = quiet(uncapped(load_policy(DEFAULT_POLICY_PATH)))
+    policy["admission"]["lane_order"]["claude"] = claude_order
     policy["admission"]["lane_spread"] = spread
     policy["reserve"] = {**policy.get("reserve", {}), "models": []}
     rows = _twin_lanes(lanes, provider)
@@ -423,6 +425,7 @@ def test_with_only_a_parent_cap_a_job_waits_only_behind_its_family():
     job that shares an ancestor with it."""
     from subfleet import capacity
     policy = quiet(uncapped(load_policy(DEFAULT_POLICY_PATH)))
+    policy["admission"]["lane_order"]["claude"] = "fill"
     policy["reserve"] = {**policy.get("reserve", {}), "models": []}
     policy["caps"]["max_active_attempts_per_parent"] = 2
     assert scheduler.hold_scope(policy, {"kind": "dispatch", "parent_job_id": "p"}) == "family"
@@ -452,6 +455,7 @@ def test_the_2026_09_27_jam_places_everything_uncapped():
     jobs behind one head job. With no cap every one of them has a lane."""
     from subfleet import capacity
     policy = quiet(load_policy(DEFAULT_POLICY_PATH))
+    policy["admission"]["lane_order"]["claude"] = "fill"
     policy["reserve"] = {**policy.get("reserve", {}), "models": []}
     claude = [{"lane_id": f"claude-{n}", "provider": "claude", "account_key": f"claude:c{n}@example.invalid",
                "owner": "v2", "enabled": True, "desktop": False} for n in (1, 6, 7, 9)]

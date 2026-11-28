@@ -34,7 +34,14 @@ SETTINGS = settings(max_examples=1500, deadline=None, derandomize=True,
 @st.composite
 def cases(draw):
     store = draw(stores())
-    return draw(policies()), store, draw(route_jobs(store))
+    return draw(policies(vary_lane_order=True)), store, draw(route_jobs(store))
+
+
+@st.composite
+def codex_fill_cases(draw):
+    policy, store, job = draw(cases())
+    policy["admission"]["lane_order"]["codex"] = "fill"
+    return policy, store, job
 
 
 # --- still_stands is exactly the full evaluation's answer ---------------------------------------
@@ -77,10 +84,11 @@ def check(policy, store, job, after, seconds):
         event("early: raised")
         return None
     later = NOW + timedelta(seconds=seconds)
-    clocks = capacity.lane_horizons(view, reading_ttl_s=120)
+    clocks = capacity.lane_horizons(view, reading_ttl_s=120, policy=policy)
     rows = now_rows(store, after)
     verdict, judged, standing = route_check.still_stands(
         policy, job, decision, view=view, candidates=candidates_of(store["readings"]),
+        fill_candidates=store["readings"],
         overridden=store["overridden"], clocks=clocks, now=later, **rows)
     try:
         full = scheduler.evaluate(policy, view_of(after, later), job)
@@ -119,6 +127,22 @@ def test_c6_3_still_stands_exactly_when_evaluate_now_chooses_the_same(case, data
     # is the evaluation's own (asserted in `check`).
     assert (verdict is None) == decidable, (verdict, decision.chosen_lane, full and full.chosen_lane)
     if verdict is None:            # `decision` is the decision now
+        assert scheduler.verdict_signature(decision) == scheduler.verdict_signature(full)
+        if decision.chosen_lane:
+            assert scheduler.probe_required(decision, job) == scheduler.probe_required(full, job)
+
+
+@SETTINGS
+@given(codex_fill_cases(), st.data())
+def test_c6_3_codex_fill_still_stands_exactly_when_evaluate_now_chooses_the_same(case, data):
+    policy, store, job = case
+    after, seconds = data.draw(commits(store))
+    result = check(policy, store, job, after, seconds)
+    if result is None:
+        return
+    verdict, decidable, decision, full = result
+    assert (verdict is None) == decidable, (verdict, decision.chosen_lane, full and full.chosen_lane)
+    if verdict is None:
         assert scheduler.verdict_signature(decision) == scheduler.verdict_signature(full)
         if decision.chosen_lane:
             assert scheduler.probe_required(decision, job) == scheduler.probe_required(full, job)
@@ -345,7 +369,8 @@ def judged_again(policy, store, after, job=JOB, seconds=1):
     decision = scheduler.evaluate(policy, view, job)
     verdict, judged, _ = route_check.still_stands(
         policy, job, decision, view=view, candidates=candidates_of(store["readings"]),
-        overridden=store["overridden"], clocks=capacity.lane_horizons(view, reading_ttl_s=120),
+        fill_candidates=store["readings"],
+        overridden=store["overridden"], clocks=capacity.lane_horizons(view, reading_ttl_s=120, policy=policy),
         now=NOW + timedelta(seconds=seconds), **now_rows(store, after))
     return verdict, judged
 
@@ -356,11 +381,12 @@ def test_c6_3_readings_ageing_out_on_another_providers_lanes_are_never_looked_at
     passed, but no Claude lane is one the decision looks at: nothing is judged again and
     the decision stands. The check used to refuse it (`old`), every try, for as long as
     the Claude lanes' readings kept being refreshed."""
+    policy["admission"]["lane_order"] = {"claude": "fill", "codex": "reset"}
     store = fleet(lanes=[*[dict(row) for row in LANES], *[dict(row) for row in CLAUDE]])
     store["readings"] += [reading(row["lane_id"], .3, 10 + n, observed=NOW - timedelta(seconds=118))
                           for n, row in enumerate(CLAUDE)]
     view = view_of(store, NOW)
-    assert capacity.decision_horizon(view, reading_ttl_s=120) < NOW + timedelta(seconds=5)
+    assert capacity.decision_horizon(view, reading_ttl_s=120, policy=policy) < NOW + timedelta(seconds=5)
     assert stands(policy, store, store, seconds=5) == (None, "codex-1")
     assert judged_again(policy, store, store, seconds=5) == (None, 0)
 
@@ -490,11 +516,12 @@ def test_c6_3_lanes_a_decision_never_looks_at_cannot_change_it(case, data):
     except route_check.ROUTE_ERRORS:
         busy = None
     assert (quiet and exact(quiet)) == (busy and exact(busy))
-    clocks = capacity.lane_horizons(view, reading_ttl_s=120)
+    clocks = capacity.lane_horizons(view, reading_ttl_s=120, policy=policy)
 
     def checked(now_store):
         verdict, judged, standing = route_check.still_stands(
             policy, job, decision, view=view, candidates=candidates_of(store["readings"]),
+            fill_candidates=store["readings"],
             overridden=store["overridden"], clocks=clocks, now=later, **now_rows(store, now_store))
         return verdict, judged, standing and exact(standing)
     assert checked(after) == checked(store)

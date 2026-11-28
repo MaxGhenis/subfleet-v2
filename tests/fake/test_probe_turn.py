@@ -415,6 +415,7 @@ def test_rotation_never_takes_a_model_the_chain_promotes_to(routing_state, monke
     spend a costlier one because probes said nothing."""
     from tests.fake.test_routing_end_to_end import claude_lane
     service, harness = routing_state
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     service.store.put_lane(claude_lane("claude-2"))
     service.policy["tiers"].append("highest")
     service.policy["chains"]["research"] = ["haiku", "sonnet", "opus", "astra", "opus"]
@@ -455,6 +456,7 @@ def test_rotation_never_promotes_at_the_reservation(routing_state, monkeypatch):
     Astra. It looks again instead, and the next round goes back to claude-1."""
     from tests.fake.test_routing_end_to_end import claude_lane
     service, harness = routing_state
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     service.policy["caps"]["reading_ttl_s"] = 86400       # the route view ages readings on the host's clock (daemon.py:2115)
     for identity in ("claude-1", "claude-2"):
         service.store.put_lane(claude_lane(identity))
@@ -636,6 +638,7 @@ def test_a_check_that_walks_back_to_the_jobs_own_model_is_reserved(routing_state
     is no promotion. It is reserved there, not held as if promoted."""
     from tests.fake.test_routing_end_to_end import claude_lane
     service, harness = routing_state
+    service.policy["admission"]["lane_order"] = {"claude": "fill"}
     service.policy["caps"]["reading_ttl_s"] = 86400       # the route view ages readings on the host's clock (daemon.py:2115)
     service.store.put_lane(codex_lane(service.root, "codex-2"))
     service.store.put_lane(claude_lane("claude-1"))

@@ -83,7 +83,8 @@ def still_stands(policy: Mapping[str, Any], job: Mapping[str, Any], decision: De
                  readings: Iterable[Mapping[str, Any]], closures: Iterable[Mapping[str, Any]],
                  attempts: Iterable[Mapping[str, Any]], jobs: Iterable[Mapping[str, Any]],
                  unavailable: Mapping[str, Any], reserved_probes: int,
-                 holding: Iterable[str] | None = None) -> tuple[str | None, int, Decision | None]:
+                 holding: Iterable[str] | None = None,
+                 fill_candidates: Iterable[Mapping[str, Any]] | None = None) -> tuple[str | None, int, Decision | None]:
     """The decision an evaluation of `job` now would make, from `decision`, evaluated on `view`.
 
     Returns (None, lanes judged again, the decision now): exactly what
@@ -182,6 +183,9 @@ def still_stands(policy: Mapping[str, Any], job: Mapping[str, Any], decision: De
     earlier: dict[str, list[dict[str, Any]]] = {}
     for row in candidates:
         earlier.setdefault(row["lane_id"], []).append(dict(row))
+    fill_earlier: dict[str, list[dict[str, Any]]] = {}
+    for row in fill_candidates if fill_candidates is not None else view.get("fill_readings", view.get("readings", ())):
+        fill_earlier.setdefault(row["lane_id"], []).append(dict(row))
     # A changed lane's readings now, as a view built now holds them: chosen from
     # the snapshot's candidates and the readings added since, aged and labelled
     # at this clock. Only for the lanes judged: the others are never looked at.
@@ -202,7 +206,9 @@ def still_stands(policy: Mapping[str, Any], job: Mapping[str, Any], decision: De
                     earlier.get(lane_id, []) + added.get(lane_id, []), now=precise, reading_ttl_s=ttl)
             found[lane_id] = scheduler.judge_lane(setup, short, now_lanes[lane_id], now_readings[lane_id],
                                                   open_now.get(lane_id, ()), in_flight=counts_now.get(lane_id, 0),
-                                                  unavailable=unavailable)
+                                                  unavailable=unavailable,
+                                                  fill_readings=[] if lane_id in held_now else
+                                                  fill_earlier.get(lane_id, []) + added.get(lane_id, []))
         walked.append(found)
         replaced.append(changed | (here if every else set()))
         return found

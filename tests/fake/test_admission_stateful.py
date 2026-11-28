@@ -444,8 +444,9 @@ class AdmissionMachine(RuleBasedStateMachine):
         return lane_id
 
     # C-6.4: no count cap is the default; a cap brings C-6.9's hold-back and slot-keeping.
-    @initialize(**FLEET)
-    def fleet(self, cap, per_lane, reserve, claude, codex_email, second_codex, capacity, queue, probe, prove):
+    @initialize(**FLEET, lane_order=st.sampled_from(("reset", "fill")))
+    def fleet(self, cap, per_lane, reserve, claude, codex_email, second_codex, capacity, queue, probe, prove,
+              lane_order=None):
         """A fleet (its caps, the reserve (C-11.7) on or off, lanes whose names may collide), the
         capacity it starts with, and a queue submitted before the first pass sees any of it."""
         self.root = self.tmp / "state"
@@ -458,6 +459,8 @@ class AdmissionMachine(RuleBasedStateMachine):
         # C-6.14: every lane starts never having answered, so with the pilot hold on (the Harness turns
         # it off) each takes one detached attempt at a time until one answers.
         policy["admission"]["prove_idle_s"] = prove
+        if lane_order is not None:
+            policy["admission"]["lane_order"] = {"claude": lane_order}
         for provider, limit in self.provider_caps.items():
             policy.setdefault("providers", {}).setdefault(provider, {})["max_active_attempts"] = limit
         (self.root / "policy.json").write_text(json.dumps(policy, indent=2) + "\n")
@@ -1156,11 +1159,12 @@ class ProviderCapMachine(AdmissionMachine):
     change no verdict, so a look that repeats its verdict across them adds no decision row (C-6.10, P4).
     #194 keyed the wait on both; the chain merge of 2026-10-13 kept the verdict alone."""
 
-    @initialize(**FLEET, provider_caps=PROVIDER_CAPS)
+    @initialize(**FLEET, provider_caps=PROVIDER_CAPS, lane_order=st.sampled_from(("reset", "fill")))
     def fleet(self, cap, per_lane, reserve, claude, codex_email, second_codex, capacity, queue, probe, prove,
-              provider_caps):
+              provider_caps, lane_order=None):
         self.provider_caps = provider_caps
-        super().fleet(cap, per_lane, reserve, claude, codex_email, second_codex, capacity, queue, probe, prove)
+        super().fleet(cap, per_lane, reserve, claude, codex_email, second_codex, capacity, queue, probe, prove,
+                      lane_order=lane_order)
 
 
 ProviderCapMachine.TestCase.settings = PROFILE
@@ -1237,7 +1241,7 @@ def test_adm3_started_job_does_not_remain_an_older_waiter(provider_cap, _context
         machine.fleet(cap=None, per_lane=None, reserve=False, claude=[None], codex_email=None,
                       second_codex=False, capacity=[("closure", 0, "model", 5, 1)],
                       queue=[review, {**review, "model": "sonnet"}],
-                      probe="ok", prove=None, provider_caps={"claude": provider_cap})
+                      probe="ok", prove=None, provider_caps={"claude": provider_cap}, lane_order="fill")
         older, younger = sorted(machine.jobs(), key=machine.seq.get)
         machine.admission_pass()               # Both recheck at t=1.
         machine.time_passes(seconds=1)          # Both back off to t=3.
@@ -1314,7 +1318,8 @@ def test_r4_simulated_finish_preserves_provider_outcome(provider, model, outcome
                "legacy": False, "authorize": False, "exclusions": "[]"}
         machine.fleet(cap=1, per_lane=None, reserve=False,
                       claude=[None] if provider == "claude" else [], codex_email=None,
-                      second_codex=False, capacity=[], queue=[job], probe="ok", prove=None)
+                      second_codex=False, capacity=[], queue=[job], probe="ok", prove=None,
+                      lane_order="fill" if provider == "claude" else None)
         machine.admission_pass()
         attempt, = machine.live()
         assert machine.store.get_lane(attempt["lane_id"]).provider == provider

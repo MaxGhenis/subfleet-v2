@@ -119,6 +119,8 @@ def test_c9_5_the_kinds_a_steer_applies_to():
 @pytest.mark.parametrize("tier,expected", [("hard", ["astra"]), ("standard", ["opus", "astra"])])
 def test_c11_2_a_steer_on_a_model_outside_the_walk_changes_nothing(policy, tier, expected):
     """Below-tier Sonnet and off-chain Terra cannot affect either eligible walk."""
+    if tier == "standard":
+        policy["admission"]["lane_order"]["claude"] = "fill"
     other = {policy["models"]["sonnet"]["id"]: UNTIL, "gpt-5.6-terra": UNTIL}
     spec = job(tier=tier, task="build")
     assert scheduler.prepare(policy, fleet(), spec)["chain"] == expected
@@ -151,13 +153,13 @@ MODEL_IDS = sorted({model["id"] for model in BASE_POLICY["models"].values()})
 
 
 @st.composite
-def steered_cases(draw):
+def steered_cases(draw, *, vary_lane_order=False):
     """A store, a policy and a route job, and the steer its attempts left (model ids, any)."""
     store = draw(stores())
     route = draw(route_jobs(store))
     steer = {model_id: "2026-09-26T12:15:00Z" for model_id in draw(st.lists(st.sampled_from(MODEL_IDS),
                                                                              min_size=1, max_size=3, unique=True))}
-    return draw(policies()), store, route, steer
+    return draw(policies(vary_lane_order=vary_lane_order)), store, route, steer
 
 
 def routes(policy, view, spec):
@@ -186,7 +188,7 @@ def test_c11_2_a_steer_excludes_live_models_and_nothing_else(case):
 
 
 @SETTINGS
-@given(steered_cases())
+@given(steered_cases(vary_lane_order=True))
 def test_c11_2_the_steered_decision_is_the_first_model_of_its_walk_with_a_candidate(case):
     """Differential: the steered evaluation against each model evaluated alone (pinned)."""
     policy, store, route, steer = case
@@ -218,7 +220,7 @@ def test_c11_2_the_steered_decision_is_the_first_model_of_its_walk_with_a_candid
 
 
 @SETTINGS
-@given(steered_cases(), st.data())
+@given(steered_cases(vary_lane_order=True), st.data())
 def test_c6_3_the_reservation_check_of_a_steered_decision_is_a_fresh_evaluation(case, data):
     """C-6.3: `route_check.still_stands` over a steered job returns exactly what `evaluate` over
     the rows the reservation sees returns (asserted in `check`), and refuses only as for any job."""
@@ -244,10 +246,12 @@ def test_the_decision_shape_is_unchanged():
 @given(chain=st.lists(st.sampled_from(sorted(BASE_POLICY["models"])), min_size=1, unique=True),
        admissible=st.sets(st.sampled_from(("codex-1", "codex-2", "claude-1", "claude-2"))),
        steer=st.dictionaries(st.sampled_from(MODEL_IDS),
-                             st.sampled_from((UNTIL, "2026-10-13T07:20:00Z"))))
-def test_c9_5_any_chain_and_admissible_lanes_choose_first_unsteered_or_wait(chain, admissible, steer):
+                             st.sampled_from((UNTIL, "2026-10-13T07:20:00Z"))),
+       claude_order=st.sampled_from(("reset", "fill")))
+def test_c9_5_any_chain_and_admissible_lanes_choose_first_unsteered_or_wait(chain, admissible, steer, claude_order):
     """Independent oracle over arbitrary chains, lane availability and live/expired steers."""
     policy = copy.deepcopy(BASE_POLICY)
+    policy["admission"]["lane_order"]["claude"] = claude_order
     policy["reserve"] = {**policy.get("reserve", {}), "models": []}
     policy["chains"]["review"][-1] = chain
     view = build_view([lane(identity, enabled=identity in admissible)

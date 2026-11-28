@@ -918,6 +918,7 @@ def test_c6_3_c26_9_admission_places_what_e053b2c_placed_pass_for_pass(tmp_path_
     caps = {"max_active_attempts": draw(st.sampled_from([1, 2, 4]), label="fleet cap"),
             "max_in_flight_per_lane": draw(st.sampled_from([1, 2]), label="lane cap")}
     turn_cap = draw(st.sampled_from([1, 2]), label="turn cap")
+    lane_order = draw(st.sampled_from(("reset", "fill")), label="Claude lane order")
     sensors = {}                                    # lane -> (cycle, phase, utilization)
     for lane_id in CODEX:
         if draw(st.sampled_from([True, False, False]), label=f"{lane_id} measured"):
@@ -938,6 +939,7 @@ def test_c6_3_c26_9_admission_places_what_e053b2c_placed_pass_for_pass(tmp_path_
         Clock.at = start
         fleets = {"new": (new, new_harness, new_patch), "old": (old, old_harness, old_patch)}
         for name, (service, harness, patch) in fleets.items():
+            service.policy["admission"]["lane_order"] = {"claude": lane_order}
             service.policy["caps"].update(caps)
             service.policy.setdefault("conversations", {}).update(max_active_turns=turn_cap, turn_slots_per_lane=1)
             one_unmeasured_lane(service, harness, patch)          # a committed workdir; codex-2, codex-3 off ...
