@@ -13,7 +13,7 @@ import os
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import HealthCheck, example, given, settings, strategies as st
 
 from subfleet import alerts, capacity, desktop_app, home_paths, render
 from subfleet.capacity import DesktopIdentity, build_view
@@ -220,7 +220,9 @@ def test_c10_3_an_unlinked_org_marks_no_lane_desktop_and_every_lane_not_linked_e
     lanes = marked([claude("claude-1", EMAILS[0], desktop=True), claude("claude-2", EMAILS[1]),
                     claude("claude-3", EMAILS[2].upper()), claude("claude-4"), codex("codex-1", EMAILS[0])], app)
     assert not any(lane.get("desktop") for lane in lanes.values())
-    assert {lane_id for lane_id, lane in lanes.items() if lane.get("desktop_possible")} == {"claude-1", "claude-4"}
+    # claude-4's key names its account and org (`claude:<account uuid>:<org uuid>`), and that
+    # org is not the app's: it is linked elsewhere, so it is not possible (review r1, P1 2).
+    assert {lane_id for lane_id, lane in lanes.items() if lane.get("desktop_possible")} == {"claude-1"}
 
 
 def test_c10_3_an_org_is_linked_through_its_newest_event_not_its_oldest():
@@ -279,19 +281,27 @@ def histories(draw):
                             seconds=draw(st.integers(-5, 5)) * 600, account=uuid(draw(st.integers(0, 3)))))
     file_org = draw(st.one_of(st.none(), st.sampled_from([*ORGS, uuid(0xEE)])))
     app_sample = sample(file_org, seconds=draw(st.integers(-5, 5)) * 600) if file_org else None
-    lanes = []
+    lanes, accounts = [], {}
     for n in range(draw(st.integers(1, 7))):
-        kind = draw(st.sampled_from(["email", "email", "stranger", "pair", "codex"]))
+        kind = draw(st.sampled_from(["email", "email", "stranger", "pair", "pair", "codex"]))
         recorded = draw(st.booleans())
         if kind == "email":
-            lanes.append(claude(f"claude-{n}", draw(st.sampled_from(EMAILS).flatmap(email_variants)), desktop=recorded))
+            email = draw(st.sampled_from(EMAILS).flatmap(email_variants))
+            lanes.append(claude(f"claude-{n}", email, desktop=recorded))
+            accounts[f"claude-{n}"] = ("email", email)
         elif kind == "stranger":
             lanes.append(claude(f"claude-{n}", f"stranger{n}@example.com", desktop=recorded))
+            accounts[f"claude-{n}"] = ("email", f"stranger{n}@example.com")
         elif kind == "pair":
-            lanes.append(claude(f"claude-{n}", None, desktop=recorded))
+            # A lane enrolled with profile scope: its key is `claude:<account uuid>:<org uuid>` (C-1.4).
+            account, org = uuid(draw(st.integers(0, 3))), draw(st.sampled_from([*ORGS, uuid(0xEE)]))
+            if draw(st.booleans()):
+                account, org = account.upper(), org.upper()
+            lanes.append(claude(f"claude-{n}", None, desktop=recorded, account_key=f"claude:{account}:{org}"))
+            accounts[f"claude-{n}"] = ("pair", account.lower(), org.lower())
         else:
             lanes.append(codex(f"codex-{n}", draw(st.sampled_from(EMAILS))))
-    return app_sample, events, lanes
+    return app_sample, events, lanes, accounts
 
 
 def expected_org(app_sample, events):
@@ -301,11 +311,16 @@ def expected_org(app_sample, events):
     return max(events, key=lambda e: (datetime.fromisoformat(e.observed_at.replace("Z", "+00:00")), e.event_id)).org
 
 
-def expected_email(org, events):
+def expected_link(org, events):
     named = [e for e in events if e.org == org]
     if not named:
         return None
-    return max(named, key=lambda e: (datetime.fromisoformat(e.observed_at.replace("Z", "+00:00")), e.event_id)).email
+    return max(named, key=lambda e: (datetime.fromisoformat(e.observed_at.replace("Z", "+00:00")), e.event_id))
+
+
+def expected_email(org, events):
+    link = expected_link(org, events)
+    return link.email if link else None
 
 
 @LAWS
@@ -314,28 +329,33 @@ def test_c10_3_invariant_1_and_2_the_apps_org_decides_and_never_guesses(history)
     """Invariant 1: with email E for the app's org, exactly the Claude lanes whose
     account is `claude:E` are `desktop`. Invariant 2: with no email, none is, and
     `desktop_possible` holds for exactly the Claude lanes not linked elsewhere."""
-    app_sample, events, lanes = history
+    app_sample, events, lanes, accounts = history
     app = resolve(app_sample, events)
     if app_sample is None and not events:
         assert app is None
         return
     org = expected_org(app_sample, events)
-    email = expected_email(org, events)
+    link = expected_link(org, events)
+    email, account = (link.email, link.account_uuid) if link else (None, None)
     assert (app.org, app.email) == (org, email)
     rows = marked(lanes, app)
-    claude_lanes = [lane for lane in lanes if lane["provider"] == "claude"]
     desktop = {lane_id for lane_id, lane in rows.items() if lane.get("desktop")}
     possible = {lane_id for lane_id, lane in rows.items() if lane.get("desktop_possible")}
+    # From each lane's recorded account, never from `owns` (review r1, P1 2): an
+    # email-keyed lane by its email, case aside; a verified lane by its org and,
+    # when the newest event naming that org gives one, its account.
+    by_email = {lane_id for lane_id, found in accounts.items()
+                if found[0] == "email" and email is not None and found[1].lower() == email.lower()}
+    by_key = {lane_id for lane_id, found in accounts.items()
+              if found[0] == "pair" and found[2] == org and (account is None or found[1] == account)}
+    assert desktop == by_email | by_key
     if email is not None:
-        assert desktop == {lane["lane_id"] for lane in claude_lanes
-                           if lane["account_key"].casefold() == f"claude:{email}".casefold()}
         assert possible == set()
     else:
-        mine = {e.email.casefold() for e in events if e.org == org}
-        other = {e.email.casefold() for e in events if e.org != org}
-        assert desktop == set()
-        assert possible == {lane["lane_id"] for lane in claude_lanes
-                            if lane["account_key"].partition(":")[2].casefold() not in other - mine}
+        mine = {e.email.lower() for e in events if e.org == org}
+        other = {e.email.lower() for e in events if e.org != org}
+        assert possible == {lane_id for lane_id, found in accounts.items()
+                            if found[0] == "email" and found[1].lower() not in other - mine}
     assert not any(rows[lane["lane_id"]].get("desktop") or rows[lane["lane_id"]].get("desktop_possible")
                    for lane in lanes if lane["provider"] != "claude")
 
@@ -345,7 +365,7 @@ def test_c10_3_invariant_1_and_2_the_apps_org_decides_and_never_guesses(history)
        st.integers(10_001, 20_000))
 def test_c10_9_invariant_3_while_the_file_answers_no_event_moves_the_org(history, org, email, minutes, event_id):
     """Invariant 3: events only add links; the file's org stands whatever their time."""
-    app_sample, events, _ = history
+    app_sample, events, _, _ = history
     if app_sample is None:
         app_sample = sample(ORGS[0])
     before = resolve(app_sample, events)
@@ -359,7 +379,7 @@ def test_c10_9_invariant_3_while_the_file_answers_no_event_moves_the_org(history
 @given(histories(), st.randoms(use_true_random=False))
 def test_c10_9_invariant_8_shuffled_events_decide_the_same(history, rng):
     """Invariant 8: shuffle the events (and the lanes); the decision does not change."""
-    app_sample, events, lanes = history
+    app_sample, events, lanes, _ = history
     first = resolve(app_sample, events)
     shuffled = list(events)
     rng.shuffle(shuffled)
@@ -469,3 +489,257 @@ def test_c10_9_while_the_app_answers_the_hint_decides_nothing():
     lanes = [claude("claude-1", EMAILS[0], label=EMAILS[0]), claude("claude-2", EMAILS[1])]
     view = build_view(lanes, now=NOW, desktop=identity)
     assert {lane["lane_id"]: lane["desktop"] for lane in view["lanes"]} == {"claude-1": False, "claude-2": True}
+
+
+# --- fix round 1 of review r1: no number in the usage file raises (ruling 1) ----------
+
+#: Each number the parser reads (`version`, a sample's `t`, `u.sd`), written as
+#: JSON text: an integer too large for a float, what Python's `json` reads as
+#: NaN and the infinities, a bool and a string.
+ODD_NUMBERS = {"10**400": "1" + "0" * 400, "NaN": "NaN", "Infinity": "Infinity", "-Infinity": "-Infinity",
+               "true": "true", "string": '"7"'}
+
+
+def usage_text(*, version: str = "2", t: str = str(T0), sd: str = "7") -> bytes:
+    return ('{"version": %s, "samples": [{"t": %s, "org": "%s", "u": {"sd": %s}}]}'
+            % (version, t, ORGS[0], sd)).encode()
+
+
+def counting_parser(monkeypatch) -> list:
+    parses, real = [], desktop_app.parse_app_usage
+    monkeypatch.setattr(desktop_app, "parse_app_usage",
+                        lambda data, **kwargs: parses.append(1) or real(data, **kwargs))
+    return parses
+
+
+@pytest.mark.parametrize("place", ["u.sd", "t", "version"])
+@pytest.mark.parametrize("name", sorted(ODD_NUMBERS))
+def test_c10_9_no_number_in_the_usage_file_raises_out_of_the_reader(tmp_path, monkeypatch, place, name):
+    """Review r1, P1 1: `u.sd` = 10**400 raised `OverflowError` out of `read_app_usage`.
+    A `u.sd` that is no finite number reads as weekly None; a sample without a
+    usable `t` is left out; a `version` other than 2 is no answer. A second
+    call on the unchanged file neither parses it nor logs again."""
+    desktop_app.forget_app_usage()
+    value = ODD_NUMBERS[name]
+    path, logs = tmp_path / "plan-usage-history.json", []
+    path.write_bytes(usage_text(**{{"u.sd": "sd"}.get(place, place): value}))
+    parses = counting_parser(monkeypatch)
+    found = desktop_app.read_app_usage(path, log=logs.append)
+    if place == "u.sd":
+        assert found == AppSample(ORGS[0], at(0), None, at(0))
+        assert logs == []
+    else:
+        assert found is None
+        assert len(logs) == 1
+    assert desktop_app.read_app_usage(path, log=logs.append) == found
+    assert len(parses) == 1 and len(logs) == (0 if place == "u.sd" else 1)
+    desktop_app.forget_app_usage()
+
+
+@pytest.mark.parametrize("error", [TypeError("x"), ArithmeticError("x"), KeyError("x"), MemoryError()])
+def test_c10_9_any_failure_in_the_parse_is_no_answer_recorded_and_logged_once(tmp_path, monkeypatch, error):
+    """Ruling 1: anything else that fails in the parse makes the file no answer,
+    recorded for that state of the file and logged once."""
+    desktop_app.forget_app_usage()
+    path, logs, calls = tmp_path / "plan-usage-history.json", [], []
+    path.write_bytes(usage([raw(ORGS[0], T0, 7)]))
+
+    def broken(data, **kwargs):
+        calls.append(1)
+        raise error
+
+    monkeypatch.setattr(desktop_app, "parse_app_usage", broken)
+    assert desktop_app.read_app_usage(path, log=logs.append) is None
+    assert desktop_app.read_app_usage(path, log=logs.append) is None
+    assert len(calls) == 1 and len(logs) == 1 and type(error).__name__ in logs[0]
+    desktop_app.forget_app_usage()
+
+
+JSON_VALUES = st.recursive(
+    st.one_of(st.none(), st.booleans(), st.integers(), st.sampled_from([10**400, -10**400]),
+              st.floats(allow_nan=True, allow_infinity=True), st.text(max_size=6)),
+    lambda inner: st.one_of(st.lists(inner, max_size=3), st.dictionaries(st.text(max_size=3), inner, max_size=3)),
+    max_leaves=8)
+PLACES = ["version", "samples", "t", "org", "u", "u.sd"]
+
+
+@settings(max_examples=400, deadline=None, derandomize=True, database=None,
+          suppress_health_check=[HealthCheck.function_scoped_fixture])
+@given(place=st.sampled_from(PLACES), value=JSON_VALUES)
+@example(place="u.sd", value=10**400)
+@example(place="u.sd", value=-10**400)
+@example(place="t", value=10**400)
+@example(place="version", value=10**400)
+@example(place="u.sd", value=float("nan"))
+def test_c10_9_any_json_value_anywhere_gives_a_sample_or_none(tmp_path, place, value):
+    """Ruling 1's property: any JSON value at `version`, at `samples`, at a
+    sample's `t`, `org` or `u`, or at `u.sd`, written with `json.dumps`, gives
+    an `AppSample` or None from `read_app_usage`, never an exception."""
+    document = {"version": 2, "samples": [{"t": T0, "org": ORGS[0], "u": {"sd": 7}}]}
+    first = document["samples"][0]
+    if place in ("version", "samples"):
+        document[place] = value
+    elif place == "u.sd":
+        first["u"]["sd"] = value
+    else:
+        first[place] = value
+    path = tmp_path / "plan-usage-history.json"
+    path.write_text(json.dumps(document))
+    desktop_app.forget_app_usage()
+    found = desktop_app.read_app_usage(path)
+    assert found is None or isinstance(found, AppSample)
+    desktop_app.forget_app_usage()
+
+
+# --- fix round 1: a lane matches the app's account by what its kind records (ruling 2) --
+
+def verified(lane_id: str, account: str, org: str, **extra) -> dict:
+    """A lane enrolled with profile scope (`adapters/claude.py`, C-1.4): its key is the identity."""
+    return {"lane_id": lane_id, "provider": "claude", "owner": "v2", "enabled": True, "desktop": False,
+            "account_key": f"claude:{account}:{org}", "identity": f"{account}:{org}", **extra}
+
+
+def flags(lanes) -> tuple[set, set]:
+    return ({lane_id for lane_id, lane in lanes.items() if lane.get("desktop")},
+            {lane_id for lane_id, lane in lanes.items() if lane.get("desktop_possible")})
+
+
+def test_c10_3_a_verified_lane_is_the_apps_by_its_account_and_org():
+    """Review r1, P1 2: a lane keyed `claude:<account uuid>:<org uuid>` is the app's
+    when its org is the app's and its account is the newest event's for that org.
+    One account under both key forms is `desktop` under both; another account in
+    the org is not, nor is the same account in another org."""
+    acct = uuid(0xC1)
+    app = resolve(sample(ORGS[0]), [event(1, ORGS[0], EMAILS[0], account=acct)])
+    lanes = marked([verified("claude-9", acct, ORGS[0]), verified("claude-8", uuid(0xC8), ORGS[0]),
+                    claude("claude-1", EMAILS[0]), verified("claude-7", acct, ORGS[1]),
+                    verified("claude-6", acct.upper(), ORGS[0].upper())], app)
+    assert flags(lanes) == ({"claude-9", "claude-1", "claude-6"}, set())
+
+
+def test_c10_3_with_the_file_alone_a_verified_lane_in_the_apps_org_is_desktop():
+    """No event names the app's org, so its account is unknown: a verified lane
+    whose key names that org is `desktop`; an email-keyed lane not linked
+    elsewhere stays `desktop_possible`; a verified lane in another org is linked
+    elsewhere and is neither."""
+    app = resolve(sample(ORGS[0]), [event(1, ORGS[1], EMAILS[1])])
+    lanes = marked([verified("claude-9", uuid(0xC1), ORGS[0]), verified("claude-8", uuid(0xC8), ORGS[1]),
+                    claude("claude-1", EMAILS[0]), claude("claude-2", EMAILS[1])], app)
+    assert flags(lanes) == ({"claude-9"}, {"claude-1"})
+
+
+def test_c10_3_a_verified_lane_in_another_org_is_never_possible():
+    """Review r1, P1 2's second effect: `lane_email` read no email from a uuid key,
+    so a verified lane in another org got `desktop_possible`."""
+    app_org, other_org, elsewhere_acct = uuid(0xAC), uuid(0xAA), uuid(0xE1)
+    lane = {"provider": "claude", "account_key": f"claude:{elsewhere_acct}:{other_org}",
+            "label": "elsewhere@example.com", "identity": f"{elsewhere_acct}:{other_org}"}
+    desktop = capacity.DesktopIdentity("unverified", app=resolve(sample(app_org), [
+        AccountEvent(1, other_org, "elsewhere@example.com", elsewhere_acct, "s1", at(0))]))
+    row = capacity.mark_desktop(dict(lane), desktop=desktop)
+    assert row["desktop"] is False and "desktop_possible" not in row
+
+
+def test_c10_3_a_codex_lane_is_never_desktop_or_possible():
+    """Only a Claude lane is the desktop app's, whatever its key holds."""
+    acct = uuid(0xC1)
+    for app in (resolve(sample(ORGS[0]), [event(1, ORGS[0], "app@example.com", account=acct)]),
+                resolve(sample(ORGS[0]), [])):
+        for lane in ({"lane_id": "codex-1", "provider": "codex", "account_key": "codex:app@example.com",
+                      "desktop": False},
+                     {"lane_id": "codex-2", "provider": "codex", "account_key": f"codex:{acct}:{ORGS[0]}",
+                      "identity": f"{acct}:{ORGS[0]}", "desktop": False}):
+            row = capacity.mark_desktop(dict(lane), desktop=DesktopIdentity("unverified", app=app))
+            assert not row.get("desktop") and not row.get("desktop_possible")
+            assert not app.owns(lane) and not app.possible(lane)
+
+
+def test_c10_3_owns_and_elsewhere_read_one_key_parser():
+    """Review r1, P3 (valid_email): `owns` kept a trailing space that `lane_email`
+    stripped, so `claude:app@example.com ` was matched for `elsewhere` but never `desktop`."""
+    app = resolve(sample(ORGS[0]), [event(1, ORGS[0], EMAILS[0])])
+    assert flags(marked([claude("claude-1", EMAILS[0] + " ")], app)) == ({"claude-1"}, set())
+    unlinked = resolve(sample(ORGS[0]), [event(1, ORGS[1], EMAILS[0])])
+    assert flags(marked([claude("claude-1", EMAILS[0] + " ")], unlinked)) == (set(), set())
+
+
+def test_c10_3_case_aside_is_lower_case_not_casefold():
+    """Review r1, P3 (casefold): `casefold` joined distinct addresses, so an event
+    for `Straße@example.com` made `claude:strasse@example.com` the desktop lane."""
+    app = resolve(sample(ORGS[0]), [event(1, ORGS[0], "Straße@example.com")])
+    lanes = marked([claude("claude-1", "strasse@example.com"), claude("claude-2", "STRASSE@example.com"),
+                    claude("claude-3", "STRAßE@example.com")], app)
+    assert flags(lanes) == ({"claude-3"}, set())
+    report = desktop_app.account_report("Straße@example.com", uuid(1), ORGS[0], "s", at(0))
+    assert desktop_app.should_record(report, [AccountEvent(1, ORGS[0], "strasse@example.com", uuid(1), "s", at(-60))],
+                                     now=NOW)
+
+
+# --- fix round 1: the P3s ---------------------------------------------------------
+
+@pytest.mark.parametrize("stamp", ["9999-12-31T23:59:59-01:00", "0001-01-01T00:00:00+01:00"])
+def test_c10_9_a_stamp_past_the_calendar_is_malformed(stamp):
+    """Review r1, P3 (malformed reports): `astimezone` sat outside the `try`."""
+    assert desktop_app.account_report(EMAILS[0], uuid(1), ORGS[0], "s", stamp, now=NOW) is None
+
+
+@pytest.mark.parametrize("value", [
+    "a\u009bb@example.com", "a‮b@example.com", "a​b@example.com", "a﻿b@example.com",
+    "a＠b@example.com", "a﹫b@example.com", "Kate@example.com", "a\udcff@example.com",
+    "a b@example.com", "a\u0085b@example.com",
+])
+def test_c10_9_an_email_is_refused_when_nfkc_changes_it_or_it_holds_a_control_format_or_space(value):
+    """Review r1, P3 (valid_email): C-10.9's excluded characters, with NFKC. A
+    lone surrogate (`os.environ` for a non-UTF-8 byte) is refused too, so the
+    store never meets it."""
+    assert desktop_app.valid_email(value) is None
+
+
+@pytest.mark.parametrize("value", ["user@example.com", "First.Last+tag@example.org", "Straße@example.com"])
+def test_c10_9_a_plain_address_still_passes(value):
+    assert desktop_app.valid_email(value) == value
+
+
+def test_c10_9_the_hook_drops_a_surrogate_email():
+    env = {desktop_app.ENTRYPOINT_NAME: desktop_app.DESKTOP_ENTRYPOINT,
+           "CLAUDE_CODE_USER_EMAIL": "a\udcff@example.com", "CLAUDE_CODE_ACCOUNT_UUID": uuid(1),
+           "CLAUDE_CODE_ORGANIZATION_UUID": uuid(2)}
+    assert desktop_app.report_from_environment(env, "sess-1", now=NOW) is None
+    env["CLAUDE_CODE_USER_EMAIL"] = "a@example.com"
+    assert desktop_app.report_from_environment(env, "sess-1", now=NOW)["email"] == "a@example.com"
+
+
+def test_c10_9_status_carries_the_org_prefix_only():
+    """Review r1, P3 (full org uuid): `daemon.status`, the timers snapshot and
+    `status.json` carried `desktop_account.org`."""
+    app = resolve(sample(ORGS[0]), [event(1, ORGS[0], EMAILS[0])])
+    summary = app.summary([claude("claude-1", EMAILS[0])])
+    assert "org" not in summary and summary["org_prefix"] == ORGS[0][:8]
+    assert ORGS[0] not in json.dumps(summary)
+
+
+def test_c10_9_only_an_integer_version_2_is_read():
+    """Review r1, P3 (parser looseness): `"version": 2.0` was read."""
+    with pytest.raises(ValueError):
+        desktop_app.parse_app_usage(b'{"version": 2.0, "samples": [{"t": %d, "org": "%s"}]}' % (T0, ORGS[0].encode()))
+
+
+@pytest.mark.parametrize("sd", [-5, 250, 100.5])
+def test_c10_9_a_weekly_percent_outside_0_to_100_is_none(sd):
+    found = desktop_app.parse_app_usage(usage([raw(ORGS[0], T0, sd)]))
+    assert (found.org, found.weekly) == (ORGS[0], None)
+
+
+def test_c10_9_a_sample_from_the_future_is_left_out(tmp_path):
+    """Review r1, P3 (parser looseness): a sample ten years ahead pinned the app's
+    org and silenced both alerts."""
+    desktop_app.forget_app_usage()
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    path = tmp_path / "plan-usage-history.json"
+    path.write_bytes(usage([raw(ORGS[1], now_ms + 10 * 365 * 86_400_000), raw(ORGS[0], now_ms - 1000)]))
+    found = desktop_app.read_app_usage(path)
+    assert found.org == ORGS[0]
+    later = desktop_app.iso(datetime.now(timezone.utc) + timedelta(seconds=-1))
+    app = resolve(found, [AccountEvent(1, ORGS[2], EMAILS[2], uuid(1), "s", later)])
+    assert app.disagree_since == later
+    desktop_app.forget_app_usage()

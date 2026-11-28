@@ -38,6 +38,10 @@ def uuid(n: int) -> str:
 
 
 ORGS = [uuid(0xA0 + n) for n in range(3)]
+#: The accounts a fleet's lanes and the hook's events are drawn from, so a lane
+#: keyed by its identity (`claude:<account uuid>:<org uuid>`) can be the app's.
+ACCOUNTS = [uuid(0xC0 + n) for n in range(3)]
+LANE_ORGS = [*ORGS, uuid(9)]
 
 
 def frozen(name: str):
@@ -68,17 +72,24 @@ def policy(spread=2):
 
 @st.composite
 def fleets(draw):
-    lanes, readings, in_flight = [], [], {}
+    """Lanes, readings and in-flight counts, and for each lane the account it
+    stands for (`email`, `account` and `org`) and which form its key records it
+    under: `claude:<email>` (any case) or `claude:<account uuid>:<org uuid>`
+    (any case), as a lane enrolled without or with profile scope records it."""
+    lanes, readings, in_flight, accounts = [], [], {}, {}
     for n in range(draw(st.integers(1, 6))):
         provider = draw(st.sampled_from(["claude", "claude", "codex"]))
         lane_id = f"{provider}-{n}"
         email = draw(st.sampled_from(EMAILS))
-        key = draw(st.sampled_from([f"{provider}:{email}", f"{provider}:{email.upper()}",
-                                    f"{provider}:{uuid(n)}:{uuid(9)}"]))
+        account, org = draw(st.sampled_from(ACCOUNTS)), draw(st.sampled_from(LANE_ORGS))
+        form = draw(st.sampled_from(["email", "email-upper", "pair", "pair-upper"]))
+        key = {"email": f"{provider}:{email}", "email-upper": f"{provider}:{email.upper()}",
+               "pair": f"{provider}:{account}:{org}", "pair-upper": f"{provider}:{account.upper()}:{org.upper()}"}[form]
+        accounts[lane_id] = {"email": email, "account": account, "org": org, "form": form.partition("-")[0]}
         lanes.append({"lane_id": lane_id, "provider": provider, "owner": draw(st.sampled_from(["v2", "v2", "v1"])),
                       "enabled": draw(st.sampled_from([True, True, False])), "desktop": draw(st.booleans()), "account_key": key,
                       "home": f"/lanes/{lane_id}", "label": draw(st.sampled_from([None, email])),
-                      "identity": draw(st.sampled_from([None, f"{uuid(n)}:{uuid(9)}"]))})
+                      "identity": draw(st.sampled_from([None, f"{account}:{org}"]))})
         for window in ("seven_day", "five_hour"):
             if draw(st.booleans()):
                 readings.append({"lane_id": lane_id, "scope": "account", "window": window,
@@ -87,7 +98,7 @@ def fleets(draw):
                                  "observed_at": at(-draw(st.sampled_from([0, 30, 600]))), "label": "provider",
                                  "source": "usage"})
         in_flight[lane_id] = draw(st.integers(0, 5))
-    return lanes, readings, in_flight
+    return lanes, readings, in_flight, accounts
 
 
 @st.composite
@@ -99,8 +110,8 @@ def identities(draw, module):
     if kind == "hint":
         return None, draw(st.sampled_from(EMAILS))
     if kind == "verified":
-        n = draw(st.integers(0, 5))
-        return module.DesktopIdentity("verified", f"{uuid(n)}:{uuid(9)}", draw(st.sampled_from(EMAILS))), None
+        identity = f"{draw(st.sampled_from(ACCOUNTS))}:{draw(st.sampled_from(LANE_ORGS))}"
+        return module.DesktopIdentity("verified", identity, draw(st.sampled_from(EMAILS))), None
     return module.DesktopIdentity("unverified", None, None, draw(st.sampled_from([None, *EMAILS])),
                                   draw(st.sampled_from([None, *EMAILS]))), None
 
@@ -142,7 +153,7 @@ def test_c10_9_invariant_6_without_the_signals_every_decision_equals_base(data, 
     """Invariant 6: with no app answer, `build_view` and `evaluate` give exactly
     release/217's view and decision, the ranking included."""
     base_capacity, base_scheduler = frozen("capacity"), frozen("scheduler")
-    lanes, readings, in_flight = fleet
+    lanes, readings, in_flight, _ = fleet
     old_identity, hint = data.draw(identities(base_capacity))
     assert resolve(None, []) is None                    # what the daemon reads with neither signal
     new_identity = same_identity(capacity, old_identity)
@@ -229,15 +240,16 @@ def test_c11_3_a_possible_lane_with_more_room_still_sorts_after_one_known_elsewh
 
 @st.composite
 def app_answers(draw):
+    """The app's answer, and the events it was resolved from."""
     events = []
     for event_id in range(1, draw(st.integers(0, 4)) + 1):
-        events.append(AccountEvent(event_id, draw(st.sampled_from(ORGS)), draw(st.sampled_from(EMAILS)), uuid(event_id),
-                                   "s", at(-draw(st.integers(0, 10)) * 60)))
+        events.append(AccountEvent(event_id, draw(st.sampled_from(ORGS)), draw(st.sampled_from(EMAILS)),
+                                   draw(st.sampled_from(ACCOUNTS)), "s", at(-draw(st.integers(0, 10)) * 60)))
     file_org = draw(st.one_of(st.none(), st.sampled_from(ORGS)))
     app_sample = AppSample(file_org, at(-30), 5.0, at(-30)) if file_org else None
     if app_sample is None and not events:
         app_sample = AppSample(ORGS[0], at(-30), 5.0, at(-30))
-    return resolve(app_sample, events)
+    return resolve(app_sample, events), events
 
 
 @LAWS
@@ -248,8 +260,24 @@ def test_c10_9_invariant_7_the_signals_change_ranking_and_the_in_use_refusal_onl
     refusal (`desktop`), which follows the desktop account: with the signals it
     is on exactly the Claude lanes the app's org's email names, while Claude
     Code uses the desktop login (or that is unknown) and the job lacks
-    `allow_desktop`; without them, on the lanes the profile and hint rule names."""
-    lanes, readings, in_flight = fleet
+    `allow_desktop`; without them, on the lanes the profile and hint rule names.
+
+    Which lanes the app's account is comes from each lane's recorded account,
+    never from `owns` (review r1, P1 2): an email-keyed lane by its email, case
+    aside; a lane keyed by its identity by its org and, when the newest event
+    naming the app's org gives one, its account."""
+    lanes, readings, in_flight, accounts = fleet
+    app, events = app
+    named = [event for event in events if event.org == app.org]
+    link = max(named, key=lambda event: (event.observed_at, event.event_id)) if named else None
+    app_email, app_account = (link.email, link.account_uuid) if link else (None, None)
+
+    def the_apps(lane_id):
+        found = accounts[lane_id]
+        if found["form"] == "email":
+            return app_email is not None and found["email"].lower() == app_email.lower()
+        return found["org"] == app.org and (app_account is None or found["account"] == app_account)
+
     old_identity, hint = data.draw(identities(capacity))
     job = job_for(data.draw, lanes)
     rules = policy(2)
@@ -276,6 +304,5 @@ def test_c10_9_invariant_7_the_signals_change_ranking_and_the_in_use_refusal_onl
             # Only a Claude lane is the desktop app's; any other keeps its recorded flag either way.
             assert ("desktop" in found) == ("desktop" in before[lane_id])
             continue
-        owned = app.owns(lane)
-        assert ("desktop" in found) == (owned and in_use is not False and not job["allow_desktop"])
+        assert ("desktop" in found) == (the_apps(lane_id) and in_use is not False and not job["allow_desktop"])
     assert {lane for lane, found in after.items() if not found} == set(new["candidates"])
