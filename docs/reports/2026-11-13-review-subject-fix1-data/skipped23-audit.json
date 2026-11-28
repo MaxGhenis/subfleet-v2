@@ -1,0 +1,144 @@
+{
+  "counts": {
+    "reviewed": 23,
+    "restore": 3,
+    "conditional": 1,
+    "exclude": 19
+  },
+  "files": [
+    {
+      "path": "tests/e2e/test_conversations.py",
+      "recommendation": "exclude",
+      "reason": "Live-process restriction: real peers.process_chain executes ps -axo over the host table and ps -Ewwp for the peer and all ancestors. Synthetic HOME/providers do not isolate the pre-existing ancestry."
+    },
+    {
+      "path": "tests/fake/test_review_launch_permissions.py",
+      "recommendation": "restore",
+      "reason": "Safe whole file: protected() only constructs a launch. hook_self_test executes the hook executable with command text in JSON as data; it never invokes gh. Host-publish tests refuse before intake. Other cases use synthetic repositories and frames."
+    },
+    {
+      "path": "tests/process/test_census_hidden_environment_process.py",
+      "recommendation": "exclude",
+      "reason": "Live-process restriction: restores real kernel/daemon containment census over the host table (and descendant signaling). Though only its test children are signaled, the table/marker census reads unrelated pre-existing processes."
+    },
+    {
+      "path": "tests/process/test_census_responsibility_process.py",
+      "recommendation": "exclude",
+      "reason": "Live-process restriction: restores real kernel/daemon containment census over the host table (and descendant signaling). Though only its test children are signaled, the table/marker census reads unrelated pre-existing processes."
+    },
+    {
+      "path": "tests/process/test_kill4_fix1_process.py",
+      "recommendation": "exclude",
+      "reason": "Live-process restriction: restores real kernel/daemon containment census over the host table (and descendant signaling). Though only its test children are signaled, the table/marker census reads unrelated pre-existing processes."
+    },
+    {
+      "path": "tests/process/test_provider_shell_environment.py",
+      "recommendation": "conditional",
+      "reason": "No listed forbidden command is present. Source gives real installed CLIs synthetic HOME/config and localhost mock APIs with dummy auth. Retaining a skip follows the coordinator real-provider exclusion, rather than an explicit user ban on this file. Include only with controlled executable resolution: this source uses shutil.which on the inherited test PATH, so the actual executable/wrapper is not established by static inspection."
+    },
+    {
+      "path": "tests/process/test_quar_start1_process.py",
+      "recommendation": "exclude",
+      "reason": "Live-process restriction: restores real kernel/daemon containment census over the host table (and descendant signaling). Though only its test children are signaled, the table/marker census reads unrelated pre-existing processes."
+    },
+    {
+      "path": "tests/unit/test_gate_merge.py",
+      "recommendation": "exclude",
+      "reason": "Explicit write-shaped-command rule: successful MergeActions paths generate gh pr merge through FakeGh runners. Stubs are explicitly covered by the brief."
+    },
+    {
+      "path": "tests/unit/test_gate_service.py",
+      "recommendation": "exclude",
+      "reason": "Explicit write-shaped-command rule: successful MergeActions paths generate gh pr merge through FakeGh runners. Stubs are explicitly covered by the brief."
+    },
+    {
+      "path": "tests/unit/test_host_push.py",
+      "recommendation": "exclude",
+      "reason": "Explicit write-shaped-command rule: tests depend on test_host_push.worlds(), whose setup runs git push origin <synthetic-head>:refs/heads/trunk, even before a test-specific refusal. The local file:// destination does not exempt git push."
+    },
+    {
+      "path": "tests/unit/test_host_push_admission.py",
+      "recommendation": "exclude",
+      "reason": "Explicit write-shaped-command rule: tests depend on test_host_push.worlds(), whose setup runs git push origin <synthetic-head>:refs/heads/trunk, even before a test-specific refusal. The local file:// destination does not exempt git push."
+    },
+    {
+      "path": "tests/unit/test_host_push_build.py",
+      "recommendation": "exclude",
+      "reason": "Explicit write-shaped-command rule: tests depend on test_host_push.worlds(), whose setup runs git push origin <synthetic-head>:refs/heads/trunk, even before a test-specific refusal. The local file:// destination does not exempt git push."
+    },
+    {
+      "path": "tests/unit/test_host_push_build_budget.py",
+      "recommendation": "exclude",
+      "reason": "Explicit write-shaped-command rule: tests depend on test_host_push.worlds(), whose setup runs git push origin <synthetic-head>:refs/heads/trunk, even before a test-specific refusal. The local file:// destination does not exempt git push."
+    },
+    {
+      "path": "tests/unit/test_host_push_cli.py",
+      "recommendation": "restore",
+      "reason": "Safe whole file: fake AF_UNIX daemon receives push_branch as payload. No git process or host-push worlds fixture is used."
+    },
+    {
+      "path": "tests/unit/test_host_push_metadata.py",
+      "recommendation": "exclude",
+      "reason": "Explicit write-shaped-command rule: tests depend on test_host_push.worlds(), whose setup runs git push origin <synthetic-head>:refs/heads/trunk, even before a test-specific refusal. The local file:// destination does not exempt git push."
+    },
+    {
+      "path": "tests/unit/test_host_push_mutations.py",
+      "recommendation": "exclude",
+      "reason": "Explicit write-shaped-command rule: tests depend on test_host_push.worlds(), whose setup runs git push origin <synthetic-head>:refs/heads/trunk, even before a test-specific refusal. The local file:// destination does not exempt git push."
+    },
+    {
+      "path": "tests/unit/test_host_push_quarantine_restart.py",
+      "recommendation": "restore",
+      "reason": "Safe whole file: temporary Daemon constructors with synthetic identity readers clean fixture intake directories. No repository is pushed and no worlds fixture is imported."
+    },
+    {
+      "path": "tests/unit/test_host_push_restart.py",
+      "recommendation": "exclude",
+      "reason": "Explicit write-shaped-command rule: tests depend on test_host_push.worlds(), whose setup runs git push origin <synthetic-head>:refs/heads/trunk, even before a test-specific refusal. The local file:// destination does not exempt git push."
+    },
+    {
+      "path": "tests/unit/test_host_push_storage_recovery.py",
+      "recommendation": "exclude",
+      "reason": "Explicit write-shaped-command rule: tests depend on test_host_push.worlds(), whose setup runs git push origin <synthetic-head>:refs/heads/trunk, even before a test-specific refusal. The local file:// destination does not exempt git push."
+    },
+    {
+      "path": "tests/unit/test_host_push_storage_retry_budget.py",
+      "recommendation": "exclude",
+      "reason": "Explicit write-shaped-command rule: tests depend on test_host_push.worlds(), whose setup runs git push origin <synthetic-head>:refs/heads/trunk, even before a test-specific refusal. The local file:// destination does not exempt git push."
+    },
+    {
+      "path": "tests/unit/test_host_push_store_completion_pr183.py",
+      "recommendation": "exclude",
+      "reason": "Explicit write-shaped-command rule: tests depend on test_host_push.worlds(), whose setup runs git push origin <synthetic-head>:refs/heads/trunk, even before a test-specific refusal. The local file:// destination does not exempt git push."
+    },
+    {
+      "path": "tests/unit/test_host_push_store_interleavings.py",
+      "recommendation": "exclude",
+      "reason": "Explicit write-shaped-command rule: tests depend on test_host_push.worlds(), whose setup runs git push origin <synthetic-head>:refs/heads/trunk, even before a test-specific refusal. The local file:// destination does not exempt git push."
+    },
+    {
+      "path": "tests/unit/test_host_push_validated_top.py",
+      "recommendation": "exclude",
+      "reason": "Explicit write-shaped-command rule: tests depend on test_host_push.worlds(), whose setup runs git push origin <synthetic-head>:refs/heads/trunk, even before a test-specific refusal. The local file:// destination does not exempt git push."
+    }
+  ],
+  "safe_node_selectors_in_mixed_files": [
+    "tests/unit/test_host_push_metadata.py::test_both_layouts_read_as_data",
+    "tests/unit/test_host_push_metadata.py::test_each_metadata_path_refuses_promptly",
+    "tests/unit/test_host_push_store_completion_pr183.py::test_generated_preparation_pass_completion_cancel_restart_interleavings",
+    "tests/unit/test_host_push_store_interleavings.py::test_busy_store_completion_cancel_pass_restart_interleavings",
+    "tests/unit/test_host_push_storage_retry_budget.py::test_completion_storage_fault_retries_atomic_ownership_once",
+    "tests/unit/test_host_push_storage_retry_budget.py::test_completion_does_not_retry_unknown_or_permanent_storage_codes",
+    "tests/unit/test_host_push_storage_retry_budget.py::test_cancellation_clears_pending_storage_budget",
+    "tests/unit/test_host_push_storage_retry_budget.py::test_completion_retries_last_the_window_not_just_the_count",
+    "tests/unit/test_host_push_storage_retry_budget.py::test_completion_fails_once_window_and_count_are_both_spent",
+    "tests/unit/test_host_push_storage_retry_budget.py::test_a_completion_write_failure_s_notice_names_its_class_only",
+    "tests/unit/test_host_push_build_budget.py::test_production_gate_never_queues_two_unconsumed_builds",
+    "tests/unit/test_host_push_build_budget.py::test_mutation_removing_global_preparation_gate_is_caught",
+    "tests/unit/test_host_push_build_budget.py::test_fast_completions_still_offer_only_one_build_per_pass",
+    "tests/unit/test_host_push_build_budget.py::test_mutation_removing_per_pass_offer_limit_is_caught",
+    "tests/unit/test_host_push_build_budget.py::test_mutation_forgetting_prior_pass_completion_spends_offer_is_caught",
+    "tests/unit/test_host_push_build_budget.py::test_midpass_failed_future_is_retained_until_startup_classifies_it"
+  ],
+  "safe_nodes_note": "Static review only; no tests run. These selectors do not request worlds or queued_admission_template, so importing the fixture module does not execute its setup push."
+}

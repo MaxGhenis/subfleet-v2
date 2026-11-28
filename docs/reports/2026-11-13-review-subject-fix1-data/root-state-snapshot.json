@@ -1,0 +1,59 @@
+{
+  "start": "2026-11-15T23:13:39Z",
+  "deadline": "2026-11-16T03:13:39Z",
+  "head": "5b06c1826bc0641f65b1293197a505b8c8a4843a",
+  "focused_passed": 421,
+  "new_red_green_cases": 40,
+  "batch0_session": 86217,
+  "batch0_count": 1779,
+  "batch0_files": 27,
+  "batch0_failure": "tests/unit/test_store_readers.py::test_close_waits_for_a_read_in_progress_and_refuses_later_ones",
+  "next": "Batch12full202 -> extras11 (runpyinstallfrontendhelper thenDIRECTuv) -> mixed16 (DIRECTuv, -p sf_fix1_mixed exactnodes) -> final4 -> render/copy/guardremoval/cleanup/report",
+  "commits": "all blocked index.lock; all changes unstaged",
+  "scratch": "/private/tmp/sf-a2-fix1",
+  "report": "docs/reports/2026-11-13-review-subject.md appended Fix round1 draft; final evidence pending",
+  "remaining_exclusions": 23,
+  "source_modules": [
+    "subfleet.cli",
+    "subfleet.protocol",
+    "subfleet.store",
+    "subfleet.daemon",
+    "subfleet.review_subject",
+    "subfleet.sessions.client",
+    "subfleet.conversations.service"
+  ],
+  "cleanup": "Need log outside paths from outside.jsonl, early unrecorded fixture-root deviations known. At end record .venv/.pytest_cache/__pycache__ roots then move into scratch/dispose and guarded-rmtree asserting sf-a2-fix1. Copy ledger and selection lists into docs/reports/...fix1-data before scratch deletion.",
+  "active_session": 99937,
+  "batch1": {
+    "passed": 2332,
+    "failed": 1,
+    "xfailed": 8,
+    "fix": "nonreview resume metadata validation before source inheritance; full validation+resume31passed"
+  },
+  "guard_active": true,
+  "prune_recheck": {
+    "passed": 35,
+    "skipped": 1
+  },
+  "guard_installations": "/private/tmp/sf-a2-fix1/guard-installations.jsonl",
+  "guard_v2_prepared": true,
+  "primary_source_findings": "1-8fixed; prune217stalefixturesfixed (35pass1guard-skip)",
+  "unsafe_deviations": "EarlierhookpsattemptSKIPPED(sandbox); earlieroneconfirmedtemporarysecurity-standinexec; processbackedfakecensuspossiblepath latefound; haltedbatch10 thennativeguard",
+  "batch11_known_failures": {
+    "fake_helper_scope": 8,
+    "retention_archive": 55,
+    "retention_case_alias": 4,
+    "salvage_native_git_wrapper": 1
+  },
+  "deadline_test": "2026-11-16T02:25:00Z",
+  "guard_version": "v2",
+  "batch11": {
+    "passed": 4765,
+    "failed": 188,
+    "skipped": 109,
+    "xfailed": 52,
+    "unfinished": 11,
+    "manual_elapsed_observed_span": 834.9
+  },
+  "guard_exclusions_additional": 21
+}

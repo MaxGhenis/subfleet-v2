@@ -101,6 +101,14 @@ class Sessions:
         refused re-send is this call's own and is the answer; an id the
         operator supplied keeps the refusal, naming the job (C-16.3).
         """
+        # Handoff and revive use this boundary instead of `run`; they still
+        # submit on behalf of the CLI's current model caller (C-6.21).
+        from ..cli import _require_review_capability, _review_caller_family
+        try:
+            args = dataclasses.replace(args, caller_family=_review_caller_family(args.task, args.caller_family))
+        except ValueError as exc:
+            raise ProtocolError(str(exc), reason="caller-family") from exc
+        _require_review_capability(self.client, args)
         return self.client.call_settled("submit", _asdict(args), request_id=args.request_id,
                                         minted=minted, on_lost=self.on_lost)
 

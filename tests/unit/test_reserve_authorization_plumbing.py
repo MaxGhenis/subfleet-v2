@@ -39,6 +39,10 @@ def test_job_spec_requires_no_authorization_by_default():
 def version_4_store(tmp_path):
     path = tmp_path / "state.sqlite3"
     schema = Path(store_module.__file__).with_name("store_schema.sql").read_text()
+    # A schema-4 jobs declaration has no review_subject yet. Its index is
+    # installed with the current DDL after migration adds that column.
+    schema = "\n".join(line for line in schema.splitlines()
+                       if not line.startswith("CREATE INDEX IF NOT EXISTS jobs_review_subject "))
     old_jobs = (Path(__file__).parents[1] / "fixtures/store/version-4-jobs.sql").read_text()
     # Create jobs first from a frozen historical declaration. The current
     # schema's CREATE IF NOT EXISTS leaves it untouched and supplies other tables.
@@ -69,7 +73,7 @@ def test_migration_preserves_old_jobs_without_authorizing_them(version_4_store):
         assert store.one("SELECT provider_qos FROM jobs WHERE job_id='old'")["provider_qos"] is None
         assert set(after) - set(before) == {"unmeasured_reserve_reason", "mcp_servers", "push_branch", "push_remote",
                                             "push_default_branch", "push_sha", "push_error", "needs_shell",
-                                            "provider_qos"}
+                                            "provider_qos", "caller_family", "review_subject", "review_round"}
         store.add_job(job_id="authorized", request_id="new-request", payload_digest="new",
                       kind="dispatch", workdir="/work", prompt_path="/prompt", sandbox="read-only",
                       pinned_model="fable", pinned_lane="claude-1", unmeasured_reserve_reason=REASON)
