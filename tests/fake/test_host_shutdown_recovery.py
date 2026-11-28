@@ -496,14 +496,14 @@ def test_c4_7_a_replay_keeps_the_verdict_finalization_pinned(rebooted, monkeypat
     the same class, though this daemon's facts alone would no longer say so."""
     daemon, harness = rebooted(lock=lock_record())
     job_id = daemon.dispatch("submit", harness.submit_args())["job_id"]
-    real = host_shutdown.retry_after
+    real = host_shutdown.charged_now
 
-    def lost_commit(**kwargs):
+    def lost_commit(*args, **kwargs):
         raise sqlite3.OperationalError("disk I/O error")
-    monkeypatch.setattr(host_shutdown, "retry_after", lost_commit)
+    monkeypatch.setattr(host_shutdown, "charged_now", lost_commit)
     with pytest.raises(sqlite3.OperationalError):
         run_attempt(daemon, job_id, rc=143)
-    monkeypatch.setattr(host_shutdown, "retry_after", real)
+    monkeypatch.setattr(host_shutdown, "charged_now", real)
     [attempt] = daemon.store.list_attempts(job_id)
     assert attempt["state"] == "finalizing"
     # Another restart: a later boot, long after, and a daemon.lock from this one.
