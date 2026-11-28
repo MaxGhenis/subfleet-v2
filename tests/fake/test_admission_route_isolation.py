@@ -902,10 +902,14 @@ def test_c6_12_a_policy_edit_that_moves_a_tier_to_another_provider_waits_and_fai
     assert service.store.get_job(same)["state"] == "failed"
 
 
-def test_c6_12_a_refused_writable_job_leaves_no_worktree(incident, tmp_path):
+def test_c6_12_a_refused_writable_job_leaves_no_worktree(incident, tmp_path, monkeypatch):
     """C-6.12 admission cut `worktrees/<job>` before it evaluated the route; a refusal removes it."""
     from tests.unit.test_salvage import git
     service, harness = incident
+    # Routing state has no launched attempt or add holders. C-6.8's actual
+    # process-table boundary is exercised separately, not by this route test.
+    monkeypatch.setattr(daemon_module.procs, "containment",
+                        lambda *args, **kwargs: daemon_module.procs.Containment())
     repo = tmp_path / "repo"
     repo.mkdir()
     git(repo, "init", "-b", "task/example")

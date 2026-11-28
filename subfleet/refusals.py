@@ -119,6 +119,13 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     # C-6.20: a tree that needs cutting again while a lock, whoever took it, stands on its registration.
     "worktree-locked": ("the job's worktree needs cutting again and a lock stands on its registration",
                         "run git worktree unlock on it, then submit again"),
+    "worktree-unproven": ("the job's worktree could not be proved safe to rebuild; daemon.log has details",
+                           "preserve any work there and resolve the worktree before submitting again"),
+    # C-6.8: entries git 2.55 would refuse, so the add could not carry its pinned `core.fsmonitor=false`.
+    "worktree-git-config": ("git would refuse the daemon's GIT_CONFIG_COUNT entries, so no worktree can be "
+                            "added; daemon.log has git's reason",
+                            "correct or remove GIT_CONFIG_COUNT and its GIT_CONFIG_KEY_<n> and "
+                            "GIT_CONFIG_VALUE_<n> entries where the daemon is started, then restart it"),
     # D-SH1 round 6 (C-6.6): a policy review's copy of its caller's uncommitted work.
     "uncommitted-copy": ("the caller's uncommitted files changed while they were copied", "submit again"),
     "uncommitted-apply": ("the caller's uncommitted changes could not be copied into the worktree",
