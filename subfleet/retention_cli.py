@@ -1,6 +1,6 @@
-"""`subfleet retention archives | restore | survey | outcomes | delete | offload | recall` (C-17.1, C-8.7, C-8.8, design d635).
+"""`subfleet retention` (C-17.1, C-8.6, C-8.7, C-8.8, design d635).
 
-All but `delete` run offline, without the daemon: `archives` lists what
+The offline verbs work over the state root. `archives` lists what
 retention has archived, `restore` puts an archive back (it touches only its
 destinations and the archive's lock file), `survey` is a read-only dry run of
 retention over the state root, `outcomes` reads a session's retired unread job
@@ -9,7 +9,8 @@ volume, and `recall` brings them back (`retention_offload`). `delete` asks the
 daemon to remove the kept trees of an
 operator-approved list of finished jobs (`retention_delete`, decision d2660):
 `--dry-run` says what it would do, `--apply` does it, `--status` and `--stop`
-read and end it.
+read and end it. `retire` asks the daemon to retire named finished jobs ahead
+of their pool's budget or to withdraw that request.
 """
 from __future__ import annotations
 
@@ -23,10 +24,13 @@ from .contracts import Exit
 
 #: How often a followed `delete` reads the daemon's record.
 DELETE_POLL_S = 2.0
+#: C-8.6: the outcomes for which the request is settled.
+SETTLED = {"requested", "already-requested", "withdrawn", "not-requested", "retired"}
 
 
 def add_verbs(sub) -> None:
-    parser = sub.add_parser("retention", help="archives of retired jobs: list, restore, survey, outcomes, delete, offload, recall")
+    parser = sub.add_parser("retention",
+                            help="archives of retired jobs: list, restore, survey, outcomes, delete, retire, offload, recall")
     verbs = parser.add_subparsers(dest="retention_command")
     parser.set_defaults(handler=cmd_retention, retention_command=None)
     listing = verbs.add_parser("archives", help="every archive retention has written")
@@ -78,6 +82,12 @@ def add_verbs(sub) -> None:
     delete.add_argument("--detach", action="store_true",
                         help="start it and return at once instead of following it; read it with --status")
     delete.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
+    retire = verbs.add_parser("retire", help="retire finished jobs ahead of the budget (asks the daemon)")
+    retire.add_argument("ids", nargs="+", metavar="JOB")
+    retire.add_argument("--withdraw", action="store_true", help="take the request back")
+    retire.add_argument("--dry-run", action="store_true", help="show what a request would do without recording it")
+    retire.add_argument("--reason", help="recorded with the request")
+    retire.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
 
 
 def cmd_retention(args: argparse.Namespace) -> int:
@@ -87,6 +97,8 @@ def cmd_retention(args: argparse.Namespace) -> int:
     as_json = getattr(args, "json", False)
     if command == "delete":
         return _delete(args, as_json)
+    if command == "retire":
+        return _retire(args, as_json)
     root = state_root()
     if command == "outcomes":
         from .retention_notices import OutcomesLookupError, archived_outcomes
@@ -284,3 +296,72 @@ def _delete(args: argparse.Namespace, as_json: bool) -> int:
         return _daemon_error(exc)
     except protocol.ProtocolError as exc:
         return _protocol_failure(exc)
+
+
+def _retire_line(row: dict) -> str:
+    outcome = row["outcome"]
+    words = {"requested": "requested", "already-requested": f"already requested at {row.get('requested_at')}",
+             "withdrawn": "request withdrawn", "not-requested": "no request stands",
+             "not-finished": f"not finished ({row.get('state')}): nothing recorded",
+             "retired": f"retired at {row.get('retired_at')}" + (f" (archive {row['archive']})"
+                                                                 if row.get("archive") else ""),
+             "unknown": "unknown job"}.get(outcome, outcome)
+    held = []
+    if row.get("retiring"):
+        held.append("retiring now: retention has it in flight")
+    if row.get("kept"):
+        held.append(f"kept while pinned: {row['kept']}")
+    if deferred := row.get("deferred"):
+        held.append(f"deferred {deferred['for_s']} s more: {deferred['reason']}")
+    if row.get("pins_unread"):
+        held.append(f"pins not read ({row['pins_unread']}); a pass reads them")
+    return "; ".join([f"{row['job_id']}  {words}", *held])
+
+
+def _retire(args: argparse.Namespace, as_json: bool) -> int:
+    """`retention retire` sends the request to the daemon that writes the store."""
+    from . import protocol
+    from .cli import (RESTART_DAEMON, START_DAEMON, _client, _daemon_error, _protocol_failure,
+                      emit, fail, note, out, session_id)
+    from .client import DaemonError, DaemonUnavailable, OutcomeUnknown
+    ids = list(dict.fromkeys(args.ids))
+    if len(ids) > protocol.RETIRE_MAX_JOBS:
+        return fail(Exit.INVALID_INPUT, f"retention retire: at most {protocol.RETIRE_MAX_JOBS} jobs a request")
+    if args.reason is not None and len(args.reason) > protocol.RETIRE_REASON_MAX:
+        return fail(Exit.INVALID_INPUT,
+                    f"retention retire: --reason holds at most {protocol.RETIRE_REASON_MAX} characters")
+    request = {"job_ids": ids, "withdraw": args.withdraw, "dry_run": args.dry_run,
+               "reason": args.reason, "session_id": session_id()}
+    try:
+        result = _client(args).call_settled("retention.retire", request)
+    except DaemonUnavailable as exc:
+        return fail(Exit.DAEMON_UNAVAILABLE, f"retention retire: only the daemon records a request ({exc})",
+                    getattr(exc, "fix", None) or START_DAEMON)
+    except OutcomeUnknown as exc:
+        if as_json:
+            emit({"jobs": None, "outcome": "unknown", "error": str(exc)})
+        return fail(Exit.OPERATIONAL, f"retention retire: no answer says whether the request was recorded "
+                                      f"({'; then '.join(exc.reasons)})",
+                    "run the same command again, which is safe: it records nothing twice")
+    except DaemonError as exc:
+        if protocol.UNKNOWN_OP in str(exc):
+            return fail(Exit.DAEMON_UNAVAILABLE, "retention retire: this daemon predates retire requests (C-8.6); "
+                                                 "it is older than this CLI", RESTART_DAEMON)
+        return _daemon_error(exc)
+    except protocol.ProtocolError as exc:
+        return _protocol_failure(exc)
+    rows = result.get("jobs") or []
+    if as_json:
+        emit(result)
+    else:
+        for row in rows:
+            out(_retire_line(row))
+        if result.get("dry_run"):
+            note("retention retire: dry run: nothing was recorded")
+        elif result.get("recorded") and not result.get("withdraw"):
+            note("retention retire: retention takes requested jobs on its next pass, which starts now; "
+                 "re-run with --dry-run to follow them")
+        if (result.get("retention") or {}).get("dormant"):
+            note("retention retire: retention is dormant (SUBFLEET_RETENTION_DORMANT=1): no pass acts on a "
+                 "request until the daemon runs without it")
+    return int(Exit.OK) if all(row.get("outcome") in SETTLED for row in rows) else int(Exit.REFUSED)

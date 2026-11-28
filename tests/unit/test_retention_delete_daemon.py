@@ -69,6 +69,7 @@ def partial(path, *, due: bool = False, policy: dict | None = None) -> Daemon:
     d = object.__new__(Daemon)
     d._retention_delete = path
     d._last_maintenance = time.monotonic() - (RETENTION_INTERVAL_S + 5 if due else 0)
+    d._retire_lock = threading.Lock()
     d.policy = policy if policy is not None else {}
     d._unrun_lock = threading.Lock()
     d._unrun_dirty = False

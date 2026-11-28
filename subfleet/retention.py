@@ -18,7 +18,9 @@ does not hold, and the archive is read back before the job's rows go. A pass:
 1. finishes what earlier passes committed (verified deletion, resumable);
 2. picks the oldest unpinned jobs of each pool over its budget, a bounded batch,
    without sizing the whole tree first (sizes are measured lazily, cached, and
-   only a lower bound is needed to know a pool is over);
+   only a lower bound is needed to know a pool is over). Eligible jobs with
+   orphan leases go first, then jobs requested for retirement (C-8.6), then the
+   rest. A standing request makes its job eligible even within budget;
 3. quarantines them, then takes one process listing for the whole pass: it
    checks that nothing holds the jobs just quarantined (check 1) and the jobs
    whose archive ended in an earlier pass (check 2), and each of the latter
@@ -86,6 +88,9 @@ FENCE_STALE_S = 600.0
 #: doubling on each failure up to `SIZE_ERROR_MAX_S` (review of a9a6cbf4, N2).
 SIZE_ERROR_S = 3600.0
 SIZE_ERROR_MAX_S = 24 * 3600.0
+#: C-8.6: the events that request retirement and withdraw a request.
+RETIRE_REQUESTED = "job.retire_requested"
+RETIRE_WITHDRAWN = "job.retire_withdrawn"
 
 
 class _Interrupted(Exception):
@@ -384,6 +389,46 @@ def _pins(store: Store, explicit: set[str], landed_salvage: set[int], *,
                             notice_keep_s=notice_keep_s))
 
 
+# --- retirement on request (C-8.6) ------------------------------------------------
+
+def retire_requests(query: Callable[..., list[dict[str, Any]]],
+                    job_id: str | None = None) -> dict[str, dict[str, Any]]:
+    """Read standing requests by event id, keeping their data and recording time.
+
+    Requests and withdrawals require a string `created_at`. A withdrawal clears
+    the standing request only when it names the same `created_at`.
+    """
+    standing: dict[str, dict[str, Any]] = {}
+    if job_id is None:
+        sql, params = ("SELECT ts,kind,job_id,data_json FROM events WHERE kind IN (?,?) AND job_id IS NOT NULL "
+                       "ORDER BY event_id", (RETIRE_REQUESTED, RETIRE_WITHDRAWN))
+    else:
+        # `+kind` uses the index on job_id instead of scanning events by kind.
+        sql, params = ("SELECT ts,kind,job_id,data_json FROM events WHERE job_id=? AND +kind IN (?,?) "
+                       "ORDER BY event_id", (job_id, RETIRE_REQUESTED, RETIRE_WITHDRAWN))
+    for row in query(sql, params):
+        try:
+            data = json.loads(row["data_json"])
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(data, dict) or not isinstance(data.get("created_at"), str):
+            continue
+        job_id = row["job_id"]
+        if row["kind"] == RETIRE_WITHDRAWN:
+            current = standing.get(job_id)
+            if current is not None and current["created_at"] == data["created_at"]:
+                standing.pop(job_id)
+        else:
+            standing[job_id] = {**data, "at": row["ts"]}
+    return standing
+
+
+def requested(jobs: Iterable[dict[str, Any]], requests: dict[str, dict[str, Any]]) -> set[str]:
+    """Match requests on job id and `created_at` because events survive job retirement."""
+    return {job["job_id"] for job in jobs
+            if job["job_id"] in requests and requests[job["job_id"]]["created_at"] == job["created_at"]}
+
+
 # --- state kept across passes ---------------------------------------------------
 
 #: What a pass reports about the disk, apart from the pools' live-tree bytes
@@ -453,11 +498,12 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
                 slice_s: float = SLICE_S, measure_s: float | None = None,
                 remote_less_history_bytes: int | None = RETENTION_REMOTE_LESS_HISTORY_BYTES,
                 log: logging.Logger | None = None, stamp: Callable[[], int] | None = None) -> dict[str, Any]:
-    """Retire the oldest unpinned terminal jobs of each pool over its budget.
+    """Retire unpinned terminal jobs on request and oldest first within each rank.
 
     Detached jobs are held to `max_jobs`/`max_bytes` (C-8.4) and turn jobs to
     `turn_max_jobs`/`turn_max_bytes` (C-26.12); a pool over its budget never
-    prunes the other. An unread notice addressed to a session keeps its job
+    prunes the other. A standing request also lets a job retire within its own
+    pool's budget (C-8.6). An unread notice addressed to a session keeps its job
     for `notice_keep_s` after it was written (0: for ever); retiring a job with
     such a notice still unread writes its session the outcome
     (`retention_notices`). `deadline` bounds when new work may start (a started
@@ -557,6 +603,8 @@ class _Pass:
         self.legacy: dict[str, list[str]] = {}
         #: Journal-less retention leases left by selection or old half-removal.
         self.leftovers = state.leftovers
+        self.requested: set[str] = set()
+        self.request_only: set[str] = set()
 
     # pins ------------------------------------------------------------------------
 
@@ -590,6 +638,10 @@ class _Pass:
                                hosted=self.hosted, root=self.root, legacy=self.legacy)
         return reasons.get(job_id)
 
+    def _rank(self, job_id: str) -> int:
+        """Take orphan leases' jobs, then requested jobs, then the rest."""
+        return 0 if job_id in self.leftovers else 1 if job_id in self.requested else 2
+
     # the pass ----------------------------------------------------------------------
 
     def run(self) -> dict[str, Any]:
@@ -599,6 +651,7 @@ class _Pass:
         in_flight = self._recover()
         jobs = list(reversed(self.store.list_jobs()))        # oldest first
         by_id = {job["job_id"]: job for job in jobs}
+        self.requested = requested(jobs, retire_requests(self.store.query))
         self.hosted = nested_hosts(jobs, self.root)
         reasons = self._reasons()
         for job_id in in_flight:
@@ -653,10 +706,10 @@ class _Pass:
         # not stop the first start past the deadline: each pass commits the
         # last pass's archives and starts the next ones under one listing.
         finishing = {job_id for job_id, retirement in retirements.items() if retirement.state == "archived"}
-        for job in sorted(jobs, key=lambda job: job["job_id"] not in self.leftovers):
+        for job in sorted(jobs, key=lambda job: self._rank(job["job_id"])):
             job_id = job["job_id"]
             pool = _pool(job)
-            if job_id in in_flight or job_id in protected or not over(pool):
+            if job_id in in_flight or job_id in protected or not (over(pool) or job_id in self.requested):
                 continue
             deferral = self.state.deferral(job_id, now)
             if deferral is not None:
@@ -669,6 +722,8 @@ class _Pass:
             if len(in_flight) - len(finishing) + len(chosen) >= self.batch:
                 waiting = True          # an eligible job waits for the next pass
                 break
+            if job_id in self.requested and not over(pool):
+                self.request_only.add(job_id)
             chosen.append(job_id)
             counts[pool] -= 1
             totals[pool] -= self.sizes.get(job_id, 0)
@@ -754,7 +809,8 @@ class _Pass:
         result = {**self.progress, "protected": sorted(protected - set(self.progress["pruned"])),
                 "bytes_before": before, "bytes_after": sum(after.values()),
                 "jobs_after": len(remaining), "pools": pools, "more": more,
-                "progressed": self.acted > 0 or bool(awaiting), "pin_reasons": reasons}
+                "progressed": self.acted > 0 or bool(awaiting), "pin_reasons": reasons,
+                "requested": sorted(self.requested & set(self.progress["pruned"]))}
         if more and self.deadline is not None and self.clock() >= self.deadline:
             result["interrupted"] = "deadline"
         return result
@@ -948,6 +1004,11 @@ class _Pass:
         keys = [f"retire:{job_id}"] + ([folders.exclusive_key(folder)] if folder is not None else [])
         with self.store.transaction("retention.selected", job_id=job_id) as conn:
             self.ctx.check()
+            if job_id in self.request_only:
+                standing = retire_requests(lambda sql, params: conn.execute(sql, params).fetchall(), job_id)
+                if standing.get(job_id, {}).get("created_at") != job["created_at"]:
+                    protected.add(job_id)
+                    return None
             reason = _pin_reasons(self.store, self.explicit, None, pins=self.pins, turn_keep_s=self.turn_keep_s,
                                   notice_keep_s=self.notice_keep_s, only=job_id, hosted=self.hosted, root=self.root,
                                   legacy=self.legacy).get(job_id)
