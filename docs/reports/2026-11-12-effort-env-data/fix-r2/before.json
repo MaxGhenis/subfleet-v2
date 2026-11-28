@@ -1,0 +1,26 @@
+{
+  "command": [
+    "uv",
+    "run",
+    "--no-sync",
+    "--with",
+    "pytest-xdist>=3.6",
+    "python",
+    "-m",
+    "pytest",
+    "-p",
+    "no:cacheprovider",
+    "-p",
+    "sf_eff_fix2_safety",
+    "--timeout=90",
+    "--timeout-method=thread",
+    "--basetemp=/private/tmp/sf-eff-fix2/pytest-before",
+    "tests/fake/test_resume_contract.py",
+    "-k",
+    "test_resume_keeps_source_effort_when_policy_aliases_share_a_model_id",
+    "-q"
+  ],
+  "exit_code": 1,
+  "started": "2026-11-15T19:31:35.564413+00:00",
+  "finished": "2026-11-15T19:38:19.073847+00:00"
+}

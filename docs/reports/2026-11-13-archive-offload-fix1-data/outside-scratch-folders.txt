@@ -1,0 +1,8 @@
+Explicit worktree scratch extension:
+/Users/maxghenis/.subfleet/worktrees/20261115-100031-ao-fix-r1/.diag/sf-ao-fix1-20261115T200514
+
+Logged temporary allocations outside primary scratch:
+/Users/maxghenis/.subfleet/worktrees/20261115-100031-ao-fix-r1/.diag/sf-ao-fix1-20261115T200514/pytest-ordinary-retry/popen-gw0/test_an_ordinary_tree_retires_0/home/project/.git/worktrees/job/subfleet-salvage-0eo89byu
+/Users/maxghenis/.subfleet/worktrees/20261115-100031-ao-fix-r1/.diag/sf-ao-fix1-20261115T200514/pytest-ordinary-retry/popen-gw1/test_an_ordinary_tree_retires_0/home/project/.git/worktrees/job/subfleet-salvage-iatdqukl
+/Users/maxghenis/.subfleet/worktrees/20261115-100031-ao-fix-r1/.diag/sf-ao-fix1-20261115T200514/pytest-ordinary-retry/popen-gw2/test_an_ordinary_tree_retires_0/home/project/.git/worktrees/job/subfleet-salvage-6bnvx9ch
+/Users/maxghenis/.subfleet/worktrees/20261115-100031-ao-fix-r1/.diag/sf-ao-fix1-20261115T200514/pytest-ordinary-retry/popen-gw3/test_an_ordinary_tree_retires_0/home/project/.git/worktrees/job/subfleet-salvage-ms0tplnu

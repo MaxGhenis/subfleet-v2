@@ -1,0 +1,7 @@
+tests/unit/test_codex_adapter.py
+tests/e2e/test_conversations.py
+tests/unit/test_codex_turn.py
+tests/unit/test_ultracode_effort.py
+tests/fake/test_review_launch_permissions.py
+tests/process/test_claude_isolation.py
+tests/frontend/test_app_cutover_start.py

@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# SYNTHETIC stand-in for v1 bin/subfleet-claude (fix r1, sf-eff-f1). Not v1's bytes:
+# written only from the patterns tests/unit/test_claude_v1_parity.py parses, to check
+# that the new effort test's mechanics run. It proves nothing about v1 itself.
+set -euo pipefail
+SID=$(uuidgen | tr '[:upper:]' '[:lower:]')
+(
+  unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN
+  if [ "$SANDBOX" = "workspace-write" ]; then
+    PERM_ARGS=(--dangerously-skip-permissions)
+  else
+    READ_ONLY_TOOLS="Read,Glob,Grep"
+    [ "$ISOLATED" = 1 ] || READ_ONLY_TOOLS+=",WebSearch,WebFetch"
+    PERM_ARGS=(
+      --permission-mode plan
+      --tools "$READ_ONLY_TOOLS"
+      --allowedTools "$READ_ONLY_TOOLS"
+      --setting-sources ""
+      --safe-mode
+      --no-chrome
+      --strict-mcp-config
+      --mcp-config '{"mcpServers":{}}'
+      --disable-slash-commands
+    )
+    [ "$ISOLATED" = 0 ] || PERM_ARGS+=(--add-dir "$REVIEW_ROOT")
+  fi
+  "$CLAUDE_BIN" -p --model "$MODEL" \
+    --session-id "$SID" --output-format json ${PERM_ARGS[@]+"${PERM_ARGS[@]}"}
+)

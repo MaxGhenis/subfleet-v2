@@ -1,0 +1,40 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____ test_c15_9_one_path_conversation_bound_session_is_left_to_wake_engine _____
+
+callers = <tests.fake.test_caller_notice_wakes.Callers object at 0x10bb94830>
+
+    def test_c15_9_one_path_conversation_bound_session_is_left_to_wake_engine(callers):
+        """Invariant 6 One path: a conversation's caller never gets this second wake."""
+        callers.register("conversation")
+        notice = callers.finish("conversation")
+>       conversation, _ = callers.daemon.conversations.store.create_conversation(
+            provider="claude", workspace=str(callers.harness.workdir), workspace_kind="in-place",
+            settings={}, origin="test", native_session_id="conversation")
+
+tests/fake/test_caller_notice_wakes.py:366: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+subfleet/conversations/store.py:571: in create_conversation
+    settings = validate_settings(provider, settings)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'claude', settings = {}
+
+    def validate_settings(provider: str, settings: Any) -> dict:
+        """The shape every message's settings must have (C-24.2); catalog checks are
+        `models.list`'s and the driver's (C-26.8)."""
+        if not isinstance(settings, dict):
+            raise ConversationError("bad-settings", "settings must be an object")
+        model = settings.get("model")
+        if not isinstance(model, str) or not model or len(model) > 80:
+>           raise ConversationError("bad-settings", "settings.model must name a model")
+E           subfleet.conversations.store.ConversationError: settings.model must name a model
+
+subfleet/conversations/store.py:243: ConversationError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4506568752:daemon.py:994 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4506568752:daemon.py:1082 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_one_path_conversation_bound_session_is_left_to_wake_engine
+1 failed, 26 deselected in 11.82s

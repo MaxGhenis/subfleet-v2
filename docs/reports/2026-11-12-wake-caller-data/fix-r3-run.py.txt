@@ -1,0 +1,38 @@
+from datetime import datetime, timezone
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+scratch = Path(__file__).parent
+workspace = Path('/Users/maxghenis/.subfleet/worktrees/20261115-224656-wcall-fix-r3')
+name, *selection = sys.argv[1:]
+if selection[:1] == ['--importers']:
+    selection = (scratch / 'importer-files.txt').read_text().splitlines() + selection[1:]
+assert name and '/' not in name
+basetemp = scratch / ('pytest-' + name)
+assert not basetemp.exists(), 'each run needs a new basetemp'
+environment = os.environ.copy()
+for key in ('SUBFLEET_HOME', 'SUBFLEET_ROOT', 'SUBFLEET_JOB', 'SUBFLEET_ATTEMPT', 'CLAUDE_CODE_SESSION_ID'):
+    environment.pop(key, None)
+environment.update(TMPDIR=str(scratch), UV_CACHE_DIR=str(scratch / 'uv-cache'),
+                   UV_PROJECT_ENVIRONMENT=str(scratch / 'venv'),
+                   HYPOTHESIS_STORAGE_DIRECTORY=str(scratch / 'hypothesis'),
+                   PYTHONDONTWRITEBYTECODE='1', PYTHONPATH=str(scratch) + os.pathsep + str(workspace),
+                   GIT_CONFIG_GLOBAL='/dev/null', GIT_CONFIG_NOSYSTEM='1')
+command = ['uv', 'run', '--no-sync', '--with', 'pytest-xdist>=3.6', '--with', 'pytest-repeat>=0.9',
+           'pytest', '-p', 'r3_isolation', '-p', 'no:cacheprovider', '-n', '4', '--timeout=300',
+           '--basetemp=' + str(basetemp), *selection]
+logs = scratch / 'logs'
+logs.mkdir(exist_ok=True)
+start = datetime.now(timezone.utc).isoformat()
+with (logs / (name + '.log')).open('w') as stream:
+    result = subprocess.run(command, cwd=workspace, env=environment, stdout=stream, stderr=subprocess.STDOUT)
+record = dict(name=name, command=command, exit_code=result.returncode, start=start,
+              end=datetime.now(timezone.utc).isoformat())
+with (logs / 'runs.jsonl').open('a') as stream:
+    stream.write(json.dumps(record) + '\n')
+print(json.dumps(record))
+print('\n'.join((logs / (name + '.log')).read_text().splitlines()[-12:]))
+sys.exit(result.returncode)

@@ -1,0 +1,135 @@
+"""Fix r1 mutants: each applied alone to a copy of the source, never the worktree.
+
+Usage: python run_mutants.py <tree> <venv python> <scratch> <results.json> [names...]
+For each mutant: check the pristine file's sha256, apply the text replacement,
+run the named killer tests from <tree>, restore the pristine bytes, and check
+the sha256 again. A mutant is killed when its killers fail (pytest rc 1).
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+FAKE = "tests/fake/test_caller_notice_wakes.py::"
+UNIT_CLAIMS = "tests/unit/test_notice_claims.py::"
+
+MUTANTS = [
+    {"name": "f1a-scan-offered", "finding": 1, "file": "subfleet/caller_wakes.py",
+     "old": "state='pending'", "new": "state IN ('pending','offered')", "count": None,
+     "killers": [FAKE + "test_c15_9_a_notice_posttooluse_offered_is_never_woken"]},
+    {"name": "f1b-wait-marks-nothing", "finding": 1, "file": "subfleet/cli.py",
+     "old": "    if finished:\n        _offer_waited(client, finished.values())\n", "new": "",
+     "killers": [FAKE + "test_c15_9_a_result_wait_printed_is_never_woken"]},
+    {"name": "f2a-envelope-resets-online", "finding": 2, "file": "subfleet/caller_wakes.py",
+     "old": 'personal = event == "UserPromptSubmit" and args.own_envelope is not True',
+     "new": 'personal = event == "UserPromptSubmit"',
+     "killers": [FAKE + "test_c15_9_the_wakes_own_prompt_leaves_the_streak_bound_in_force"]},
+    {"name": "f2b-envelope-resets-offline", "finding": 2, "file": "subfleet/notice_claims.py",
+     "old": 'if event == "UserPromptSubmit" and personal:', "new": 'if event == "UserPromptSubmit":',
+     "killers": [UNIT_CLAIMS + "test_c15_9_an_offline_wake_prompt_is_activity_but_not_personal_input"]},
+    {"name": "f3a-first-attempt-no-age-limit", "finding": 3, "file": "subfleet/caller_wakes.py",
+     "old": "            if now < _deadline(row, now):\n                due.append(row)",
+     "new": "            if now < _deadline(row, now) or not row[\"wake_attempts\"]:\n                due.append(row)",
+     "killers": [FAKE + "test_c15_9_a_notice_older_than_the_window_is_stale_on_its_first_attempt",
+                 FAKE + "test_c15_9_a_backlog_never_wakes_for_stale_notices_and_wakes_at_most_the_cap_per_pass"]},
+    {"name": "f3b-migration-keeps-old-notices-due", "finding": 3, "file": "subfleet/store.py",
+     "old": 'if ("notices", "wake_state") in added:', "new": "if False:",
+     "killers": ["tests/unit/test_store_notice_wake_migration.py::"
+                 "test_d_wake_caller1_notice_delivery_is_a_numbered_additive_migration"]},
+    {"name": "f4-lane-refusal-consumes", "finding": 4, "file": "subfleet/caller_wakes.py",
+     "old": 'frozenset({"no-inbox-socket", "no-peer-token", notify_push.LANE_REFUSAL})',
+     "new": 'frozenset({"no-inbox-socket", "no-peer-token"})',
+     "killers": [FAKE + "test_c15_9_a_lane_refusal_leaves_the_notice_for_the_hook"]},
+    {"name": "f5-late-claim-marks", "finding": 5, "file": "subfleet/caller_wakes.py",
+     "old": "            if _abandoned(args, arrived, client_gone):", "new": "            if False:",
+     "killers": [FAKE + "test_c15_9_a_surface_claim_after_its_client_gave_up_marks_nothing"]},
+    {"name": "f6-missing-session-terminal", "finding": 6, "file": "subfleet/caller_wakes.py",
+     "old": 'self._failure(rows, "session-not-registered" if entry is None else "session-not-running",\n'
+            "                              now, retry=True)",
+     "new": 'self._failure(rows, "session-not-registered" if entry is None else "session-not-running",\n'
+            "                              now, retry=False)", "count": 2,
+     "killers": [FAKE + "test_c15_9_absent_or_closed_session_is_undeliverable_without_starting_it",
+                 FAKE + "test_c15_9_a_caller_back_from_an_app_restart_is_woken_within_the_window"]},
+    {"name": "f7-compact-holds", "finding": 7, "file": "subfleet/sessions/nudge.py",
+     "old": "    if not notice_source_allows(source):", "new": "    if not source_allows(source):",
+     "killers": [FAKE + "test_c15_9_compaction_keeps_completion_wakes_and_clear_holds_them",
+                 "tests/unit/test_sessions_notice_wake.py::"
+                 "test_notice_wake_off_switch_source_and_retirement_are_respected"]},
+    {"name": "f8a-unbounded-groups", "finding": 8, "file": "subfleet/caller_wakes.py",
+     "old": 'if result["sessions"] >= limits["max_sessions"] or result["examined"] >= MAX_GROUPS_PER_PASS:',
+     "new": 'if result["sessions"] >= limits["max_sessions"]:',
+     "killers": [FAKE + "test_c15_9_a_pass_examines_a_bounded_number_of_callers_and_reaches_them_all"]},
+    {"name": "f8b-no-held-memo", "finding": 8, "file": "subfleet/caller_wakes.py",
+     "old": "            if memo is not None and memo[0] == key",
+     "new": "            if False and memo is not None and memo[0] == key",
+     "killers": [FAKE + "test_c15_9_a_held_caller_is_not_read_again_until_something_changes"]},
+    {"name": "p3-render-after-claim", "finding": "P3 (caller_wakes.py:212)", "file": "subfleet/caller_wakes.py",
+     "replacements": [
+         ("            try:\n"
+          "                headers = {row[\"notice_id\"]: render.notice_header(self.store.get_job(row[\"job_id\"]),\n"
+          "                                                                  self.daemon.root) for row in rows}\n"
+          "            except Exception:                           # noqa: BLE001 - retried, never sent\n"
+          "                self._failure(rows, \"header-unavailable\", now, retry=True)\n"
+          "                return\n", ""),
+         ("\"\\n\".join(headers[row[\"notice_id\"]] for row in claimed)",
+          "\"\\n\".join(render.notice_header(self.store.get_job(row[\"job_id\"]), self.daemon.root) "
+          "for row in claimed)")],
+     "killers": [FAKE + "test_c15_9_a_header_that_cannot_render_leaves_no_claim_behind"]},
+]
+
+
+def sha(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def main() -> int:
+    tree, python, scratch, out = (Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3]), Path(sys.argv[4]))
+    wanted = set(sys.argv[5:])
+    results = json.loads(out.read_text()) if out.exists() else []
+    env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
+    env.update(PYTHONDONTWRITEBYTECODE="1", HYPOTHESIS_STORAGE_DIRECTORY=str(scratch / "hyp"))
+    for mutant in MUTANTS:
+        if wanted and mutant["name"] not in wanted:
+            continue
+        path = tree / mutant["file"]
+        pristine = path.read_bytes()
+        digest = sha(pristine)
+        text = pristine.decode()
+        replacements = mutant.get("replacements") or [(mutant["old"], mutant["new"])]
+        mutated = text
+        for old, new in replacements:
+            found = mutated.count(old)
+            expected = mutant.get("count", 1)
+            assert found >= 1 and (expected is None or found == expected), (mutant["name"], old, found)
+            mutated = mutated.replace(old, new)
+        started = time.time()
+        load = os.getloadavg()[0]
+        try:
+            path.write_text(mutated)
+            run = subprocess.run(
+                [python, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-x",
+                 f"--basetemp={scratch / ('pytest-mutant-' + mutant['name'])}", *mutant["killers"]],
+                cwd=tree, env=env, capture_output=True, text=True, timeout=540)
+            rc, tail = run.returncode, (run.stdout + run.stderr).strip().splitlines()[-3:]
+        except subprocess.TimeoutExpired:
+            rc, tail = None, ["timeout after 540 s"]
+        finally:
+            path.write_bytes(pristine)
+        restored = sha(path.read_bytes())
+        assert restored == digest, (mutant["name"], "restore failed")
+        results.append({"name": mutant["name"], "finding": mutant["finding"], "file": mutant["file"],
+                        "killers": mutant["killers"], "rc": rc, "killed": rc == 1,
+                        "summary": tail, "seconds": round(time.time() - started, 1),
+                        "load_at_start": load, "sha256_before": digest, "sha256_after_restore": restored})
+        out.write_text(json.dumps(results, indent=1))
+        print(mutant["name"], "killed" if rc == 1 else f"SURVIVED rc={rc}", tail[-1] if tail else "", flush=True)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

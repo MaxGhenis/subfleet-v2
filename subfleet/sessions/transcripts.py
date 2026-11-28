@@ -223,7 +223,7 @@ def _instant(value: Any) -> datetime | None:
 
 
 def _iso(value: datetime) -> str:
-    return value.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def transcript_path(session_id: str, projects: Path | None = None) -> Path | None:

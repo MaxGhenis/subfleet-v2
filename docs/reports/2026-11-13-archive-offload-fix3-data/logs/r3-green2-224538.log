@@ -1,0 +1,28 @@
+label r3-green2 start 22:45:39 bound 585s basetemp /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T//sf-ao-fix3/bt/pytest-r3-green2-224538
+uptime-start: 23:45  up 4 days, 11:06, 1 user, load averages: 60.54 52.73 52.76
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   3996G     14G     98G    13%    487k  957M    0%   /
+args: -n 4 -rA tests/unit/test_retention_offload_r3.py
+============================= test session starts ==============================
+platform darwin -- Python 3.15.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/maxghenis/.subfleet/worktrees/20261125-232725-ao-fix-r3
+configfile: pyproject.toml
+plugins: xdist-3.8.0, timeout-2.4.0, hypothesis-6.168.1
+timeout: 1200.0s
+timeout method: signal
+timeout func_only: False
+created: 4/4 workers
+4 workers [6 items]
+
+......                                                                   [100%]
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED tests/unit/test_retention_offload_r3.py::test_an_offloaded_recall_with_the_volume_gone_changes_nothing
+PASSED tests/unit/test_retention_offload_r3.py::test_recall_after_a_crash_at_removing_with_the_volume_gone
+PASSED tests/unit/test_retention_offload_r3.py::test_a_half_removed_internal_copy_still_needs_the_volume
+PASSED tests/unit/test_retention_offload_r3.py::test_a_changed_internal_file_still_needs_the_volume
+PASSED tests/unit/test_retention_offload_r3.py::test_an_offloaded_archive_whose_recall_put_everything_back_is_recalled_without_the_volume
+PASSED tests/unit/test_retention_offload_r3.py::test_a_stub_without_a_bundle_checksum_still_needs_the_volume
+============================== 6 passed in 28.72s ==============================
+rc=0 end 22:46:19
+uptime-end: 23:46  up 4 days, 11:07, 1 user, load averages: 56.87 52.68 52.73

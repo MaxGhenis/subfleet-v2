@@ -1,0 +1,28 @@
+# label: hygiene-before
+# start: 2026-11-17T13:45:03Z
+# command: uv run --no-sync --with pytest-xdist\>=3.6 pytest --basetemp=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T//sf-eff-fix3/pytest-hygiene-before-134503 -p no:cacheprovider tests/frontend/test_visual_report_hygiene.py -q
+.....................................................F......             [100%]
+=================================== FAILURES ===================================
+_ test_every_report_link_resolves_inside_the_repository[2026-11-12-effort-env-data] _
+
+report = PosixPath('/Users/maxghenis/.subfleet/worktrees/20261117-083629-eff-fix-r3/docs/reports/2026-11-12-effort-env-data')
+
+    @pytest.mark.parametrize("report", REPORTS, ids=lambda path: path.name)
+    def test_every_report_link_resolves_inside_the_repository(report):
+        dangling = []
+        for source in sorted(report.rglob("*.md")):
+            for target in LINK.findall(source.read_text()):
+                if re.match(r"[a-z][a-z0-9+.-]*:", target) or target.startswith("#"):
+                    continue                # a URL, or an anchor in the same page
+                path = (source.parent / unquote(target.split("#", 1)[0])).resolve()
+                if not path.is_relative_to(ROOT) or not path.exists():
+                    dangling.append(f"{source.relative_to(ROOT)}: {target}")
+>       assert not dangling
+E       AssertionError: assert not ['docs/reports/2026-11-12-effort-env-data/fix-r2/write-command-exclusions.md: publish|run|execute']
+
+tests/frontend/test_visual_report_hygiene.py:38: AssertionError
+=========================== short test summary info ============================
+FAILED tests/frontend/test_visual_report_hygiene.py::test_every_report_link_resolves_inside_the_repository[2026-11-12-effort-env-data]
+1 failed, 59 passed in 24.19s
+# end: 2026-11-17T13:45:37Z
+# exit: 1
