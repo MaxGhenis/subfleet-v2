@@ -24,8 +24,10 @@ does not hold, and the archive is read back before the job's rows go. A pass:
    whose archive ended in an earlier pass (check 2), and each of the latter
    that nothing holds is re-validated, committed and deleted at once;
 4. archives each quarantined job within a time slice (a job that needs more is
-   parked with its progress and continues next pass; the others go on). A job
-   whose archive ends here waits, archived, for the next pass's listing.
+   parked with its progress and continues next pass; the others go on). If
+   its slices stop getting further, the pass puts it back and defers it. A
+   parked job can yield a slot to the head of the waiting queue. A job whose
+   archive ends here waits, archived, for the next pass's listing.
 
 A listing serves a job's check only if it started after the event the check
 covers (the job's quarantine, the end of its archive), by the stamps the
@@ -70,10 +72,14 @@ LOG = logging.getLogger("subfleet.retention")
 
 _TERMINAL = {"succeeded", "failed", "cancelled", "lost"}
 
-#: Jobs one pass takes into its batch (in flight included).
+#: Slots for retirements in flight, excluding archives waiting for check 2
+#: and jobs whose rollback is pending.
 BATCH = 32
 #: Seconds of archiving a job gets per pass before it is parked.
 SLICE_S = 120.0
+#: Consecutive parked slices without progress before error backoff (review r1
+#: of #286, P3-4). A writer finishing up can cost a slice its progress twice.
+STALL_SLICES = 3
 #: A measured size is trusted this long; stale sizes are never a safety input.
 SIZE_TTL_S = 6 * 3600.0
 #: Seconds a pass spends measuring sizes it lacks, when it needs them.
@@ -397,11 +403,20 @@ FREED_KEYS = ("freed_bytes", "freed_disk_bytes", "archived_bytes", "added_bytes"
 
 
 @dataclass
-class RetentionState:
-    """What a daemon remembers between passes: deferrals and measured sizes.
+class _Hold:
+    """A job's slices, furthest step in the current walk, and consecutive stalls."""
 
-    Losing it (a restart) is harmless: a deferred job is tried again, a size is
-    measured again. In-flight retirements live in their journals, not here.
+    slices: int = 0
+    reached: int = -1
+    stalls: int = 0
+
+
+@dataclass
+class RetentionState:
+    """What a daemon remembers between passes, including the waiting queue.
+
+    A restart empties the queue and slice accounting. Journals keep the
+    in-flight retirements, archive caches and persisted deferrals.
     """
     deferred: dict[str, tuple[float, str]] = field(default_factory=dict)
     sizes: dict[str, tuple[int, float]] = field(default_factory=dict)
@@ -422,6 +437,11 @@ class RetentionState:
     #: The latest holder-check stamp given (`rarch.Context.stamp`): every later
     #: one is later still, even after the journal that recorded it is gone.
     stamp_floor: int = 0
+    #: In-flight job -> the slices it has had since it started.
+    holds: dict[str, _Hold] = field(default_factory=dict)
+    #: Eligible job waiting to start -> its ticket.
+    queue: dict[str, int] = field(default_factory=dict)
+    tickets: int = 0
 
     def defer(self, job_id: str, seconds: float, reason: str, now: float) -> None:
         self.deferred[job_id] = (now + seconds, reason)
@@ -596,7 +616,7 @@ class _Pass:
         # Recovery can quarantine: discover legacy dependencies before any move.
         # If the census raises, this pass cannot enter recovery with empty evidence.
         self.legacy = self.ctx.legacy = dependencies.legacy(self.store.query)
-        in_flight = self._recover()
+        in_flight, blocked_slots = self._recover()
         jobs = list(reversed(self.store.list_jobs()))        # oldest first
         by_id = {job["job_id"]: job for job in jobs}
         self.hosted = nested_hosts(jobs, self.root)
@@ -638,25 +658,25 @@ class _Pass:
             max_jobs, max_bytes = self.budgets[pool]
             return counts[pool] > max_jobs or totals[pool] > max_bytes
 
-        # In-flight jobs are already leaving their pools; then pick more, oldest first.
+        # In-flight jobs are already leaving their pools. Find every eligible
+        # job in the order selection would use without a batch limit.
         for job_id in in_flight:
             job = by_id.get(job_id)
             if job is not None:
                 counts[_pool(job)] -= 1
                 totals[_pool(job)] -= self.sizes.get(job_id, 0)
         now = self.clock()
-        waiting = False
-        chosen: list[str] = []
+        eligible: list[str] = []
         retirements = {job_id: rarch.Retirement(self.ctx, job_id) for job_id in in_flight}
-        # Jobs archived in an earlier pass take check 2 from this pass's listing
-        # and finish right after it, so they hold no place in the batch and do
-        # not stop the first start past the deadline: each pass commits the
-        # last pass's archives and starts the next ones under one listing.
-        finishing = {job_id for job_id, retirement in retirements.items() if retirement.state == "archived"}
+        slots = {job_id for job_id, retirement in retirements.items() if self._holds_slot(retirement)}
+        slots |= blocked_slots
+        for job_id in self.state.holds.keys() - slots:
+            del self.state.holds[job_id]
+            self.state.sliced.pop(job_id, None)
         for job in sorted(jobs, key=lambda job: job["job_id"] not in self.leftovers):
             job_id = job["job_id"]
             pool = _pool(job)
-            if job_id in in_flight or job_id in protected or not over(pool):
+            if job_id in retirements or job_id in protected or not over(pool):
                 continue
             deferral = self.state.deferral(job_id, now)
             if deferral is not None:
@@ -666,21 +686,33 @@ class _Pass:
                 self.errors.append({"job_id": job_id, "error": "invalid job directory name"})
                 protected.add(job_id)
                 continue
-            if len(in_flight) - len(finishing) + len(chosen) >= self.batch:
-                waiting = True          # an eligible job waits for the next pass
-                break
-            chosen.append(job_id)
+            eligible.append(job_id)
             counts[pool] -= 1
             totals[pool] -= self.sizes.get(job_id, 0)
+        order = self._queue(eligible)
+        yielded = self._make_room(retirements, len(slots) - self.batch + 1, order[0]) if order else []
+        for job_id in yielded:
+            retirements.pop(job_id)
+            job = by_id.get(job_id)
+            if job is not None:
+                counts[_pool(job)] += 1
+                totals[_pool(job)] += self.sizes.get(job_id, 0)
+        chosen = order[:max(0, self.batch - len(slots) + len(yielded))]
+        waiting = len(chosen) < len(order) or bool(yielded)
+        attempted = False
         for job_id in chosen:
             self.ctx.check()
-            # Slow recovery or pin reads must still permit the first job.
-            if self.deadline is not None and self.clock() >= self.deadline and set(retirements) - finishing:
+            # Slow recovery, pin reads or a yield can consume the deadline.
+            # The first attempt still gets its turn.
+            if attempted and self.deadline is not None and self.clock() >= self.deadline:
                 waiting = True
                 break
+            attempted = True
+            del self.state.queue[job_id]
             retirement = self._start(by_id[job_id], protected)
             if retirement is not None:
                 retirements[job_id] = retirement
+                self.state.holds[job_id] = _Hold()
         # One listing, after the quarantines: check 1 for the jobs quarantined
         # before it, check 2 for those archived before it (D-HOLDERS-LSOF1).
         # Each job check 2 passes takes the final check and commits now, close
@@ -718,10 +750,24 @@ class _Pass:
                 self._rollback(retirement, "error", rarch.DEFER_ERROR_S, f"{type(exc).__name__}: {exc}")
                 continue
             if outcome == "parked":
+                hold = self.state.holds.setdefault(job_id, _Hold())
+                hold.slices += 1
+                if retirement.last_work and (retirement.last_reached > hold.reached or retirement.last_found):
+                    # A finding changes what the walk must keep, so this slice
+                    # sets a new furthest even if it stopped at an earlier step.
+                    hold.reached, hold.stalls = retirement.last_reached, 0
+                else:
+                    hold.stalls += 1
+                if hold.stalls >= STALL_SLICES:
+                    self._rollback(retirement, "stalled", rarch.DEFER_ERROR_S,
+                                   f"{hold.stalls} slices in a row got no further than step {hold.reached}")
+                    if not self._holds_slot(retirement):
+                        continue
                 self.progress["in_flight"].append(job_id)
                 if retirement.last_work:
                     self.acted += 1       # a slice that only re-walked cached entries changed nothing
             else:
+                self.state.holds.pop(job_id, None)
                 self.acted += 1           # archived: its check 2 is the next pass's listing
         # An archived job waits for the next pass's listing: the pass reports
         # more work and progress, so the daemon comes back in seconds, not the hour.
@@ -759,10 +805,65 @@ class _Pass:
             result["interrupted"] = "deadline"
         return result
 
+    # batch fairness -----------------------------------------------------------------
+
+    def _queue(self, eligible: list[str]) -> list[str]:
+        """Keep a ticket while a job stays eligible and unstarted."""
+        queue = self.state.queue
+        for job_id in queue.keys() - set(eligible):
+            del queue[job_id]
+        for job_id in eligible:
+            if job_id not in queue:
+                queue[job_id] = self.state.tickets
+                self.state.tickets += 1
+        return sorted(eligible, key=lambda job_id: (job_id not in self.leftovers, queue[job_id]))
+
+    def _make_room(self, retirements: dict[str, rarch.Retirement], needed: int, waiter: str) -> list[str]:
+        """Yield enough slots for the head waiter, most slices first."""
+        if needed <= 0:
+            return []
+        holds = self.state.holds
+        parked = sorted(
+            (job_id for job_id, retirement in retirements.items()
+             if self._holds_slot(retirement)
+             and retirement.state == "quarantined" and retirement.journal.get("check1")
+             and job_id in holds and holds[job_id].slices > 0),
+            key=lambda job_id: -holds[job_id].slices,
+        )
+        yielded: list[str] = []
+        for job_id in parked:
+            if len(yielded) >= needed:
+                break
+            self.ctx.check()
+            retirement = retirements[job_id]
+            slices = holds[job_id].slices
+            units = "slice" if slices == 1 else "slices"
+            verified = self._rollback(retirement, "yielded", 0, f"{slices} {units} since it started, for {waiter}")
+            if not verified:
+                self.progress["in_flight"].append(job_id)
+                retirements.pop(job_id)
+                continue
+            if self._holds_slot(retirement):
+                continue
+            yielded.append(job_id)
+            self.state.queue[job_id] = self.state.tickets
+            self.state.tickets += 1
+        return yielded
+
+    @staticmethod
+    def _holds_slot(retirement: rarch.Retirement) -> bool:
+        """An in-flight journal counts until it archives or records a rollback."""
+        journal = retirement.journal or {}
+        state = journal.get("state")
+        return state in rarch.IN_FLIGHT and state != "archived" and not journal.get("rollback_pending")
+
     # recovery --------------------------------------------------------------------
 
-    def _recover(self) -> list[str]:
+    def _recover(self) -> tuple[list[str], set[str]]:
         in_flight: list[str] = []
+        # A known slot whose recovery could not finish counts against the
+        # batch, but cannot take a holder check or a slice in this pass.
+        blocked_slots: set[str] = set()
         now = time.time()
         found = rarch.journals(self.root)
         # C-8.7: the delete path holds its job's leases under the same holder,
@@ -790,8 +891,11 @@ class _Pass:
             self.ctx.check()
             if isinstance(journal, Exception):
                 self.errors.append({"job_id": job_id, "error": f"retention journal unreadable: {journal}"})
+                if job_id in self.state.holds:
+                    blocked_slots.add(job_id)
                 continue
             retirement = rarch.Retirement(self.ctx, job_id, journal)
+            before = journal.copy()
             state = journal["state"]
             try:
                 if pending := journal.get("rollback_pending"):
@@ -826,8 +930,7 @@ class _Pass:
                 leases = {row["lease_key"] for row in self.store.query(
                     "SELECT lease_key FROM leases WHERE holder=?", (f"retention:{job_id}",))}
                 if f"retire:{job_id}" not in leases or self.store.get_job(job_id) is None:
-                    self._rollback(retirement, "recovered without its leases", rarch.DEFER_CHANGED_S, "")
-                    continue
+                    raise rarch.Defer("recovered without its leases", rarch.DEFER_CHANGED_S)
                 if state == "quarantining":
                     retirement._reconcile_moves()
                     retirement.quarantine()          # moves whatever the crash left unmoved
@@ -838,11 +941,15 @@ class _Pass:
                 elif state == "locked":
                     retirement.quarantine()
                 in_flight.append(job_id)
+                continue
             except rarch.Defer as exc:
                 self._rollback(retirement, exc.reason, exc.seconds, exc.detail)
             except (OSError, ValueError, RuntimeError, rgit.GitError) as exc:
                 self.errors.append({"job_id": job_id, "error": f"recovery: {type(exc).__name__}: {exc}"})
-        return in_flight
+                self._reload_journal(retirement, before)
+            if self._holds_slot(retirement):
+                blocked_slots.add(job_id)
+        return in_flight, blocked_slots
 
     # sizes -----------------------------------------------------------------------
 
@@ -1217,16 +1324,17 @@ class _Pass:
             except OSError:
                 pass
 
-    def _rollback(self, retirement: rarch.Retirement, reason: str, seconds: float, detail: str) -> None:
+    def _rollback(self, retirement: rarch.Retirement, reason: str, seconds: float, detail: str) -> bool:
         """Put the job back and defer it. The archive built so far is kept (an
         idle cache), so the next attempt reads only what changed, unless the
         job is in use again; an error defers it longer each time it repeats
         (review of a9a6cbf4, N10: a dropped cache re-archived the whole tree
-        after every persistent error)."""
+        after every persistent error). Return whether the journal's status
+        is known after the attempt."""
         job_id = retirement.job_id
-        self.acted += 1
-        self.state.sliced.pop(job_id, None)
-        failures = int((retirement.journal or {}).get("failures") or 0)
+        before = retirement.journal.copy() if retirement.journal is not None else None
+        verified = True
+        failures = int((before or {}).get("failures") or 0)
         if seconds == rarch.DEFER_ERROR_S:
             failures += 1
             seconds = min(rarch.DEFER_ERROR_MAX_S, rarch.DEFER_ERROR_S * 2 ** (failures - 1))
@@ -1246,8 +1354,26 @@ class _Pass:
                     pass
         except (OSError, ValueError, RuntimeError) as exc:
             self.errors.append({"job_id": job_id, "error": f"rollback failed: {type(exc).__name__}: {exc}"})
+            verified = self._reload_journal(retirement, before)
+        if not self._holds_slot(retirement):
+            self.state.sliced.pop(job_id, None)
+            self.state.holds.pop(job_id, None)
+        elif reason in ("yielded", "stalled"):
+            return verified
+        self.acted += 1
         self.state.defer(job_id, seconds, reason, self.clock())
         self.progress["deferred"][job_id] = reason + (f": {detail}" if detail else "")
+        return verified
+
+    def _reload_journal(self, retirement: rarch.Retirement, before: dict[str, Any] | None) -> bool:
+        # save() changes the object before writing it. A failed write is not
+        # evidence that the on-disk journal released the slot.
+        try:
+            retirement.journal = rarch.load_journal(self.root, retirement.job_id)
+        except (OSError, ValueError):
+            retirement.journal = before
+            return False
+        return True
 
 
 def _stamped(journal: dict[str, Any] | None, key: str) -> int:

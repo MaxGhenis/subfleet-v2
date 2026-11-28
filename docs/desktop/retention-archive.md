@@ -340,7 +340,10 @@ the directory), so a crash anywhere is resumed or undone by the next pass.
    write the manifest; read every stored file back and check its size and
    sha256. A job whose slice runs out is parked in quarantine with its progress
    and continues in the next pass. A slice stops only between files and only
-   after it has written new progress, so every pass moves a parked job forward.
+   after it has written a new record. On an unchanged tree each parked slice
+   gets further or finds a repository that changes what the walk must keep.
+   A parked job whose slices stop getting further goes back with its archive
+   kept and waits out the error backoff (section 12, “Progress and stalls”).
 7. **Holder check 2** (the next pass's listing, also matching the archived
    inodes, section 8). A job archived in a pass waits archived for that
    listing, which must have started after its archive ended; steps 8 and 9
@@ -866,10 +869,11 @@ until they expire.
 
 ## 12. Progress
 
-- **Oldest first, a bounded batch** (32 jobs, in-flight ones included, except
-  those archived in an earlier pass: they finish under this pass's listing, so
-  each pass commits the last pass's archives and starts the next batch under
-  one listing).
+- **A bounded batch** (32 slots by default). In-flight jobs hold slots except
+  while `archived` or with a rollback pending. Jobs archived in an earlier
+  pass finish under this pass's listing, so each pass commits the last pass's
+  archives and starts the next batch under one listing. Jobs share the slots
+  in waiting order (“Fair slots” below).
 - **No sizing before acting.** A pool over its job count needs no sizes. Sizes
   are measured lazily, oldest first, cached for six hours, and only until a
   pool's lower bound passes its byte budget. A stale size is a scheduling input
@@ -878,14 +882,42 @@ until they expire.
   that pass, and measured again after 1 hour, doubling to 24.
 - **Slices.** A job archives for at most 120 s per pass, then parks with its
   progress. Other jobs of the batch go on. A slice parks only between files and
-  after new progress, so a tree whose re-walk or one file outlasts it still
+  after recording new work, so a tree whose re-walk or one file outlasts it still
   finishes. In-flight jobs are sliced least recently sliced first (never
   sliced first, oldest first among those), so jobs that park take turns
   instead of queueing behind the first.
+- **Progress and stalls** (review r1 of #286, P3-4). A slice measures how far
+  it gets by the entries it walks and the checks it completes in archive
+  order, cached or new (`Retirement.last_reached`). A file that changes
+  between slices and outlasts one can make every slice re-read it, write a
+  record and park at the same step. After three consecutive slices at or
+  short of its furthest (`STALL_SLICES`), a parked job goes back with its
+  archive kept and waits out the error backoff (6 h, doubling to 24 h). Three
+  slices allow a writer finishing up to cost the job progress on two slices.
+  A slice that finds a repository in regenerable output
+  (`Retirement.last_found`) counts as progress and sets a new furthest. The
+  builder walks the tree again from the start, now keeping that output file
+  by file, and may take many slices to reach its earlier position.
+- **Fair slots** (I17). When an eligible job waits and the batch is full, a
+  parked job can yield after its check 1 passes and it has had at least one
+  slice. The job with the most slices since it started yields first. It goes
+  back with its archive kept, without a deferral or an increase in its failure
+  count, and queues behind current waiters and ahead of later arrivals. A
+  rollback that fails before recording itself leaves the job's slot, slice
+  count, stall count and last slice time intact. The failed yield or stall
+  rollback adds no advancement on its own.
+  Eligible jobs start by ticket order (`RetentionState.queue`), oldest first
+  among jobs that began waiting in one pass, with orphan lease jobs first.
+  A refused start uses the job's turn. A job that becomes protected, is
+  deferred or whose pool returns within budget loses its ticket and starts
+  its wait again if it becomes eligible.
 - **Deadlines.** The jobs whose check 2 the pass's listing passed finish
-  committing, even past the deadline. Slow pre-selection work still permits the
-  first job (unless only jobs archived earlier are in flight) and at least one
-  archive slice; subsequent starts and slices remain bounded.
+  committing, even past the deadline. Selection attempts the first start
+  when it has an eligible job and a free slot, even if slow pre-selection work
+  used up the deadline with parked jobs in flight. A start that defers on
+  `repository discovery deadline` uses the job's turn. The pass permits at
+  least one slice when a job is ready to archive. The deadline bounds
+  subsequent starts and slices.
 - **Deferral.** A busy, changed or failing job is put back and skipped until its
   deferral ends, so the queue never waits on it.
 - **Pacing.** The daemon runs a pass hourly. While a batch reports more waiting
@@ -1061,6 +1093,30 @@ Each is tested (section 16).
   revalidates original aliases after traversal and builds the census before
   recovery. The observation bounds above include an alias swapped and swapped
   back during one traversal.
+- **I17, a waiting job starts** (2026-11-28, C-8.4). A job waits in a pass
+  when selection finds it eligible and the pass attempts no start for it.
+  In-flight jobs hold slots except while `archived` or with a rollback
+  pending. With a fixed batch, at most `batch` jobs hold slots after a pass.
+  A pass that yields attempts a start unless it is cancelled first. A job
+  that stays eligible receives a start attempt within 2(q + 1) passes of its
+  first waiting pass, where q is the number of jobs queued ahead of it after
+  that pass. A free slot permits a start attempt at the head of the queue.
+  If the batch is full and none of its holders has had a slice, the pass
+  gives one a slice once recovery and check 1 allow it, so it can yield on
+  the next pass, or a holder leaves the batch and frees its slot. A job that
+  yields or begins waiting later queues behind existing waiters.
+
+  The waiting bound applies to passes that reach selection and complete
+  without cancellation or a failed yield rollback while recovery and check 1
+  can proceed. It assumes the batch has stayed fixed, since lowering it can
+  leave more holders than the new batch allows. An orphan lease's job can go
+  first. A daemon restart empties the queue
+  and the holds, so tickets are assigned again and a recovered job can yield
+  after its first slice since restart. A job that loses eligibility loses its
+  ticket. If cancellation intervenes after a yield and before the start,
+  the waiter keeps its ticket and starts on the next pass if still eligible
+  and first in the queue.
+  [Port evidence](../reports/2026-11-28-retention-batch-fairness-port.md).
 
 ## 15. Residual risks
 
@@ -1228,6 +1284,7 @@ finding:
 | No repository-wide prune (B2) | `test_retention_never_prunes_other_registrations`, `test_discarding_a_broken_allocation_removes_only_its_own_registration`, `test_rebuilding_a_conversation_worktree_removes_only_its_own_registration[plain-directory, detached-worktree]` |
 | Every pin | `test_every_pin_keeps_its_job[16 pins]`, `test_pinned_at_commit_rolls_back_then_retires_when_unpinned`, `test_resume_fence_and_retention_exclude_each_other`, `test_in_place_salvage_still_pins`, `test_salvage_is_bundled_and_its_ref_kept` |
 | Progress under load | `test_batch_bounds_a_pass_and_takes_the_oldest_first`, `test_a_pool_over_its_count_is_pruned_without_sizing_everything` |
+| Fair batch, stalls (I17) | `test_retention_batch_fairness.py` (queue order, yields, cancellations, failed rollbacks, check 2, stalls and builder progress), `test_every_waiting_job_starts_within_a_bounded_number_of_passes` (property) |
 | Disk relief (I11) | `test_regenerable_output_is_deleted_with_the_tree_not_archived`, `test_work_left_inside_a_tool_directory_is_archived` (the live trees' findings), `test_lookalikes_are_archived_byte_for_byte`, `test_a_repository_inside_regenerable_output_is_archived`, `test_without_git_nothing_is_regenerable`, `test_ignore_rules_that_change_during_the_archive_defer_the_job`, `test_a_file_written_into_regenerable_output_after_the_check_is_kept`, `test_a_replaced_tool_entry_is_archived`, `test_tool_layouts_split_the_tools_entries_from_everything_else[4 live layouts]`, `test_ignored_matches_git_status`, `test_sampled_survey_is_read_only_and_matches_the_retirement`, `test_only_and_all_regenerable_output_is_dropped_and_the_rest_restored` (Hypothesis, against an independent oracle and `git status --ignored`) |
 | N1, what the archive adds | `test_the_space_the_archive_adds_is_reported_wherever_freed_bytes_are`, `test_byte_copies_count_as_added`, `test_retention_log_lines_report_what_the_archives_added`, `test_the_sampled_estimate_nets_what_the_archive_adds` |
 | N1, the remote-less history limit | `test_a_remote_less_repository_over_the_history_limit_keeps_its_job`, `test_the_history_limit_is_for_repositories_without_a_network_remote`, `test_a_bundle_over_the_limit_that_the_estimate_missed_keeps_the_job`, `test_the_survey_keeps_what_the_history_limit_keeps`, `test_retention_gets_both_budgets_from_policy_and_the_conversation_services_pins`, `test_conversation_and_retention_values_are_validated[remote_less_history_bytes]` |
