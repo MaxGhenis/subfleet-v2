@@ -1,0 +1,32 @@
+{
+  "command": [
+    "uv",
+    "run",
+    "--default-index",
+    "https://pypi.org/simple",
+    "--no-sync",
+    "--with",
+    "pytest-xdist>=3.6",
+    "python",
+    "-u",
+    "/Users/maxghenis/.subfleet/worktrees/20261125-222604-rte-fix-r3/.sf-rte-fix3/verify.py",
+    "2",
+    "-p",
+    "sf_rte_safe",
+    "-q",
+    "-ra",
+    "--durations=5",
+    "--timeout=600",
+    "--timeout-method=signal",
+    "--basetemp=/Users/maxghenis/.subfleet/worktrees/20261125-222604-rte-fix-r3/.sf-rte-fix3/pytest-mutant-2",
+    "-o",
+    "cache_dir=/Users/maxghenis/.subfleet/worktrees/20261125-222604-rte-fix-r3/.sf-rte-fix3/pytest-cache-mutant-2",
+    "tests/unit/test_rte_walk_bundle.py::test_the_bundle_step_succeeds_whatever_an_earlier_attempt_left[lock]",
+    "tests/unit/test_rte_walk_bundle.py::test_the_bundle_step_succeeds_whatever_an_earlier_attempt_left[both]"
+  ],
+  "exit_code": 1,
+  "wall_s": 34.89,
+  "python": "Python 3.15.2",
+  "free_bytes": 106496000000,
+  "scratch_bytes": 19750912
+}

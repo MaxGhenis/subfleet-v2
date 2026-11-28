@@ -1,0 +1,58 @@
+"""Move this job's generated folders outside scratch into scratch, then remove them.
+
+Each folder is checked first: no tracked file inside (for worktree caches), only
+.pyc files in a __pycache__. Each removal is a shutil.rmtree guarded by an
+assertion that sf-wcall-f1 is in the path. Prints one JSON line per folder.
+"""
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+WORKTREE = Path("/Users/maxghenis/.subfleet/worktrees/20261114-231959-wcall-fix-r1")
+SCRATCH = Path(os.environ["SF_SCRATCH"])
+assert "sf-wcall-f1" in str(SCRATCH)
+CACHES = ["subfleet/__pycache__", "subfleet/adapters/__pycache__", "subfleet/sessions/__pycache__",
+          "subfleet/conversations/__pycache__", "tests/__pycache__", "tests/fake/__pycache__"]
+KEPT = Path("/tmp/sf-failed/834")
+HOLD = SCRATCH / "outside"
+
+
+def guarded_rmtree(path: Path) -> None:
+    assert "sf-wcall-f1" in str(path), path
+    shutil.rmtree(path)
+
+
+def main() -> int:
+    tracked = subprocess.run(["git", "ls-files"], cwd=WORKTREE, capture_output=True, text=True,
+                             check=True, timeout=120).stdout.splitlines()
+    HOLD.mkdir(exist_ok=True)
+    for index, rel in enumerate(CACHES):
+        source = WORKTREE / rel
+        if not source.exists():
+            print(json.dumps({"path": str(source), "result": "absent"}))
+            continue
+        assert not [name for name in tracked if name.startswith(rel + "/")], rel
+        files = [p.name for p in source.iterdir()]
+        assert all(name.endswith(".pyc") for name in files), (rel, files)
+        target = HOLD / f"cache-{index}"
+        shutil.move(str(source), str(target))
+        guarded_rmtree(target)
+        print(json.dumps({"path": str(source), "files": len(files), "result": "moved and removed"}))
+    if KEPT.exists():
+        names = sorted(p.name for p in KEPT.iterdir())
+        assert names == ["test_success_exports_by_rename_and_exposes_notices_and_artifacts"], names
+        target = HOLD / "sf-failed-834"
+        shutil.move(str(KEPT), str(target))
+        guarded_rmtree(target)
+        print(json.dumps({"path": str(KEPT), "result": "moved and removed"}))
+    guarded_rmtree(HOLD)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

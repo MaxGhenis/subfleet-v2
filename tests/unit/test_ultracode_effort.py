@@ -57,7 +57,7 @@ def test_c26_8_an_ultracode_turn_runs_at_xhigh_with_the_ultracode_setting():
     assert command[command.index("--effort") + 1] == "xhigh"
     assert "ultracode" not in command[command.index("--effort") + 1]
     settings = json.loads(command[command.index("--settings") + 1])
-    off = {"CLAUDE_CODE_RETRY_WATCHDOG": "0"}                         # d1031
+    off = {"CLAUDE_CODE_RETRY_WATCHDOG": "0", "CLAUDE_CODE_EFFORT_LEVEL": "xhigh"}
     assert settings == {"disableAllHooks": False, "ultracode": True, "env": off}
     fast = argv(spec(effort=ULTRACODE, fast=True, permission="bypass"))
     assert json.loads(fast[fast.index("--settings") + 1]) == {"disableAllHooks": False, "fastMode": True,

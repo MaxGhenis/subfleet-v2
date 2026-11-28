@@ -1,0 +1,401 @@
+63:__________ test_two_legacy_alias_holders_oldest_exports_and_releases ___________
+82:E           AssertionError: assert set() == {'newer-job'}
+83:E             
+84:E             Extra items in the right set:
+85:E             'newer-job'
+86:E             Use -v to get more diff
+92:____________ test_codex_exec_and_resume_commands_see_neither_dummy _____________
+107:E       AssertionError: the control's command never ran
+108:E       assert set()
+109:E        +  where set() = _seen(['Chunk ID: 0951ca\nWall time: 0.0000 seconds\nProcess exited with code 71\nOriginal token count: 14\nOutput:\nsandbox-exec: sandbox_apply: Operation not permitted\n'])
+112:___________ test_codex_conversation_turn_commands_see_neither_dummy ____________
+167:E       AssertionError: assert set() == {'MISSING'}
+168:E         
+169:E         Extra items in the right set:
+170:E         'MISSING'
+171:E         Use -v to get more diff
+174:____________ test_a_revive_records_the_requested_model_substitution ____________
+296:E                   subfleet.adapters.base.AdapterError: workdir is under /tmp
+302:_____ test_a_revive_of_a_session_on_main_is_refused_like_any_writable_job ______
+320:E       AssertionError: assert 'refused on main' in 'workdir is under /tmp'
+321:E        +  where 'workdir is under /tmp' = str(AdapterError('workdir is under /tmp'))
+322:E        +    where AdapterError('workdir is under /tmp') = <ExceptionInfo AdapterError('workdir is under /tmp') tblen=6>.value
+459:E                   subfleet.adapters.base.AdapterError: workdir is under /tmp
+589:E                   subfleet.adapters.base.AdapterError: workdir is under /tmp
+595:_______ test_handoff_dispatches_detached_through_the_normal_submit_path ________
+731:E                   subfleet.adapters.base.AdapterError: workdir is under /tmp
+737:_______ test_handoff_prompt_created_private_and_unlinked_after_dispatch ________
+869:E                   subfleet.adapters.base.AdapterError: workdir is under /tmp
+875:_______ test_terminal_messages_become_history_of_one_legacy_conversation _______
+888:E       assert 0 == 1
+889:E        +  where 0 = len([])
+892:__________________ test_each_message_is_classified_by_itself ___________________
+954:E       AssertionError: assert {} == {'1e9ac700-00...led', 4), ...}
+955:E         
+956:E         Right contains 5 more items:
+957:E         {'1e9ac700-0000-4000-8000-000000000001': ('complete', 'legacy-finished', 1),
+958:E          '1e9ac700-0000-4000-8000-000000000002': ('failed',
+959:E                                                   'legacy-error: provider-failed',
+960:E                                                   2),
+961:E          '1e9ac700-0000-4000-8000-000000000003': ('cancelled', 'legacy-cancelled', 3),...
+962:E         
+963:E         ...Full output truncated (3 lines hidden), use '-vv' to show
+966:__________________ test_a_repeated_import_creates_nothing_new __________________
+979:E       assert (0 == 2)
+980:E        +  where 0 = StoreReport(store='outbox', disposition='import', destination="the cockpit's message outbox: terminal messages become ...d': 'claude:5e551011-0000-4000-8000-00000000000b', 'status': 'queued', 'disposition': 'legacy-owned', 'detail': None}]).imported
+983:____ test_a_message_without_a_transcript_lands_when_the_transcript_appears _____
+999:E       AssertionError: assert {'1e9ac700-00...-continuable'} == {'1e9ac700-00...1': 'history'}
+1000:E         
+1001:E         Differing items:
+1002:E         {'1e9ac700-0000-4000-8000-000000000001': 'session-not-continuable'} != {'1e9ac700-0000-4000-8000-000000000001': 'history'}
+1003:E         Use -v to get more diff
+1006:___________ test_an_unreadable_journal_holds_every_session[not json] ___________
+1035:E       AssertionError: assert {'1e9ac700-00...legacy-owned'} == {'1e9ac700-00...legacy-owned'}
+1036:E         
+1037:E         Omitting 1 identical items, use -vv to show
+1038:E         Differing items:
+1039:E         {'1e9ac700-0000-4000-8000-000000000002': 'session-not-continuable'} != {'1e9ac700-0000-4000-8000-000000000002': 'history'}
+1040:E         {'1e9ac700-0000-4000-8000-000000000001': 'session-not-continuable'} != {'1e9ac700-0000-4000-8000-000000000001': 'history'}
+1041:E         Use -v to get more diff
+1044:________ test_an_unreadable_journal_holds_every_session[not an object] _________
+1073:E       AssertionError: assert {'1e9ac700-00...legacy-owned'} == {'1e9ac700-00...legacy-owned'}
+1074:E         
+1075:E         Omitting 1 identical items, use -vv to show
+1076:E         Differing items:
+1077:E         {'1e9ac700-0000-4000-8000-000000000002': 'session-not-continuable'} != {'1e9ac700-0000-4000-8000-000000000002': 'history'}
+1078:E         {'1e9ac700-0000-4000-8000-000000000001': 'session-not-continuable'} != {'1e9ac700-0000-4000-8000-000000000001': 'history'}
+1079:E         Use -v to get more diff
+1111:E       AssertionError: assert {'1e9ac700-00...legacy-owned'} == {'1e9ac700-00...legacy-owned'}
+1112:E         
+1113:E         Omitting 1 identical items, use -vv to show
+1114:E         Differing items:
+1115:E         {'1e9ac700-0000-4000-8000-000000000002': 'session-not-continuable'} != {'1e9ac700-0000-4000-8000-000000000002': 'history'}
+1116:E         {'1e9ac700-0000-4000-8000-000000000001': 'session-not-continuable'} != {'1e9ac700-0000-4000-8000-000000000001': 'history'}
+1117:E         Use -v to get more diff
+1149:E       AssertionError: assert {'1e9ac700-00...legacy-owned'} == {'1e9ac700-00...legacy-owned'}
+1150:E         
+1151:E         Omitting 1 identical items, use -vv to show
+1152:E         Differing items:
+1153:E         {'1e9ac700-0000-4000-8000-000000000002': 'session-not-continuable'} != {'1e9ac700-0000-4000-8000-000000000002': 'history'}
+1154:E         {'1e9ac700-0000-4000-8000-000000000001': 'session-not-continuable'} != {'1e9ac700-0000-4000-8000-000000000001': 'history'}
+1155:E         Use -v to get more diff
+1158:_________ test_an_unreadable_journal_holds_every_session[a directory] __________
+1187:E       AssertionError: assert {'1e9ac700-00...legacy-owned'} == {'1e9ac700-00...legacy-owned'}
+1188:E         
+1189:E         Omitting 1 identical items, use -vv to show
+1190:E         Differing items:
+1191:E         {'1e9ac700-0000-4000-8000-000000000002': 'session-not-continuable'} != {'1e9ac700-0000-4000-8000-000000000002': 'history'}
+1192:E         {'1e9ac700-0000-4000-8000-000000000001': 'session-not-continuable'} != {'1e9ac700-0000-4000-8000-000000000001': 'history'}
+1193:E         Use -v to get more diff
+1225:E       AssertionError: assert {'1e9ac700-00...legacy-owned'} == {'1e9ac700-00...legacy-owned'}
+1226:E         
+1227:E         Omitting 1 identical items, use -vv to show
+1228:E         Differing items:
+1229:E         {'1e9ac700-0000-4000-8000-000000000002': 'session-not-continuable'} != {'1e9ac700-0000-4000-8000-000000000002': 'history'}
+1230:E         {'1e9ac700-0000-4000-8000-000000000001': 'session-not-continuable'} != {'1e9ac700-0000-4000-8000-000000000001': 'history'}
+1231:E         Use -v to get more diff
+1263:E       AssertionError: assert {'1e9ac700-00...legacy-owned'} == {'1e9ac700-00...legacy-owned'}
+1264:E         
+1265:E         Omitting 1 identical items, use -vv to show
+1266:E         Differing items:
+1267:E         {'1e9ac700-0000-4000-8000-000000000002': 'session-not-continuable'} != {'1e9ac700-0000-4000-8000-000000000002': 'history'}
+1268:E         {'1e9ac700-0000-4000-8000-000000000001': 'session-not-continuable'} != {'1e9ac700-0000-4000-8000-000000000001': 'history'}
+1269:E         Use -v to get more diff
+1301:E       AssertionError: assert {'1e9ac700-00...legacy-owned'} == {'1e9ac700-00...legacy-owned'}
+1302:E         
+1303:E         Omitting 1 identical items, use -vv to show
+1304:E         Differing items:
+1305:E         {'1e9ac700-0000-4000-8000-000000000002': 'session-not-continuable'} != {'1e9ac700-0000-4000-8000-000000000002': 'history'}
+1306:E         {'1e9ac700-0000-4000-8000-000000000001': 'session-not-continuable'} != {'1e9ac700-0000-4000-8000-000000000001': 'history'}
+1307:E         Use -v to get more diff
+1339:E       AssertionError: assert {'1e9ac700-00...legacy-owned'} == {'1e9ac700-00...legacy-owned'}
+1340:E         
+1341:E         Omitting 1 identical items, use -vv to show
+1342:E         Differing items:
+1343:E         {'1e9ac700-0000-4000-8000-000000000002': 'session-not-continuable'} != {'1e9ac700-0000-4000-8000-000000000002': 'history'}
+1344:E         {'1e9ac700-0000-4000-8000-000000000001': 'session-not-continuable'} != {'1e9ac700-0000-4000-8000-000000000001': 'history'}
+1345:E         Use -v to get more diff
+1348:_______ test_an_unreadable_journal_holds_every_session[a lone surrogate] _______
+1377:E       AssertionError: assert {'1e9ac700-00...legacy-owned'} == {'1e9ac700-00...legacy-owned'}
+1378:E         
+1379:E         Omitting 1 identical items, use -vv to show
+1380:E         Differing items:
+1381:E         {'1e9ac700-0000-4000-8000-000000000002': 'session-not-continuable'} != {'1e9ac700-0000-4000-8000-000000000002': 'history'}
+1382:E         {'1e9ac700-0000-4000-8000-000000000001': 'session-not-continuable'} != {'1e9ac700-0000-4000-8000-000000000001': 'history'}
+1383:E         Use -v to get more diff
+1414:E       AssertionError: assert {'1e9ac700-00...legacy-owned'} == {'1e9ac700-00...legacy-owned'}
+1415:E         
+1416:E         Omitting 2 identical items, use -vv to show
+1417:E         Differing items:
+1418:E         {'1e9ac700-0000-4000-8000-000000000002': 'session-not-continuable'} != {'1e9ac700-0000-4000-8000-000000000002': 'history'}
+1419:E         Use -v to get more diff
+1450:E       AssertionError: assert {'1e9ac700-00...legacy-owned'} == {'1e9ac700-00...legacy-owned'}
+1451:E         
+1452:E         Omitting 2 identical items, use -vv to show
+1453:E         Differing items:
+1454:E         {'1e9ac700-0000-4000-8000-000000000002': 'session-not-continuable'} != {'1e9ac700-0000-4000-8000-000000000002': 'history'}
+1455:E         Use -v to get more diff
+1486:E       AssertionError: assert {'1e9ac700-00...legacy-owned'} == {'1e9ac700-00...legacy-owned'}
+1487:E         
+1488:E         Omitting 2 identical items, use -vv to show
+1489:E         Differing items:
+1490:E         {'1e9ac700-0000-4000-8000-000000000002': 'session-not-continuable'} != {'1e9ac700-0000-4000-8000-000000000002': 'history'}
+1491:E         Use -v to get more diff
+1522:E       AssertionError: assert {'1e9ac700-00...legacy-owned'} == {'1e9ac700-00...legacy-owned'}
+1523:E         
+1524:E         Omitting 2 identical items, use -vv to show
+1525:E         Differing items:
+1526:E         {'1e9ac700-0000-4000-8000-000000000002': 'session-not-continuable'} != {'1e9ac700-0000-4000-8000-000000000002': 'history'}
+1527:E         Use -v to get more diff
+1530:_______ test_an_outbox_that_cannot_be_read_holds_every_session[corrupt] ________
+1556:E       ValueError: not enough values to unpack (expected 1, got 0)
+1585:E       ValueError: not enough values to unpack (expected 1, got 0)
+1588:____ test_an_outbox_that_cannot_be_read_holds_every_session[other columns] _____
+1614:E       ValueError: not enough values to unpack (expected 1, got 0)
+1617:___________ test_a_missing_outbox_still_reads_the_journal_and_fences ___________
+1639:E       ValueError: not enough values to unpack (expected 1, got 0)
+1642:______________ test_a_running_cockpit_broker_holds_every_session _______________
+1665:E       ValueError: not enough values to unpack (expected 1, got 0)
+1668:_________________ test_a_live_cockpit_worker_holds_its_session _________________
+1695:E       AssertionError: assert 'session-not-continuable' == 'history'
+1696:E         
+1697:E         - history
+1698:E         + session-not-continuable
+1701:_____________ test_an_unreadable_workers_file_holds_every_session ______________
+1722:E       ValueError: not enough values to unpack (expected 1, got 0)
+1725:_______ test_a_workers_file_naming_a_lone_surrogate_holds_every_session ________
+1747:E       ValueError: not enough values to unpack (expected 1, got 0)
+1781:E       ValueError: not enough values to unpack (expected 1, got 0)
+1784:______________________ test_one_session_has_one_spelling _______________________
+1805:E       AssertionError: assert {'0e0e0e0e-00...-continuable'} == {'0e0e0e0e-00...2': 'history'}
+1806:E         
+1807:E         Differing items:
+1808:E         {'0e0e0e0e-0000-4000-8000-000000000001': 'session-not-continuable'} != {'0e0e0e0e-0000-4000-8000-000000000001': 'history'}
+1809:E         {'0e0e0e0e-0000-4000-8000-000000000002': 'session-not-continuable'} != {'0e0e0e0e-0000-4000-8000-000000000002': 'history'}
+1810:E         Use -v to get more diff
+1813:_______________ test_the_fence_runs_before_any_history_is_placed _______________
+1836:E       ValueError: not enough values to unpack (expected 1, got 0)
+1839:___________ test_one_session_that_cannot_be_read_never_ends_the_pass ___________
+1870:E       AssertionError: assert 'session-not-continuable' == 'history'
+1871:E         
+1872:E         - history
+1873:E         + session-not-continuable
+1891:E       ValueError: not enough values to unpack (expected 1, got 0)
+1894:_____________ test_a_legacy_hold_and_another_block_are_independent _____________
+1907:E       ValueError: not enough values to unpack (expected 1, got 0)
+1910:___________ test_an_unreadable_row_is_reported_and_the_pass_goes_on ____________
+1940:E       AssertionError: assert {'1e9ac700-00...kspace'), ...} == {'1e9ac700-00...', None), ...}
+1941:E         
+1942:E         Omitting 4 identical items, use -vv to show
+1943:E         Differing items:
+1944:E         {'1E9AC700-0000-4000-8000-000000000004': ('session-not-continuable', 'tmp-workspace')} != {'1E9AC700-0000-4000-8000-000000000004': ('history', None)}
+1945:E         {'1e9ac700-0000-4000-8000-000000000001': ('session-not-continuable', 'tmp-workspace')} != {'1e9ac700-0000-4000-8000-000000000001': ('history', None)}
+1946:E         Use -v to get more diff
+1949:_______________ test_image_snapshots_stay_in_v1_and_are_counted ________________
+1967:E       AssertionError: assert ('session-not-continuable' == 'history'
+1968:E         
+1969:E         - history
+1970:E         + session-not-continuable)
+1973:____ test_a_legacy_id_the_store_holds_as_a_message_of_its_own_is_a_conflict ____
+1999:E       AssertionError: assert ('session-not-continuable' == 'history'
+2000:E         
+2001:E         - history
+2002:E         + session-not-continuable)
+2005:______ test_the_legacy_cockpit_runs_alone_and_its_dry_run_writes_nothing _______
+2021:E       AssertionError: assert {'1e9ac700-00...legacy-owned'} == {'1e9ac700-00...legacy-owned'}
+2022:E         
+2023:E         Omitting 1 identical items, use -vv to show
+2024:E         Differing items:
+2025:E         {'1e9ac700-0000-4000-8000-000000000002': 'session-not-continuable'} != {'1e9ac700-0000-4000-8000-000000000002': 'history'}
+2026:E         {'1e9ac700-0000-4000-8000-000000000001': 'session-not-continuable'} != {'1e9ac700-0000-4000-8000-000000000001': 'history'}
+2027:E         Use -v to get more diff
+2030:___________ test_the_legacy_import_holds_the_lock_for_its_whole_pass ___________
+2048:E       assert 0 == 2
+2049:E        +  where 0 = StoreReport(store='outbox', disposition='import', destination="the cockpit's message outbox: terminal messages become ...d': 'claude:5e551011-0000-4000-8000-00000000000b', 'status': 'queued', 'disposition': 'legacy-owned', 'detail': None}]).imported
+2052:______________ test_a_v1_state_that_is_not_there_releases_nothing ______________
+2074:E       ValueError: not enough values to unpack (expected 1, got 0)
+2077:___________________ test_a_retired_cockpit_lifts_every_hold ____________________
+2100:E       ValueError: not enough values to unpack (expected 1, got 0)
+2103:______________ test_a_retirement_that_dies_midway_retires_nothing ______________
+2126:E       ValueError: not enough values to unpack (expected 1, got 0)
+2129:__________________ test_swapped_roots_touch_neither_directory __________________
+2149:E       AssertionError: assert 'session-not-continuable' == 'history'
+2150:E         
+2151:E         - history
+2152:E         + session-not-continuable
+2186:E           ValueError: not enough values to unpack (expected 1, got 0)
+2216:E           ValueError: not enough values to unpack (expected 1, got 0)
+2219:_________ test_a_readmitted_turn_waits_while_the_conversation_is_held __________
+2243:E           ValueError: not enough values to unpack (expected 1, got 0)
+2246:______ test_an_outcome_never_replaces_the_hold_and_unblock_never_lifts_it ______
+2271:E           ValueError: not enough values to unpack (expected 1, got 0)
+2274:___________ test_a_resolved_delivery_and_a_quarantine_leave_the_hold ___________
+2298:E           ValueError: not enough values to unpack (expected 1, got 0)
+2301:_____________________ test_only_the_import_lifts_its_hold ______________________
+2324:E           ValueError: not enough values to unpack (expected 1, got 0)
+2356:E           ValueError: not enough values to unpack (expected 1, got 0)
+2388:E           ValueError: not enough values to unpack (expected 1, got 0)
+2422:E           ValueError: not enough values to unpack (expected 1, got 0)
+2456:E           ValueError: not enough values to unpack (expected 1, got 0)
+2459:__________________ test_a_person_s_stop_stands_over_the_hold ___________________
+2483:E           ValueError: not enough values to unpack (expected 1, got 0)
+2486:______ test_a_turn_the_hold_stopped_before_its_message_waits_for_the_hold ______
+2510:E           ValueError: not enough values to unpack (expected 1, got 0)
+2513:________ test_a_queued_turn_job_of_a_held_conversation_is_not_admitted _________
+2537:E           ValueError: not enough values to unpack (expected 1, got 0)
+2540:_________________ test_the_recording_is_what_676906f85_builds __________________
+2563:E       AssertionError: subfleet resolved to /Users/maxghenis/.subfleet/worktrees/20261111-122612-eff-build-r1s/subfleet/__init__.py, not under /private/tmp/sf-eff-b1/selected-tests/popen-gw1/test_the_recording_is_what_6760/old
+2564:E         
+2565:E       assert 2 == 0
+2566:E        +  where 2 = CompletedProcess(args=['/private/tmp/sf-eff-b1/uv-cache/builds-v0/.tmp6FMdCo/bin/python', '-I', '-B', '/Users/maxgheni...subfleet/__init__.py, not under /private/tmp/sf-eff-b1/selected-tests/popen-gw1/test_the_recording_is_what_6760/old\n').returncode
+2569:______ test_resume_refuses_a_turn_source_and_a_conversation_bound_session ______
+2596:E           Failed: DID NOT RAISE AdapterError
+2599:_____ test_the_daemon_never_revives_or_nudges_a_conversation_bound_session _____
+2611:E       AssertionError: assert [] == ['5e551011-00...0000000000c1']
+2612:E         
+2613:E         Right contains one more item: '5e551011-0000-4000-8000-0000000000c1'
+2614:E         Use -v to get more diff
+2658:E           ValueError: not enough values to unpack (expected 1, got 0)
+2702:E           ValueError: not enough values to unpack (expected 1, got 0)
+2705:____________ test_conversation_open_binds_one_spelling_of_a_session ____________
+2730:E           ValueError: not enough values to unpack (expected 1, got 0)
+2733:___________ test_a_held_session_opened_after_the_pass_is_bound_held ____________
+2778:E           subfleet.conversations.store.ConversationError: tmp-workspace
+2781:_________ test_while_every_session_is_held_any_session_opened_is_held __________
+2823:E           subfleet.conversations.store.ConversationError: tmp-workspace
+2850:E           ValueError: not enough values to unpack (expected 1, got 0)
+2880:E           ValueError: not enough values to unpack (expected 1, got 0)
+2910:E           ValueError: not enough values to unpack (expected 1, got 0)
+2944:E           ValueError: not enough values to unpack (expected 1, got 0)
+2978:E           ValueError: not enough values to unpack (expected 1, got 0)
+3011:E           ValueError: not enough values to unpack (expected 1, got 0)
+3014:_____ test_a_stop_that_comes_while_the_message_is_handed_over_waits_for_it _____
+3042:E           ValueError: not enough values to unpack (expected 1, got 0)
+3073:E           ValueError: not enough values to unpack (expected 1, got 0)
+3104:E           ValueError: not enough values to unpack (expected 1, got 0)
+3107:________ test_a_withdrawal_racing_the_dispatcher_leaves_no_turn_to_run _________
+3135:E           ValueError: not enough values to unpack (expected 1, got 0)
+3138:__________ test_admission_cancels_a_turn_job_whose_message_is_settled __________
+3161:E           ValueError: not enough values to unpack (expected 1, got 0)
+3164:_____ test_a_turn_manifest_that_cannot_be_read_holds_that_job_alone[None] ______
+3192:E           ValueError: not enough values to unpack (expected 1, got 0)
+3195:_____ test_a_turn_manifest_that_cannot_be_read_holds_that_job_alone[[1, 2] _____
+3223:E           ValueError: not enough values to unpack (expected 1, got 0)
+3254:E           ValueError: not enough values to unpack (expected 1, got 0)
+3285:E           ValueError: not enough values to unpack (expected 1, got 0)
+3288:_______ test_a_turn_manifest_that_cannot_be_read_holds_that_job_alone[7] _______
+3316:E           ValueError: not enough values to unpack (expected 1, got 0)
+3347:E           ValueError: not enough values to unpack (expected 1, got 0)
+3378:E           ValueError: not enough values to unpack (expected 1, got 0)
+3405:E           ValueError: not enough values to unpack (expected 1, got 0)
+3408:___________ test_a_runner_the_store_refuses_to_mark_is_still_started ___________
+3434:E           ValueError: not enough values to unpack (expected 1, got 0)
+3437:____________ test_a_cancel_racing_admission_records_the_stop_first _____________
+3463:E           ValueError: not enough values to unpack (expected 1, got 0)
+3466:_________________ test_a_refused_cancel_leaves_no_stop_behind __________________
+3490:E           ValueError: not enough values to unpack (expected 1, got 0)
+3493:____ test_a_relay_slow_to_take_one_message_holds_up_no_other_message_s_stop ____
+3518:E           ValueError: not enough values to unpack (expected 1, got 0)
+3521:____________ test_a_refused_cancel_never_stops_the_turn_it_lost_to _____________
+3549:E           ValueError: not enough values to unpack (expected 1, got 0)
+3552:____ test_a_cancel_that_wins_keeps_a_runner_admitted_meanwhile_from_writing ____
+3578:E           ValueError: not enough values to unpack (expected 1, got 0)
+3581:________ test_a_stop_is_never_lost_to_a_withdrawal_that_loses_its_race _________
+3608:E           ValueError: not enough values to unpack (expected 1, got 0)
+3612:FAILED tests/fake/test_canonical_identity.py::test_two_legacy_alias_holders_oldest_exports_and_releases
+3613:FAILED tests/process/test_provider_shell_environment.py::test_codex_exec_and_resume_commands_see_neither_dummy
+3614:FAILED tests/process/test_provider_shell_environment.py::test_codex_conversation_turn_commands_see_neither_dummy
+3615:FAILED tests/fake/test_sessions_end_to_end.py::test_a_revive_records_the_requested_model_substitution
+3616:FAILED tests/fake/test_sessions_end_to_end.py::test_a_revive_of_a_session_on_main_is_refused_like_any_writable_job
+3617:FAILED tests/fake/test_sessions_end_to_end.py::test_a_retry_of_an_accepted_continuation_finds_its_job_after_the_binding[revive]
+3618:FAILED tests/fake/test_sessions_end_to_end.py::test_a_queued_revive_whose_session_becomes_a_conversations_fails_at_admission
+3619:FAILED tests/fake/test_sessions_end_to_end.py::test_handoff_dispatches_detached_through_the_normal_submit_path
+3620:FAILED tests/fake/test_sessions_end_to_end.py::test_handoff_prompt_created_private_and_unlinked_after_dispatch
+3621:FAILED tests/unit/test_importer.py::test_terminal_messages_become_history_of_one_legacy_conversation
+3622:FAILED tests/unit/test_importer.py::test_each_message_is_classified_by_itself
+3623:FAILED tests/unit/test_importer.py::test_a_repeated_import_creates_nothing_new
+3624:FAILED tests/unit/test_importer.py::test_a_message_without_a_transcript_lands_when_the_transcript_appears
+3625:FAILED tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[not json]
+3626:FAILED tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[not an object]
+3627:FAILED tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[keyed by something else]
+3628:FAILED tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[a request naming no session]
+3629:FAILED tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[a directory]
+3630:FAILED tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[image paths that are no list]
+3631:FAILED tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[a message id that is no string]
+3632:FAILED tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[an entry with no request]
+3633:FAILED tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[a request that names no session]
+3634:FAILED tests/unit/test_importer.py::test_an_unreadable_journal_holds_every_session[a lone surrogate]
+3635:FAILED tests/unit/test_importer.py::test_a_row_with_malformed_payload_metadata_is_reported_and_the_pass_goes_on[image_paths-1-the payload's image_paths is not a list]
+3636:FAILED tests/unit/test_importer.py::test_a_row_with_malformed_payload_metadata_is_reported_and_the_pass_goes_on[image_paths-value1-the payload's image_paths is not a list]
+3637:FAILED tests/unit/test_importer.py::test_a_row_with_malformed_payload_metadata_is_reported_and_the_pass_goes_on[service_tier-value2-the payload's service_tier is not a string]
+3638:FAILED tests/unit/test_importer.py::test_a_row_with_malformed_payload_metadata_is_reported_and_the_pass_goes_on[prompt-he replied \ud800-the payload or receipt is not UTF-8 text]
+3639:FAILED tests/unit/test_importer.py::test_an_outbox_that_cannot_be_read_holds_every_session[corrupt]
+3640:FAILED tests/unit/test_importer.py::test_an_outbox_that_cannot_be_read_holds_every_session[no messages table]
+3641:FAILED tests/unit/test_importer.py::test_an_outbox_that_cannot_be_read_holds_every_session[other columns]
+3642:FAILED tests/unit/test_importer.py::test_a_missing_outbox_still_reads_the_journal_and_fences
+3643:FAILED tests/unit/test_importer.py::test_a_running_cockpit_broker_holds_every_session
+3644:FAILED tests/unit/test_importer.py::test_a_live_cockpit_worker_holds_its_session
+3645:FAILED tests/unit/test_importer.py::test_an_unreadable_workers_file_holds_every_session
+3646:FAILED tests/unit/test_importer.py::test_a_workers_file_naming_a_lone_surrogate_holds_every_session
+3647:FAILED tests/unit/test_importer.py::test_a_live_claude_process_outside_subfleet_keeps_history_out_and_fences_nothing[False]
+3648:FAILED tests/unit/test_importer.py::test_one_session_has_one_spelling - Asser...
+3649:FAILED tests/unit/test_importer.py::test_the_fence_runs_before_any_history_is_placed
+3650:FAILED tests/unit/test_importer.py::test_one_session_that_cannot_be_read_never_ends_the_pass
+3651:FAILED tests/unit/test_importer.py::test_a_bound_session_the_legacy_writer_takes_up_again_waits_until_it_settles
+3652:FAILED tests/unit/test_importer.py::test_a_legacy_hold_and_another_block_are_independent
+3653:FAILED tests/unit/test_importer.py::test_an_unreadable_row_is_reported_and_the_pass_goes_on
+3654:FAILED tests/unit/test_importer.py::test_image_snapshots_stay_in_v1_and_are_counted
+3655:FAILED tests/unit/test_importer.py::test_a_legacy_id_the_store_holds_as_a_message_of_its_own_is_a_conflict
+3656:FAILED tests/unit/test_importer.py::test_the_legacy_cockpit_runs_alone_and_its_dry_run_writes_nothing
+3657:FAILED tests/unit/test_importer.py::test_the_legacy_import_holds_the_lock_for_its_whole_pass
+3658:FAILED tests/unit/test_importer.py::test_a_v1_state_that_is_not_there_releases_nothing
+3659:FAILED tests/unit/test_importer.py::test_a_retired_cockpit_lifts_every_hold
+3660:FAILED tests/unit/test_importer.py::test_a_retirement_that_dies_midway_retires_nothing
+3661:FAILED tests/unit/test_importer.py::test_swapped_roots_touch_neither_directory
+3662:FAILED tests/unit/test_legacy_hold.py::test_waits_for_the_session_s_other_writer_use_up_no_readmission[external-writer]
+3663:FAILED tests/unit/test_legacy_hold.py::test_waits_for_the_session_s_other_writer_use_up_no_readmission[legacy-owner]
+3664:FAILED tests/unit/test_legacy_hold.py::test_a_readmitted_turn_waits_while_the_conversation_is_held
+3665:FAILED tests/unit/test_legacy_hold.py::test_an_outcome_never_replaces_the_hold_and_unblock_never_lifts_it
+3666:FAILED tests/unit/test_legacy_hold.py::test_a_resolved_delivery_and_a_quarantine_leave_the_hold
+3667:FAILED tests/unit/test_legacy_hold.py::test_only_the_import_lifts_its_hold - ...
+3668:FAILED tests/unit/test_legacy_hold.py::test_a_running_turn_is_stopped_when_the_daemon_adopts_it_on_a_held_conversation[True]
+3669:FAILED tests/unit/test_legacy_hold.py::test_a_running_turn_is_stopped_when_the_daemon_adopts_it_on_a_held_conversation[False]
+3670:FAILED tests/unit/test_legacy_hold.py::test_an_adopted_turn_on_a_held_conversation_never_writes_its_message[False]
+3671:FAILED tests/unit/test_legacy_hold.py::test_an_adopted_turn_on_a_held_conversation_never_writes_its_message[True]
+3672:FAILED tests/unit/test_legacy_hold.py::test_a_person_s_stop_stands_over_the_hold
+3673:FAILED tests/unit/test_legacy_hold.py::test_a_turn_the_hold_stopped_before_its_message_waits_for_the_hold
+3674:FAILED tests/unit/test_legacy_hold.py::test_a_queued_turn_job_of_a_held_conversation_is_not_admitted
+3675:FAILED tests/unit/test_lane_settings.py::test_the_recording_is_what_676906f85_builds
+3676:FAILED tests/unit/test_legacy_hold.py::test_resume_refuses_a_turn_source_and_a_conversation_bound_session
+3677:FAILED tests/unit/test_legacy_hold.py::test_the_daemon_never_revives_or_nudges_a_conversation_bound_session
+3678:FAILED tests/unit/test_legacy_hold.py::test_a_session_only_a_turn_attempt_recorded_is_a_conversation_s_in_either_spelling[upper-recorded]
+3679:FAILED tests/unit/test_legacy_hold.py::test_a_session_only_a_turn_attempt_recorded_is_a_conversation_s_in_either_spelling[lower-recorded]
+3680:FAILED tests/unit/test_legacy_hold.py::test_conversation_open_binds_one_spelling_of_a_session
+3681:FAILED tests/unit/test_legacy_hold.py::test_a_held_session_opened_after_the_pass_is_bound_held
+3682:FAILED tests/unit/test_legacy_hold.py::test_while_every_session_is_held_any_session_opened_is_held
+3683:FAILED tests/unit/test_legacy_hold.py::test_one_turn_job_whose_conversation_cannot_be_checked_never_ends_the_pass
+3684:FAILED tests/unit/test_legacy_hold.py::test_a_message_the_hold_withheld_can_still_be_withdrawn[message.cancel]
+3685:FAILED tests/unit/test_legacy_hold.py::test_a_message_the_hold_withheld_can_still_be_withdrawn[turn.interrupt]
+3686:FAILED tests/unit/test_legacy_hold.py::test_a_person_s_stop_before_the_message_was_handed_over_is_never_overridden[False]
+3687:FAILED tests/unit/test_legacy_hold.py::test_a_person_s_stop_before_the_message_was_handed_over_is_never_overridden[True]
+3688:FAILED tests/unit/test_legacy_hold.py::test_a_stop_acknowledged_before_the_provider_answered_initialize_keeps_the_message_unwritten
+3689:FAILED tests/unit/test_legacy_hold.py::test_a_stop_that_comes_while_the_message_is_handed_over_waits_for_it
+3690:FAILED tests/unit/test_legacy_hold.py::test_a_store_error_in_the_conversation_check_is_the_pass_s[store_error0]
+3691:FAILED tests/unit/test_legacy_hold.py::test_a_store_error_in_the_conversation_check_is_the_pass_s[store_error1]
+3692:FAILED tests/unit/test_legacy_hold.py::test_a_withdrawal_racing_the_dispatcher_leaves_no_turn_to_run
+3693:FAILED tests/unit/test_legacy_hold.py::test_admission_cancels_a_turn_job_whose_message_is_settled
+3694:FAILED tests/unit/test_legacy_hold.py::test_a_turn_manifest_that_cannot_be_read_holds_that_job_alone[None]
+3695:FAILED tests/unit/test_legacy_hold.py::test_a_turn_manifest_that_cannot_be_read_holds_that_job_alone[[1, 2]
+3696:FAILED tests/unit/test_legacy_hold.py::test_a_turn_manifest_that_cannot_be_read_holds_that_job_alone[{"turn": [1, 2]}]
+3697:FAILED tests/unit/test_legacy_hold.py::test_a_turn_manifest_that_cannot_be_read_holds_that_job_alone[{"turn": "a string"}]
+3698:FAILED tests/unit/test_legacy_hold.py::test_a_turn_manifest_that_cannot_be_read_holds_that_job_alone[7]
+3699:FAILED tests/unit/test_legacy_hold.py::test_a_turn_manifest_that_cannot_be_read_holds_that_job_alone[{"turn": {}}]
+3700:FAILED tests/unit/test_legacy_hold.py::test_a_turn_manifest_that_cannot_be_read_holds_that_job_alone[{"turn": {"conversation_id": [1], "message_id": "m", "provider": "claude"}}]
+3701:FAILED tests/unit/test_legacy_hold.py::test_a_failed_check_with_an_unreadable_manifest_still_holds_that_job_alone
+3702:FAILED tests/unit/test_legacy_hold.py::test_a_runner_the_store_refuses_to_mark_is_still_started
+3703:FAILED tests/unit/test_legacy_hold.py::test_a_cancel_racing_admission_records_the_stop_first
+3704:FAILED tests/unit/test_legacy_hold.py::test_a_refused_cancel_leaves_no_stop_behind
+3705:FAILED tests/unit/test_legacy_hold.py::test_a_relay_slow_to_take_one_message_holds_up_no_other_message_s_stop
+3706:FAILED tests/unit/test_legacy_hold.py::test_a_refused_cancel_never_stops_the_turn_it_lost_to
+3707:FAILED tests/unit/test_legacy_hold.py::test_a_cancel_that_wins_keeps_a_runner_admitted_meanwhile_from_writing
+3708:FAILED tests/unit/test_legacy_hold.py::test_a_stop_is_never_lost_to_a_withdrawal_that_loses_its_race

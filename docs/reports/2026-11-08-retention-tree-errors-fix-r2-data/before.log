@@ -1,0 +1,33 @@
+Installed 7 packages in 206ms
+.F                                                                       [100%]
+=================================== FAILURES ===================================
+_______ test_acl_refused_opens_preserve_a_file_s_already_sufficient_mode _______
+
+restored = PosixPath('/private/tmp/sf-rte-fix2/pytest-before/test_acl_refused_opens_preserv0/case')
+
+    def test_acl_refused_opens_preserve_a_file_s_already_sufficient_mode(restored):
+        """Both opens refused by ACL alone must leave the put-back file at 0644."""
+        scratch = scratch_in(restored)
+        record = scratch.create("job/a1")
+        entry = Path(record["path"]) / "locked"
+        entry.write_text("synthetic payload")
+        os.chmod(entry, 0o644)
+        add_acl(entry, "everyone deny read,write,delete")
+        before = acl_entries(entry)
+        assert scratch._remove(record) is False
+        assert scratch.presence(record) == "present"
+        assert acl_entries(entry) == before
+>       assert stat.S_IMODE(entry.stat().st_mode) == 0o644
+E       AssertionError: assert 384 == 420
+E        +  where 384 = <built-in function S_IMODE>(33152)
+E        +    where <built-in function S_IMODE> = stat.S_IMODE
+E        +    and   33152 = os.stat_result(st_mode=33152, st_ino=3114574525, st_dev=16777229, st_nlink=1, st_uid=501, st_gid=0, st_size=17, st_atime=1794934413, st_mtime=1794934413, st_ctime=1794934413).st_mode
+E        +      where os.stat_result(st_mode=33152, st_ino=3114574525, st_dev=16777229, st_nlink=1, st_uid=501, st_gid=0, st_size=17, st_atime=1794934413, st_mtime=1794934413, st_ctime=1794934413) = stat()
+E        +        where stat = PosixPath('/private/tmp/sf-rte-fix2/pytest-before/test_acl_refused_opens_preserv0/case/user-temp/subfleet-attempt-job-a1-0vik76y0/locked').stat
+
+tests/unit/test_rte_tmpdir_acl.py:345: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  subfleet.attempt_tmp:attempt_tmp.py:423 TMPDIR removal deferred for job/a1: PermissionError(EACCES)
+=========================== short test summary info ============================
+FAILED tests/unit/test_rte_tmpdir_acl.py::test_acl_refused_opens_preserve_a_file_s_already_sufficient_mode
+1 failed, 1 passed, 22 deselected in 40.14s

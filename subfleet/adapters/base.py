@@ -120,13 +120,16 @@ class Adapter(ABC):
     def resume_launch(self, job: JobSpec, attempt_id: str, attempt_dir: Path, lane: Lane,
                       credential_env: dict[str, str], native_session_id: str,
                       prompt_path: Path, guard_override: str | None,
-                      model_id: str | None = None) -> Launch | None:
+                      model_id: str | None = None,
+                      effort: str | None = None) -> Launch | None:
         """A native continuation on the same lane, or None when unsupported.
 
         `model_id` is the attempt's resolved model id. An attempt never changes
         model (C-4.6), so an adapter whose native thread already carries its own
         model may ignore it; the Claude adapter needs it because `--resume`
-        takes the model as a flag.
+        takes the model as a flag. `effort` is the effort the attempt's model
+        entry names, as `build_launch` receives it; the Claude adapter pins it
+        (C-12.4, D-EFFORT-ENV1).
         """
 
     def model_answered(self, event: object) -> bool:

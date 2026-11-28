@@ -1,0 +1,6 @@
+{
+  "baseline_git_object": "4fd796b49ae63417e845c93ad8f456978c161f1c:subfleet/daemon.py",
+  "baseline_sha256": "92d252f37069dff8868717932d7692ba86d7d90cda62f0d6fdcfb8d76817732f",
+  "restored_sha256": "486d6d1da3a10566789d722198eda80658f55c10812e635b7e158f113b773ff7",
+  "restoration_matches": true
+}

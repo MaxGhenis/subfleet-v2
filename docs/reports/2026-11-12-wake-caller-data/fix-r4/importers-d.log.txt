@@ -1,0 +1,168 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.15.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/maxghenis/.subfleet/worktrees/20261117-083630-wcall-fix-r4
+configfile: pyproject.toml
+plugins: xdist-3.8.0, timeout-2.4.0, hypothesis-6.168.1
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+created: 4/4 workers
+4 workers [346 items]
+
+........................................................................ [ 20%]
+........................................................................ [ 41%]
+........................................................................ [ 62%]
+........................................................................ [ 83%]
+...........................................FFFFF....F.....               [100%]
+=================================== FAILURES ===================================
+_______ test_the_installed_subfleetd_without_subfleet_home[plain-script] _______
+[gw0] darwin -- Python 3.15.2 $TMPDIR/uv-cache/builds-v0/.tmpI0Z102/bin/python
+
+child = 'plain', launch = 'script'
+tmp_path = PosixPath('$TMPDIR/sf-wcall-fix4/pytest-importers-d/popen-gw0/test_the_installed_subfleetd_w0')
+
+    @pytest.mark.parametrize("launch", ["script", "daemon-start"])
+    @pytest.mark.parametrize("child", ["plain", "bare-marker", "current-test"])
+    def test_the_installed_subfleetd_without_subfleet_home(child, launch, tmp_path):
+        """C-20.6 (D-ST3, review r2's P3-1): the installed `subfleetd` answers as `python -m subfleet.daemon`.
+    
+        Run on its own shebang, and as `daemon start` runs it (`cli._daemond_argv`:
+        this interpreter, `-E -P`). A marked child with a temporary HOME and no
+        SUBFLEET_HOME exits 7 with one line; a plain one exits 69 at the held
+        `daemon.lock`, as release/217's does. At `c45c2e0ec` the script ran
+        `daemon.main`, and a marked child exited 1 with an 11-line traceback.
+        """
+        script = Path(sys.executable).parent / "subfleetd"
+>       assert script.is_file(), "run uv sync --group dev to install subfleetd"
+E       AssertionError: run uv sync --group dev to install subfleetd
+E       assert False
+E        +  where False = is_file()
+E        +    where is_file = PosixPath('$TMPDIR/uv-cache/builds-v0/.tmpI0Z102/bin/subfleetd').is_file
+
+tests/unit/test_live_store_guard_st3_children.py:99: AssertionError
+____ test_the_installed_subfleetd_without_subfleet_home[plain-daemon-start] ____
+[gw0] darwin -- Python 3.15.2 $TMPDIR/uv-cache/builds-v0/.tmpI0Z102/bin/python
+
+child = 'plain', launch = 'daemon-start'
+tmp_path = PosixPath('$TMPDIR/sf-wcall-fix4/pytest-importers-d/popen-gw0/test_the_installed_subfleetd_w1')
+
+    @pytest.mark.parametrize("launch", ["script", "daemon-start"])
+    @pytest.mark.parametrize("child", ["plain", "bare-marker", "current-test"])
+    def test_the_installed_subfleetd_without_subfleet_home(child, launch, tmp_path):
+        """C-20.6 (D-ST3, review r2's P3-1): the installed `subfleetd` answers as `python -m subfleet.daemon`.
+    
+        Run on its own shebang, and as `daemon start` runs it (`cli._daemond_argv`:
+        this interpreter, `-E -P`). A marked child with a temporary HOME and no
+        SUBFLEET_HOME exits 7 with one line; a plain one exits 69 at the held
+        `daemon.lock`, as release/217's does. At `c45c2e0ec` the script ran
+        `daemon.main`, and a marked child exited 1 with an 11-line traceback.
+        """
+        script = Path(sys.executable).parent / "subfleetd"
+>       assert script.is_file(), "run uv sync --group dev to install subfleetd"
+E       AssertionError: run uv sync --group dev to install subfleetd
+E       assert False
+E        +  where False = is_file()
+E        +    where is_file = PosixPath('$TMPDIR/uv-cache/builds-v0/.tmpI0Z102/bin/subfleetd').is_file
+
+tests/unit/test_live_store_guard_st3_children.py:99: AssertionError
+_ test_the_installed_subfleetd_without_subfleet_home[bare-marker-daemon-start] _
+[gw0] darwin -- Python 3.15.2 $TMPDIR/uv-cache/builds-v0/.tmpI0Z102/bin/python
+
+child = 'bare-marker', launch = 'daemon-start'
+tmp_path = PosixPath('$TMPDIR/sf-wcall-fix4/pytest-importers-d/popen-gw0/test_the_installed_subfleetd_w2')
+
+    @pytest.mark.parametrize("launch", ["script", "daemon-start"])
+    @pytest.mark.parametrize("child", ["plain", "bare-marker", "current-test"])
+    def test_the_installed_subfleetd_without_subfleet_home(child, launch, tmp_path):
+        """C-20.6 (D-ST3, review r2's P3-1): the installed `subfleetd` answers as `python -m subfleet.daemon`.
+    
+        Run on its own shebang, and as `daemon start` runs it (`cli._daemond_argv`:
+        this interpreter, `-E -P`). A marked child with a temporary HOME and no
+        SUBFLEET_HOME exits 7 with one line; a plain one exits 69 at the held
+        `daemon.lock`, as release/217's does. At `c45c2e0ec` the script ran
+        `daemon.main`, and a marked child exited 1 with an 11-line traceback.
+        """
+        script = Path(sys.executable).parent / "subfleetd"
+>       assert script.is_file(), "run uv sync --group dev to install subfleetd"
+E       AssertionError: run uv sync --group dev to install subfleetd
+E       assert False
+E        +  where False = is_file()
+E        +    where is_file = PosixPath('$TMPDIR/uv-cache/builds-v0/.tmpI0Z102/bin/subfleetd').is_file
+
+tests/unit/test_live_store_guard_st3_children.py:99: AssertionError
+___ test_the_installed_subfleetd_without_subfleet_home[current-test-script] ____
+[gw0] darwin -- Python 3.15.2 $TMPDIR/uv-cache/builds-v0/.tmpI0Z102/bin/python
+
+child = 'current-test', launch = 'script'
+tmp_path = PosixPath('$TMPDIR/sf-wcall-fix4/pytest-importers-d/popen-gw0/test_the_installed_subfleetd_w3')
+
+    @pytest.mark.parametrize("launch", ["script", "daemon-start"])
+    @pytest.mark.parametrize("child", ["plain", "bare-marker", "current-test"])
+    def test_the_installed_subfleetd_without_subfleet_home(child, launch, tmp_path):
+        """C-20.6 (D-ST3, review r2's P3-1): the installed `subfleetd` answers as `python -m subfleet.daemon`.
+    
+        Run on its own shebang, and as `daemon start` runs it (`cli._daemond_argv`:
+        this interpreter, `-E -P`). A marked child with a temporary HOME and no
+        SUBFLEET_HOME exits 7 with one line; a plain one exits 69 at the held
+        `daemon.lock`, as release/217's does. At `c45c2e0ec` the script ran
+        `daemon.main`, and a marked child exited 1 with an 11-line traceback.
+        """
+        script = Path(sys.executable).parent / "subfleetd"
+>       assert script.is_file(), "run uv sync --group dev to install subfleetd"
+E       AssertionError: run uv sync --group dev to install subfleetd
+E       assert False
+E        +  where False = is_file()
+E        +    where is_file = PosixPath('$TMPDIR/uv-cache/builds-v0/.tmpI0Z102/bin/subfleetd').is_file
+
+tests/unit/test_live_store_guard_st3_children.py:99: AssertionError
+_ test_the_installed_subfleetd_without_subfleet_home[current-test-daemon-start] _
+[gw0] darwin -- Python 3.15.2 $TMPDIR/uv-cache/builds-v0/.tmpI0Z102/bin/python
+
+child = 'current-test', launch = 'daemon-start'
+tmp_path = PosixPath('$TMPDIR/sf-wcall-fix4/pytest-importers-d/popen-gw0/test_the_installed_subfleetd_w4')
+
+    @pytest.mark.parametrize("launch", ["script", "daemon-start"])
+    @pytest.mark.parametrize("child", ["plain", "bare-marker", "current-test"])
+    def test_the_installed_subfleetd_without_subfleet_home(child, launch, tmp_path):
+        """C-20.6 (D-ST3, review r2's P3-1): the installed `subfleetd` answers as `python -m subfleet.daemon`.
+    
+        Run on its own shebang, and as `daemon start` runs it (`cli._daemond_argv`:
+        this interpreter, `-E -P`). A marked child with a temporary HOME and no
+        SUBFLEET_HOME exits 7 with one line; a plain one exits 69 at the held
+        `daemon.lock`, as release/217's does. At `c45c2e0ec` the script ran
+        `daemon.main`, and a marked child exited 1 with an 11-line traceback.
+        """
+        script = Path(sys.executable).parent / "subfleetd"
+>       assert script.is_file(), "run uv sync --group dev to install subfleetd"
+E       AssertionError: run uv sync --group dev to install subfleetd
+E       assert False
+E        +  where False = is_file()
+E        +    where is_file = PosixPath('$TMPDIR/uv-cache/builds-v0/.tmpI0Z102/bin/subfleetd').is_file
+
+tests/unit/test_live_store_guard_st3_children.py:99: AssertionError
+____ test_the_installed_subfleetd_without_subfleet_home[bare-marker-script] ____
+[gw2] darwin -- Python 3.15.2 $TMPDIR/uv-cache/builds-v0/.tmpI0Z102/bin/python
+
+child = 'bare-marker', launch = 'script'
+tmp_path = PosixPath('$TMPDIR/sf-wcall-fix4/pytest-importers-d/popen-gw2/test_the_installed_subfleetd_w0')
+
+    @pytest.mark.parametrize("launch", ["script", "daemon-start"])
+    @pytest.mark.parametrize("child", ["plain", "bare-marker", "current-test"])
+    def test_the_installed_subfleetd_without_subfleet_home(child, launch, tmp_path):
+        """C-20.6 (D-ST3, review r2's P3-1): the installed `subfleetd` answers as `python -m subfleet.daemon`.
+    
+        Run on its own shebang, and as `daemon start` runs it (`cli._daemond_argv`:
+        this interpreter, `-E -P`). A marked child with a temporary HOME and no
+        SUBFLEET_HOME exits 7 with one line; a plain one exits 69 at the held
+        `daemon.lock`, as release/217's does. At `c45c2e0ec` the script ran
+        `daemon.main`, and a marked child exited 1 with an 11-line traceback.
+        """
+        script = Path(sys.executable).parent / "subfleetd"
+>       assert script.is_file(), "run uv sync --group dev to install subfleetd"
+E       AssertionError: run uv sync --group dev to install subfleetd
+E       assert False
+E        +  where False = is_file()
+E        +    where is_file = PosixPath('$TMPDIR/uv-cache/builds-v0/.tmpI0Z102/bin/subfleetd').is_file
+
+tests/unit/test_live_store_guard_st3_children.py:99: AssertionError
+================== 6 failed, 340 passed in 205.62s (0:03:25) ===================

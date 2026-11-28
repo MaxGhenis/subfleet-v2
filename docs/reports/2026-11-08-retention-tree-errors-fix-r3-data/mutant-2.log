@@ -1,0 +1,96 @@
+Python 3.15.2
+Mutant 2 loaded in memory: _clear_bundle_leftovers only unlinks commits.bundle.tmp
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_____ test_the_bundle_step_succeeds_whatever_an_earlier_attempt_left[lock] _____
+
+world = World(base=PosixPath('/Users/maxghenis/.subfleet/worktrees/20261125-222604-rte-fix-r3/.sf-rte-fix3/pytest-mutant-2/tes...f-rte-fix3/pytest-mutant-2/test_the_bundle_step_succeeds_0/state'), store=<subfleet.store.Store object at 0x10c50d940>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c16ab10>
+left = 'lock'
+
+    @pytest.mark.retention_catch_up
+    @pytest.mark.parametrize("left", ["neither", "tmp", "lock", "both"])
+    def test_the_bundle_step_succeeds_whatever_an_earlier_attempt_left(world, monkeypatch, left):
+        """Invariant 4, and mutant 2's witness: an attempt killed during `git bundle
+        create` (as a timeout, a cancel or a reboot does) leaves the lock, the
+        temporary bundle, both or neither. The next attempt under the job's lease
+        removes them and retires the job; the lock's size and age are noted. The
+        lock here is exactly `BUNDLE_LOCK_STALE_S` old by the fixed clock: the
+        old side of the line includes it."""
+        w = world
+        w.job("job-b")
+        real_create = rgit.create_bundle
+        monkeypatch.setattr(rarch, "_wall_now", lambda: WALL)
+        monkeypatch.setattr(rgit, "create_bundle", killed_bundle(left, rarch._Builder.BUNDLE_LOCK_STALE_S))
+        state, clock = retention.RetentionState(), Clock()
+        first = run(w, state=state, clock=clock)
+        assert first["pruned"] == [] and first["deferred"]["job-b"].startswith("error")
+        archive = w.root / "retention" / "job-b" / "archive"
+        assert (archive / "commits.bundle.tmp.lock").exists() == (left in ("lock", "both"))
+        notes = []
+        real_note = rarch._Builder._note
+        monkeypatch.setattr(rarch._Builder, "_note", lambda self, record: (notes.append(record), real_note(self, record)))
+        monkeypatch.setattr(rgit, "create_bundle", real_create)
+        clock.advance(2 * rarch.DEFER_ERROR_S)
+        second = run(w, state=state, clock=clock)
+>       assert second["pruned"] == ["job-b"], second["deferred"]
+E       AssertionError: {'job-b': "error: GitError: git bundle create exited 128: fatal: Unable to create '/Users/maxghenis/.subfleet/worktree....tmp.lock': File exists.
+E         
+E         Another git process seems to be running in this repository, or the lock file may be stale"}
+E       assert [] == ['job-b']
+E         
+E         Right contains one more item: 'job-b'
+E         Use -v to get more diff
+
+tests/unit/test_rte_walk_bundle.py:295: AssertionError
+_____ test_the_bundle_step_succeeds_whatever_an_earlier_attempt_left[both] _____
+
+world = World(base=PosixPath('/Users/maxghenis/.subfleet/worktrees/20261125-222604-rte-fix-r3/.sf-rte-fix3/pytest-mutant-2/tes...f-rte-fix3/pytest-mutant-2/test_the_bundle_step_succeeds_1/state'), store=<subfleet.store.Store object at 0x10c577750>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c16a190>
+left = 'both'
+
+    @pytest.mark.retention_catch_up
+    @pytest.mark.parametrize("left", ["neither", "tmp", "lock", "both"])
+    def test_the_bundle_step_succeeds_whatever_an_earlier_attempt_left(world, monkeypatch, left):
+        """Invariant 4, and mutant 2's witness: an attempt killed during `git bundle
+        create` (as a timeout, a cancel or a reboot does) leaves the lock, the
+        temporary bundle, both or neither. The next attempt under the job's lease
+        removes them and retires the job; the lock's size and age are noted. The
+        lock here is exactly `BUNDLE_LOCK_STALE_S` old by the fixed clock: the
+        old side of the line includes it."""
+        w = world
+        w.job("job-b")
+        real_create = rgit.create_bundle
+        monkeypatch.setattr(rarch, "_wall_now", lambda: WALL)
+        monkeypatch.setattr(rgit, "create_bundle", killed_bundle(left, rarch._Builder.BUNDLE_LOCK_STALE_S))
+        state, clock = retention.RetentionState(), Clock()
+        first = run(w, state=state, clock=clock)
+        assert first["pruned"] == [] and first["deferred"]["job-b"].startswith("error")
+        archive = w.root / "retention" / "job-b" / "archive"
+        assert (archive / "commits.bundle.tmp.lock").exists() == (left in ("lock", "both"))
+        notes = []
+        real_note = rarch._Builder._note
+        monkeypatch.setattr(rarch._Builder, "_note", lambda self, record: (notes.append(record), real_note(self, record)))
+        monkeypatch.setattr(rgit, "create_bundle", real_create)
+        clock.advance(2 * rarch.DEFER_ERROR_S)
+        second = run(w, state=state, clock=clock)
+>       assert second["pruned"] == ["job-b"], second["deferred"]
+E       AssertionError: {'job-b': "error: GitError: git bundle create exited 128: fatal: Unable to create '/Users/maxghenis/.subfleet/worktree....tmp.lock': File exists.
+E         
+E         Another git process seems to be running in this repository, or the lock file may be stale"}
+E       assert [] == ['job-b']
+E         
+E         Right contains one more item: 'job-b'
+E         Use -v to get more diff
+
+tests/unit/test_rte_walk_bundle.py:295: AssertionError
+============================= slowest 5 durations ==============================
+6.69s call     tests/unit/test_rte_walk_bundle.py::test_the_bundle_step_succeeds_whatever_an_earlier_attempt_left[both]
+3.83s call     tests/unit/test_rte_walk_bundle.py::test_the_bundle_step_succeeds_whatever_an_earlier_attempt_left[lock]
+2.48s setup    tests/unit/test_rte_walk_bundle.py::test_the_bundle_step_succeeds_whatever_an_earlier_attempt_left[lock]
+0.62s setup    tests/unit/test_rte_walk_bundle.py::test_the_bundle_step_succeeds_whatever_an_earlier_attempt_left[both]
+0.03s teardown tests/unit/test_rte_walk_bundle.py::test_the_bundle_step_succeeds_whatever_an_earlier_attempt_left[lock]
+=========================== short test summary info ============================
+FAILED tests/unit/test_rte_walk_bundle.py::test_the_bundle_step_succeeds_whatever_an_earlier_attempt_left[lock]
+FAILED tests/unit/test_rte_walk_bundle.py::test_the_bundle_step_succeeds_whatever_an_earlier_attempt_left[both]
+2 failed in 24.42s
