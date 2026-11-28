@@ -4159,6 +4159,10 @@ class Daemon:
         environment = getattr(self, "_provider_environment", None)
         if environment is not None:
             adapter.provider_environment = environment
+        if provider == "claude":
+            from .adapters.claude import resolve_scoped_model_ids
+
+            adapter.scoped_models = resolve_scoped_model_ids(self.policy)
         return adapter
 
     def _lane_credential_references(self) -> frozenset[str]:

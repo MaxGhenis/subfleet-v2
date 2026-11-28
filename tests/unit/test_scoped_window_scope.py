@@ -16,9 +16,15 @@ from subfleet.policy import DEFAULT_POLICY_PATH, load_policy
 from subfleet.scheduler import evaluate
 from tests.conftest import exit_info, make_launch, profile_opener
 from tests.unit.test_scheduler import NOW, TOMORROW, job, lane, view
+from tests.unit.test_scoped_stream_capacity import stand_in
 
 
 _FAMILIES = ("fable", "opus", "sonnet", "haiku", "unknown")
+_WINDOW_FAMILIES = {
+    "seven_day_overage_included": "fable",
+    "seven_day_opus": "opus",
+    "seven_day_sonnet": "sonnet",
+}
 _MODEL_IDS = st.builds(
     lambda family, version, suffix: f"claude-{family}-{version}{suffix}",
     st.sampled_from(_FAMILIES),
@@ -33,6 +39,10 @@ _MODEL_VALUES = st.one_of(
 _UNKNOWN_WINDOWS = st.one_of(
     st.none(), st.text(max_size=80).filter(lambda window: window not in SCOPED_RATE_LIMITS),
 )
+_POLICY_IDS = st.fixed_dictionaries({
+    family: st.text(alphabet=st.characters(exclude_characters="["), min_size=1, max_size=30)
+    for family in SCOPED_MODEL_IDS
+})
 _LAWS = settings(max_examples=200, deadline=None, derandomize=True)
 
 
@@ -47,15 +57,14 @@ def _family(model_id):
     return pieces[1]
 
 
-@pytest.mark.parametrize("window", sorted(SCOPED_RATE_LIMITS))
+@pytest.mark.parametrize("window,family", _WINDOW_FAMILIES.items())
 @_LAWS
-@given(model_id=_MODEL_VALUES)
-def test_scoped_window_uses_attempt_only_within_its_family(window, model_id):
+@given(model_id=_MODEL_VALUES, scoped_models=_POLICY_IDS)
+def test_scoped_window_uses_attempt_only_within_its_family(window, family, model_id, scoped_models):
     """Invariant 1: matching concrete IDs win; every other value uses the map."""
     base = model_id[:-4] if model_id and model_id.endswith("[1m]") else model_id
-    fallback = SCOPED_RATE_LIMITS[window]
-    expected = base if _family(base) == _family(fallback) else fallback
-    assert scoped_window_scope(window, model_id) == expected
+    expected = base if _family(base) == family else scoped_models[family]
+    assert scoped_window_scope(window, model_id, scoped_models) == expected
 
 
 @_LAWS
@@ -67,10 +76,57 @@ def test_unscoped_and_missing_windows_are_account_scoped(window, model_id):
 
 @_LAWS
 @given(window=st.one_of(st.sampled_from(tuple(SCOPED_RATE_LIMITS)), _UNKNOWN_WINDOWS),
-       model_id=_MODEL_VALUES)
-def test_scoped_window_scope_never_contains_a_bracket(window, model_id):
-    """Invariant 3: a context suffix or malformed value never becomes a scope."""
-    assert "[" not in scoped_window_scope(window, model_id)
+       model_id=_MODEL_VALUES, scoped_models=_POLICY_IDS)
+def test_scoped_window_scope_never_contains_a_bracket(window, model_id, scoped_models):
+    """Invariant 3: a scope from the helper never contains `[` when the map's ids contain no `[`."""
+    assert "[" not in scoped_window_scope(window, model_id, scoped_models)
+
+
+def test_scoped_model_ids_resolved_from_the_shipped_policy_equal_the_constant():
+    from subfleet.adapters.claude import resolve_scoped_model_ids
+
+    assert resolve_scoped_model_ids(load_policy(DEFAULT_POLICY_PATH)) == SCOPED_MODEL_IDS
+
+
+@pytest.mark.parametrize("name, overrides", [
+    ("L1", {"fable": "claude-fable-5-1"}),
+    ("L2", {"fable": "claude-fable-5-1", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5"}),
+])
+def test_scoped_model_ids_follow_the_loaded_policy(tmp_path, name, overrides):
+    from subfleet.adapters.claude import resolve_scoped_model_ids
+
+    assert resolve_scoped_model_ids(stand_in(tmp_path, name, [])) == {**SCOPED_MODEL_IDS, **overrides}
+
+
+def test_scoped_model_ids_prefer_names_then_family_ids_in_policy_order():
+    from subfleet.adapters.claude import resolve_scoped_model_ids
+
+    policy = {"models": {
+        "fable_by_id": {"provider": "claude", "id": "claude-fable-older"},
+        "named_fable": {"provider": "claude", "id": "custom-Fable", "scope": "Fable"},
+        "fable": {"provider": "claude", "id": "later-Fable"},
+        "Opus": {"provider": "claude", "id": "custom-Opus"},
+        "opus_scope": {"provider": "claude", "id": "later-Opus", "scope": "opus"},
+        "sonnet_first": {"provider": "claude", "id": "claude-sonnet-next[1m]"},
+        "sonnet_second": {"provider": "claude", "id": "claude-sonnet-later"},
+        "haiku": {"provider": "codex", "id": "claude-haiku-other", "scope": "haiku"},
+    }}
+    assert resolve_scoped_model_ids(policy) == {
+        **SCOPED_MODEL_IDS, "fable": "custom-Fable", "opus": "custom-Opus",
+        "sonnet": "claude-sonnet-next[1m]",
+    }
+    assert resolve_scoped_model_ids(None) == SCOPED_MODEL_IDS
+
+
+def test_scoped_window_scope_matches_the_family_even_with_an_opaque_default(tmp_path):
+    from subfleet.adapters.claude import resolve_scoped_model_ids
+
+    scoped_models = resolve_scoped_model_ids(stand_in(tmp_path, "L1", []))
+    window = "seven_day_overage_included"
+    assert scoped_window_scope(window, "claude-opus-5-5", scoped_models) == "claude-fable-5-1"
+    scoped_models["fable"] = "x"
+    assert scoped_window_scope(window, "claude-opus-5-5", scoped_models) == "x"
+    assert scoped_window_scope(window, "claude-fable-5-1", scoped_models) == "claude-fable-5-1"
 
 
 @pytest.mark.parametrize("window,model_id,expected", [
@@ -83,6 +139,8 @@ def test_scoped_window_scope_never_contains_a_bracket(window, model_id):
     ("seven_day_overage_included", "default", SCOPED_MODEL_IDS["fable"]),
     ("seven_day_overage_included", None, SCOPED_MODEL_IDS["fable"]),
     ("seven_day_overage_included", "claude-fable-5-2[1m][1m]", SCOPED_MODEL_IDS["fable"]),
+    ("seven_day_overage_included", "claude-fable-5-1[1m][1m]", SCOPED_MODEL_IDS["fable"]),
+    ("seven_day_overage_included", "claude-Fable-5-1", SCOPED_MODEL_IDS["fable"]),
     ("seven_day_overage_included", "claude-fable-5[other]-2", SCOPED_MODEL_IDS["fable"]),
     ("seven_day_sonnet", "claude-sonnet-5-5", "claude-sonnet-5-5"),
     ("seven_day_opus", "claude-opus-5-5", "claude-opus-5-5"),

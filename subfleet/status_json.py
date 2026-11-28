@@ -228,12 +228,13 @@ def _iso_or_none(value: Any) -> str | None:
 def scoped_windows(lane: Mapping[str, Any], model_names: Mapping[str, str] | None = None) -> list[dict[str, Any]]:
     """C-9.1, C-29.6: every window a provider reported for this lane, keyed by (scope, window).
 
-    A reading's scope is `account` or a model id (C-9.8, C-9.9: the Fable weekly
-    window is scope `claude-fable-5-2`, window `seven_day`), so a model-scoped
-    window and the account window of the same name are two rows and neither can
-    replace the other. Only `provider` and `stale-provider` readings with a
-    fraction in [0, 1] become rows; `admission-observed` evidence (window
-    `admission`) and every other label carry no percentage and are left out.
+    A reading's scope is `account` or a model id (C-9.8, C-9.9). A Fable weekly
+    bucket is window `seven_day` scoped to a Fable attempt's own id with a
+    trailing `[1m]` removed, or to the loaded policy's Fable id for other
+    attempts and the usage endpoint. The scope keeps it separate from the
+    account row. Only `provider` and `stale-provider` readings with a fraction
+    in [0, 1] become rows. `admission-observed` evidence (window `admission`)
+    and every other label carry no percentage and are left out.
     Two readings for one key keep the newer, so the list is keyed however the
     caller assembled the lane's readings.
     """

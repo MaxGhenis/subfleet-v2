@@ -15,14 +15,74 @@ from tests.conftest import exit_info, make_launch, profile_opener
 from tests.unit.test_scheduler import NOW, TOMORROW, closure, job, lane, reading, view
 
 
-def stream(status="allowed", window="seven_day_overage_included"):
+def stream(status="allowed", window="seven_day_overage_included", *, resets_at=None,
+           scoped_window="seven_day_overage_included"):
     # Shape of the real Fable refusal: shared weekly 55%, Fable weekly 100%.
+    short_reset = 1790000000 if resets_at is None else resets_at
+    weekly_reset = 1790362800 if resets_at is None else resets_at
     return json.dumps({"type": "rate_limit_event", "rate_limit_info": {
-        "status": status, "rateLimitType": window, "resetsAt": 1790362800,
-        "unifiedWindows": {"five_hour": {"utilization": 0, "resetsAt": 1790000000},
-                           "seven_day": {"utilization": .55, "resetsAt": 1790362800},
-                           "seven_day_overage_included": {"utilization": 1.01,
-                                                         "resetsAt": 1790362800}}}})
+        "status": status, "rateLimitType": window, "resetsAt": weekly_reset,
+        "unifiedWindows": {"five_hour": {"utilization": 0, "resetsAt": short_reset},
+                           "seven_day": {"utilization": .55, "resetsAt": weekly_reset},
+                           scoped_window: {"utilization": 1.01, "resetsAt": weekly_reset}}}})
+
+
+def stand_in(tmp_path, name, reserve):
+    raw = json.loads(DEFAULT_POLICY_PATH.read_text())
+    raw["models"]["fable"] = {"provider": "claude", "id": "claude-fable-5-1", "priority": 4,
+                             "scope": "fable"}
+    raw["retired"] = {"sol": "astra", "claude-fable-5": "fable"}
+    if name == "L2":
+        raw["models"]["sonnet"]["id"] = "claude-sonnet-5-5"
+        raw["models"]["haiku"]["id"] = "claude-haiku-5-5"
+    raw["reserve"]["models"] = list(reserve)
+    path = tmp_path / f"policy-{name}.json"
+    path.write_text(json.dumps(raw))
+    return load_policy(path)
+
+
+def scoped_stream(tmp_path, policy, attempt_model, event):
+    adapter = ClaudeAdapter(projects_dir=tmp_path / "projects")
+    adapter.scoped_models = {name: policy["models"][name]["id"] for name in SCOPED_MODEL_IDS}
+    rows = adapter.readings_from_rate_limit(
+        parse_stream(event).rate_limit, lane_id="claude-1", model_id=policy["models"][attempt_model]["id"],
+        observed_at=NOW, attempt_id="probe/a1",
+    )
+    scoped, = [row for row in rows if row.scope != "account"]
+    state = view([lane(account_key="claude:claude-1@example.invalid", home=str(tmp_path / "claude-home"))], rows)
+    return (scoped.scope, scoped.window, scoped.utilization), state
+
+
+def admission_summary(policy, state, alias):
+    result = evaluate(policy, state, job(pinned_model=alias))
+    evaluation, = result.evaluations
+    reasons = tuple(reason for rejection in evaluation["rejected"] for reason in rejection["reasons"])
+    detail = evaluation["candidate_details"].get("claude-1", {})
+    return result.chosen_lane, reasons, detail.get("reserve", {}).get("slack")
+
+
+@pytest.mark.parametrize("name", ["L1", "L2"])
+@pytest.mark.parametrize("reserve", [[], ["fable"]], ids=["unreserved", "fable-reserved"])
+@pytest.mark.parametrize("attempt_model", ["opus", "sonnet", "haiku", "fable"])
+def test_c9_8_another_models_fable_row_takes_the_loaded_fable_id(tmp_path, name, reserve, attempt_model):
+    """Fable's own event gives the same row and decisions as events from other families."""
+    policy = stand_in(tmp_path, name, reserve)
+    row, state = scoped_stream(tmp_path, policy, attempt_model, stream())
+    decisions = {alias: admission_summary(policy, state, alias) for alias in SCOPED_MODEL_IDS}
+    spare = ("claude-1", (), .45 if reserve else None)
+    assert (row, decisions) == (
+        ("claude-fable-5-1", "seven_day", 1.0),
+        {"fable": (None, ("below-floor",), None), "opus": spare, "sonnet": spare, "haiku": spare},
+    ), f"scoped row={row}; admission (lane, reasons, reserve slack)={decisions}"
+
+
+def test_c9_8_another_models_sonnet_row_takes_the_loaded_sonnet_id(tmp_path):
+    policy = stand_in(tmp_path, "L2", [])
+    row, state = scoped_stream(tmp_path, policy, "opus", stream(scoped_window="seven_day_sonnet"))
+    decision = admission_summary(policy, state, "sonnet")
+    assert (row, decision) == (
+        ("claude-sonnet-5-5", "seven_day", 1.0), (None, ("below-floor",), None),
+    ), f"scoped row={row}; Sonnet admission (lane, reasons, reserve slack)={decision}"
 
 
 @pytest.mark.parametrize("window,scope", [
@@ -100,8 +160,8 @@ def test_shared_exhaustion_still_blocks_opus_with_fable_closed():
 
 
 def test_scoped_model_ids_name_the_shipped_policy_models():
-    """C-11.7: a weekly window scoped to an id no policy model carries is ignored, so the
-    adapter's names must resolve to the shipped policy's ids (Opus moved to 5.5 on 2026-09-22)."""
+    """C-11.7: the no-policy fallback matches the shipped ids. The resolver test
+    checks the map the daemon uses with a loaded policy."""
     models = load_policy(DEFAULT_POLICY_PATH)["models"]
     assert SCOPED_MODEL_IDS == {name: models[name]["id"] for name in SCOPED_MODEL_IDS}
     assert SCOPED_MODEL_IDS["opus"] == "claude-opus-5-5"

@@ -5,18 +5,27 @@ these tests exercise the real scheduler, probe publication, and reservation path
 """
 
 import json
+from dataclasses import asdict
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from subfleet import daemon as daemon_module, protocol
 from subfleet.adapters import registry
+from subfleet.adapters.claude import ClaudeAdapter
+from subfleet.capacity import build_view
 from subfleet.contracts import (
-    ClockSource, Closure, ClosureReason, Credential, Lane, LaneOwner,
+    ClockSource, Closure, ClosureReason, Credential, Lane, LaneOwner, Launch,
     Outcome, OutcomeClass, Reading, ReadingLabel,
 )
+from subfleet.credentials import resolve_credential
 from subfleet.daemon import after, utcnow
+from subfleet.scheduler import evaluate, reserve_verdict
+from tests.conftest import exit_info, profile_body, profile_opener
 from tests.fake.test_state_contract import receipt_fixture, state_daemon
 from tests.fake_adapter import FakeAdapter
+from tests.unit.test_scheduler import job
+from tests.unit.test_scoped_stream_capacity import stand_in, stream
 
 
 LANE = "claude-reserve"
@@ -192,3 +201,141 @@ def test_authorization_reason_is_part_of_durable_request_identity(reserve_state)
             service.dispatch("submit", {**args, "unmeasured_reserve_reason": reason})
     assert len(service.store.list_jobs()) == 1
     assert service.store.get_job(first["job_id"])["unmeasured_reserve_reason"] == REASON
+
+
+@pytest.fixture
+def scoped_lane(state_daemon, monkeypatch):
+    daemon, _ = state_daemon
+    monkeypatch.setattr(daemon_module.capacity, "read_desktop_account", lambda: None)
+    daemon.desktop_prober = lambda: None
+    home = daemon.root / "claude-home"
+    home.mkdir()
+    (home / ".credentials.json").write_text(json.dumps({"claudeAiOauth": {"accessToken": "synthetic-token"}}))
+    label = "claude-1@example.invalid"
+    lane = Lane("claude-1", "claude", f"claude:{label}", Credential("claude", str(home), "home"),
+                str(home), LaneOwner.V2, False, label=label)
+    daemon.store.put_lane(lane)
+    return lane
+
+
+def scoped_profile(lane):
+    return profile_opener(body=profile_body(lane.label, "synthetic-account", "synthetic-org"))
+
+
+def classify_scoped_stream(adapter, attempt_dir, lane, model_id, *, status="allowed", turn=False):
+    resets_at = int((datetime.now(timezone.utc) + timedelta(days=1)).timestamp())
+    stdout = attempt_dir / "stdout"
+    raw_stream = None if turn else attempt_dir / "stream.jsonl"
+    (raw_stream or stdout).write_text(stream(status, resets_at=resets_at) + "\n")
+    if turn:
+        record = {"state": "complete"} if status == "allowed" else {"state": "failed", "reason": "limited"}
+        (attempt_dir / "turn.json").write_text(json.dumps(record))
+    # Old launches carry these same attempt facts, without a policy map.
+    launch = Launch(
+        argv=(), env_add=resolve_credential(lane.credential), env_remove=(), cwd=str(attempt_dir),
+        stdin_path=None, stdout_path=str(stdout), stderr_path=str(attempt_dir / "stderr"),
+        raw_stream_path=str(raw_stream) if raw_stream else None, native_session_id=None,
+        lane_id=lane.lane_id, notes={"lane_id": lane.lane_id, "attempt_id": "previous-job/a1",
+                                    "model_id": model_id, "label": lane.label},
+    )
+    return adapter.classify(attempt_dir, launch, exit_info(0 if status == "allowed" else 1))
+
+
+@pytest.mark.parametrize("reserve", [[], ["fable"]], ids=["unreserved", "fable-reserved"])
+def test_c9_9_the_daemon_hands_the_loaded_fable_id_to_the_usage_sensor(
+    state_daemon, scoped_lane, tmp_path, monkeypatch, reserve,
+):
+    daemon, _ = state_daemon
+    daemon.policy = stand_in(tmp_path, "L1", reserve)
+    fable_id = daemon.policy["models"]["fable"]["id"]
+    now = datetime(2026, 11, 27, 12, tzinfo=timezone.utc)
+    resets_at = (now + timedelta(days=1)).isoformat()
+    payload = {
+        "five_hour": {"utilization": 0, "resets_at": resets_at},
+        "seven_day": {"utilization": 55, "resets_at": resets_at},
+        "limits": [{"kind": "weekly_scoped", "percent": 90, "resets_at": resets_at,
+                    "scope": {"model": {"display_name": "Fable"}}}],
+    }
+
+    def usage_opener(request, timeout):
+        assert request.get_header("Authorization") == "Bearer synthetic-token"
+        return 200, json.dumps(payload).encode()
+
+    def factory():
+        return ClaudeAdapter(now=lambda: now, usage_opener=usage_opener,
+                             profile_opener=scoped_profile(scoped_lane))
+
+    monkeypatch.setattr(registry, "_factories", {**registry._factories, "claude": factory})
+    adapter = daemon.timers.adapter_factory("claude")
+    probe = adapter.probe_status(scoped_lane, resolve_credential(scoped_lane.credential))
+    assert probe["status"] == "ok"
+    rows = probe["readings"]
+    fable, = [row for row in rows if row.scope != "account"]
+    snapshot = build_view([scoped_lane], rows, now=now)
+    if reserve:
+        verdict = reserve_verdict(scoped_lane.lane_id, fable_id, [asdict(row) for row in rows], now=now,
+                                  reading_ttl_s=daemon.policy["caps"]["reading_ttl_s"],
+                                  reserve=daemon.policy["reserve"])
+        opus = evaluate(daemon.policy, snapshot, job(pinned_model="opus"))
+        assert (fable.scope, fable.window, verdict["slack"], opus.chosen_lane) == (
+            fable_id, "seven_day", .25, scoped_lane.lane_id,
+        ), verdict
+    else:
+        decision = evaluate(daemon.policy, snapshot, job(pinned_model="fable"))
+        assert (fable.scope, fable.window, decision.chosen_lane) == (
+            fable_id, "seven_day", None,
+        ), decision.reason
+        assert "below-floor" in decision.evaluations[0]["rejected"][0]["reasons"]
+
+
+@pytest.mark.parametrize("tier", ["standard", "hard"])
+def test_c9_8_the_daemon_admits_opus_beside_a_full_fable_bucket_under_the_loaded_policy(
+    state_daemon, scoped_lane, tmp_path, monkeypatch, tier,
+):
+    daemon, harness = state_daemon
+    daemon.policy = stand_in(tmp_path, "L1", ["fable"])
+    opus_id = daemon.policy["models"]["opus"]["id"]
+
+    def factory():
+        return ClaudeAdapter(projects_dir=tmp_path / "projects", profile_opener=scoped_profile(scoped_lane))
+
+    def unexpected_probe(*args):
+        pytest.fail("a measured Opus route must admit without a provider probe")
+
+    monkeypatch.setattr(registry, "_factories", {**registry._factories, "claude": factory})
+    monkeypatch.setattr(daemon, "_execute_probe", unexpected_probe)
+    adapter = daemon._adapter("claude")
+    outcome = classify_scoped_stream(adapter, tmp_path, scoped_lane, opus_id)
+    for row in outcome.readings:
+        daemon.store.add_reading(row)
+
+    args = harness.submit_args(pinned_model="opus", sandbox="read-only", tier=tier)
+    job_id = daemon.dispatch("submit", args)["job_id"]
+    daemon._admit()
+    daemon._admit()
+
+    attempts = daemon.store.list_attempts(job_id)
+    state = daemon.store.get_job(job_id)["state"]
+    assert (state, len(attempts)) == ("running", 1), daemon.dispatch("why", {"job_id": job_id})["text"]
+    assert (attempts[0]["lane_id"], attempts[0]["model_requested"]) == (scoped_lane.lane_id, opus_id)
+    assert all(event["kind"] != "probe.completed" for event in daemon.store.list_events(job_id))
+
+    rejected = classify_scoped_stream(adapter, tmp_path, scoped_lane, opus_id, status="rejected")
+    assert rejected.closure.scope == "claude-fable-5-1"
+
+
+def test_c9_8_a_turns_fable_row_takes_the_loaded_fable_id(state_daemon, scoped_lane, tmp_path, monkeypatch):
+    daemon, _ = state_daemon
+    daemon.policy = stand_in(tmp_path, "L1", [])
+    opus_id = daemon.policy["models"]["opus"]["id"]
+    adapter = daemon.conversations.adapter("claude")
+    monkeypatch.setattr(adapter.inner, "_profile_opener", scoped_profile(scoped_lane))
+    monkeypatch.setattr(adapter.inner, "_projects_dir", tmp_path / "projects")
+
+    outcome = classify_scoped_stream(adapter, tmp_path, scoped_lane, opus_id, turn=True)
+    assert outcome.cls is OutcomeClass.OK
+    fable, = [row for row in outcome.readings if row.scope != "account"]
+    assert (fable.scope, fable.window) == ("claude-fable-5-1", "seven_day")
+
+    rejected = classify_scoped_stream(adapter, tmp_path, scoped_lane, opus_id, status="rejected", turn=True)
+    assert rejected.closure.scope == "claude-fable-5-1"
