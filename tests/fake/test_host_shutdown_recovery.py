@@ -278,7 +278,7 @@ def test_c4_7_an_overnight_shutdown_is_judged_by_the_last_daemons_stop(rebooted)
 
 
 @pytest.mark.parametrize("how", ["operator", "max_wall_s"])
-def test_c4_7_subfleet_kill_stays_a_cancel_across_a_reboot(rebooted, how):
+def test_c4_7_subfleet_kill_stays_a_cancel_across_a_reboot(rebooted, how, monkeypatch):
     """C-4.7, C-9.2, C-7.2: `subfleet kill` (and the wall limit) records `killed_by`
     before it signals, so its SIGTERM is never the host's, even when everything
     else says reboot: an attempt from the old boot, ended within seconds of the
@@ -298,6 +298,12 @@ def test_c4_7_subfleet_kill_stays_a_cancel_across_a_reboot(rebooted, how):
         daemon.dispatch("kill", {"job_id": job_id})
     else:
         daemon.store.update_job(job_id, started_at="2026-09-30T00:00:00Z", max_wall_s=60)
+        # D-WALL1: only a provider an inspection confirms running spends the wall
+        # (`_process_attempt`, `_enforce_wall`). Stand in for that inspection and for
+        # the guardian's liveness, as `tests/fake/test_wall_retry.py`'s `retry_wall`
+        # does, so that no process this test did not start is read.
+        monkeypatch.setattr(daemon, "_inspect_running", lambda *args: True)
+        monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "alive")
     daemon._process_attempt(aid)                    # the kill protocol: killed_by, SIGTERM, the receipt (C-5.6)
     receipt = json.loads((daemon.root / "jobs" / job_id / "a1" / "exit.json").read_text())
     assert receipt["rc"] == -15 and receipt["signal"] == 15
