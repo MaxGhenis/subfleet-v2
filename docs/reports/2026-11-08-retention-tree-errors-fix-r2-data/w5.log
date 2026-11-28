@@ -1,0 +1,6 @@
+.                                                                        [100%]
+============================= slowest 10 durations =============================
+5.50s setup    tests/unit/test_rte_tmpdir_acl_iterator.py::test_adjacent_delete_only_denials_are_both_removed_in_one_pass
+0.34s teardown tests/unit/test_rte_tmpdir_acl_iterator.py::test_adjacent_delete_only_denials_are_both_removed_in_one_pass
+0.29s call     tests/unit/test_rte_tmpdir_acl_iterator.py::test_adjacent_delete_only_denials_are_both_removed_in_one_pass
+1 passed in 9.94s

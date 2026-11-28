@@ -1,0 +1,39 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.15.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/maxghenis/.subfleet/worktrees/20261117-083630-wcall-fix-r4
+configfile: pyproject.toml
+plugins: xdist-3.8.0, timeout-2.4.0, hypothesis-6.168.1
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+created: 2/2 workers
+2 workers [20 items]
+
+...............F....                                                     [100%]
+=================================== FAILURES ===================================
+________ test_prune_requires_every_migrated_column[notices.wake_state] _________
+[gw0] darwin -- Python 3.15.2 $TMPDIR/uv-cache/builds-v0/.tmpZs5Svk/bin/python
+
+tmp_path = PosixPath('$TMPDIR/sf-wcall-fix4/pytest-p1-before/popen-gw0/test_prune_requires_every_migr7')
+table = 'notices', column = 'wake_state'
+
+    @pytest.mark.parametrize('table,column', [
+        pytest.param(parts[2], parts[5], id=f'{parts[2]}.{parts[5]}')
+        for statements in MIGRATIONS.values() for statement in statements
+        if statement.startswith('ALTER TABLE ') and (parts := statement.split())
+    ])
+    def test_prune_requires_every_migrated_column(tmp_path, table, column):
+        """Adding a migration automatically checks that prune knows its new columns."""
+        _seed(tmp_path, [])
+        database = tmp_path / 'state.sqlite3'
+        with sqlite3.connect(database) as conn:
+            for index in conn.execute(f'PRAGMA index_list("{table}")').fetchall():
+                if column in {row[2] for row in conn.execute(f'PRAGMA index_info("{index[1]}")')}:
+                    conn.execute(f'DROP INDEX "{index[1]}"')
+>           conn.execute(f'ALTER TABLE "{table}" DROP COLUMN "{column}"')
+E           sqlite3.OperationalError: error in index notices_caller_wake after drop column: no such column: wake_state
+
+tests/unit/test_prune_217.py:203: OperationalError
+=========================== short test summary info ============================
+FAILED tests/unit/test_prune_217.py::test_prune_requires_every_migrated_column[notices.wake_state]
+======================== 1 failed, 19 passed in 54.09s =========================

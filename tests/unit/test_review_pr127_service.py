@@ -89,8 +89,22 @@ def test_resumed_codex_launch_preserves_its_own_session_marker(tmp_path):
     assert env["SUBFLEET_TURN_JOB"] == "turn-job"
 
 
+def ordinary_caller(monkeypatch, launched=False):
+    """C-26.13: `wait` marks only outside a process Subfleet launched."""
+    from subfleet import hooks
+    for name in hooks.LAUNCH_MARKERS:
+        monkeypatch.delenv(name, raising=False)
+    if launched:
+        monkeypatch.setenv("SUBFLEET_JOB", "a-conversation-turn")
+
+
+@pytest.mark.parametrize("launched", [False, True], ids=["ordinary", "subfleet-launched"])
 @pytest.mark.parametrize("state,exit_code", [("succeeded", 0), ("failed", 1)])
-def test_wait_preserves_notices_for_finished_results_it_returns(monkeypatch, state, exit_code):
+def test_wait_preserves_notices_for_finished_results_it_returns(monkeypatch, state, exit_code, launched):
+    """C-15.3 (review r1 of #307, finding 1): `wait` never acknowledges a notice. Once it
+    has printed a result, it marks only its own session's pending notices `offered`, so
+    C-15.9 does not wake for them, and C-24.10 still counts them unread."""
+    ordinary_caller(monkeypatch, launched)
     monkeypatch.setattr(cli, "session_id", lambda: "session")
     job = {"job_id": "job", "state": state, "rc": exit_code,
            "notices": [{"notice_id": 7, "session_id": "session", "state": "pending"},
@@ -98,17 +112,25 @@ def test_wait_preserves_notices_for_finished_results_it_returns(monkeypatch, sta
     def call(op, args, **kw):
         if op == "wait":
             return {"jobs": [job], "timeout": False}
+        if op == "notice.mark":
+            return {"notices": []}
         raise AssertionError(f"wait must not acknowledge notices: {op}")
     client = SimpleNamespace(call=Mock(side_effect=call))
     monkeypatch.setattr(cli, "_client", lambda *a, **kw: client)
     args = cli.build_parser().parse_args(["wait", "job", "--json"])
     assert args.handler(args) == exit_code
-    assert [c.args[0] for c in client.call.call_args_list] == ["wait"]
+    calls = [(c.args[0], c.args[1]) for c in client.call.call_args_list]
+    assert calls[0][0] == "wait"
+    assert calls[1:] == ([] if launched else [("notice.mark", {
+        "session_id": "session", "notice_ids": [7], "state": "offered", "transport": "wait"})])
 
 
 def test_wait_receipt_preserves_the_conversation_wake(svc, monkeypatch):
+    """A waiter that returns after its turn ended marks the notice `offered` at most, and
+    the conversation's C-24.10 wake still fires (C-15.3)."""
     from subfleet.daemon import Daemon
     from tests.unit.test_conversation_wakes import finish, rows
+    ordinary_caller(monkeypatch)
     cid = bound(svc)
     finish(svc, cid)
     sid = svc.store.conversation(cid)["native_session_id"]
@@ -117,12 +139,19 @@ def test_wait_receipt_preserves_the_conversation_wake(svc, monkeypatch):
     def call(op, args, **kw):
         if op == "wait":
             return Daemon._wait_answer(backend, args["job_ids"])
+        if op == "notice.mark" and args["state"] == "offered":
+            # `notice.mark`'s ladder (C-15.3): it only moves a pending notice up to offered.
+            with svc.daemon.store.transaction() as tx:
+                tx.executemany("UPDATE notices SET state='offered',transport=? "
+                               "WHERE notice_id=? AND session_id=? AND state='pending'",
+                               [(args["transport"], notice, args["session_id"]) for notice in args["notice_ids"]])
+            return {"notices": []}
         raise AssertionError(f"wait must not acknowledge notices: {op}")
     monkeypatch.setattr(cli, "_client", lambda *a, **kw: SimpleNamespace(call=call))
     monkeypatch.setattr(cli, "session_id", lambda: sid)
     args = cli.build_parser().parse_args(["wait", "run-one", "--json"])
     assert args.handler(args) == 0
-    assert svc.daemon.store.list_notices()[0]["state"] == "pending"
+    assert svc.daemon.store.list_notices()[0]["state"] == "offered"
     svc.wakes.tick()
     assert len(rows(svc, cid)) == 1
 

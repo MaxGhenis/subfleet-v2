@@ -1,0 +1,13 @@
+#!/bin/zsh
+# usage: run.sh NAME [pytest args...]; logs to $S/logs/NAME.log
+T="$(getconf DARWIN_USER_TEMP_DIR)"; T="${T%/}"; S="$T/sf-wcall-fix2"
+name=$1; shift
+mkdir -p "$S/logs"
+cd /Users/maxghenis/.subfleet/worktrees/20261115-142427-wcall-fix-r2 || exit 99
+unset SUBFLEET_HOME SUBFLEET_JOB SUBFLEET_ATTEMPT CLAUDE_CODE_SESSION_ID PYTHONPATH SUBFLEET_ROOT
+export TMPDIR="$T" UV_CACHE_DIR="$T/uv-cache" UV_PROJECT_ENVIRONMENT="$S/venv" HYPOTHESIS_STORAGE_DIRECTORY="$S/hypothesis" PYTHONDONTWRITEBYTECODE=1
+start=$(date -u +%T); l1=$(uptime | sed 's/.*averages*: //' | cut -d' ' -f1)
+timeout ${RUN_TIMEOUT:-560} uv run --no-sync --with 'pytest-xdist>=3.6' pytest -p no:cacheprovider --basetemp="$S/pytest-$name" "$@" > "$S/logs/$name.log" 2>&1
+rc=$?
+end=$(date -u +%T); l2=$(uptime | sed 's/.*averages*: //' | cut -d' ' -f1)
+echo "$name rc=$rc $start-$end load $l1-$l2 :: $(tail -1 "$S/logs/$name.log")" | tee -a "$S/logs/ledger.txt"

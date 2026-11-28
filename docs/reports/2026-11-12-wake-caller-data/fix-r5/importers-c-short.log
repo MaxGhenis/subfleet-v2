@@ -1,0 +1,31 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.15.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5
+configfile: pyproject.toml
+plugins: xdist-3.8.0, timeout-2.4.0, hypothesis-6.168.1
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+created: 4/4 workers
+4 workers [166 items]
+
+...........................................................s............ [ 43%]
+...ss................................................................... [ 86%]
+......................                                                   [100%]
+SKIPPED tests/unit/test_doctor.py::test_cli_doctor_exits_one_when_anything_failed: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/unit/test_doctor.py::test_daemon_lock_row_fails_on_a_dead_pid_by_real_identity: Skipped: C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+SKIPPED tests/unit/test_doctor.py::test_daemon_lock_row_passes_against_a_live_daemon_by_real_identity: Skipped: C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+============================= slowest 8 durations ==============================
+36.99s call     tests/unit/test_hooks_install_differential.py::test_uninstall_agrees_with_release_for_list_valued_events
+27.62s call     tests/unit/test_hooks_install_differential.py::test_install_agrees_with_release_when_owned_entries_are_alone_and_last
+24.20s call     tests/unit/test_hooks_install_equality.py::test_install_drifts_exactly_when_it_should_and_preserves_the_rest
+21.61s call     tests/unit/test_hooks_install_equality.py::test_any_permutation_holding_the_entry_once_is_installed
+19.34s call     tests/unit/test_hooks_install_equality.py::test_any_single_change_to_the_entry_is_drift_and_is_replaced_in_place
+17.89s call     tests/unit/test_descriptor_review_fixes.py::test_c3_6_a_later_daemon_never_takes_a_kept_handler_away[live-earlier]
+16.80s call     tests/unit/test_descriptor_review_fixes.py::test_c3_6_a_later_daemon_never_takes_a_kept_handler_away[nonholder-fails-clear]
+13.61s call     tests/unit/test_descriptor_review_fixes.py::test_c3_6_letting_sigusr1_go_always_restores_it_ignored[off-at-exit]
+=========================== short test summary info ============================
+SKIPPED [1] ../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wcall-fix-r5-a1-7x65682i/sf-wcall-fix5/plugins/r4_isolation.py:52: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_doctor.py:605: C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+SKIPPED [1] tests/unit/test_doctor.py:617: C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+================== 163 passed, 3 skipped in 160.68s (0:02:40) ==================

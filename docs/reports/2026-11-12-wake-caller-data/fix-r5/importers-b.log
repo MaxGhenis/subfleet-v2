@@ -1,0 +1,85 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.15.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5
+configfile: pyproject.toml
+plugins: xdist-3.8.0, timeout-2.4.0, hypothesis-6.168.1
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+created: 4/4 workers
+4 workers [213 items]
+
+...s..s.....s..s.sss..ss....sssssss.ss.s.s..s..s....s..s...ssss.ssssss.. [ 33%]
+s....s.................................................................. [ 67%]
+.....................................................................    [100%]
+SKIPPED tests/fake/test_unadmittable_pin_review.py::test_probe_i4_a_job_that_ran_between_two_episodes_gets_a_second_notice: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/fake/test_unadmittable_pin_review.py::test_probe_i4_a_restart_while_the_job_runs_forgets_its_notice: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/fake/test_unadmittable_pin_review.py::test_probe_i5_an_expired_token_that_heals_itself_is_called_never: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/fake/test_unadmittable_pin_review.py::test_probe_i3_an_unadmittable_job_on_its_clock_still_queues_for_a_lease: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/fake/test_unadmittable_pin_review.py::test_probe_the_notice_is_never_surfaced_to_a_caller_subfleet_launched: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/fake/test_notice_delivery.py::test_c15_3_state_a_pin_notice_is_a_message_surfaced_once[session]: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/fake/test_notice_delivery.py::test_c15_3_state_a_pin_notice_is_a_message_surfaced_once[launched]: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/fake/test_unadmittable_pin_review.py::test_probe_a_stale_for_good_outlives_the_lanes_recovery_on_the_clock: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/fake/test_unadmittable_pin_rereview.py::test_rr_a_ping_that_reuses_a_withdrawn_pin_notice_id_names_no_job: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/fake/test_unadmittable_pin_rereview.py::test_rr_a_pending_pin_notice_is_not_delivered_with_a_successful_end: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/fake/test_unadmittable_pin_rereview.py::test_rr_a_codex_expired_token_after_its_one_heal_is_a_pin_no_lane_can_admit: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/unit/test_stopped_daemon.py::test_the_call_is_refused_before_anything_connects: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/unit/test_stopped_daemon.py::test_a_live_socket_does_not_override_the_stopped_lock: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/unit/test_stopped_daemon.py::test_a_stop_during_the_call_is_named_and_its_outcome_stays_unknown: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/unit/test_stopped_daemon.py::test_a_submit_lost_to_a_stop_is_unknown_and_not_re_sent_into_the_buffer: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/unit/test_stopped_daemon.py::test_a_kill_lost_to_a_stop_goes_to_offline_mode: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/unit/test_stopped_daemon.py::test_a_connect_that_times_out_is_re_diagnosed_too: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/unit/test_stopped_daemon.py::test_a_silent_daemon_that_is_not_stopped_keeps_its_exit_code: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/fake/test_unadmittable_pin_rereview.py::test_c11_8_an_expired_token_whose_heal_may_still_land_is_capacity: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/fake/test_unadmittable_pin_rereview.py::test_c11_8_a_notice_withdrawn_unread_when_the_lane_recovers_is_not_the_jobs_one: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/unit/test_stopped_daemon.py::test_the_socket_is_named_only_when_it_exists: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/unit/test_stopped_daemon.py::test_a_refused_connect_asks_the_holder_too: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/unit/test_stopped_daemon.py::test_an_undecodable_marker_is_no_evidence_not_a_traceback: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/unit/test_stopped_daemon.py::test_daemon_status_names_a_stopped_holder_and_skips_the_socket: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/unit/test_stopped_daemon.py::test_daemon_status_json_carries_the_state_the_flag_and_the_diagnosis: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/unit/test_stopped_daemon.py::test_daemon_start_refuses_to_start_a_second_daemon_over_a_stopped_one: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/unit/test_stopped_daemon.py::test_status_falls_back_offline_and_says_why: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/unit/test_stopped_daemon.py::test_the_doctor_lock_row_fails_on_a_stopped_holder: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/unit/test_stopped_daemon.py::test_no_daemon_and_no_store_still_carries_the_daemon_s_own_fix: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/unit/test_stopped_daemon.py::test_the_live_ping_row_carries_the_same_diagnosis: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/unit/test_stopped_daemon.py::test_a_pauser_is_named_only_when_its_marker_file_lists_the_pid: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/unit/test_stopped_daemon.py::test_a_verb_with_no_offline_mode_prints_the_diagnosis_not_daemon_start: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/unit/test_stopped_daemon.py::test_a_marker_file_that_lists_other_pids_attributes_nothing: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/unit/test_stopped_daemon.py::test_no_marker_file_at_all_attributes_nothing: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/unit/test_stopped_daemon.py::test_runs_falls_back_offline_and_says_why: Skipped: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED tests/unit/test_stopped_daemon.py::test_real_stopped_holder_never_connects: Skipped: round-5 brief prohibits this fixture command or live process inspection
+============================= slowest 8 durations ==============================
+15.99s call     tests/fake/test_notice_delivery.py::test_c15_3_state_repeated_hooks_never_surface_a_notice_twice
+8.12s call     tests/unit/test_operator_notices.py::test_c15_8_a_withdrawal_deletes_exactly_the_named_undelivered_service_notices
+5.24s call     tests/unit/test_operator_notices.py::test_c15_8_c18_4_no_cycle_parks_a_notice_and_status_shows_each_cycles_conditions
+2.87s call     tests/unit/test_operator_notices.py::test_c15_8_notice_list_agrees_with_notice_pending_and_with_the_offline_reader
+1.68s call     tests/unit/test_operator_notices.py::test_c11_8_pins_with_no_one_to_tell_never_hide_a_deliverable_pin_notice
+1.43s setup    tests/fake/test_unadmittable_pin_review.py::test_probe_i4_a_job_that_ran_between_two_episodes_gets_a_second_notice
+1.28s setup    tests/fake/test_notice_header.py::test_c15_1_c5_7_a_quarantined_attempt_names_the_jobs_state_not_the_attempts_rc[False]
+1.27s setup    tests/fake/test_notice_delivery.py::test_c23_26_state_service_notices_are_pruned_once_delivered_and_old
+=========================== short test summary info ============================
+SKIPPED [13] ../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261125-221914-wcall-fix-r5-a1-7x65682i/sf-wcall-fix5/plugins/r4_isolation.py:51: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:169: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:181: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:230: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:249: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:267: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:279: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:300: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:347: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:315: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:356: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:370: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:385: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:396: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:468: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:407: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:477: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:416: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:426: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:487: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:436: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:445: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:456: round-5 brief prohibits this fixture command or live process inspection
+SKIPPED [1] tests/unit/test_stopped_daemon.py:515: round-5 brief prohibits this fixture command or live process inspection
+======================= 177 passed, 36 skipped in 50.42s =======================
