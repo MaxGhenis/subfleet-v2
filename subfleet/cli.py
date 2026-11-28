@@ -579,6 +579,7 @@ def format_status(data: dict[str, Any]) -> str:
         lines.append(render.disk_line(data["disk"]))
     if isinstance(data.get("ramp"), dict):
         lines.append(render.ramp_line(data["ramp"]))
+    lines.extend(render.start_budget_lines(data.get("start_budget")))
     if callers:
         lines.append("priority callers: " + ", ".join(
             f"{row['name']} ({row['session_id']})" if row.get("name") else str(row.get("session_id"))

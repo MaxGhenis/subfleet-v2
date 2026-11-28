@@ -22,12 +22,14 @@ from typing import Any
 from .alerts import LATCH_QUERY, active_alerts, load_latches
 from .client import same_process
 from .contracts import READING_TTL_S, Exit, JobState
-from . import task_holds
+from . import start_budget, task_holds
+from .policy import PolicyError, admission_settings, load_policy
 from .quota_projection import weekly_projections
 from .review_record import stored_review_result
 from .status_json import closure_row, decision_rows
 from .store import SCHEMA_VERSION as KNOWN_SCHEMA_VERSION
-from .store import WEEKLY_HISTORY_SQL, cancel_info, job_flags, notice_rows, shell_flags, weekly_history_params
+from .store import (WEEKLY_HISTORY_SQL, cancel_info, job_flags, notice_rows, priority_job_rows,
+                    shell_flags, weekly_history_params)
 
 STORE_NAME = "state.sqlite3"
 RECEIPTS = ("start", "exit")            # C-5.2 receipts beside the store (C-17.5)
@@ -349,6 +351,10 @@ class Offline:
 
     def status(self) -> dict[str, Any]:
         at = datetime.now(timezone.utc)
+        try:
+            policy = load_policy(self.root / "policy.json")
+        except (PolicyError, OSError):
+            policy = {}
         with self.reading() as conn:
             tables = self._tables(conn)
             lanes = [dict(row) for row in conn.execute(
@@ -396,6 +402,18 @@ class Offline:
             # below shows 50, and a count read from it would stop there (C-17.4).
             held_jobs = (task_holds.waiting_counts(conn.execute(task_holds.WAITING_SQL).fetchall())
                          if holds and "jobs" in tables else {})
+            has_ledger = {"jobs", "attempts"} <= tables
+            priority_on = bool(admission_settings(policy)["priority_callers"])
+
+            def query(sql, params):
+                return [dict(row) for row in conn.execute(sql, params)] if has_ledger else []
+
+            def priority_jobs(jobs):
+                return priority_job_rows(query, jobs) if priority_on else {}
+
+            budget = start_budget.StartBudget.read(policy, query, at.isoformat(),
+                                                   priority_jobs=priority_jobs)
+        budgets = budget.status(lane["lane_id"] for lane in lanes)
         for lane in lanes:
             lane["in_flight"] = in_flight.get(lane.get("lane_id"), 0)
         for reading in readings:
@@ -419,17 +437,13 @@ class Offline:
             # C-26.12: conversations' turns, counted apart from detached work.
             "turns": self.list_jobs(running=True, last=50, kind="turn"),
             "alerts": active_alerts(latches),
-            "claude_cards": self._cards_view(),     # C-9.10: the last snapshot the daemon wrote
+            "claude_cards": self._cards_view(policy),  # C-9.10: the last snapshot the daemon wrote
             "task_holds": task_holds.listing(holds, waiting=held_jobs),
+            **({"start_budget": budgets} if budgets else {}),
         }
 
-    def _cards_view(self) -> dict[str, Any]:
+    def _cards_view(self, policy: dict[str, Any]) -> dict[str, Any]:
         from . import claude_cards
-        from .policy import PolicyError, load_policy
-        try:
-            policy = load_policy(self.root / "policy.json")
-        except (PolicyError, OSError):
-            policy = {}
         if not claude_cards.settings(policy)["enabled"]:
             return {"read_at": None, "accounts": [], "warnings": [], "disabled": True}
         try:

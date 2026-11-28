@@ -514,6 +514,9 @@ def test_admission_settings_default_and_validate(tmp_path, policy_data):
     assert admission_settings({})["weekly_reserve"] == .02
     assert admission_settings({})["five_hour_reserve"] == .10
     assert admission_settings({})["priority_callers"] is None
+    assert admission_settings({})["lane_starts_per_window"] is None
+    assert admission_settings({})["lane_start_window_s"] == 30
+    assert admission_settings({})["global_starts_per_min"] is None
     assert admission_settings({})["pin_grace_s"] == 1800 and admission_settings({})["pin_hold_far_s"] == 7 * 86400
     assert admission_settings({})["prove_idle_s"] == 900          # C-6.14: on unless a policy turns it off
     assert admission_settings({})["prove_wait_s"] == 300          # C-6.14: how long a silent pilot holds its lane
@@ -525,6 +528,8 @@ def test_admission_settings_default_and_validate(tmp_path, policy_data):
                                    "pin_grace_s": None, "pin_hold_far_s": 3600, "prove_idle_s": None,
                                    "prove_wait_s": None, "weekly_reserve": .02, "five_hour_reserve": .10,
                                    "probe_deadline_s": 180,
+                                   "lane_starts_per_window": None, "lane_start_window_s": 30,
+                                   "global_starts_per_min": None,
                                    "priority_callers": None, "disk": DISK_DEFAULTS,
                                    "ramp": {"enabled": False, "per_minute": 12, "window_s": 60}}
     policy_data["admission"] = {"prove_idle_s": 0.5, "prove_wait_s": 0.25}     # C-6.14: any positive spans
