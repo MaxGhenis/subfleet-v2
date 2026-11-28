@@ -1,0 +1,330 @@
+FFFF                                                                     [100%]
+=================================== FAILURES ===================================
+_ test_resume_keeps_source_effort_when_policy_aliases_share_a_model_id[pin-None] _
+
+state_daemon = (<subfleet.daemon.Daemon object at 0x10bf4e270>, <tests.fake.conftest.Harness object at 0x10bf4e3c0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10bfe2ea0>
+effort = None, source_route = 'pin'
+
+    @pytest.mark.parametrize("effort", [None, "high"])
+    @pytest.mark.parametrize("source_route", ["pin", "task"])
+    def test_resume_keeps_source_effort_when_policy_aliases_share_a_model_id(
+            state_daemon, monkeypatch, effort, source_route):
+        """C-12.4, C-6.2: preserve the source alias and pre-upgrade accepted retries."""
+        daemon, harness = state_daemon
+        daemon.policy["models"]["opus"]["effort"] = "low"
+        alternate = {**daemon.policy["models"]["opus"]}
+        alternate.pop("effort")
+        if effort is not None:
+            alternate["effort"] = effort
+        daemon.policy["models"]["opus_alternate"] = alternate
+        daemon.policy["chains"]["lookup"] = ["opus_alternate"] * len(daemon.policy["tiers"])
+        policy_path = daemon.root / "policy.json"
+        policy_path.write_text(json.dumps(daemon.policy))
+        daemon.policy = load_policy(policy_path)
+        lane = daemon.store.get_lane("codex-1")
+        daemon.store.put_lane(replace(lane, lane_id="claude-1", provider="claude",
+            account_key="claude:fixture", credential=Credential("claude", lane.home, "home")))
+        daemon.desktop_prober = lambda: None
+        register("claude", FakeAdapter)
+        source_id, source_attempt = finished_source(daemon, harness, task="lookup",
+            pinned_lane="claude-1", pinned_model="opus_alternate" if source_route == "pin" else None)
+        assert json.loads(source_attempt["evidence_json"])["model_short"] == "opus_alternate"
+        adapter = ClaudeAdapter()
+        source_job = daemon.store.get_job(source_id)
+        source_dir = daemon.root / "jobs" / source_id / "a1"
+        fresh = adapter.build_launch(daemon._spec(source_job), source_attempt["attempt_id"],
+            source_dir, daemon.store.get_lane("claude-1"), {}, alternate["id"], effort,
+            source_dir / "stdout", None)
+        # Simulate the digest an older daemon accepted: it resolved the provider
+        # model ID to the first alias, even when the source selected the alternate.
+        payload_digest = module.ids.payload_digest
+        legacy_digests = []
+    
+        def capture_legacy_digest(prompt, **payload):
+            legacy_digests.append(payload_digest(prompt, **{**payload, "pinned_model": "opus"}))
+            return payload_digest(prompt, **payload)
+    
+        resume_args = protocol.SubmitArgs(**harness.submit_args(kind="resume", parent_job_id=source_id))
+        with monkeypatch.context() as capture:
+            capture.setattr(module.ids, "payload_digest", capture_legacy_digest)
+            resumed_id = daemon.submit(resume_args)["job_id"]
+        assert len(legacy_digests) == 1
+        daemon.store.update_job(resumed_id, payload_digest=legacy_digests[0])
+        retried = daemon.submit(resume_args)
+        assert retried["job_id"] == resumed_id and retried["created"] is False
+        daemon._admit()
+        attempt = daemon.store.list_attempts(resumed_id)[0]
+        launches = []
+    
+        class ObserveResume(FakeAdapter):
+            def resume_launch(self, *args, **kwargs):
+                launches.append(adapter.resume_launch(*args, **kwargs))
+                raise AdapterError("stopped after constructing native launch")
+    
+        monkeypatch.setattr(module, "get_adapter", lambda _: ObserveResume())
+        Daemon._launch(daemon, attempt)
+        assert len(launches) == 1
+        resumed = launches[0]
+        for launch in (fresh, resumed):
+            argv = launch.argv
+            if effort is None:
+>               assert "--effort" not in argv
+E               AssertionError: assert '--effort' not in ('claude', '-p', '--resume', 'native-source-session', '--model', 'claude-opus-5-5', ...)
+
+tests/fake/test_resume_contract.py:145: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4495565424:daemon.py:996 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4495565424:daemon.py:1087 reset credits: automatic redemption off; no-reset marker absent
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4495565424:refusals.py:674 job 20261115-153502-lookup refused (AdapterError): stopped after constructing native launch
+_ test_resume_keeps_source_effort_when_policy_aliases_share_a_model_id[pin-high] _
+
+state_daemon = (<subfleet.daemon.Daemon object at 0x10bf4f4d0>, <tests.fake.conftest.Harness object at 0x10c4756d0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10a8ffbf0>
+effort = 'high', source_route = 'pin'
+
+    @pytest.mark.parametrize("effort", [None, "high"])
+    @pytest.mark.parametrize("source_route", ["pin", "task"])
+    def test_resume_keeps_source_effort_when_policy_aliases_share_a_model_id(
+            state_daemon, monkeypatch, effort, source_route):
+        """C-12.4, C-6.2: preserve the source alias and pre-upgrade accepted retries."""
+        daemon, harness = state_daemon
+        daemon.policy["models"]["opus"]["effort"] = "low"
+        alternate = {**daemon.policy["models"]["opus"]}
+        alternate.pop("effort")
+        if effort is not None:
+            alternate["effort"] = effort
+        daemon.policy["models"]["opus_alternate"] = alternate
+        daemon.policy["chains"]["lookup"] = ["opus_alternate"] * len(daemon.policy["tiers"])
+        policy_path = daemon.root / "policy.json"
+        policy_path.write_text(json.dumps(daemon.policy))
+        daemon.policy = load_policy(policy_path)
+        lane = daemon.store.get_lane("codex-1")
+        daemon.store.put_lane(replace(lane, lane_id="claude-1", provider="claude",
+            account_key="claude:fixture", credential=Credential("claude", lane.home, "home")))
+        daemon.desktop_prober = lambda: None
+        register("claude", FakeAdapter)
+        source_id, source_attempt = finished_source(daemon, harness, task="lookup",
+            pinned_lane="claude-1", pinned_model="opus_alternate" if source_route == "pin" else None)
+        assert json.loads(source_attempt["evidence_json"])["model_short"] == "opus_alternate"
+        adapter = ClaudeAdapter()
+        source_job = daemon.store.get_job(source_id)
+        source_dir = daemon.root / "jobs" / source_id / "a1"
+        fresh = adapter.build_launch(daemon._spec(source_job), source_attempt["attempt_id"],
+            source_dir, daemon.store.get_lane("claude-1"), {}, alternate["id"], effort,
+            source_dir / "stdout", None)
+        # Simulate the digest an older daemon accepted: it resolved the provider
+        # model ID to the first alias, even when the source selected the alternate.
+        payload_digest = module.ids.payload_digest
+        legacy_digests = []
+    
+        def capture_legacy_digest(prompt, **payload):
+            legacy_digests.append(payload_digest(prompt, **{**payload, "pinned_model": "opus"}))
+            return payload_digest(prompt, **payload)
+    
+        resume_args = protocol.SubmitArgs(**harness.submit_args(kind="resume", parent_job_id=source_id))
+        with monkeypatch.context() as capture:
+            capture.setattr(module.ids, "payload_digest", capture_legacy_digest)
+            resumed_id = daemon.submit(resume_args)["job_id"]
+        assert len(legacy_digests) == 1
+        daemon.store.update_job(resumed_id, payload_digest=legacy_digests[0])
+        retried = daemon.submit(resume_args)
+        assert retried["job_id"] == resumed_id and retried["created"] is False
+        daemon._admit()
+        attempt = daemon.store.list_attempts(resumed_id)[0]
+        launches = []
+    
+        class ObserveResume(FakeAdapter):
+            def resume_launch(self, *args, **kwargs):
+                launches.append(adapter.resume_launch(*args, **kwargs))
+                raise AdapterError("stopped after constructing native launch")
+    
+        monkeypatch.setattr(module, "get_adapter", lambda _: ObserveResume())
+        Daemon._launch(daemon, attempt)
+        assert len(launches) == 1
+        resumed = launches[0]
+        for launch in (fresh, resumed):
+            argv = launch.argv
+            if effort is None:
+                assert "--effort" not in argv
+            else:
+>               assert argv[argv.index("--effort") + 1] == effort
+E               AssertionError: assert 'low' == 'high'
+E                 
+E                 - high
+E                 + low
+
+tests/fake/test_resume_contract.py:147: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4495570128:daemon.py:996 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4495570128:daemon.py:1087 reset credits: automatic redemption off; no-reset marker absent
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4495570128:refusals.py:674 job 20261115-153524-lookup refused (AdapterError): stopped after constructing native launch
+_ test_resume_keeps_source_effort_when_policy_aliases_share_a_model_id[task-None] _
+
+state_daemon = (<subfleet.daemon.Daemon object at 0x10c6e01a0>, <tests.fake.conftest.Harness object at 0x10c44ca50>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c47b8a0>
+effort = None, source_route = 'task'
+
+    @pytest.mark.parametrize("effort", [None, "high"])
+    @pytest.mark.parametrize("source_route", ["pin", "task"])
+    def test_resume_keeps_source_effort_when_policy_aliases_share_a_model_id(
+            state_daemon, monkeypatch, effort, source_route):
+        """C-12.4, C-6.2: preserve the source alias and pre-upgrade accepted retries."""
+        daemon, harness = state_daemon
+        daemon.policy["models"]["opus"]["effort"] = "low"
+        alternate = {**daemon.policy["models"]["opus"]}
+        alternate.pop("effort")
+        if effort is not None:
+            alternate["effort"] = effort
+        daemon.policy["models"]["opus_alternate"] = alternate
+        daemon.policy["chains"]["lookup"] = ["opus_alternate"] * len(daemon.policy["tiers"])
+        policy_path = daemon.root / "policy.json"
+        policy_path.write_text(json.dumps(daemon.policy))
+        daemon.policy = load_policy(policy_path)
+        lane = daemon.store.get_lane("codex-1")
+        daemon.store.put_lane(replace(lane, lane_id="claude-1", provider="claude",
+            account_key="claude:fixture", credential=Credential("claude", lane.home, "home")))
+        daemon.desktop_prober = lambda: None
+        register("claude", FakeAdapter)
+        source_id, source_attempt = finished_source(daemon, harness, task="lookup",
+            pinned_lane="claude-1", pinned_model="opus_alternate" if source_route == "pin" else None)
+        assert json.loads(source_attempt["evidence_json"])["model_short"] == "opus_alternate"
+        adapter = ClaudeAdapter()
+        source_job = daemon.store.get_job(source_id)
+        source_dir = daemon.root / "jobs" / source_id / "a1"
+        fresh = adapter.build_launch(daemon._spec(source_job), source_attempt["attempt_id"],
+            source_dir, daemon.store.get_lane("claude-1"), {}, alternate["id"], effort,
+            source_dir / "stdout", None)
+        # Simulate the digest an older daemon accepted: it resolved the provider
+        # model ID to the first alias, even when the source selected the alternate.
+        payload_digest = module.ids.payload_digest
+        legacy_digests = []
+    
+        def capture_legacy_digest(prompt, **payload):
+            legacy_digests.append(payload_digest(prompt, **{**payload, "pinned_model": "opus"}))
+            return payload_digest(prompt, **payload)
+    
+        resume_args = protocol.SubmitArgs(**harness.submit_args(kind="resume", parent_job_id=source_id))
+        with monkeypatch.context() as capture:
+            capture.setattr(module.ids, "payload_digest", capture_legacy_digest)
+            resumed_id = daemon.submit(resume_args)["job_id"]
+        assert len(legacy_digests) == 1
+        daemon.store.update_job(resumed_id, payload_digest=legacy_digests[0])
+        retried = daemon.submit(resume_args)
+        assert retried["job_id"] == resumed_id and retried["created"] is False
+        daemon._admit()
+        attempt = daemon.store.list_attempts(resumed_id)[0]
+        launches = []
+    
+        class ObserveResume(FakeAdapter):
+            def resume_launch(self, *args, **kwargs):
+                launches.append(adapter.resume_launch(*args, **kwargs))
+                raise AdapterError("stopped after constructing native launch")
+    
+        monkeypatch.setattr(module, "get_adapter", lambda _: ObserveResume())
+        Daemon._launch(daemon, attempt)
+        assert len(launches) == 1
+        resumed = launches[0]
+        for launch in (fresh, resumed):
+            argv = launch.argv
+            if effort is None:
+>               assert "--effort" not in argv
+E               AssertionError: assert '--effort' not in ('claude', '-p', '--resume', 'native-source-session', '--model', 'claude-opus-5-5', ...)
+
+tests/fake/test_resume_contract.py:145: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4503503264:daemon.py:996 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4503503264:daemon.py:1087 reset credits: automatic redemption off; no-reset marker absent
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4503503264:refusals.py:674 job 20261115-153550-lookup refused (AdapterError): stopped after constructing native launch
+_ test_resume_keeps_source_effort_when_policy_aliases_share_a_model_id[task-high] _
+
+state_daemon = (<subfleet.daemon.Daemon object at 0x10c4f2120>, <tests.fake.conftest.Harness object at 0x10c124770>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c15d150>
+effort = 'high', source_route = 'task'
+
+    @pytest.mark.parametrize("effort", [None, "high"])
+    @pytest.mark.parametrize("source_route", ["pin", "task"])
+    def test_resume_keeps_source_effort_when_policy_aliases_share_a_model_id(
+            state_daemon, monkeypatch, effort, source_route):
+        """C-12.4, C-6.2: preserve the source alias and pre-upgrade accepted retries."""
+        daemon, harness = state_daemon
+        daemon.policy["models"]["opus"]["effort"] = "low"
+        alternate = {**daemon.policy["models"]["opus"]}
+        alternate.pop("effort")
+        if effort is not None:
+            alternate["effort"] = effort
+        daemon.policy["models"]["opus_alternate"] = alternate
+        daemon.policy["chains"]["lookup"] = ["opus_alternate"] * len(daemon.policy["tiers"])
+        policy_path = daemon.root / "policy.json"
+        policy_path.write_text(json.dumps(daemon.policy))
+        daemon.policy = load_policy(policy_path)
+        lane = daemon.store.get_lane("codex-1")
+        daemon.store.put_lane(replace(lane, lane_id="claude-1", provider="claude",
+            account_key="claude:fixture", credential=Credential("claude", lane.home, "home")))
+        daemon.desktop_prober = lambda: None
+        register("claude", FakeAdapter)
+        source_id, source_attempt = finished_source(daemon, harness, task="lookup",
+            pinned_lane="claude-1", pinned_model="opus_alternate" if source_route == "pin" else None)
+        assert json.loads(source_attempt["evidence_json"])["model_short"] == "opus_alternate"
+        adapter = ClaudeAdapter()
+        source_job = daemon.store.get_job(source_id)
+        source_dir = daemon.root / "jobs" / source_id / "a1"
+        fresh = adapter.build_launch(daemon._spec(source_job), source_attempt["attempt_id"],
+            source_dir, daemon.store.get_lane("claude-1"), {}, alternate["id"], effort,
+            source_dir / "stdout", None)
+        # Simulate the digest an older daemon accepted: it resolved the provider
+        # model ID to the first alias, even when the source selected the alternate.
+        payload_digest = module.ids.payload_digest
+        legacy_digests = []
+    
+        def capture_legacy_digest(prompt, **payload):
+            legacy_digests.append(payload_digest(prompt, **{**payload, "pinned_model": "opus"}))
+            return payload_digest(prompt, **payload)
+    
+        resume_args = protocol.SubmitArgs(**harness.submit_args(kind="resume", parent_job_id=source_id))
+        with monkeypatch.context() as capture:
+            capture.setattr(module.ids, "payload_digest", capture_legacy_digest)
+            resumed_id = daemon.submit(resume_args)["job_id"]
+        assert len(legacy_digests) == 1
+        daemon.store.update_job(resumed_id, payload_digest=legacy_digests[0])
+        retried = daemon.submit(resume_args)
+        assert retried["job_id"] == resumed_id and retried["created"] is False
+        daemon._admit()
+        attempt = daemon.store.list_attempts(resumed_id)[0]
+        launches = []
+    
+        class ObserveResume(FakeAdapter):
+            def resume_launch(self, *args, **kwargs):
+                launches.append(adapter.resume_launch(*args, **kwargs))
+                raise AdapterError("stopped after constructing native launch")
+    
+        monkeypatch.setattr(module, "get_adapter", lambda _: ObserveResume())
+        Daemon._launch(daemon, attempt)
+        assert len(launches) == 1
+        resumed = launches[0]
+        for launch in (fresh, resumed):
+            argv = launch.argv
+            if effort is None:
+                assert "--effort" not in argv
+            else:
+>               assert argv[argv.index("--effort") + 1] == effort
+E               AssertionError: assert 'low' == 'high'
+E                 
+E                 - high
+E                 + low
+
+tests/fake/test_resume_contract.py:147: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4501479712:daemon.py:996 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4501479712:daemon.py:1087 reset credits: automatic redemption off; no-reset marker absent
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4501479712:refusals.py:674 job 20261115-153619-lookup refused (AdapterError): stopped after constructing native launch
+=========================== short test summary info ============================
+FAILED tests/fake/test_resume_contract.py::test_resume_keeps_source_effort_when_policy_aliases_share_a_model_id[pin-None]
+FAILED tests/fake/test_resume_contract.py::test_resume_keeps_source_effort_when_policy_aliases_share_a_model_id[pin-high]
+FAILED tests/fake/test_resume_contract.py::test_resume_keeps_source_effort_when_policy_aliases_share_a_model_id[task-None]
+FAILED tests/fake/test_resume_contract.py::test_resume_keeps_source_effort_when_policy_aliases_share_a_model_id[task-high]
+4 failed, 25 deselected in 246.70s (0:04:06)

@@ -1,0 +1,18 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.15.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5
+configfile: pyproject.toml
+plugins: xdist-3.8.0, timeout-2.4.0, hypothesis-6.168.1
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+created: 4/4 workers
+4 workers [1 item]
+
+.                                                                        [100%]
+============================= slowest 8 durations ==============================
+286.11s call     tests/unit/test_live_store_guard_st3_children.py::test_the_property_draws_the_same_environments_in_every_process
+9.11s setup    tests/unit/test_live_store_guard_st3_children.py::test_the_property_draws_the_same_environments_in_every_process
+
+(1 durations < 0.005s hidden.  Use -vv to show these durations.)
+======================== 1 passed in 346.44s (0:05:46) =========================

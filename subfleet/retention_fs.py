@@ -220,7 +220,10 @@ def walk(root_fd: int, check: Check | None = None) -> Iterator[tuple[str, os.sta
     first as ``("", fstat, root_fd, None)``. The parent descriptor is valid only
     until the generator is advanced. A mount point (another device) or a tree
     deeper than `MAX_DEPTH` raises `TreeError`; an unreadable directory raises
-    `TreeError("unreadable")`.
+    `TreeError("unreadable")`, and so does one that can be listed but not
+    searched (owner read without search, such as 0644: its entries' names
+    come back, their `lstat` is refused; D-SURVEY-EACCES1). No permission
+    refusal leaves as a bare `PermissionError`.
     """
     root = os.fstat(root_fd)
     yield "", root, root_fd, None
@@ -251,6 +254,9 @@ def walk(root_fd: int, check: Check | None = None) -> Iterator[tuple[str, os.sta
                 st = os.stat(name, dir_fd=fd, follow_symlinks=False)
             except FileNotFoundError:
                 raise TreeError("changed", f"{path} vanished during the walk") from None
+            except PermissionError as exc:
+                # Listing needs read, this lstat needs search on the parent.
+                raise TreeError("unreadable", f"{path}: {exc.strerror}") from None
             if st.st_dev != root.st_dev:
                 raise TreeError("mount-point", path)
             yield path, st, fd, name
@@ -340,6 +346,129 @@ FORCE_COPY = False
 #: A byte copy (no clones on this volume) or a bundle never takes free space
 #: below this: retention must never be what fills the disk.
 LOW_SPACE_FLOOR = 2 * 1024 ** 3
+
+
+# --- extended ACLs (D-TMPDIR-ACL1) -------------------------------------------------
+#
+# Python has no ACL API. These call libSystem's POSIX.1e calls on an open
+# descriptor only (`acl_get_fd_np`, `acl_set_fd_np`): a descriptor names one
+# inode, so nothing is resolved by path and no symlink is followed. The caller
+# opens the entry without following a link (or the link itself, `O_SYMLINK`)
+# and checks it against its lstat first.
+
+_ACL_TYPE_EXTENDED = 0x00000100          # <sys/acl.h>
+_ACL_FIRST_ENTRY = 0
+_ACL_NEXT_ENTRY = -1
+_ACL_EXTENDED_DENY = 2
+_ACL_DELETE = 1 << 4
+_ACL_DELETE_CHILD = 1 << 6
+_acl_get_fd_np = getattr(_libc, "acl_get_fd_np", None)
+_acl_set_fd_np = getattr(_libc, "acl_set_fd_np", None)
+_acl_get_entry = getattr(_libc, "acl_get_entry", None)
+_acl_get_tag_type = getattr(_libc, "acl_get_tag_type", None)
+_acl_get_permset = getattr(_libc, "acl_get_permset", None)
+_acl_get_perm_np = getattr(_libc, "acl_get_perm_np", None)
+_acl_delete_perm = getattr(_libc, "acl_delete_perm", None)
+_acl_set_permset = getattr(_libc, "acl_set_permset", None)
+_acl_get_permset_mask_np = getattr(_libc, "acl_get_permset_mask_np", None)
+_acl_delete_entry = getattr(_libc, "acl_delete_entry", None)
+_acl_free = getattr(_libc, "acl_free", None)
+ACL_AVAILABLE = None not in (_acl_get_fd_np, _acl_set_fd_np, _acl_get_entry, _acl_get_tag_type,
+                             _acl_get_permset, _acl_get_perm_np, _acl_delete_perm, _acl_set_permset,
+                             _acl_get_permset_mask_np, _acl_delete_entry, _acl_free)
+if ACL_AVAILABLE:
+    _acl_get_fd_np.argtypes = [ctypes.c_int, ctypes.c_int]
+    _acl_get_fd_np.restype = ctypes.c_void_p
+    _acl_set_fd_np.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_int]
+    _acl_set_fd_np.restype = ctypes.c_int
+    _acl_get_entry.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_void_p)]
+    _acl_get_entry.restype = ctypes.c_int
+    _acl_get_tag_type.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int)]
+    _acl_get_tag_type.restype = ctypes.c_int
+    _acl_get_permset.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+    _acl_get_permset.restype = ctypes.c_int
+    _acl_get_perm_np.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    _acl_get_perm_np.restype = ctypes.c_int
+    _acl_delete_perm.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    _acl_delete_perm.restype = ctypes.c_int
+    _acl_set_permset.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    _acl_set_permset.restype = ctypes.c_int
+    _acl_get_permset_mask_np.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint64)]
+    _acl_get_permset_mask_np.restype = ctypes.c_int
+    _acl_delete_entry.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    _acl_delete_entry.restype = ctypes.c_int
+    _acl_free.argtypes = [ctypes.c_void_p]
+    _acl_free.restype = ctypes.c_int
+
+
+def has_extended_acl(fd: int) -> bool:
+    """Whether the open entry carries an extended ACL with at least one entry."""
+    if not ACL_AVAILABLE:
+        return False
+    ctypes.set_errno(0)
+    acl = _acl_get_fd_np(fd, _ACL_TYPE_EXTENDED)
+    if not acl:
+        code = ctypes.get_errno()
+        if code in (0, errno.ENOENT):
+            return False
+        raise OSError(code, os.strerror(code))
+    try:
+        entry = ctypes.c_void_p()
+        return _acl_get_entry(acl, _ACL_FIRST_ENTRY, ctypes.byref(entry)) == 0
+    finally:
+        _acl_free(acl)
+
+
+def clear_extended_acl(fd: int, *, delete_child: bool = False) -> bool:
+    """Remove only deny-delete permissions from the checked open entry's ACL.
+
+    For a containing directory, remove deny-delete_child instead. Preserve
+    unrelated permissions, allow entries, qualifiers, flags and order; drop
+    an ACE only when removing that permission leaves it empty. Return whether
+    anything changed. The caller supplies ownership and single-link guards.
+    """
+    if not ACL_AVAILABLE:
+        raise OSError(errno.ENOTSUP, os.strerror(errno.ENOTSUP))
+    acl = _acl_get_fd_np(fd, _ACL_TYPE_EXTENDED)
+    if not acl:
+        code = ctypes.get_errno() or errno.EIO
+        raise OSError(code, os.strerror(code))
+
+    def checked(result: int) -> int:
+        if result < 0:
+            code = ctypes.get_errno() or errno.EIO
+            raise OSError(code, os.strerror(code))
+        return result
+
+    try:
+        permission = _ACL_DELETE_CHILD if delete_child else _ACL_DELETE
+        changed = False
+        position = _ACL_FIRST_ENTRY
+        entry = ctypes.c_void_p()
+        while _acl_get_entry(acl, position, ctypes.byref(entry)) == 0:
+            position = _ACL_NEXT_ENTRY
+            tag = ctypes.c_int()
+            checked(_acl_get_tag_type(entry, ctypes.byref(tag)))
+            if tag.value != _ACL_EXTENDED_DENY:
+                continue
+            permissions = ctypes.c_void_p()
+            checked(_acl_get_permset(entry, ctypes.byref(permissions)))
+            if not checked(_acl_get_perm_np(permissions, permission)):
+                continue
+            checked(_acl_delete_perm(permissions, permission))
+            checked(_acl_set_permset(entry, permissions))
+            remaining = ctypes.c_uint64()
+            checked(_acl_get_permset_mask_np(entry, ctypes.byref(remaining)))
+            if not remaining.value:
+                checked(_acl_delete_entry(acl, entry))
+                # Deletion may move later entries; restart the native iterator.
+                position = _ACL_FIRST_ENTRY
+            changed = True
+        if changed:
+            checked(_acl_set_fd_np(fd, acl, _ACL_TYPE_EXTENDED))
+        return changed
+    finally:
+        _acl_free(acl)
 
 
 def free_bytes(fd: int) -> int:

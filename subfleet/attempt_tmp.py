@@ -314,7 +314,8 @@ class AttemptTemp:
         try:
             where = self.presence(record)
         except (OSError, ValueError, TypeError, KeyError) as exc:
-            self.log.warning("TMPDIR removal deferred for %s: %s", record.get("attempt_id"), type(exc).__name__)
+            self.log.warning("TMPDIR removal deferred for %s: %s", record.get("attempt_id"),
+                             _why(type(exc).__name__, exc.errno if isinstance(exc, OSError) else None))
             return None
         if where == "absent":
             return "absent"                  # the provider may remove its own scratch
@@ -327,7 +328,7 @@ class AttemptTemp:
             return where
         return "removed" if self._remove(record) else None
 
-    def _remove(self, record: dict) -> bool:
+    def _remove(self, record: dict, label: str | None = None) -> bool:
         """Delete exactly the recorded allocation (P3-8, P3-1).
 
         Rename it to the tombstone the store recorded for it, in the same
@@ -354,11 +355,17 @@ class AttemptTemp:
         check after the rename then refuses it. After a refused removal, the
         folder put back is at 0700 (one that already had owner read, write and
         search keeps its own mode: removal never changed it).
+
+        `label` is what the log lines name: the attempt (`remove`), or the
+        folder's own name for a sighting, which records no attempt
+        (`sweep_unknown`, D-TMPDIR-ACL1). A deferral names the errno, never
+        the refusal's words.
         """
+        who = record.get("attempt_id") if label is None else label
         name = Path(record["path"]).name
         tomb = self._tombstone(record)
         if tomb is None:
-            self.log.warning("TMPDIR removal refused for %s: its recorded tombstone is not one", record.get("attempt_id"))
+            self.log.warning("TMPDIR removal refused for %s: its recorded tombstone is not one", who)
             return False
         parent = os.open(self.root, rfs.O_DIR)
         moved = False
@@ -370,12 +377,12 @@ class AttemptTemp:
             if found is None:
                 source = os.stat(name, dir_fd=parent, follow_symlinks=False)
                 if not self._is(record, source):
-                    self.log.warning("TMPDIR removal refused for %s: its folder was swapped", record.get("attempt_id"))
+                    self.log.warning("TMPDIR removal refused for %s: its folder was swapped", who)
                     return False
                 if stat.S_IMODE(source.st_mode) & 0o700 != 0o700:
                     # r2: before the rename, which macOS 15 refuses without owner write.
                     if not self._own(record, name, parent):
-                        self.log.warning("TMPDIR removal refused for %s: its folder was swapped", record.get("attempt_id"))
+                        self.log.warning("TMPDIR removal refused for %s: its folder was swapped", who)
                         return False
                 os.rename(name, tomb, src_dir_fd=parent, dst_dir_fd=parent)
                 moved = True
@@ -383,23 +390,24 @@ class AttemptTemp:
             elif self._is(record, found):
                 moved = True                 # left by a crash mid-removal: finish it
             else:
-                self.log.warning("TMPDIR removal refused for %s: something else has its tombstone", record.get("attempt_id"))
+                self.log.warning("TMPDIR removal refused for %s: something else has its tombstone", who)
                 return False
             if not self._is(record, found):
-                self.log.warning("TMPDIR removal refused for %s: its folder was swapped", record.get("attempt_id"))
+                self.log.warning("TMPDIR removal refused for %s: its folder was swapped", who)
                 return False
             if stat.S_IMODE(found.st_mode) & 0o700 != 0o700:
                 # P3-2: a tombstone a crash left before its mode was fixed, which
                 # opening needs. Checked above.
                 if not self._own(record, tomb, parent):
-                    self.log.warning("TMPDIR removal refused for %s: its folder was swapped", record.get("attempt_id"))
+                    self.log.warning("TMPDIR removal refused for %s: its folder was swapped", who)
                     return False
             fd = rfs.open_dir(tomb, dir_fd=parent, expect=found)
             try:
                 _empty(fd, found.st_dev)
             finally:
                 os.close(fd)
-            os.rmdir(tomb, dir_fd=parent)
+            # The temp root is never the allocation's: only the tombstone's own ACL.
+            _delete(os.rmdir, parent, tomb, parent_inside=False)
             moved = False
             return True
         except rfs.TreeError as exc:
@@ -408,11 +416,11 @@ class AttemptTemp:
                     break
             else:
                 code = None
-            self.log.warning("TMPDIR removal deferred for %s: %s", record.get("attempt_id"),
+            self.log.warning("TMPDIR removal deferred for %s: %s", who,
                              f"{type(exc).__name__}({code})" if code else type(exc).__name__)
             return False
         except OSError as exc:
-            self.log.warning("TMPDIR removal deferred for %s: %s", record.get("attempt_id"), type(exc).__name__)
+            self.log.warning("TMPDIR removal deferred for %s: %s", who, _why(type(exc).__name__, exc.errno))
             return False
         finally:
             if moved:
@@ -478,7 +486,7 @@ class AttemptTemp:
                     if isinstance(born, (int, float)) and clock - born >= ORPHAN_AGE_S:
                         identity = {key: pending[key] for key in ("path", *IDENTITY)}
                         size = self.size(pending)
-                        if self._remove(pending):
+                        if self._remove(pending, path.name):
                             removed({**identity, "bytes_at_cleanup": size})
                     continue
                 if self._marker(path, found) is None and path.name not in intended:
@@ -493,12 +501,13 @@ class AttemptTemp:
                     continue
                 sighted = {**first, **identity}
                 size = self.size(sighted)
-                if self._remove(sighted):
+                if self._remove(sighted, path.name):
                     removed({**identity, "bytes_at_cleanup": size})
             except Exception as exc:
                 # Neither an inspection outage nor a stale directory blocks
                 # startup, finalization, or the rest of retention's work.
-                self.log.warning("TMPDIR sweep deferred for %s: %s", path.name, type(exc).__name__)
+                self.log.warning("TMPDIR sweep deferred for %s: %s", path.name,
+                                 _why(type(exc).__name__, exc.errno if isinstance(exc, OSError) else None))
         self._settle_intents(intended, named, clock=time.time())
 
     def _settle_intents(self, intended: set[str], named: Callable[[str], bool], *, clock: float) -> None:
@@ -528,6 +537,121 @@ class AttemptTemp:
                     os.unlink(self.intents / name)
             except OSError:
                 continue
+
+
+def _why(name: str, number: object = None) -> str:
+    """What a removal-deferral line names: the exception's class `name` and,
+    for an OSError, its errno's symbolic name (`errno.errorcode`, a fixed set,
+    e.g. `PermissionError(EACCES)`), never the refusal's words or a path
+    (C-25.7). Sites pass `type(exc).__name__` and `exc.errno`, never `exc`."""
+    code = errno.errorcode.get(number) if isinstance(number, int) else None
+    return f"{name}({code})" if code else name
+
+
+#: Refusals an extended ACL can cause (`chmod +a "everyone deny delete"`
+#: refuses unlink to the owner too; D-TMPDIR-ACL1).
+_REFUSED = (errno.EACCES, errno.EPERM)
+
+
+def _delete(op: Callable[..., None], parent: int, name: str, *, parent_inside: bool) -> None:
+    """`op` (`os.unlink` or `os.rmdir`) on `name` in the open directory `parent`,
+    inside an allocation being removed (D-TMPDIR-ACL1).
+
+    Refused with EACCES or EPERM, only delete-related deny permissions are
+    removed and the call is retried once: the entry's own deny `delete`,
+    when it is this user's and, unless a directory, has no other link (one
+    elsewhere would change too); and the parent's (deny `delete_child`) when
+    `parent_inside` (a directory of the allocation, the tombstone included;
+    never the temp root). Other ACL permissions and entries are preserved.
+    Nothing changed: the refusal stands.
+    """
+    try:
+        op(name, dir_fd=parent)
+        return
+    except OSError as exc:
+        if exc.errno not in _REFUSED or not _clear_blocking_acls(parent, name, parent_inside=parent_inside):
+            raise
+    op(name, dir_fd=parent)
+
+
+def _clear_blocking_acls(parent: int, name: str, *, parent_inside: bool) -> bool:
+    cleared = False
+    try:
+        found = os.stat(name, dir_fd=parent, follow_symlinks=False)
+    except OSError:
+        found = None
+    if (found is not None and found.st_uid == os.getuid()
+            and (stat.S_ISDIR(found.st_mode) or found.st_nlink == 1)):
+        cleared = _clear_entry_acl(parent, name, found)
+    if parent_inside:
+        try:
+            if os.fstat(parent).st_uid == os.getuid():
+                cleared = rfs.clear_extended_acl(parent, delete_child=True) or cleared
+        except OSError:
+            pass
+    return cleared
+
+
+def _clear_entry_acl(parent: int, name: str, found: os.stat_result) -> bool:
+    """Remove deny-delete permissions of entry `found` (its lstat) at `name`.
+
+    Opened without following a link (a symlink itself with `O_SYMLINK`), checked
+    against `found` through the descriptor, changed through it, so the change
+    reaches that inode. A regular file denying read can be opened write-only,
+    without writing or truncation. If no open admits an entry and its mode
+    lacks owner read or write (search too, for a directory), it is first set
+    to exactly those owner bits by name, never through a symlink (`_empty`'s
+    rule for directories): an entry swapped in between can have its mode set that
+    way, only if it is this user's, and then fails the check. A socket or a
+    device, which no open admits, keeps its ACL: the refusal stands. An entry
+    already granting those owner bits keeps its mode when ACLs refuse both
+    opens. The link-count guard cannot exclude a same-user hard link made
+    after fstat."""
+    is_dir = stat.S_ISDIR(found.st_mode)
+    if is_dir:
+        flags = rfs.O_DIR
+    elif stat.S_ISLNK(found.st_mode):
+        flags = os.O_RDONLY | os.O_SYMLINK | os.O_NONBLOCK | os.O_CLOEXEC
+    elif stat.S_ISREG(found.st_mode) or stat.S_ISFIFO(found.st_mode):
+        flags = rfs.O_FILE
+    else:
+        return False
+    try:
+        try:
+            fd = os.open(name, flags, dir_fd=parent)
+        except PermissionError as exc:
+            if exc.errno != errno.EACCES:
+                return False
+            try:
+                # A deny-read ACL can still admit write-only access. No bytes
+                # are written or truncated; this is the same checked inode.
+                if not stat.S_ISREG(found.st_mode):
+                    raise exc
+                fd = os.open(name, (flags & ~os.O_ACCMODE) | os.O_WRONLY, dir_fd=parent)
+            except PermissionError:
+                owner_bits = stat.S_IRWXU if is_dir else stat.S_IRUSR | stat.S_IWUSR
+                if found.st_mode & owner_bits == owner_bits:
+                    return False
+                os.chmod(name, owner_bits, dir_fd=parent, follow_symlinks=False)
+                try:
+                    fd = os.open(name, flags, dir_fd=parent)
+                except PermissionError:
+                    if not stat.S_ISREG(found.st_mode):
+                        raise
+                    fd = os.open(name, (flags & ~os.O_ACCMODE) | os.O_WRONLY, dir_fd=parent)
+    except OSError:
+        return False
+    try:
+        now = os.fstat(fd)
+        if ((now.st_dev, now.st_ino, now.st_uid) != (found.st_dev, found.st_ino, found.st_uid)
+                or stat.S_IFMT(now.st_mode) != stat.S_IFMT(found.st_mode)
+                or (not is_dir and now.st_nlink != 1)):
+            return False
+        return rfs.clear_extended_acl(fd)
+    except OSError:
+        return False
+    finally:
+        os.close(fd)
 
 
 def _put_back(parent: int, tomb: str, name: str, log) -> None:
@@ -562,7 +686,10 @@ def _empty(top: int, dev: int) -> None:
     never gains group or other bits. Nothing inside the tree is renamed,
     so macOS 15's rename rule never applies to it (r2). A tree deeper than
     `retention_fs.MAX_DEPTH` is refused, as `size()` refuses to measure it, so
-    removal holds at most that many descriptors (P3-5).
+    removal holds at most that many descriptors (P3-5). An unlink or rmdir an
+    extended ACL refuses (deny `delete` on the entry, deny `delete_child` on
+    its directory) has only that deny permission removed and is retried once
+    (`_delete`, D-TMPDIR-ACL1); unrelated permissions are preserved.
     """
     def writable(fd: int) -> None:
         if stat.S_IMODE(os.fstat(fd).st_mode) & 0o700 != 0o700:
@@ -577,14 +704,14 @@ def _empty(top: int, dev: int) -> None:
                 stack.pop()
                 if own is not None:
                     os.close(fd)
-                    os.rmdir(own, dir_fd=stack[-1][0])
+                    _delete(os.rmdir, stack[-1][0], own, parent_inside=True)
                 continue
             name = names.pop()
             found = os.stat(name, dir_fd=fd, follow_symlinks=False)
             if found.st_dev != dev:
                 raise rfs.TreeError("mount-point", name)
             if not stat.S_ISDIR(found.st_mode):
-                os.unlink(name, dir_fd=fd)
+                _delete(os.unlink, fd, name, parent_inside=True)
                 continue
             if len(stack) >= rfs.MAX_DEPTH:
                 raise rfs.TreeError("too-deep", name)

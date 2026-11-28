@@ -48,13 +48,14 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Iterable, Sequence
 
 from . import capacity, descriptors, ids, protocol, render, task_holds
 from .client import (
     LOG_NAME,
     SOCKET_NAME,
     Client,
+    DEFAULT_TIMEOUT_S,
     DaemonError,
     DaemonStopped,
     is_stopped,
@@ -1613,6 +1614,8 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
         else:
             note(_wait_summary(job))
         worst = max(worst, exit_for_job(job, quiet=as_json))
+    if finished:
+        _offer_waited(client, finished.values())
     elapsed = time.monotonic() - started
     for job_id in sorted(pending):
         if as_json:
@@ -1770,6 +1773,9 @@ def cmd_runs(args: argparse.Namespace) -> int:
     rows = kept
     if args.json:
         for row in rows:
+            # A daemon from before the review contract has no stored result.
+            # Never infer one from an artifact during a read.
+            row.setdefault("review", None)
             emit(row)
         return int(Exit.OK)
     if offline:
@@ -1900,6 +1906,55 @@ def _format_job(job: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _offer_waited(client: Client, jobs: Iterable[dict[str, Any]]) -> None:
+    """C-15.3, C-15.9: after `wait` (or an attached `run`) has printed terminal
+    results, mark its session's own pending notices for them `offered`, with
+    transport `wait`, so no completion wake repeats a result the caller has
+    just read (review r1 of #307, finding 1).
+
+    `offered`, not acknowledged: C-15.3 keeps `wait` from acknowledging, so a
+    waiter that outlives its turn cannot consume C-24.10's only wake, which
+    still treats an offered notice as unread. Inside a process Subfleet launched
+    (a conversation turn or a lane, C-26.13) nothing is marked: C-15.9 never
+    wakes such a session, and C-24.10 later surfaces only `pending` notices.
+    Best effort, like `_ack_notices`.
+    """
+    from .hooks import launched_by_subfleet
+    session = session_id()
+    if not session or launched_by_subfleet(os.environ):
+        return
+    ids = sorted({notice.get("notice_id") for job in jobs for notice in rows_of(job.get("notices"))
+                  if notice.get("session_id") == session and notice.get("state") == "pending"
+                  and isinstance(notice.get("notice_id"), int)
+                  and not isinstance(notice.get("notice_id"), bool)})
+    if not ids:
+        return
+    try:
+        client.call("notice.mark", _asdict(protocol.NoticeMarkArgs(
+            session_id=session, notice_ids=ids, state="offered", transport="wait")),
+            timeout=DEFAULT_TIMEOUT_S)
+    except (DaemonUnavailable, DaemonError, ProtocolError):
+        pass
+
+
+def _review_line(job: dict[str, Any]) -> str | None:
+    """One readable line beside the metadata, without changing artifact output."""
+    review = job.get("review")
+    if not isinstance(review, dict):
+        return None
+    verdict = str(review.get("verdict") or "unknown").upper()
+    levels = review.get("levels") or {}
+    counts = ", ".join(f"{level} {levels[level]}" for level in ("P0", "P1", "P2", "P3")
+                       if levels.get(level))
+    text = f"review: {verdict} ({counts or 'no findings'}); round "
+    text += "valid" if review.get("valid") else "invalid"
+    if not review.get("valid") and review.get("reason"):
+        text += f" ({review['reason']})"
+    if review.get("consistent") is False:
+        text += "; verdict inconsistent with levels"
+    return text
+
+
 def _ack_notices(client: Client, job: dict[str, Any]) -> None:
     """C-15.3 acknowledge notices when their session runs `runs show <job>`.
 
@@ -1949,6 +2004,7 @@ def cmd_runs_show(args: argparse.Namespace) -> int:
         return _protocol_failure(exc)
     if not job:
         return fail(Exit.INVALID_INPUT, f"runs show: no job {args.id!r}")
+    job.setdefault("review", (job.get("job") or {}).get("review"))
     if args.json:
         emit(job)
         return int(Exit.OK)
@@ -1970,6 +2026,9 @@ def cmd_runs_show(args: argparse.Namespace) -> int:
     # artifacts are evidence paths on stderr, never result text on stdout.
     # `--out`, `--err` alone, and `--json` are v2's single-artifact forms.
     emit(job)
+    review_line = _review_line(job)
+    if review_line:
+        note(review_line)
     out("\n--- out.md ---")
     path = _shown_deliverable(job)
     if path:

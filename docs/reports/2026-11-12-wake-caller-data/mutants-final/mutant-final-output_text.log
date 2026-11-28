@@ -1,0 +1,36 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___ test_c15_9_scrubbed_wake_uses_header_fields_never_notice_or_output_text ____
+
+callers = <tests.fake.test_caller_notice_wakes.Callers object at 0x109090ad0>
+
+    def test_c15_9_scrubbed_wake_uses_header_fields_never_notice_or_output_text(callers):
+        """Invariant 5 Scrubbed: neither stored notice details nor output bytes enter the inbox."""
+        callers.register("scrubbed")
+        notice = callers.finish("scrubbed")
+        secret = "OUTPUT CONTENT MUST NEVER BE A WAKE"
+        out = callers.harness.root / "result.md"
+        out.write_text(secret)
+        callers.daemon.store.update_notice(notice, text=callers.row(notice)["text"] + "\n" + secret)
+        callers.daemon.store.update_job(callers.notices[notice], out_path=str(out))
+        callers.pass_once()
+        body = callers.sent[-1][1]
+        job = callers.daemon.store.get_job(callers.notices[notice])
+>       assert body == render.notice_header(job, callers.harness.root)
+E       AssertionError: assert '20261112-021...VER BE A WAKE' == '20261112-021...able=-; out=-'
+E         
+E         Skipping 51 identical leading characters in diff, use -v to show
+E         - le=-; out=-
+E         + le=-; out=-
+E         ?            +
+E         + 20261112-021422-astra: cancelled; rc=130; deliverable=-; out=-
+E         + cancelled before launch
+E         + OUTPUT CONTENT MUST NEVER BE A WAKE
+
+tests/fake/test_caller_notice_wakes.py:372: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4461036608:daemon.py:994 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4461036608:daemon.py:1082 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_scrubbed_wake_uses_header_fields_never_notice_or_output_text
+1 failed in 0.59s

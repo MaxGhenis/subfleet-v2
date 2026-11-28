@@ -1,0 +1,90 @@
+tests/unit/test_claude_conversation_mcp_scope.py:24:def test_d714_keeps_every_conversation_permission_mode_argv_unchanged(tmp_path, monkeypatch, permission, resumed):
+tests/unit/test_claude_conversation_mcp_scope.py:56:            "--settings", '{"env":{"CLAUDE_CODE_RETRY_WATCHDOG":"0"}}',
+tests/unit/test_claude_conversation_mcp_scope.py:62:            "--settings", '{"disableAllHooks":false,"env":{"CLAUDE_CODE_RETRY_WATCHDOG":"0"}}',
+tests/unit/test_claude_conversation_mcp_scope.py:64:    assert launch.argv == tuple(expected)
+tests/unit/test_claude_mcp_launch.py:40:    assert launch.argv.count("--strict-mcp-config") == 1
+tests/unit/test_claude_mcp_launch.py:41:    assert launch.argv.count("--mcp-config") == 1
+tests/unit/test_claude_mcp_launch.py:42:    argument = launch.argv[launch.argv.index("--mcp-config") + 1]
+tests/unit/test_claude_mcp_launch.py:50:    assert "--dangerously-skip-permissions" in launch.argv
+tests/unit/test_claude_mcp_launch.py:52:    assert launch.argv[launch.argv.index("--mcp-config") + 1] == EMPTY_MCP_CONFIG
+tests/unit/test_claude_mcp_launch.py:63:    path = Path(launch.argv[launch.argv.index("--mcp-config") + 1])
+tests/unit/test_claude_mcp_launch.py:78:    assert "--dangerously-skip-permissions" not in launch.argv
+tests/unit/test_claude_mcp_launch.py:79:    assert launch.argv[launch.argv.index("--permission-mode") + 1] == "plan"
+tests/unit/test_ultracode_effort.py:20:    SETTINGS_REQUEST_ID, ULTRACODE, ULTRACODE_EFFORT, ClaudeTurn, argv, observed_catalog, offered_efforts,
+tests/unit/test_ultracode_effort.py:56:    command = argv(spec(effort=ULTRACODE))
+tests/unit/test_ultracode_effort.py:59:    settings = json.loads(command[command.index("--settings") + 1])
+tests/unit/test_ultracode_effort.py:61:    assert settings == {"disableAllHooks": False, "ultracode": True, "env": off}
+tests/unit/test_ultracode_effort.py:62:    fast = argv(spec(effort=ULTRACODE, fast=True, permission="bypass"))
+tests/unit/test_ultracode_effort.py:63:    assert json.loads(fast[fast.index("--settings") + 1]) == {"disableAllHooks": False, "fastMode": True,
+tests/unit/test_ultracode_effort.py:69:    command = argv(spec(effort=effort))
+tests/unit/test_ultracode_effort.py:79:    command = argv(spec(effort=ULTRACODE, permission="read-only"),
+tests/unit/test_review_publish_guard.py:256:    argv = list(launch.argv)
+tests/unit/test_review_publish_guard.py:259:        for index, arg in enumerate(argv[:-1]):
+tests/unit/test_review_publish_guard.py:260:            if arg == '--settings':
+tests/unit/test_review_publish_guard.py:261:                for group in json.loads(argv[index + 1]).get('hooks', {}).get('PreToolUse', []):
+tests/unit/test_review_publish_guard.py:265:    for arg in argv:
+tests/unit/test_review_publish_guard.py:379:    # Every Claude launch passes one `--settings` (d1031); the hook rides in it.
+tests/unit/test_review_publish_guard.py:380:    assert launch.argv.count('--settings') == 1
+tests/unit/test_review_publish_guard.py:381:    settings = json.loads(launch.argv[launch.argv.index('--settings') + 1])
+tests/unit/test_review_publish_guard.py:383:    assert ('hooks' in settings) is expected
+tests/unit/test_claude_adapter.py:23:    model_matches_requested, parse_reset_clock, reconstruct_v1_argv,
+tests/unit/test_claude_adapter.py:393:def test_launch_argv_equals_v1s_line_for_the_same_inputs(adapter, tmp_path, sandbox):
+tests/unit/test_claude_adapter.py:394:    """C-12.4, C-21 milestone 2: for each sandbox the argv equals v1's, rebuilt from
+tests/unit/test_claude_adapter.py:397:    launch, C-12.9, and the lane settings' `--settings`, d1031)."""
+tests/unit/test_claude_adapter.py:399:    argv = without_publish_hook(launch.argv, writable_review=sandbox == Sandbox.WORKSPACE_WRITE)
+tests/unit/test_claude_adapter.py:400:    assert argv == reconstruct_v1_argv(
+tests/unit/test_claude_adapter.py:407:def test_effort_launch_argv_equals_the_documented_v1_reference(adapter, tmp_path, sandbox, effort):
+tests/unit/test_claude_adapter.py:413:    actual = without_publish_hook(launch.argv, writable_review=sandbox == Sandbox.WORKSPACE_WRITE)
+tests/unit/test_claude_adapter.py:414:    assert actual == reconstruct_v1_argv(
+tests/unit/test_claude_adapter.py:420:def without_publish_hook(argv, *, writable_review: bool) -> tuple:
+tests/unit/test_claude_adapter.py:421:    """C-12.4: every launch ends with one `--settings` carrying the lane settings
+tests/unit/test_claude_adapter.py:424:    publish hook in it (#221 r1b P1); nothing else does. Returns the argv with
+tests/unit/test_claude_adapter.py:425:    that pair and the hook taken out, the lane settings' `--settings` kept."""
+tests/unit/test_claude_adapter.py:426:    argv = tuple(argv)
+tests/unit/test_claude_adapter.py:427:    assert argv.count("--settings") == 1
+tests/unit/test_claude_adapter.py:428:    index = argv.index("--settings")
+tests/unit/test_claude_adapter.py:429:    settings = json.loads(argv[index + 1])
+tests/unit/test_claude_adapter.py:431:        assert "hooks" not in settings and "user" not in argv
+tests/unit/test_claude_adapter.py:432:        return argv
+tests/unit/test_claude_adapter.py:433:    assert argv[index - 2:index] == ("--setting-sources", "user")
+tests/unit/test_claude_adapter.py:436:    return argv[:index - 2] + tuple(lane_settings_args(settings)) + argv[index + 2:]
+tests/unit/test_claude_adapter.py:443:    ) == reconstruct_v1_argv(
+tests/unit/test_claude_adapter.py:451:    argv = _build(adapter, tmp_path, Sandbox.READ_ONLY).argv
+tests/unit/test_claude_adapter.py:452:    assert "--dangerously-skip-permissions" not in argv
+tests/unit/test_claude_adapter.py:453:    assert argv[argv.index("--permission-mode") + 1] == "plan"
+tests/unit/test_claude_adapter.py:454:    assert argv[argv.index("--tools") + 1] == "Read,Glob,Grep,WebSearch,WebFetch"
+tests/unit/test_claude_adapter.py:455:    assert argv[argv.index("--allowedTools") + 1] == "Read,Glob,Grep,WebSearch,WebFetch"
+tests/unit/test_claude_adapter.py:458:        assert flag in argv
+tests/unit/test_claude_adapter.py:459:    assert argv[argv.index("--mcp-config") + 1] == '{"mcpServers":{}}'
+tests/unit/test_claude_adapter.py:466:    argv = without_publish_hook(_build(adapter, tmp_path, Sandbox.WORKSPACE_WRITE).argv, writable_review=True)
+tests/unit/test_claude_adapter.py:467:    assert argv[-6:] == ("--dangerously-skip-permissions", "--strict-mcp-config",
+tests/unit/test_claude_adapter.py:469:    assert "--permission-mode" not in argv
+tests/unit/test_claude_adapter.py:470:    assert json.loads(argv[-1]) == {"env": dict(LANE_SETTINGS_ENV)}
+tests/unit/test_claude_adapter.py:483:    blob = json.dumps([launch.argv, launch.notes, launch.cwd, launch.stdin_path])
+tests/unit/test_claude_adapter.py:497:    assert launch.argv[launch.argv.index("--session-id") + 1] == launch.native_session_id
+tests/unit/test_claude_adapter.py:524:    assert "--effort" not in plain.argv
+tests/unit/test_claude_adapter.py:526:    index = with_effort.argv.index("--effort")
+tests/unit/test_claude_adapter.py:527:    assert with_effort.argv[index + 1] == "high"
+tests/unit/test_claude_adapter.py:528:    assert with_effort.argv[index - 1] == "--verbose"
+tests/unit/test_claude_adapter.py:587:    assert "--session-id" not in launch.argv
+tests/unit/test_claude_adapter.py:588:    assert launch.argv[:4] == (str(adapter.claude_bin), "-p", "--resume", "abc-123")
+tests/unit/test_claude_adapter.py:589:    assert without_publish_hook(launch.argv, writable_review=True)[-6:] == (
+tests/unit/test_claude_adapter.py:592:    assert launch.argv[launch.argv.index("--model") + 1] == "claude-opus-5"
+tests/unit/test_claude_adapter.py:608:    assert launch.argv[launch.argv.index("--model") + 1] == "claude-fable-5-1"
+tests/unit/test_claude_adapter.py:703:    def __call__(self, argv, **kwargs):
+tests/unit/test_claude_adapter.py:704:        self.calls.append(list(argv))
+tests/unit/test_claude_adapter.py:705:        if argv[0].endswith("security") or argv[1:2] == ["get"]:
+tests/unit/test_claude_adapter.py:706:            return subprocess.CompletedProcess(argv, self.token_rc, self.token, "")
+tests/unit/test_claude_adapter.py:707:        return subprocess.CompletedProcess(argv, self.rc, self.stdout, self.stderr)
+tests/unit/test_claude_adapter.py:751:        "--settings", '{"env":{"CLAUDE_CODE_RETRY_WATCHDOG":"0"}}',
+tests/unit/test_claude_adapter.py:859:    def boom(argv, **kwargs):
+tests/unit/test_claude_adapter.py:866:def test_a_probe_run_never_puts_the_credential_in_argv(tmp_path):
+tests/unit/test_claude_adapter.py:1028:        assert 'Bash' not in launch.argv[launch.argv.index('--tools') + 1].split(',')
+tests/unit/test_claude_turn.py:10:    INIT_REQUEST_ID, INTERRUPT_REQUEST_ID, ClaudeTurn, argv,
+tests/unit/test_claude_turn.py:47:def test_argv_carries_resume_model_effort_and_the_permission_policy():
+tests/unit/test_claude_turn.py:49:    assert argv(spec()) == ["claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json",
+tests/unit/test_claude_turn.py:55:                            "--settings", '{"disableAllHooks":false,"env":{"CLAUDE_CODE_RETRY_WATCHDOG":"0"}}']
+tests/unit/test_claude_turn.py:56:    bypass = argv(spec(permission="bypass", native_session_id=None, new_session_id=SID, fast=True, effort=None))
+tests/unit/test_claude_turn.py:59:    assert bypass[-2:] == ["--settings", '{"disableAllHooks":false,"fastMode":true,"env":{"CLAUDE_CODE_RETRY_WATCHDOG":"0"}}']
+tests/unit/test_claude_turn.py:61:        argv(spec(permission="everything"))
+tests/unit/test_claude_turn.py:487:        command = argv(spec(permission=permission))

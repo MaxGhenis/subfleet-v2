@@ -1,0 +1,4 @@
+94 completed-run directories removed with guarded shutil.rmtree before final root cleanup.
+Initial importer removal failed on a read-only directory; guarded directory-only chmod and retry succeeded.
+Final root cleanup follows; see report for result.
+Final guarded root cleanup returned0; both owned roots verified absent. All4 outside allocation paths were within the removed worktree extension.

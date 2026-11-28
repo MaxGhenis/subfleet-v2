@@ -379,13 +379,6 @@ def job_summary(job: dict[str, Any], root: Path) -> str:
 
 # --- talking to the daemon ----------------------------------------------------
 
-def _pending(client: Client, session: str, *, timeout: float | None = None
-             ) -> list[dict[str, Any]]:
-    result = client.call("notice.pending", {"session_id": session}, timeout=timeout)
-    rows = result.get("notices")
-    return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
-
-
 def _mark(client: Client, session: str, notice_ids: Iterable[int], state: str,
           transport: str | None = None, *, timeout: float | None = None) -> None:
     ids = [int(item) for item in notice_ids]
@@ -489,13 +482,50 @@ def session_event(event: str, payload: dict[str, Any], root: Path,
             pass    # Exit 2 here blocks the session from starting; a missed
                     # nudge is recoverable and a blocked session is not.
     marked = True
+    # C-15.9: the turn an inbox push starts fires this hook with the pushed text
+    # as its prompt; Subfleet's own envelope is not personal input (review r1, finding 2).
+    own_envelope = False
+    if event == "UserPromptSubmit" and isinstance(payload, dict):
+        from .notify_push import is_own_envelope
+        own_envelope = is_own_envelope(payload.get("prompt"))
     try:
         # C-15.6: no lock check. C-16.7: a busy daemon is read offline below at
         # once; waiting out busy answers would only delay the prompt or the start.
         client = Client(root, verify_lock=False, retry_busy=False) if client is None else client
-        rows = _pending(client, session)
+        # C-15.9: the claim marks nothing once this client has stopped waiting,
+        # since the offline read below then prints instead (review r1, finding 5).
+        timeout = getattr(client, "timeout", None) or DEFAULT_TIMEOUT_S
+        result = client.call("notice.pending", {"session_id": session, "surface": event,
+                                               "jobs_only": launched, "source": payload.get("source"),
+                                               "own_envelope": own_envelope,
+                                               "deadline_s": max(0.0, timeout - SURFACE_REPLY_MARGIN_S)},
+                             timeout=timeout)
+        rows = result.get("notices")
+        rows = [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
     except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
-        rows, marked = _offline_pending(root, session), False
+        from .notice_claims import delivery_lock, fold_activity, record_offline_activity, reserve_offline
+        rows, marked = [], False
+        try:
+            record_offline_activity(root, session, event=event, source=payload.get("source"),
+                                    personal=not own_envelope)
+            with delivery_lock(root, session) as held:
+                if held:
+                    # A successful fold leaves five recursive entries with a
+                    # receipt and no leftovers. A hook that publishes while
+                    # delivery is locked or whose fold misses the activity lock
+                    # leaves one record until the next successful fold or
+                    # reconcile. Stopped folds can leave aggregate temporaries,
+                    # and record temporaries in .activity.d stay in the count.
+                    try:
+                        fold_activity(root, session)
+                    except OSError:
+                        pass  # The receipt still fences delivery after a fold I/O error.
+                    pending = _offline_pending(root, session)
+                    if launched:
+                        pending = [row for row in pending if names_a_job(row)]
+                    rows = reserve_offline(root, session, pending)
+        except (OSError, ValueError, KeyError):
+            pass  # without a durable claim, printing could race a restart wake
     if launched:
         rows = [row for row in rows if names_a_job(row)]
     notices = render_pending(rows) if rows else ""
@@ -611,10 +641,14 @@ def post_tool_use(payload: dict[str, Any], root: Path, *,
 #: when it does not — and then it is the difference between one call a second
 #: and a hook spinning on the socket for its whole 600 s budget.
 _RETRY_FLOOR_S = 0.25
-#: Leave two seconds for notice.pending and notice.mark, or half the budget
-#: remaining after candidates when it is shorter. Pending gets at most half
-#: the delivery time left, so it cannot consume mark's allocation.
+#: Leave two seconds for the notice claim and, should the print fail, giving it
+#: back, or half the budget remaining after candidates when it is shorter. The
+#: claim gets at most half the delivery time left, so it cannot consume the
+#: give-back's allocation (C-15.2, C-15.9).
 _NOTICE_RESERVE_S = 2.0
+#: C-15.9: a session hook's surface claim must commit at least this long
+#: before its client gives up, so its reply can still reach the hook.
+SURFACE_REPLY_MARGIN_S = 2.0
 
 
 def _wait_and_deliver(client: Client, session: str, job_id: str, deadline: float,
@@ -666,31 +700,70 @@ def _wait_and_deliver(client: Client, session: str, job_id: str, deadline: float
 
 def _deliver(client: Client, session: str, job: dict[str, Any], *, stderr: Any,
              deadline: float, now) -> int:
-    """Show the notice to Claude: stderr plus exit 2 (`claude-hooks.md` §3)."""
+    """Show the notice to Claude: stderr plus exit 2 (`claude-hooks.md` §3).
+
+    C-15.9 (review r2 of #307, P1 1): one reservation per notice. Before it
+    prints, the hook claims the job's `pending` notice through `notice.pending`'s
+    PostToolUse claim, the reservation the inbox wake takes too, and it prints
+    only the rows it won. The claim marks them `offered`, not `surfaced`: this
+    transport gets no acknowledgement from the harness, so layer 3 shows an
+    unacknowledged notice again (plan B rev 4, "Notices and waiting"; C-15.3).
+    The line built from the job row is printed only when the daemon answers that
+    this session has no notice for the job (`absent`), so no other path can
+    deliver it. A hook that loses the claim, or gets no answer, prints nothing:
+    the wake or the next prompt delivers the notice. A print that fails gives
+    the claim back, so the notice is `pending` again.
+    """
     job_id = job.get("job_id")
+    if not isinstance(job_id, str) or not job_id:
+        return int(Exit.OK)
+    share = min(getattr(client, "timeout", DEFAULT_TIMEOUT_S), max(0.0, deadline - now()) / 2)
     try:
-        rows = [row for row in _pending(
-            client, session, timeout=min(getattr(client, "timeout", DEFAULT_TIMEOUT_S),
-                                         max(0.0, deadline - now()) / 2))
-                if row.get("job_id") == job_id]
+        answer = client.call("notice.pending", {
+            "session_id": session, "surface": "PostToolUse", "job_id": job_id,
+            # The claim commits early enough for its reply to reach this hook.
+            "deadline_s": share - min(SURFACE_REPLY_MARGIN_S, share / 2)}, timeout=share)
     except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
-        rows = []
-    text = ("\n\n".join(str(row.get("text") or "").strip() for row in rows)
-            if rows else job_summary(job, client.root))
-    stderr.write(text.rstrip() + "\n")
-    if rows:
-        # `offered`, not `surfaced`: this transport gets no acknowledgement from
-        # the harness, so an unacknowledged notice is offered again by layer 3
-        # (plan B rev 4, "Notices and waiting"; C-15.3).
-        try:
-            _mark(client, session, [row["notice_id"] for row in rows
-                                    if row.get("notice_id") is not None],
-                  "offered", "hook:PostToolUse",
-                  timeout=min(getattr(client, "timeout", DEFAULT_TIMEOUT_S),
-                              max(0.0, deadline - now())))
-        except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
-            pass
+        return int(Exit.OK)
+    answer = answer if isinstance(answer, dict) else {}
+    rows = answer.get("notices")
+    rows = ([row for row in rows if isinstance(row, dict) and row.get("job_id") == job_id]
+            if isinstance(rows, list) else [])
+    try:
+        if rows:
+            text = "\n\n".join(str(row.get("text") or "").strip() for row in rows)
+        elif answer.get("absent") is True:
+            text = job_summary(job, client.root)
+        else:
+            return int(Exit.OK)                 # another path holds the notice
+        stderr.write(text.rstrip() + "\n")
+        flush = getattr(stderr, "flush", None)
+        if flush is not None:
+            flush()
+    except Exception:                           # noqa: BLE001 - nothing was shown
+        _give_back(client, session, job_id, rows, deadline=deadline, now=now)
+        return int(Exit.OK)
     return int(Exit.INVALID_INPUT)          # 2: the harness's "show this to Claude"
+
+
+def _give_back(client: Client, session: str, job_id: str, rows: list[dict[str, Any]], *,
+               deadline: float, now) -> None:
+    """C-15.9: return a claim this hook could not print, with the rest of its time.
+
+    Exit 0 shows the harness nothing, so a claim given back was never seen. If
+    the daemon cannot take it back, the notice stays `offered`, and the next
+    prompt's hook shows it (C-15.2 layer 3).
+    """
+    ids = [row["notice_id"] for row in rows
+           if isinstance(row.get("notice_id"), int) and not isinstance(row.get("notice_id"), bool)]
+    if not ids:
+        return
+    try:
+        client.call("notice.pending", {"session_id": session, "surface": "PostToolUse", "job_id": job_id,
+                                       "release": True, "notice_ids": ids},
+                    timeout=min(getattr(client, "timeout", DEFAULT_TIMEOUT_S), max(0.0, deadline - now())))
+    except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
+        pass
 
 
 def attached_runner(command: str) -> str | None:

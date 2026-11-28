@@ -1,0 +1,38 @@
+Offline activity review/prepared patch only. No repository edits, patch application or tests.
+
+sed -n '1,230p' tests/fake/test_caller_wakes.py
+Result: exit 1, file absent; corrected filename through next search.
+cat subfleet/notice_claims.py
+sed -n '25,72p' subfleet/caller_wakes.py
+sed -n '496,514p' subfleet/hooks.py
+Result: each exit 0; confirmed offline activity/source/human-reset gap.
+rg --files tests | rg 'caller.*wake|wake.*caller'
+Result: exit 0, tests/fake/test_caller_notice_wakes.py found.
+sed -n '1,260p' tests/fake/test_caller_notice_wakes.py
+tail -200 tests/fake/test_caller_notice_wakes.py
+Result: each exit 0; inspected engine fixtures without editing.
+rg -n 'reserve_offline' tests subfleet
+cat tests/unit/test_notice_claims.py
+Result: each exit 0; checked reserve signature consumers and selected unit-test fixture.
+
+apply_patch: wrote /private/tmp/sf-wc-b1/prepare-offline-activity.py only, generating a unified patch from an exact read-only source snapshot.
+python3 /private/tmp/sf-wc-b1/prepare-offline-activity.py
+Result: exit 0, generated /private/tmp/sf-wc-b1/offline-activity.patch; syntax parsed, no application/tests.
+apply_patch: enabled nudge explicitly in new fake engine helper in temp generator.
+python3 /private/tmp/sf-wc-b1/prepare-offline-activity.py
+Result: exit 0, regenerated patch only.
+rg -n 'before_send|pre_send|notify_push|push_to_session|^@@' /private/tmp/sf-wc-b1/presend.patch
+Result: exit 0, checked independent transport patch interfaces and hunks.
+apply_patch: removed unused speculative callback handling from temp test generator.
+python3 /private/tmp/sf-wc-b1/prepare-offline-activity.py
+Result: exit 0, final patch regenerated from exact snapshot, four files, not applied/tested.
+
+Patch changes: bounded per-session at/source/human_at activity spool separate from id/fingerprint receipt list; event/source hook kwargs; monotonic clock/source and safe human-reset reconciliation; per-caller corrupt-spool isolation. Seven unit cases append to test_notice_claims.py, avoiding fakecaller transport-test append conflicts.
+
+apply_patch: made temp patch timestamp validator catch OverflowError for huge integers and added two invalid timestamp cases (10**1000, NaN) to selected unit file patch. Valid SessionStart sources are preserved verbatim; UserPromptSubmit clears the source, so nudge.source_allows still refuses compact/clear and permits startup/resume/None.
+python3 /private/tmp/sf-wc-b1/prepare-offline-activity.py
+Result: exit 0, final overflow-safe patch regenerated, now nine added unit cases; syntax parsed only, not applied/tested.
+
+apply_patch: updated temp generator only to restore hook list-of-dictionaries reply filtering and append four malformed-reply regression cases to existing test_hooks.py, using a fake client and UserPromptSubmit (no spawn).
+python3 /private/tmp/sf-wc-b1/prepare-offline-activity.py
+Result: exit 0, patch regenerated from current exact snapshots, now five existing files and thirteen added parametrized cases; all resulting source parsed, no repo edits/application/tests.

@@ -1,0 +1,70 @@
+--- a/subfleet/caller_wakes.py
++++ b/subfleet/caller_wakes.py
+@@ -221,8 +221,10 @@
+                     with self.store.transaction("notice.woken", data={"session_id": session,
+                                                                        "notice_ids": [r["notice_id"] for r in claimed]}) as tx:
+                         tx.executemany("UPDATE notices SET wake_state='delivered',wake_reason=NULL "
+-                                       "WHERE notice_id=? AND wake_state='claimed'",
+-                                       [(row["notice_id"],) for row in claimed])
++                                       "WHERE notice_id=? AND job_id=? AND session_id=? AND created_at=? AND text=? "
++                                       "AND wake_at=? AND wake_state='claimed'",
++                                       [(row["notice_id"], row["job_id"], session, row["created_at"], row["text"], now)
++                                        for row in claimed])
+                     result["delivered"] += len(claimed)
+                 else:
+                     retryable = outcome.get("retryable") is True
+@@ -233,10 +235,11 @@
+                     with self.store.transaction("notice.wake_unsent") as tx:
+                         for row in claimed:
+                             tx.execute("UPDATE notices SET state=?,transport=?,wake_state=?,wake_reason=? "
+-                                       "WHERE notice_id=? AND wake_state='claimed'",
++                                       "WHERE notice_id=? AND job_id=? AND session_id=? AND created_at=? AND text=? "
++                                       "AND wake_at=? AND wake_state='claimed'",
+                                        (row["state"] if safe else "surfaced", row["transport"] if safe else "caller-wake",
+                                         None if safe else "undeliverable", reason if safe else "send-uncertain",
+-                                        row["notice_id"]))
++                                        row["notice_id"], row["job_id"], session, row["created_at"], row["text"], now))
+                         if safe:
+                             # No bytes were attempted. Give back the session
+                             # slot too, without undoing newer human activity.
+--- a/tests/fake/test_caller_notice_wakes.py
++++ b/tests/fake/test_caller_notice_wakes.py
+@@ -593,3 +593,38 @@
+     assert len(callers.attempts) == attempts
+     assert callers.counts()[notice] == 0
+     assert callers.row(notice)["wake_state"] == "undeliverable"
++
++
++@pytest.mark.parametrize("delivered", [True, False], ids=["success", "safe-connect-failure"])
++def test_c15_9_late_transport_result_never_changes_a_reused_notice_id(callers, monkeypatch, delivered):
++    """Retention can delete an old notice while a different caller claims its reused id."""
++    callers.register("old-caller")
++    callers.register("new-caller")
++    old_id = callers.finish("old-caller")
++    old_job = callers.notices[old_id]
++    replacement = []
++
++    def transport_result_after_reuse(session, body, **_kwargs):
++        assert session == "old-caller"
++        assert callers.row(old_id)["wake_state"] == "claimed"
++        with callers.daemon.store.transaction() as tx:
++            tx.execute("DELETE FROM notices WHERE notice_id=?", (old_id,))
++        new_id = callers.finish("new-caller")
++        assert new_id == old_id and callers.notices[new_id] != old_job
++        # Stand in for a concurrent delivery under the new caller's own lock.
++        with callers.daemon.store.transaction() as tx:
++            tx.execute("UPDATE notices SET state='surfaced',transport='caller-wake',"
++                       "wake_state='claimed',wake_at=? WHERE notice_id=?",
++                       (callers.now + 0.5, new_id))
++        replacement.append(callers.row(new_id))
++        if delivered:
++            callers.sent.append((session, body))
++            return {"delivered": True, "session_id": session}
++        return {"delivered": False, "session_id": session, "retryable": True,
++                "reason": "send-failed: ConnectionRefusedError: fixture"}
++
++    monkeypatch.setattr(notify_push, "push_to_session", transport_result_after_reuse)
++    callers.pass_once()
++    assert len(replacement) == 1
++    assert callers.row(old_id) == replacement[0], "the old transport result belongs only to the old claim"
++

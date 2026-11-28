@@ -136,6 +136,8 @@ def open_descriptors() -> int | None:
 
 def read_only(op: str, args: dict) -> bool:
     """C-16.7: whether a request is one a caller relies on only for its reply."""
+    if op == "notice.pending" and args.get("surface"):
+        return False  # C-15.9: the hook's opt-in claim commits before printing.
     if op in READ_ONLY_OPS or op in READ_ONLY_CONVERSATION_OPS:
         return True
     if op == "conversation.open":

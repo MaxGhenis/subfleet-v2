@@ -1,0 +1,187 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_ test_measured_shape_twenty_two_start_rounds_cut_only_the_forty_placed_trees __
+tests/fake/test_admission_tree_thrash.py:228: in test_measured_shape_twenty_two_start_rounds_cut_only_the_forty_placed_trees
+    old = measured_shape(fleet_factory, repo, base=True)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/fake/test_admission_tree_thrash.py:198: in measured_shape
+    service._admit()
+subfleet/daemon.py:7285: in _admit
+    self._admit_kind("detached")
+subfleet/daemon.py:7312: in _admit_kind
+    self._admit_pass(holds, tally, kind=kind)
+a8624a4899a2/subfleet/daemon.py:609: in _admit_pass
+    ???
+tests/fake/test_admission_tree_thrash.py:132: in cut
+    result = workspace(job)
+             ^^^^^^^^^^^^^^
+subfleet/daemon.py:6362: in _workspace
+    result = subprocess.run([*self._tree_git(job, common, cap), "worktree", "add", "--detach", workdir, job["workdir_head"]],
+/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/subprocess.py:671: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/subprocess.py:1395: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/subprocess.py:2412: in _communicate
+    new_offset, completed = _communicate_io_posix(
+/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/subprocess.py:291: in _communicate_io_posix
+    ready = selector.select(remaining)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/selectors.py:398: in select
+    fd_event_list = self._selector.poll(timeout)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: Timeout (>1200.0s) from pytest-timeout.
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4501981904:daemon.py:998 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4501981904:daemon.py:1086 reset credits: automatic redemption off; no-reset marker absent
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4504362288:daemon.py:998 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4504362288:daemon.py:1086 reset credits: automatic redemption off; no-reset marker absent
+---------------------------- Captured log teardown -----------------------------
+WARNING  subfleet.daemon.4501981904:daemon.py:1071 conversations lock released after 2.2 s by MainThread (8272273792). Where it was held:
+  File "<frozen runpy>", line 201, in _run_module_as_main
+  File "<frozen runpy>", line 87, in _run_code
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/pytest/__main__.py", line 9, in <module>
+    raise SystemExit(_console_main())
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/_pytest/config/__init__.py", line 253, in _console_main
+    code = _main(prog=_get_prog_name(sys.argv))
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/_pytest/config/__init__.py", line 229, in _main
+    ret: ExitCode | int = config.hook.pytest_cmdline_main(config=config)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/_pytest/main.py", line 377, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/_pytest/main.py", line 330, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/_pytest/main.py", line 384, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/_pytest/main.py", line 408, in pytest_runtestloop
+    item.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/_pytest/runner.py", line 118, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/_pytest/runner.py", line 144, in runtestprotocol
+    reports.append(call_and_report(item, "teardown", log, nextitem=nextitem))
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/_pytest/runner.py", line 249, in call_and_report
+    call = CallInfo.from_call(
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/_pytest/runner.py", line 361, in from_call
+    result: TResult | None = func()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/_pytest/runner.py", line 250, in <lambda>
+    lambda: runtest_hook(item=item, **kwds),
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/_pytest/runner.py", line 199, in pytest_runtest_teardown
+    item.session._setupstate.teardown_exact(nextitem)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/_pytest/runner.py", line 568, in teardown_exact
+    fin()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/_pytest/fixtures.py", line 1156, in finish
+    fin()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/_pytest/fixtures.py", line 1014, in _teardown_yield_fixture
+    next(it)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/tree-thrash-r1/oracle-archive/tests/fake/test_state_contract.py", line 59, in state_daemon
+    daemon.close()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/tree-thrash-r1/oracle-archive/subfleet/daemon.py", line 12915, in close
+    self.conversations.close()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/tree-thrash-r1/oracle-archive/subfleet/conversations/service.py", line 262, in close
+    self.store.close()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/tree-thrash-r1/oracle-archive/subfleet/conversations/store.py", line 447, in close
+    with self._writes, self._lock:
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/tree-thrash-r1/oracle-archive/subfleet/lockwatch.py", line 139, in __exit__
+    self.release()
+
+WARNING  subfleet.daemon.4501981904:daemon.py:1071 conversation-files lock released after 4.4 s by MainThread (8272273792). Where it was held:
+  File "<frozen runpy>", line 201, in _run_module_as_main
+  File "<frozen runpy>", line 87, in _run_code
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/pytest/__main__.py", line 9, in <module>
+    raise SystemExit(_console_main())
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/_pytest/config/__init__.py", line 253, in _console_main
+    code = _main(prog=_get_prog_name(sys.argv))
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/_pytest/config/__init__.py", line 229, in _main
+    ret: ExitCode | int = config.hook.pytest_cmdline_main(config=config)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/_pytest/main.py", line 377, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/_pytest/main.py", line 330, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/_pytest/main.py", line 384, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/_pytest/main.py", line 408, in pytest_runtestloop
+    item.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/_pytest/runner.py", line 118, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/_pytest/runner.py", line 144, in runtestprotocol
+    reports.append(call_and_report(item, "teardown", log, nextitem=nextitem))
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/_pytest/runner.py", line 249, in call_and_report
+    call = CallInfo.from_call(
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/_pytest/runner.py", line 361, in from_call
+    result: TResult | None = func()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/_pytest/runner.py", line 250, in <lambda>
+    lambda: runtest_hook(item=item, **kwds),
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/_pytest/runner.py", line 199, in pytest_runtest_teardown
+    item.session._setupstate.teardown_exact(nextitem)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/_pytest/runner.py", line 568, in teardown_exact
+    fin()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/_pytest/fixtures.py", line 1156, in finish
+    fin()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/uv-cache/archive-v0/P-oNqJsk9JlUfkqO/lib/python3.15/site-packages/_pytest/fixtures.py", line 1014, in _teardown_yield_fixture
+    next(it)
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/tree-thrash-r1/oracle-archive/tests/fake/test_state_contract.py", line 59, in state_daemon
+    daemon.close()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/tree-thrash-r1/oracle-archive/subfleet/daemon.py", line 12915, in close
+    self.conversations.close()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/tree-thrash-r1/oracle-archive/subfleet/conversations/service.py", line 262, in close
+    self.store.close()
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/tree-thrash-r1/oracle-archive/subfleet/conversations/store.py", line 447, in close
+    with self._writes, self._lock:
+  File "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261107-112016-tt-fix-r1-a1-tw4lucor/tree-thrash-r1/oracle-archive/subfleet/lockwatch.py", line 139, in __exit__
+    self.release()
+============================== slowest durations ===============================
+873.71s setup    tests/fake/test_admission_tree_thrash.py::test_measured_shape_twenty_two_start_rounds_cut_only_the_forty_placed_trees
+327.33s call     tests/fake/test_admission_tree_thrash.py::test_measured_shape_twenty_two_start_rounds_cut_only_the_forty_placed_trees
+10.51s teardown tests/fake/test_admission_tree_thrash.py::test_measured_shape_twenty_two_start_rounds_cut_only_the_forty_placed_trees
+=========================== short test summary info ============================
+FAILED tests/fake/test_admission_tree_thrash.py::test_measured_shape_twenty_two_start_rounds_cut_only_the_forty_placed_trees
+1 failed in 1390.29s (0:23:10)
