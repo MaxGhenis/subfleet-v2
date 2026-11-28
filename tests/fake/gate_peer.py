@@ -13,6 +13,15 @@ from subfleet.guardian import atomic_publish
 from tests.fake_adapter import FakeAdapter
 
 FIXTURE = Path(__file__).parents[1] / "fixtures/gates/peer-verdict.txt"
+# A reviewed plan containing this marker makes the fixture peer summarize in prose
+# before its block, as live peers did (C-23.9), until the gate's format re-ask.
+PROSE_MARKER = "FAKE-GATE-PEER: prose before the block until re-asked"
+PROSE = "All the brief's items check out against the source.\n\n"
+# The checkout this file is in. A provider's environment never inherits PYTHONPATH
+# (launch_env), and the child runs in the neutral review directory, so without this
+# `-m tests.fake.gate_peer` imports whatever checkout the interpreter's editable
+# install names: one without PROSE_MARKER answers at once, and no re-ask runs.
+REPOSITORY = Path(__file__).resolve().parents[2]
 
 
 class FakeGateAdapter(FakeAdapter):
@@ -28,7 +37,7 @@ class FakeGateAdapter(FakeAdapter):
             argv=(sys.executable, "-m", "tests.fake.gate_peer", "--model", model_id,
                   "--evidence", str(attempt_dir / "fake-model-evidence.json"),
                   "--stream", str(attempt_dir / "stream.jsonl")),
-            env_add={"SUBFLEET_LANE": lane.lane_id},
+            env_add={"SUBFLEET_LANE": lane.lane_id, "PYTHONPATH": str(REPOSITORY)},
             env_remove=("CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"),
             cwd=job.workdir, stdin_path=str(prompt_path),
             stdout_path=str(attempt_dir / "stdout"), stderr_path=str(attempt_dir / "stderr"),
@@ -71,7 +80,10 @@ def main(argv=None):
     evidence = {"synthetic": True, "attempt_id": os.environ["SUBFLEET_ATTEMPT"],
                 "model_served": args.model, "fixture_sha256": hashlib.sha256(fixture).hexdigest()}
     atomic_publish(args.evidence, json.dumps(evidence).encode())
-    sys.stdout.write(fixture.decode().replace("REVISION", json.dumps(revision)))
+    snapshot = Path("artifact.snapshot")
+    prose = (snapshot.is_file() and PROSE_MARKER in snapshot.read_text()
+             and "Format re-ask from the gate" not in prompt)
+    sys.stdout.write((PROSE if prose else "") + fixture.decode().replace("REVISION", json.dumps(revision)))
     # The peer runs on a Codex lane: its finished turn's own stream carries the
     # completion the daemon checks before accepting (C-9.2).
     atomic_publish(args.stream, b'{"type":"turn.completed"}\n')

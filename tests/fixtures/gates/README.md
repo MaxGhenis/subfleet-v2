@@ -30,3 +30,11 @@ The eight-round fixture preserves v1's recorded unlimited cap. Replaying an
 archive creates no new peer round and does not change C-23.53's four-round
 default for v2 admission. The wire verdict remains `changes_requested`, as in
 v1; C-23.9's prose uses `changes-requested` for the same state.
+
+## The base verdict parser
+
+`verdict-266c3ab8b.py.txt` is `subfleet/gate/verdict.py` from release/217 at
+266c3ab8b, byte for byte (SHA-256 `a466a5d7…0121`, git blob `7c88bd13…effa`).
+`tests/reference_verdict_266c3ab8b.py` loads it for D-GATE-CERT1's differential
+test (`tests/unit/test_gate_cert_properties.py`): every text that parser refuses,
+the head refuses too. The loader checks both hashes, so no test needs git history.
