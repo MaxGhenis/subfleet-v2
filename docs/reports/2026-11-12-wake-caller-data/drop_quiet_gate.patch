@@ -1,0 +1,11 @@
+--- subfleet/sessions/nudge.py
++++ subfleet/sessions/nudge.py
+@@ -263,7 +263,7 @@
+         return False, "last activity has no usable timestamp"
+     if active_at:
+         age_s = min(age_s, now.timestamp() - active_at)
+-    if age_s < limits["notice_quiet_s"]:
++    if False:
+         return False, (f"last activity {age_s:g}s ago; completion notices wait "
+                        f"{limits['notice_quiet_s']:g}s of quiet")
+     if last_nudge and last_nudge.get("at"):

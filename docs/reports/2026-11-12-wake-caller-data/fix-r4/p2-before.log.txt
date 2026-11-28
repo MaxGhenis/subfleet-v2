@@ -1,0 +1,370 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.15.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/maxghenis/.subfleet/worktrees/20261117-083630-wcall-fix-r4
+configfile: pyproject.toml
+plugins: xdist-3.8.0, timeout-2.4.0, hypothesis-6.168.1
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+created: 4/4 workers
+4 workers [9 items]
+
+FFFFFFFFF                                                                [100%]
+=================================== FAILURES ===================================
+___ test_c15_9_a_crash_between_a_folds_replace_and_its_unlinks_loses_nothing ___
+[gw1] darwin -- Python 3.15.2 $TMPDIR/uv-cache/builds-v0/.tmpIohzWX/bin/python
+
+core = namespace(root=PosixPath('$TMPDIR/sf-wcall-fix4/pytest-p2-before/pope...ke_engine.<locals>.<lambda> at 0x10aefc880>, _lane_session_ids=<function wake_engine.<locals>.<lambda> at 0x10aefc7d0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109e1ce90>
+
+    def test_c15_9_a_crash_between_a_folds_replace_and_its_unlinks_loses_nothing(core, monkeypatch):
+        """Review r4 of #307, P2: the aggregate is replaced before the folded records are
+        unlinked. A crash between the two leaves both; reading them merges duplicates to the
+        same value, and the daemon replays it once."""
+        clock = [1800000000.0]
+        wake_engine(core, monkeypatch, clock)
+        with core.store.transaction() as tx:
+            tx.execute("INSERT INTO caller_wake_sessions(session_id,active_at,source,wake_streak,last_wake_at) "
+                       "VALUES (?,?,'compact',?,?)", (SESSION, clock[0] - 600, MAX_STREAK, clock[0] - 1))
+        with notice_claims.delivery_lock(core.root, SESSION) as held:
+            assert held                                      # the hooks below fold nothing
+            assert offline_hook(core) == ""
+            human_at = clock[0]
+            clock[0] += 1
+            assert offline_hook(core, event="SessionStart", source="compact") == ""
+        assert len(activity_records(core.root, SESSION)) == 2
+        aggregate = notice_claims.activity_path(core.root, SESSION)
+        replace = os.replace
+    
+        class Crash(BaseException):
+            """The hook process dies here."""
+    
+        def crash_after_replace(source, destination):
+            replace(source, destination)
+            if Path(destination) == aggregate:
+                raise Crash
+    
+        monkeypatch.setattr(notice_claims.os, "replace", crash_after_replace)
+        clock[0] += 1
+>       with pytest.raises(Crash):
+             ^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE Crash
+
+tests/unit/test_notice_claims.py:574: Failed
+___ test_c15_9_a_record_published_during_a_fold_survives_it[before-replace] ____
+[gw0] darwin -- Python 3.15.2 $TMPDIR/uv-cache/builds-v0/.tmpIohzWX/bin/python
+
+core = namespace(root=PosixPath('$TMPDIR/sf-wcall-fix4/pytest-p2-before/pope...ke_engine.<locals>.<lambda> at 0x10a6e0930>, _lane_session_ids=<function wake_engine.<locals>.<lambda> at 0x10a6e0880>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10961ce90>
+when = 'before-replace'
+
+    @pytest.mark.parametrize("when", ["before-replace", "after-replace"])
+    def test_c15_9_a_record_published_during_a_fold_survives_it(core, monkeypatch, when):
+        """Review r4 of #307, P2: a fold unlinks exactly the records in its snapshot. A record
+        another hook publishes after that snapshot (without the activity lock, once its wait
+        ran out) and before the unlinks, here just before or just after the aggregate's
+        replace, survives, and the next fold takes it."""
+        clock = [1800000000.0]
+        wake_engine(core, monkeypatch, clock)
+        assert offline_hook(core) == ""
+        human_at = clock[0]
+        aggregate = notice_claims.activity_path(core.root, SESSION)
+        late = aggregate.with_suffix(".d") / f"{1:020d}-{'f' * 32}.json"
+        late_at = clock[0] + 5
+        replace = os.replace
+        published = []
+    
+        def publish_late():
+            published.append(True)
+            late.write_text(json.dumps({"at": late_at, "source": "resume", "human_at": None}))
+    
+        def racing_replace(source, destination):
+            if Path(destination) == aggregate and not published and when == "before-replace":
+                publish_late()
+            replace(source, destination)
+            if Path(destination) == aggregate and not published and when == "after-replace":
+                publish_late()
+    
+        monkeypatch.setattr(notice_claims.os, "replace", racing_replace)
+        clock[0] += 1
+        assert offline_hook(core, event="SessionStart", source="compact") == ""
+        monkeypatch.setattr(notice_claims.os, "replace", replace)
+>       assert published == [True]
+E       assert [] == [True]
+E         
+E         Right contains one more item: True
+E         Use -v to get more diff
+
+tests/unit/test_notice_claims.py:533: AssertionError
+______ test_c15_9_offline_hooks_keep_a_constant_number_of_activity_files _______
+[gw2] darwin -- Python 3.15.2 $TMPDIR/uv-cache/builds-v0/.tmpIohzWX/bin/python
+
+core = namespace(root=PosixPath('$TMPDIR/sf-wcall-fix4/pytest-p2-before/pope...ke_engine.<locals>.<lambda> at 0x10ae04880>, _lane_session_ids=<function wake_engine.<locals>.<lambda> at 0x10ae047d0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109f38e90>
+
+    def test_c15_9_offline_hooks_keep_a_constant_number_of_activity_files(core, monkeypatch):
+        """Review r4 of #307, P2: N offline hooks with the daemon unreachable left N
+        activity files, and each hook read them all. A hook that holds the delivery lock
+        now folds the records into the aggregate file, so one record remains, holding the
+        same merged activity, and the daemon replays that value."""
+        clock = [1800000000.0]
+        wake_engine(core, monkeypatch, clock)
+        add_notice(core)
+        wake = notify_push.envelope("job-done: succeeded; rc=0; deliverable=-; out=-")
+        runs = [("UserPromptSubmit", None, "a person's prompt"), ("SessionStart", "compact", None),
+                ("UserPromptSubmit", None, wake), ("SessionStart", "resume", None)] * 3
+        human_at = None
+        for index, (event, source, prompt) in enumerate(runs):
+            clock[0] += 7
+            output = offline_hook(core, event=event, source=source, prompt=prompt)
+            assert (TEXT in output) == (index == 0)          # printed once; its receipt holds it after
+            if prompt is not None and prompt != wake:
+                human_at = clock[0]
+>           assert activity_records(core.root, SESSION) == [notice_claims.activity_path(core.root, SESSION)], index
+E           AssertionError: 0
+E           assert [PosixPath('/...c07f08.json')] == [PosixPath('/...tivity.json')]
+E             
+E             At index 0 diff: PosixPath('$TMPDIR/sf-wcall-fix4/pytest-p2-before/popen-gw2/test_c15_9_offline_hooks_keep_0/hooks/notice-receipts/df3b30891ef33f71b796fa5abcaff2ce5ad80c9204d18921e3164d77089b43b9.activity.d/01794924112458780000-d8353da2776b48c49432785fb0c07f08.json') != PosixPath('$TMPDIR/sf-wcall-fix4/pytest-p2-before/popen-gw2/test_c15_9_offline_hooks_keep_0/hooks/notice-receipts/df3b30891ef33f71b796fa5abcaff2ce5ad80c9204d18921e3164d77089b43b9.activity.json')
+E             Use -v to get more diff
+
+tests/unit/test_notice_claims.py:458: AssertionError
+____ test_c15_9_a_corrupt_activity_record_still_fences_only_its_own_caller _____
+[gw2] darwin -- Python 3.15.2 $TMPDIR/uv-cache/builds-v0/.tmpIohzWX/bin/python
+
+core = namespace(root=PosixPath('$TMPDIR/sf-wcall-fix4/pytest-p2-before/pope...ke_engine.<locals>.<lambda> at 0x10b1cd010>, _lane_session_ids=<function wake_engine.<locals>.<lambda> at 0x10b1cd0c0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109f38510>
+
+    def test_c15_9_a_corrupt_activity_record_still_fences_only_its_own_caller(core, monkeypatch):
+        """Review r4 of #307, P2: folding never drops a corrupt record. Its caller's hooks
+        print nothing and publish nothing, and the pass leaves its notice; another caller's
+        hooks still fold to one record, and that caller is woken."""
+        clock = [1800000000.0]
+        engine, sent = wake_engine(core, monkeypatch, clock)
+        add_notice(core)
+        corrupt = notice_claims.activity_path(core.root, SESSION).with_suffix(".d") / (
+            f"{1:020d}-{'0' * 32}.json")
+        corrupt.parent.mkdir(parents=True)
+        contents = json.dumps({"at": "not a time", "source": None, "human_at": None})
+        corrupt.write_text(contents)
+        for _ in range(6):
+            clock[0] += 7
+            assert offline_hook(core) == ""
+            assert offline_hook(core, session=OTHER) == ""
+>           assert len(activity_records(core.root, OTHER)) == 1
+E           AssertionError: assert 2 == 1
+E            +  where 2 = len([PosixPath('$TMPDIR/sf-wcall-fix4/pytest-p2-before/popen-gw2/test_c15...726ec225c16cc7149ec1ad3ad7ffaba1810d756511ed6d.activity.d/01794924115514662000-2ec3099925c54867bf493950a99ba237.json')])
+E            +    where [PosixPath('$TMPDIR/sf-wcall-fix4/pytest-p2-before/popen-gw2/test_c15...726ec225c16cc7149ec1ad3ad7ffaba1810d756511ed6d.activity.d/01794924115514662000-2ec3099925c54867bf493950a99ba237.json')] = activity_records(PosixPath('$TMPDIR/sf-wcall-fix4/pytest-p2-before/popen-gw2/test_c15_9_a_corrupt_activity_0'), 'other-caller')
+E            +      where PosixPath('$TMPDIR/sf-wcall-fix4/pytest-p2-before/popen-gw2/test_c15_9_a_corrupt_activity_0') = namespace(root=PosixPath('$TMPDIR/sf-wcall-fix4/pytest-p2-before/pope...ke_engine.<locals>.<lambda> at 0x10b1cd010>, _lane_session_ids=<function wake_engine.<locals>.<lambda> at 0x10b1cd0c0>).root
+
+tests/unit/test_notice_claims.py:488: AssertionError
+____ test_c15_9_a_record_published_during_a_fold_survives_it[after-replace] ____
+[gw0] darwin -- Python 3.15.2 $TMPDIR/uv-cache/builds-v0/.tmpIohzWX/bin/python
+
+core = namespace(root=PosixPath('$TMPDIR/sf-wcall-fix4/pytest-p2-before/pope...ke_engine.<locals>.<lambda> at 0x10a8e1010>, _lane_session_ids=<function wake_engine.<locals>.<lambda> at 0x10a8e1220>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10961c510>
+when = 'after-replace'
+
+    @pytest.mark.parametrize("when", ["before-replace", "after-replace"])
+    def test_c15_9_a_record_published_during_a_fold_survives_it(core, monkeypatch, when):
+        """Review r4 of #307, P2: a fold unlinks exactly the records in its snapshot. A record
+        another hook publishes after that snapshot (without the activity lock, once its wait
+        ran out) and before the unlinks, here just before or just after the aggregate's
+        replace, survives, and the next fold takes it."""
+        clock = [1800000000.0]
+        wake_engine(core, monkeypatch, clock)
+        assert offline_hook(core) == ""
+        human_at = clock[0]
+        aggregate = notice_claims.activity_path(core.root, SESSION)
+        late = aggregate.with_suffix(".d") / f"{1:020d}-{'f' * 32}.json"
+        late_at = clock[0] + 5
+        replace = os.replace
+        published = []
+    
+        def publish_late():
+            published.append(True)
+            late.write_text(json.dumps({"at": late_at, "source": "resume", "human_at": None}))
+    
+        def racing_replace(source, destination):
+            if Path(destination) == aggregate and not published and when == "before-replace":
+                publish_late()
+            replace(source, destination)
+            if Path(destination) == aggregate and not published and when == "after-replace":
+                publish_late()
+    
+        monkeypatch.setattr(notice_claims.os, "replace", racing_replace)
+        clock[0] += 1
+        assert offline_hook(core, event="SessionStart", source="compact") == ""
+        monkeypatch.setattr(notice_claims.os, "replace", replace)
+>       assert published == [True]
+E       assert [] == [True]
+E         
+E         Right contains one more item: True
+E         Use -v to get more diff
+
+tests/unit/test_notice_claims.py:533: AssertionError
+______________ test_c15_9_the_activity_lock_waits_a_bounded_time _______________
+[gw1] darwin -- Python 3.15.2 $TMPDIR/uv-cache/builds-v0/.tmpIohzWX/bin/python
+
+core = namespace(root=PosixPath('$TMPDIR/sf-wcall-fix4/pytest-p2-before/pope... store=<subfleet.store.Store object at 0x109e20b90>, _pin_notice_jobs=<function core.<locals>.<lambda> at 0x10aefc5c0>)
+
+    def test_c15_9_the_activity_lock_waits_a_bounded_time(core):
+        """Review r4 of #307, P2: `activity_lock` waited with no timeout. It now gives up
+        after `wait_s` and says so, as `delivery_lock` does."""
+        fd = hold_activity_lock(core.root, SESSION)
+        try:
+            start = time.monotonic()
+>           with notice_claims.activity_lock(core.root, SESSION, wait_s=0.2) as held:
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_notice_claims.py:596: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../../.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/contextlib.py:367: in helper
+    return _GeneratorContextManager(func, args, kwds)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <contextlib._GeneratorContextManager object at 0x10b165d30>
+func = <function activity_lock at 0x10a35ea30>
+args = (PosixPath('$TMPDIR/sf-wcall-fix4/pytest-p2-before/popen-gw1/test_c15_9_the_activity_lock_w0'), 'receipt-session')
+kwds = {'wait_s': 0.2}
+
+    def __init__(self, func, args, kwds):
+>       self.gen = func(*args, **kwds)
+                   ^^^^^^^^^^^^^^^^^^^
+E       TypeError: activity_lock() got an unexpected keyword argument 'wait_s'
+
+../../../.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/contextlib.py:171: TypeError
+_ test_c15_9_an_offline_hook_returns_while_another_process_holds_the_activity_lock _
+[gw3] darwin -- Python 3.15.2 $TMPDIR/uv-cache/builds-v0/.tmpIohzWX/bin/python
+
+core = namespace(root=PosixPath('$TMPDIR/sf-wcall-fix4/pytest-p2-before/pope...ke_engine.<locals>.<lambda> at 0x10c498880>, _lane_session_ids=<function wake_engine.<locals>.<lambda> at 0x10c4987d0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b29ce90>
+
+    def test_c15_9_an_offline_hook_returns_while_another_process_holds_the_activity_lock(core, monkeypatch):
+        """Review r4 of #307, P2: an offline hook waited as long as another holder kept the
+        activity lock. It now waits a bounded time, publishes its activity all the same
+        (round 3: activity is never lost) and still prints its notice."""
+        clock = [1800000000.0]
+        wake_engine(core, monkeypatch, clock)
+        add_notice(core)
+        fd = hold_activity_lock(core.root, SESSION)
+        result = {}
+        hook = threading.Thread(target=lambda: result.update(output=offline_hook(core)), daemon=True)
+        try:
+            hook.start()
+            hook.join(STALL_S)
+>           assert not hook.is_alive(), "the hook waited out the activity lock's holder"
+E           AssertionError: the hook waited out the activity lock's holder
+E           assert not True
+E            +  where True = is_alive()
+E            +    where is_alive = <Thread(Thread-1 (<lambda>), started daemon 6137458688)>.is_alive
+
+tests/unit/test_notice_claims.py:619: AssertionError
+__________ test_c15_9_an_offline_hook_does_not_wait_out_a_wake_claim ___________
+[gw1] darwin -- Python 3.15.2 $TMPDIR/uv-cache/builds-v0/.tmpIohzWX/bin/python
+
+callers = <tests.fake.test_caller_notice_wakes.Callers object at 0x10af01550>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ae8ccb0>
+
+    def test_c15_9_an_offline_hook_does_not_wait_out_a_wake_claim(callers, monkeypatch):
+        """Review r4 of #307, P2: a wake's claim holds the activity lock through its store
+        transaction, registry read and transcript read, and an offline hook waited all of it
+        out. The hook now waits a bounded time, publishes its activity all the same and
+        returns. It raced a claim already in progress, the race review r4 accepts (its
+        section 2), so that wake still goes; the activity stays for the next reconcile."""
+        from subfleet import notice_claims
+    
+        monkeypatch.setattr(notice_claims, "time", SimpleNamespace(time=lambda: callers.now))
+        sid = "offline-during-claim"
+        callers.register(sid)
+        notice = callers.finish(sid)
+        in_claim, release = threading.Event(), threading.Event()
+        reserve = caller_wakes.reserve
+    
+        def slow_claim(*args, **kwargs):
+            if kwargs.get("wake"):
+                in_claim.set()
+                release.wait(60)
+            return reserve(*args, **kwargs)
+    
+        monkeypatch.setattr(caller_wakes, "reserve", slow_claim)
+        passing = threading.Thread(target=callers.pass_once, daemon=True)
+        hook = {}
+        prompt = threading.Thread(target=lambda: hook.update(printed=hook_prompt(
+            callers, sid, "still there?", client=StoppedDaemon())), daemon=True)
+        try:
+            passing.start()
+            assert in_claim.wait(60)
+            prompt.start()
+            prompt.join(STALL_S)
+>           assert not prompt.is_alive(), "the hook waited out the wake's claim"
+E           AssertionError: the hook waited out the wake's claim
+E           assert not True
+E            +  where True = is_alive()
+E            +    where is_alive = <Thread(Thread-2 (<lambda>), started daemon 6174961664)>.is_alive
+
+tests/fake/test_caller_notice_wakes.py:1326: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4478474560:daemon.py:1011 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4478474560:daemon.py:1104 reset credits: automatic redemption off; no-reset marker absent
+------------------------------ Captured log call -------------------------------
+WARNING  subfleet.daemon.4478474560:daemon.py:1089 store lock released after 15.2 s by Thread-1 (pass_once) (6158135296). Where it was held:
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/threading.py", line 1181, in _bootstrap
+    self._bootstrap_inner()
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/threading.py", line 1219, in _bootstrap_inner
+    self._context.run(self.run)
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/threading.py", line 1161, in run
+    self._target(*self._args, **self._kwargs)
+  File "/Users/maxghenis/.subfleet/worktrees/20261117-083630-wcall-fix-r4/tests/fake/test_caller_notice_wakes.py", line 114, in pass_once
+    return self.engine.pass_once()
+  File "/Users/maxghenis/.subfleet/worktrees/20261117-083630-wcall-fix-r4/subfleet/caller_wakes.py", line 398, in pass_once
+    self._wake(session, groups[session], limits, now, result)
+  File "/Users/maxghenis/.subfleet/worktrees/20261117-083630-wcall-fix-r4/subfleet/caller_wakes.py", line 466, in _wake
+    with notice_claims.activity_lock(self.daemon.root, session), self.store.transaction(
+  File "/Users/maxghenis/.local/share/uv/python/cpython-3.15.2-macos-aarch64-none/lib/python3.15/contextlib.py", line 210, in __exit__
+    next(self.gen)
+  File "/Users/maxghenis/.subfleet/worktrees/20261117-083630-wcall-fix-r4/subfleet/store.py", line 555, in transaction
+    with self._lock:
+  File "/Users/maxghenis/.subfleet/worktrees/20261117-083630-wcall-fix-r4/subfleet/lockwatch.py", line 140, in __exit__
+    self.release()
+__ test_c15_9_a_held_activity_lock_skips_its_caller_without_stalling_the_pass __
+[gw3] darwin -- Python 3.15.2 $TMPDIR/uv-cache/builds-v0/.tmpIohzWX/bin/python
+
+callers = <tests.fake.test_caller_notice_wakes.Callers object at 0x10c4dd550>
+
+    def test_c15_9_a_held_activity_lock_skips_its_caller_without_stalling_the_pass(callers):
+        """Review r4 of #307, P2: the `caller-notices` pass waited for the activity lock
+        with no timeout, so one hook process stopped inside its publication stalled the pass
+        for every caller. The claim now gives up after a bounded wait: that caller's notice
+        stays `pending` with no claim and no attempt counted, the pass still wakes the next
+        caller, and a later pass, once the lock is free, wakes the first."""
+        held_sid, free_sid = "a-activity-lock-held", "b-activity-lock-free"
+        for sid in (held_sid, free_sid):
+            callers.register(sid)
+        held_notice, free_notice = callers.finish(held_sid), callers.finish(free_sid)
+        fd = hold_activity_lock(callers.daemon.root, held_sid)
+        passing = threading.Thread(target=callers.pass_once, daemon=True)
+        try:
+            passing.start()
+            passing.join(STALL_S)
+>           assert not passing.is_alive(), "the pass waited out the activity lock's holder"
+E           AssertionError: the pass waited out the activity lock's holder
+E           assert not True
+E            +  where True = is_alive()
+E            +    where is_alive = <Thread(Thread-2 (pass_once), started daemon 6137458688)>.is_alive
+
+tests/fake/test_caller_notice_wakes.py:1279: AssertionError
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4501395440:daemon.py:1011 open-file limit 1048576 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4501395440:daemon.py:1104 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/unit/test_notice_claims.py::test_c15_9_a_crash_between_a_folds_replace_and_its_unlinks_loses_nothing
+FAILED tests/unit/test_notice_claims.py::test_c15_9_a_record_published_during_a_fold_survives_it[before-replace]
+FAILED tests/unit/test_notice_claims.py::test_c15_9_offline_hooks_keep_a_constant_number_of_activity_files
+FAILED tests/unit/test_notice_claims.py::test_c15_9_a_corrupt_activity_record_still_fences_only_its_own_caller
+FAILED tests/unit/test_notice_claims.py::test_c15_9_a_record_published_during_a_fold_survives_it[after-replace]
+FAILED tests/unit/test_notice_claims.py::test_c15_9_the_activity_lock_waits_a_bounded_time
+FAILED tests/unit/test_notice_claims.py::test_c15_9_an_offline_hook_returns_while_another_process_holds_the_activity_lock
+FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_an_offline_hook_does_not_wait_out_a_wake_claim
+FAILED tests/fake/test_caller_notice_wakes.py::test_c15_9_a_held_activity_lock_skips_its_caller_without_stalling_the_pass
+========================= 9 failed in 83.50s (0:01:23) =========================

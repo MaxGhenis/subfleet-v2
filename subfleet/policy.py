@@ -102,6 +102,9 @@ SESSION_DEFAULTS: dict[str, Any] = {
     "nudge_cooldown_min": 1.5,       # C-23.33's per-session cooldown (v1: 90 s)
     "nudge_delay_s": 8,              # the inbox binds a moment after SessionStart
     "nudge_sample_s": 3,             # C-23.34's liveness sample before delivery
+    "nudge_max_sessions": 8,         # C-15.9: bound each automatic notice pass
+    "notice_wake_enabled": True,
+    "notice_wake_quiet_s": 300,      # C-15.9: give the prompt hooks first chance
     "sweep_quiet_s": 120,            # C-23.34: a hand-started sweep waits longer
     "muster_max_age_h": 2,           # the roll-call window
     "muster_quiet_s": 120,
@@ -826,6 +829,8 @@ def load_policy(path: str | Path) -> dict[str, Any]:
             fail(f"sessions.{key}", "must be a nonnegative finite number")
         elif key in ("mirror_stall_min", "mirror_hang_min") and item <= 0:
             fail(f"sessions.{key}", "must be a positive finite number of minutes")
+        elif key == "nudge_max_sessions" and not isinstance(item, int):
+            fail(f"sessions.{key}", "must be a nonnegative whole number of sessions")
     value["sessions"] = settings
 
     # `sessions.handoff_caps` is the one nested section: every handoff section is

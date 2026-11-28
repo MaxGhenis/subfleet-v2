@@ -310,6 +310,27 @@ class NoticeArgs:
 
 
 @dataclass
+class NoticePendingArgs(NoticeArgs):
+    """C-15.9: a session hook atomically claims the rows it will print.
+
+    `own_envelope`: the prompt is Subfleet's own inbox envelope, which is not
+    personal input. `deadline_s`: counted from when the daemon read the request,
+    after which the claim marks nothing, since the hook has stopped waiting.
+    `job_id` (surface `PostToolUse` only): the one job whose notices layer 2
+    claims before it prints them; with `release`, it gives back the
+    `notice_ids` it claimed but could not print (review r2 of #307).
+    """
+
+    surface: str | None = None
+    jobs_only: bool = False
+    source: str | None = None
+    own_envelope: bool = False
+    deadline_s: float | None = None
+    job_id: str | None = None
+    release: bool = False
+
+
+@dataclass
 class NoticeMarkArgs:
     """`notice.mark` (C-15.3): the non-terminal halves of the delivery ladder.
 

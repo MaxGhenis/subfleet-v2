@@ -408,3 +408,41 @@ def test_offer_returns_one_result_per_row_in_order():
         rows("pending", "acknowledged", "offered"),
         push=lambda session, body, **kwargs: {"delivered": True})
     assert [item["notice_id"] for item in results] == [1, 2, 3]
+
+@pytest.mark.parametrize("stage", ["connect", "sendall"])
+def test_c15_9_only_a_proved_connection_failure_is_retryable(monkeypatch, stage):
+    """A failed connect sent no message; sendall may have sent a partial one."""
+    class InboxFailure:
+        def __init__(self):
+            self.sends = []
+            self.closed = False
+
+        def settimeout(self, _timeout):
+            pass
+
+        def connect(self, _path):
+            if stage == "connect":
+                raise ConnectionRefusedError("PRIVATE-CONNECT-DETAIL")
+
+        def sendall(self, payload):
+            self.sends.append(payload)
+            raise BrokenPipeError("PRIVATE-SENDALL-DETAIL")
+
+        def close(self):
+            self.closed = True
+
+    inbox = InboxFailure()
+    monkeypatch.setattr(notify_push.socket, "socket", lambda *_args: inbox)
+    monkeypatch.setattr(notify_push, "find_session", lambda _sid: {
+        "pid": 42, "socket": "/fake/inbox.sock", "name": "fixture",
+        "alive": True, "socket_present": True,
+    })
+    monkeypatch.setattr(notify_push, "peer_token", lambda _pid: "fixture-peer-token")
+    monkeypatch.setattr(notify_push, "resolve_mode_class", lambda *_args: "prompting")
+    result = notify_push.push_to_session(SESSION, "job finished")
+    assert result["delivered"] is False
+    assert result.get("retryable", False) is (stage == "connect")
+    error = "ConnectionRefusedError" if stage == "connect" else "BrokenPipeError"
+    assert result["reason"].startswith(f"send-failed: {error}:")
+    assert len(inbox.sends) == (0 if stage == "connect" else 1)
+    assert inbox.closed
