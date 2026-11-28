@@ -269,9 +269,12 @@ def test_c10_3_the_usage_file_alone_makes_a_verified_lane_in_its_org_desktop(des
 
 
 def seven_day(daemon, lane_id, utilization):
+    """A seven-day reading observed 30 s ago: a reading stamped now has a clock
+    horizon (`capacity.lane_horizons`) within the second, which would make the
+    reservation's check judge every lane again whatever changed."""
     from subfleet.contracts import Reading, ReadingLabel
     daemon.store.add_reading(Reading(lane_id, "account", "seven_day", utilization, now_iso(86400),
-                                     ReadingLabel.PROVIDER, "fixture", now_iso()))
+                                     ReadingLabel.PROVIDER, "fixture", now_iso(-30)))
 
 
 def rejected(decision, lane_id):
