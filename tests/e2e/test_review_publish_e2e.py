@@ -26,13 +26,14 @@ from subfleet.review_publish import pinned_environment
 PINNED = pinned_environment()
 
 
-@pytest.mark.parametrize("model,scenario,provider", [
-    ("astra", "success", "codex"),
-    ("haiku", "success-allowed", "claude"),
+@pytest.mark.parametrize("model,scenario,provider,caller", [
+    ("astra", "success", "codex", "claude"),
+    ("haiku", "success-allowed", "claude", "codex"),
 ])
-def test_a_policy_review_runs_writable_with_its_publish_layers(e2e, model, scenario, provider):
+def test_a_policy_review_runs_writable_with_its_publish_layers(e2e, model, scenario, provider, caller):
     e2e.start(scenario=scenario)
-    result = e2e.cli(*e2e.run_args(model, "--task", "review", "--tier", "standard", "--wait"), timeout=120)
+    result = e2e.cli(*e2e.run_args(model, "--task", "review", "--tier", "standard",
+                                  "--caller-family", caller, "--wait"), timeout=120)
     assert result.rc == 0, result
     job_id = result.stdout.strip().splitlines()[0].strip()
     job = e2e.job(job_id)

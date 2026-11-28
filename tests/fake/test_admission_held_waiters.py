@@ -68,6 +68,7 @@ def fleet(root, cap):
         service = Daemon(root)
         try:
             service.policy["caps"]["max_active_attempts"] = cap
+            service.policy["chains"]["review"][-1] = "astra"
             for lane_id, provider in LANES[1:]:
                 service.store.put_lane(lane(lane_id, provider))
             for lane_id, _ in LANES:

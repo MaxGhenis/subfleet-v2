@@ -9,6 +9,8 @@ from pathlib import Path
 import pytest
 
 from subfleet import cli, protocol
+from subfleet.contracts import Decision
+from subfleet.conversations.service import CAPABILITIES
 from subfleet.gate import cli as gate_cli
 from subfleet.gate.certificate import write_bytes
 from subfleet.gate.service import dispatch, GateService
@@ -58,6 +60,8 @@ class FakeClient:
 
     def call(self, op, args, **kwargs):
         self.calls.append(op)
+        if op == "capabilities":
+            return {"capabilities": list(CAPABILITIES)}
         result = dispatch(self.core, op, args)
         if result.get("code") is None and result.get("job_id") not in self.jobs:
             self.jobs.append(result["job_id"])
@@ -119,6 +123,93 @@ def test_plan_dry_run_submits_nothing_and_creates_no_state(core, tmp_path, capsy
     assert len(payload["fingerprint"]) == 64
     assert client.calls == [] and core.store.list_jobs() == []
     assert core.store.list_events() == before and not (core.root / "gates").exists()
+
+
+def test_sol62_gate_round_attests_the_requested_model(core, tmp_path, monkeypatch):
+    """C-6.24: the round record and attempt agree through attestation.
+
+    Admission uses a fixed Sol 6.2 decision to exercise attestation without
+    depending on scheduler routing.
+    """
+    plan = tmp_path / "plan.md"
+    plan.write_text("A concrete implementation plan.\n")
+    payload = {**wire(arguments(plan)), "peer": "sol62", "caller_family": "claude"}
+    result = dispatch(core, "gate.start", payload)
+    assert result.get("job_id"), result
+    assert arguments(plan, peer="sol62").peer == "sol62"
+    chosen = Decision(("sol62",), (), "codex-1", "sol62", "test", "test")
+    monkeypatch.setattr(core, "_pick", lambda *args, **kwargs: chosen)
+    finish(core, result, verdict="changes_requested")
+    gate_id = result["gate_id"]
+    completed = dispatch(core, "gate.poll", {"gate_id": gate_id})
+    assert completed["code"] == 3 and completed["status"] == "changes_requested", completed
+    first, = core.store.list_attempts(result["job_id"])
+    assert first["model_requested"] == "gpt-6.2-sol"
+    state = core._gate_service._load(gate_id)
+    assert state["rounds"][0]["requested_model"] == first["model_requested"]
+    assert state["rounds"][0]["peer_attestation"] == "attested"
+
+    core.policy["retired"]["sol"] = "astra"
+    plan.write_text("A concrete implementation plan with rollback.\n")
+    result = dispatch(core, "gate.continue", {
+        "gate_id": gate_id, "main_approve": True,
+        "expect_sha256": hashlib.sha256(plan.read_bytes()).hexdigest(),
+    })
+    assert result.get("job_id"), result
+    assert core.store.get_job(result["job_id"])["pinned_model"] == "sol62"
+    finish(core, result)
+    completed = dispatch(core, "gate.poll", {"gate_id": gate_id})
+    assert completed["code"] == 0 and completed["status"] == "completed", completed
+
+
+@pytest.mark.parametrize("mapped_peer", [None, "sol62", "astra"], ids=["shipped", "live", "astra-map"])
+def test_cli_preview_prints_one_policy_alias_note(core, tmp_path, capsys, mapped_peer):
+    """C-6.24, C-11.1: local preview uses the on-disk policy or the shipped default."""
+    if mapped_peer is not None:
+        core.policy["retired"]["sol"] = mapped_peer
+        (core.root / "policy.json").write_text(json.dumps(core.policy))
+    plan = tmp_path / "plan.md"
+    plan.write_text("Preview this revision.\n")
+    client = FakeClient(core)
+    before = core.store.list_events()
+    args = arguments(plan, "--dry-run", "--json", peer="sol")
+    assert gate_cli.run(args, root=core.root, client=client) == 0
+    captured = capsys.readouterr()
+    expected_peer = mapped_peer or "sol62"
+    assert json.loads(captured.out)["peer"] == expected_peer
+    assert captured.err.splitlines() == [f"subfleet gate: sol is retired from dispatch; using {expected_peer}"]
+    assert client.calls == [] and core.store.list_jobs() == []
+    assert core.store.list_events() == before and not (core.root / "gates").exists()
+
+
+@pytest.mark.parametrize("mapped_peer", [None, "sol62", "astra"], ids=["shipped", "live", "astra-map"])
+def test_cli_start_prints_one_policy_alias_note(core, tmp_path, monkeypatch, capsys, mapped_peer):
+    """C-6.24, C-11.1: a live CLI start announces its alias target before transport."""
+    if mapped_peer is not None:
+        core.policy["retired"]["sol"] = mapped_peer
+        (core.root / "policy.json").write_text(json.dumps(core.policy))
+    monkeypatch.setattr(cli, "caller_family", lambda: "claude")
+    plan = tmp_path / "plan.md"
+    plan.write_text("Review this revision.\n")
+    expected_peer = mapped_peer or "sol62"
+    chosen = Decision((expected_peer,), (), "codex-1", expected_peer, "test", "test")
+    monkeypatch.setattr(core, "_pick", lambda *args, **kwargs: chosen)
+
+    class AliasClient(FakeClient):
+        def call(self, op, args, **kwargs):
+            if op == "capabilities":
+                assert capsys.readouterr().err.splitlines() == [
+                    f"subfleet gate: sol is retired from dispatch; using {expected_peer}"]
+            return super().call(op, args, **kwargs)
+
+    client = AliasClient(core)
+    args = arguments(plan, "--json", peer="sol")
+    assert gate_cli.run(args, root=core.root, client=client, poll_interval=0) == 0
+    captured = capsys.readouterr()
+    result = json.loads(captured.out)
+    assert captured.err.splitlines() == [f"subfleet gate: {result['gate_id']} peer job {result['job_id']}"]
+    assert client.calls == ["capabilities", "gate.start", "gate.poll"]
+    assert core.store.get_job(result["job_id"])["pinned_model"] == expected_peer
 
 
 def test_changed_plan_during_peer_blocks_and_discards_approval(core, tmp_path):

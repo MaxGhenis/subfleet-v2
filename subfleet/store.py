@@ -45,7 +45,8 @@ LAUNCH_CAPABILITY_MIGRATION = 9
 PROVIDER_QOS_MIGRATION = 10
 NOTICE_WAKE_MIGRATION = 11
 REVIEW_SUBJECT_MIGRATION = 12
-SCHEMA_VERSION = REVIEW_SUBJECT_MIGRATION
+REVIEW_FAMILY_MIGRATION = 13
+SCHEMA_VERSION = REVIEW_FAMILY_MIGRATION
 #: C-15.9: `wake_reason` of a notice already unread when the store migrated.
 NOTICE_WAKE_PREDATES = "before-migration"
 #: C-12.4: jobs whose attempts in the last 24 h had no shell or no writes. A
@@ -158,6 +159,12 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         "ALTER TABLE jobs ADD COLUMN review_round INTEGER "
         "CHECK (review_round IS NULL OR review_round BETWEEN 1 AND 4)",
     ),
+    # D-SCHEMA-SLOTS1, D-REVIEW-FAMILY1: everything #330 adds beyond #314's
+    # slots. The explicit same-family authorization.
+    REVIEW_FAMILY_MIGRATION: (
+        "ALTER TABLE jobs ADD COLUMN allow_same_family INTEGER NOT NULL DEFAULT 0 "
+        "CHECK (allow_same_family IN (0,1))",
+    ),
 }
 
 
@@ -176,10 +183,12 @@ def job_flags(row: Mapping[str, Any]) -> Row:
     `utility`, the clamp; so is a missing column, as a read-only Store reads a schema-9
     file it may not migrate (#277 review r1, P2). Attempt rows take `shell_flags` alone,
     so they gain no job field; raw SQL still reads NULL. Review metadata absent
-    from an older schema reads as NULL, as it does after migration."""
+    from an older schema reads as NULL, as it does after migration. A missing
+    same-family authorization reads as false, as its migration default does."""
     value = shell_flags(row)
     if value.get("provider_qos") is None:
         value["provider_qos"] = "utility"
+    value["allow_same_family"] = bool(value.get("allow_same_family", False))
     # A read-only handle may open an older store without migrating it.
     for key in ("caller_family", "review_subject", "review_round"):
         value.setdefault(key, None)
@@ -510,7 +519,8 @@ class Store:
         """
         # An old #314 store and a #307 store both report 11 with different
         # columns. Old #330 could also record 12 before failing its schema.
-        # Recheck both slots by presence even when the version already says 12.
+        # Recheck slots 11 onward by presence even when the version already
+        # says 12 or 13 (D-SCHEMA-SLOTS1).
         for step in range(min(version + 1, NOTICE_WAKE_MIGRATION), SCHEMA_VERSION + 1):
             added = set()
             for statement in MIGRATIONS.get(step, ()):

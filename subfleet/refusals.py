@@ -21,6 +21,9 @@ from . import ids
 from .contracts import HOLD_NOTE_CREDENTIAL_RULE, HOLD_NOTE_RULE, JOB_ID_SLUG_MAX, Sandbox
 from .sessions.registry import CONVERSATION_FIX
 
+PUBLIC_REVIEW_REFUSALS = frozenset({"review-round-limit", "review-same-family", "same-family-consent"})
+RESUME_SAME_FAMILY_FIX = "resume from a session of the other family, or submit a fresh review with consent"
+
 # Checkout checks select these fixed diagnostics and repairs at their raise
 # sites. Neither exception text nor a path is used to select a public message.
 CHECKOUT_REFUSALS = {
@@ -92,6 +95,11 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     "reserve-dispatch": ("unmeasured reserve authorization requires a fresh dispatch with explicit "
                          "pinned_lane and pinned_model", None),
     "caller-family": ("caller_family must be claude, codex or null", None),
+    "review-same-family": ("review: the pinned model or lane belongs to the caller's family",
+                           "pin a model or lane of the other family, or pass -m naming a same-family "
+                           "model with --allow-same-family"),
+    "same-family-consent": ("review: --allow-same-family is refused inside a Subfleet job",
+                            "submit without --allow-same-family, or give consent from outside the job"),
     "review-fields": ("--subject and --round require --task review; --round also requires --subject", None),
     "review-subject": ("review_subject must contain 1 to 2000 printable characters", None),
     "review-round": ("review_round must be a positive whole number from 1 to 4", None),

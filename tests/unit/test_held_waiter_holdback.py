@@ -196,6 +196,7 @@ def test_the_rule_before_placed_the_younger_job_past_the_middle_one():
     Opus-or-Astra job wait on their clocks; a younger Opus job competes only with the middle one. The
     rule before placed it; now it waits behind the middle job."""
     policy = copy.deepcopy(BASE_POLICY)
+    policy["chains"]["review"][-1] = "astra"
     policy["caps"]["max_active_attempts"] = 10
     readings = [{"reading_id": n, "lane_id": lane_id, "scope": "account", "window": "seven_day", "utilization": 0.2,
                  "resets_at": stamp(NOW + timedelta(days=3)), "label": "provider", "source": "oauth-usage",

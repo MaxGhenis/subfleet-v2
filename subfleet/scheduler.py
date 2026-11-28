@@ -21,7 +21,8 @@ from .protocol import PROVIDER_QOS_REQUESTS
 from .contracts import (CAPACITY_RECHECK_BASE_S, CAPACITY_RECHECK_CEILING_S, CAPACITY_RECHECK_EVENT_CEILING_S, DEFAULT_CAPS,
                         HEADROOM_FLOOR, Decision, Exit, hold_source_shown, launch_has_shell)
 from .policy import (MEMORY_PRESSURE_LEVELS, PolicyError, admission_settings, cap, flatten_chain, lane_slot_cap,
-                     provider_cap, provider_caps_on, resolve_model, resolve_sandbox, turn_cap, job_needs_shell)
+                     provider_cap, provider_caps_on, resolve_model, resolve_sandbox, routing_chain,
+                     turn_cap, job_needs_shell, OTHER_FAMILY)
 
 ACTIVE_ATTEMPTS = frozenset({"reserved", "starting", "running", "finalizing"})
 
@@ -161,6 +162,21 @@ def mcp_chain(policy: Mapping[str, Any], chain: Iterable[str], job: Any) -> list
     return [name for name in chain if policy["models"][name]["provider"] == MCP_PROVIDER]
 
 
+def required_review_family(job: Any) -> str | None:
+    """C-6.23: the reviewer family required by this attributed review, if any."""
+    job = _row(job)
+    family = job.get("caller_family")
+    if job.get("task") == "review" and not job.get("allow_same_family"):
+        return {"claude": "codex", "codex": "claude"}.get(family)
+    return None
+
+
+def _task_chain(policy: Mapping[str, Any], job: Mapping[str, Any], tier_index: int) -> list[str]:
+    return routing_chain(policy, job["task"], tier_index,
+                         caller_family=job.get("caller_family"),
+                         allow_same_family=bool(job.get("allow_same_family")))
+
+
 def pin_provider(policy: Mapping[str, Any], job: Any) -> str | None:
     """C-11.2: the provider a lane-pinned job must run on, as `evaluate` decides it.
 
@@ -177,7 +193,7 @@ def pin_provider(policy: Mapping[str, Any], job: Any) -> str | None:
         if task in policy["chains"]:
             tiers = policy["tiers"]
             tier = job.get("tier") or ("standard" if "standard" in tiers else tiers[0])
-            chain = mcp_chain(policy, flatten_chain(policy["chains"][task], tiers.index(tier)), job)
+            chain = mcp_chain(policy, _task_chain(policy, job, tiers.index(tier)), job)
             return policy["models"][chain[0]]["provider"] if chain else None
     except (PolicyError, ValueError, KeyError, IndexError):
         pass
@@ -494,12 +510,15 @@ def demand_models(policy: Mapping[str, Any], job: Any) -> frozenset[str] | None:
     job = _row(job)
     try:
         if job.get("pinned_model"):
-            return frozenset({resolve_model(policy, job["pinned_model"], note=False)})
+            name = resolve_model(policy, job["pinned_model"], note=False)
+            required = required_review_family(job)
+            return (frozenset() if required and policy["models"][name]["provider"] != required
+                    else frozenset({name}))
         task = job.get("task")
         if task in policy["chains"]:
             tiers = policy["tiers"]
             default = "standard" if "standard" in tiers else tiers[0]
-            chain = flatten_chain(policy["chains"][task], tiers.index(job.get("tier") or default))
+            chain = _task_chain(policy, job, tiers.index(job.get("tier") or default))
             if job.get("pinned_lane"):
                 chain = mcp_chain(policy, chain, job)[:1]
             if job_needs_shell(policy, job):
@@ -763,9 +782,13 @@ def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dic
         raise ValueError(f"tier: unknown tier {tier!r}")
     if job.get("pinned_model"):
         chain = [resolve_model(policy, job["pinned_model"])]
+        required = required_review_family(job)
+        if required and policy["models"][chain[0]]["provider"] != required:
+            raise RouteError(f"review: caller family {job['caller_family']} requires a {required} reviewer; "
+                             f"same-family model {chain[0]!r} needs --allow-same-family")
     elif task:
         default = "standard" if "standard" in policy["tiers"] else policy["tiers"][0]
-        chain = flatten_chain(policy["chains"][task], policy["tiers"].index(tier or default))
+        chain = _task_chain(policy, job, policy["tiers"].index(tier or default))
     else:
         chain = []
     if chain and job_mcp_servers(job):
@@ -781,7 +804,21 @@ def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dic
                              follow=not authorization_reason) if pin else None)
     if authorization_reason and selected and pin != selected["lane_id"]:
         raise RouteError("unmeasured_reserve_reason: pinned_lane must be the canonical lane id")
-    if not chain and selected:
+    family = job.get("caller_family")
+    reviewer = required_review_family(job)
+    if not chain and reviewer:
+        # C-6.23: the policy names no other-family reviewer from this tier up.
+        # Keep the chain empty even if an existing job names a lane.
+        pass
+    elif (selected and task == "review" and not job.get("pinned_model")
+          and family in OTHER_FAMILY and selected["provider"] == family):
+        # C-6.23: a lane pin of the caller's own family is a same-family review.
+        # `--allow-same-family` does not lift it: a pinned job walks only its
+        # chain's first model, and that is the other family's reviewer.
+        raise RouteError(f"review-same-family: caller family {family} requires a {OTHER_FAMILY[family]} "
+                         f"reviewer and lane {pin!r} is a {family} lane; a same-family lane pin also needs "
+                         f"-m naming a {family} model and --allow-same-family")
+    elif not chain and selected:
         if job_mcp_servers(job) and selected["provider"] != MCP_PROVIDER:
             raise RouteError(f"mcp_servers: this job names MCP servers, which only a Claude launch starts, "
                              f"and lane {pin!r} is a {selected['provider']} lane")
@@ -795,7 +832,7 @@ def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dic
         chain = (mcp_chain(policy, policy["models"], job) or [next(iter(policy["models"]))])[:1]
     if pin:
         chain = chain[:1]
-        if selected and policy["models"][chain[0]]["provider"] != selected["provider"]:
+        if selected and chain and policy["models"][chain[0]]["provider"] != selected["provider"]:
             raise RouteError("pinned_lane and pinned_model/task: different providers", policy_dependent=True)
     # C-9.5, D-CAP1: the models this job's own attempts found at capacity (`capacity_steer`, model
     # id to the end of its steer) are excluded while the steer is live. The remaining models
@@ -1302,7 +1339,7 @@ def model_reason(setup: Mapping[str, Any], index: int, short: str, candidates: l
 
 
 def decision_reason(evaluations: Iterable[Mapping[str, Any]], chosen_lane: str | None, now: datetime,
-                    steered: Mapping[str, str] | None = None) -> str:
+                    steered: Mapping[str, str] | None = None, *, required_review_family: str | None = None) -> str:
     """C-11.5: a decision's reason: the models skipped for capacity (C-9.5, `prepare`'s
     `steered`), each model's, then, with no lane, the earliest reset."""
     evaluations = list(evaluations)
@@ -1310,6 +1347,11 @@ def decision_reason(evaluations: Iterable[Mapping[str, Any]], chosen_lane: str |
                 for short, until in (steered or {}).items()]
     messages += [row["reason"] for row in evaluations]
     if chosen_lane is None:
+        if required_review_family and not evaluations and not steered:
+            messages.append(f"waiting for other-family reviewer: policy names no {required_review_family} "
+                            "reviewer (review_family_defaults or chains.review) from this tier upward")
+        elif required_review_family:
+            messages.append(f"waiting for other-family reviewer: missing {required_review_family} capacity")
         messages.append("earliest reset: " + (_earliest_reset(evaluations, now) or "unknown"))
     return "; ".join(messages)
 
@@ -1373,7 +1415,8 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
             break
     digest = job.get("policy_hash") or policy.get("_policy_hash", "")
     return Decision(tuple(row["model"] for row in evaluations), tuple(evaluations),
-                    chosen_lane, chosen_model, decision_reason(evaluations, chosen_lane, now, setup["steered"]), digest)
+                    chosen_lane, chosen_model, decision_reason(evaluations, chosen_lane, now, setup["steered"],
+                        required_review_family=required_review_family(job)), digest)
 
 
 def reserve_verdict(identity: str, reserved_id: str, readings: Iterable[Mapping[str, Any]], *,

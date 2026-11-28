@@ -27,7 +27,7 @@
       "haiku",
       "sonnet",
       "opus",
-      "astra"
+      ["sol62", "opus"]
     ],
     "build": [
       "haiku",
@@ -59,6 +59,10 @@
       "fable",
       "fable"
     ]
+  },
+  "review_family_defaults": {
+    "claude": "sol62",
+    "codex": "opus"
   },
   "fallback": "upward-only",
   "permissions": {
@@ -107,10 +111,15 @@
     "sol61": {
       "provider": "codex",
       "id": "gpt-6.1-sol"
+    },
+    "sol62": {
+      "provider": "codex",
+      "id": "gpt-6.2-sol",
+      "effort": "ultra"
     }
   },
   "retired": {
-    "sol": "astra",
+    "sol": "sol62",
     "claude-fable-5": "fable"
   },
   "desktop_login": "never",

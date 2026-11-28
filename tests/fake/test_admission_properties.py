@@ -83,6 +83,8 @@ def fleet(routing_state):  # noqa: F811
     """codex-1 and claude-a, both measured, in a pool with a count cap far above what runs here."""
     service, harness = routing_state
     service.policy["caps"]["max_active_attempts"] = 10
+    # Keep the shared Astra and Opus demand used in the original counterexamples.
+    service.policy["chains"]["review"][-1] = "astra"
     service.store.put_lane(lane("claude-a"))
     for lane_id in ("codex-1", "claude-a"):
         measured(service, lane_id)
@@ -224,6 +226,7 @@ def test_c4_1_a_probe_that_quarantines_leaves_its_job_uncertain_and_holding_nobo
     pass whose probe could not be contained, the job, already `uncertain`, was still registered as a
     waiter and reported `probe-pending`, so a later job that could run elsewhere waited a pass."""
     service, harness = routing_state
+    service.policy["chains"]["review"][-1] = "astra"
     service.store.put_lane(lane("codex-2", "codex"))
     measured(service, "codex-2")                            # codex-1 is unmeasured: hard work there probes
     service.term_grace_s = 0

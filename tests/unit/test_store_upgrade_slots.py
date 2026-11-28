@@ -1,4 +1,4 @@
-"""D-SCHEMA-SLOTS1: actual release/#307/old-#314 stores share slots 11 and 12.
+"""D-SCHEMA-SLOTS1: actual release/#307/#314/old-#330 stores share slots 11 to 13.
 
 The SQL fixtures were dumped from each revision's unmodified Store after
 extracting its tree with git archive. Keeping the dumps also runs these tests
@@ -15,12 +15,23 @@ import subprocess
 
 import pytest
 
-from subfleet.store import MIGRATIONS, NOTICE_WAKE_PREDATES, Store
+from subfleet.store import MIGRATIONS, NOTICE_WAKE_PREDATES, SCHEMA_VERSION, Store
 
 
 FIXTURES = Path(__file__).parents[1] / "fixtures/store/review-upgrade"
 REVIEW_FIELDS = {"caller_family", "review_subject", "review_round"}
+#: Slot 13 (#330): everything this PR adds beyond #314's slots.
+FAMILY_FIELDS = {"allow_same_family"}
 WAKE_FIELDS = {"wake_state", "wake_attempts", "wake_next_at", "wake_at", "wake_reason"}
+
+
+#: Every layout a shipped revision left, each dumped from that revision's own
+#: Store: release/217 (10), #307 (11), #314 before its fix (old 11), #314's
+#: fix head 2954abd77 (11 + 12), #330's first head 48dab4abe (12 with the
+#: consent column) and that head's failed upgrade of an old-#314 store (12
+#: recorded, wake columns missing: review-a3-r1 P1).
+LAYOUTS = ["release-217-v10", "wake-caller-307-v11", "review-subject-old-v11", "review-subject-new-v12",
+           "review-family-old-v12", "review-family-old-over-subject-old-v12"]
 
 
 def archived_store(path, revision):
@@ -34,8 +45,8 @@ def snapshot(store):
             for row in store.query("SELECT name FROM sqlite_master WHERE type='table'")}
 
 
-@pytest.mark.parametrize("revision", ["release-217-v10", "wake-caller-307-v11", "review-subject-old-v11"])
-def test_real_historical_store_upgrades_to_12_and_reopens_unchanged(tmp_path, revision):
+@pytest.mark.parametrize("revision", LAYOUTS)
+def test_real_historical_store_upgrades_to_current_and_reopens_unchanged(tmp_path, revision):
     path = archived_store(tmp_path / "historic.sqlite3", revision)
     with sqlite3.connect(path) as conn:
         conn.executemany(
@@ -47,9 +58,10 @@ def test_real_historical_store_upgrades_to_12_and_reopens_unchanged(tmp_path, re
         old_job = source.one("SELECT * FROM jobs WHERE job_id='historic-review'")
         old_notices = source.query("SELECT * FROM notices ORDER BY notice_id")
     with Store(path) as upgraded:
-        assert upgraded.one("SELECT MAX(version) AS version FROM schema_version")["version"] == 12
+        assert upgraded.one("SELECT MAX(version) AS version FROM schema_version")["version"] == SCHEMA_VERSION
         job = upgraded.one("SELECT * FROM jobs WHERE job_id='historic-review'")
-        assert job == {**dict.fromkeys(REVIEW_FIELDS), **old_job}
+        # Slot 13's one column is NOT NULL DEFAULT 0; a layout that already has it keeps its value.
+        assert job == {**dict.fromkeys(REVIEW_FIELDS), **dict.fromkeys(FAMILY_FIELDS, 0), **old_job}
         expected_notices = []
         for old_notice in old_notices:
             wake = dict.fromkeys(WAKE_FIELDS)
@@ -99,7 +111,7 @@ def test_slot_11_migration_and_schema_equal_307(tmp_path):
                 assert " ".join(actual.split()) == " ".join(ddl.split()), name
 
 
-@pytest.mark.parametrize("revision", ["release-217-v10", "wake-caller-307-v11", "review-subject-old-v11"])
+@pytest.mark.parametrize("revision", LAYOUTS)
 def test_failed_schema_script_rolls_back_upgrade_and_next_open_retries(tmp_path, monkeypatch, revision):
     path = archived_store(tmp_path / "historic.sqlite3", revision)
     with Store(path, read_only=True) as source:
@@ -124,31 +136,32 @@ def test_failed_schema_script_rolls_back_upgrade_and_next_open_retries(tmp_path,
         assert snapshot(failed) == before
         assert failed.query("SELECT type,name,sql FROM sqlite_master ORDER BY type,name") == before_schema
     with Store(path) as recovered:
-        assert recovered.one("SELECT MAX(version) AS version FROM schema_version")["version"] == 12
-        assert REVIEW_FIELDS <= recovered.get_job("historic-review").keys()
+        assert recovered.one("SELECT MAX(version) AS version FROM schema_version")["version"] == SCHEMA_VERSION
+        assert REVIEW_FIELDS | FAMILY_FIELDS <= recovered.get_job("historic-review").keys()
         assert WAKE_FIELDS <= recovered.one("SELECT * FROM notices").keys()
         after = snapshot(recovered)
     with Store(path) as reopened:
         assert snapshot(reopened) == after
 
 
+@pytest.mark.parametrize("recorded", [12, 13])
 @pytest.mark.parametrize("revision,partial_wake", [
     pytest.param("review-subject-old-v11", False, id="old-314"),
     pytest.param("review-subject-old-v11", True, id="old-314-with-wake-state"),
     pytest.param("wake-caller-307-v11", False, id="307"),
 ])
-def test_recorded_version_12_repairs_missing_slot_columns_without_new_versions(tmp_path, revision, partial_wake):
+def test_recorded_version_repairs_missing_slot_columns(tmp_path, revision, partial_wake, recorded):
     path = archived_store(tmp_path / "historic.sqlite3", revision)
     # Old #330 recorded 12 before its schema script failed on an old #314
-    # store. A version row alone must not hide either slot's missing columns.
+    # store. A version row alone must not hide any slot's missing columns.
     with sqlite3.connect(path) as conn:
-        conn.execute("INSERT INTO schema_version VALUES (12,'2026-11-02T00:00:00Z')")
+        conn.execute("INSERT INTO schema_version VALUES (?,'2026-11-02T00:00:00Z')", (recorded,))
         if partial_wake:
             conn.execute("ALTER TABLE notices ADD COLUMN wake_state TEXT")
     with Store(path, read_only=True) as source:
         before = snapshot(source)
     with Store(path) as repaired:
-        assert REVIEW_FIELDS <= repaired.get_job("historic-review").keys()
+        assert REVIEW_FIELDS | FAMILY_FIELDS <= repaired.get_job("historic-review").keys()
         notice = repaired.one("SELECT * FROM notices WHERE job_id='historic-review'")
         assert WAKE_FIELDS <= notice.keys()
         if "wake_state" in before["notices"][0]:
@@ -162,6 +175,14 @@ def test_recorded_version_12_repairs_missing_slot_columns_without_new_versions(t
         after = snapshot(repaired)
         for table, original_rows in before.items():
             assert [{key: row[key] for key in original} for row, original in zip(after[table], original_rows)] == original_rows
-            assert len(after[table]) == len(original_rows)
+            added = after[table][len(original_rows):]
+            if recorded == SCHEMA_VERSION or table not in ("schema_version", "events"):
+                # Repairing a current-version store adds no version or audit record.
+                assert added == [], table
+            elif table == "schema_version":
+                assert [row["version"] for row in added] == [SCHEMA_VERSION]
+            else:
+                assert [(row["kind"], json.loads(row["data_json"])) for row in added] == [
+                    ("schema.migrated", {"version": SCHEMA_VERSION}), ("schema.applied", {"version": SCHEMA_VERSION})]
     with Store(path) as reopened:
         assert snapshot(reopened) == after

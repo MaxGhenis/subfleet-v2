@@ -21,7 +21,9 @@ REFUSED_WORKDIR_PREFIXES = ("/" + "tmp/", "/private/" + "tmp/")  # C-2.4
 
 SESSION_ENV = ("CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_PID",
                "CODEX_THREAD_ID", "CODEX_SESSION_ID", "SUBFLEET_SESSION_ID",
-               "SUBFLEET_CALLER_FAMILY", "SUBFLEET_RUN_DETACH", "SUBFLEET_DAEMON_BIN")
+               "SUBFLEET_CALLER_FAMILY", "SUBFLEET_RUN_DETACH", "SUBFLEET_DAEMON_BIN",
+               # A Subfleet job's own markers (C-6.23 refuses consent inside one).
+               "SUBFLEET_JOB", "SUBFLEET_ATTEMPT", "SUBFLEET_TURN_JOB")
 
 
 @pytest.fixture

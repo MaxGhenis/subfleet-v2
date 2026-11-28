@@ -41,6 +41,7 @@ class Sessions:
                  on_lost: Callable[[ResponseLost], None] | None = None):
         self.client = client
         self.on_lost = on_lost          # C-16.3: told before a lost submit is re-sent
+        self._submit_capabilities: frozenset[str] | None = None
 
     # --- durable facts (C-23.33, C-23.35, C-23.55) ---------------------------
 
@@ -91,6 +92,13 @@ class Sessions:
         """One notice row for `session_id`; the delivery ladder does the rest."""
         return self.client.call("ping", _asdict(PingArgs(text=text, session_id=session_id)))
 
+    def require_handoff_capabilities(self, *, attributed: bool) -> None:
+        """C-25.1: discover family support before a family-aware handoff's state reads."""
+        from ..cli import _daemon_capabilities, _require_review_capabilities
+        self._submit_capabilities = _daemon_capabilities(self.client)
+        _require_review_capabilities(self.client, subject=attributed, family=True,
+                                     known=self._submit_capabilities)
+
     def submit(self, args: SubmitArgs, *, minted: bool = False) -> dict[str, Any]:
         """One job through the ordinary path, settled if its answer is lost (C-16.3).
 
@@ -108,7 +116,7 @@ class Sessions:
             args = dataclasses.replace(args, caller_family=_review_caller_family(args.task, args.caller_family))
         except ValueError as exc:
             raise ProtocolError(str(exc), reason="caller-family") from exc
-        _require_review_capability(self.client, args)
+        _require_review_capability(self.client, args, known=self._submit_capabilities)
         return self.client.call_settled("submit", _asdict(args), request_id=args.request_id,
                                         minted=minted, on_lost=self.on_lost)
 

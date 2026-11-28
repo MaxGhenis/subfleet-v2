@@ -156,11 +156,11 @@ class DaemonError(Exception):
         super().__init__(message)
         self.code = code
         self.fix = fix
-        from .refusals import task_hold_condition_details
+        from .refusals import PUBLIC_REVIEW_REFUSALS, task_hold_condition_details
         self.details = task_hold_condition_details(details) if reason == "task-hold-condition" else None
         self.reason = reason if reason == "task-hold-condition" else None
-        if type(reason) is str and reason == "review-round-limit":
-            self.reason = "review-round-limit"  # fixed public refusal code; it carries no details
+        if type(reason) is str and reason in PUBLIC_REVIEW_REFUSALS:
+            self.reason = reason
         # An enum selected by exact template validation, never diagnostic prose.
         # Suggestion CLI errors reconstruct templates from this enum, validated
         # structural fields and the exit code; arbitrary daemon prose is excluded.
@@ -979,7 +979,7 @@ class Client:
         if not job_id or str(job_id) not in message:
             message = f"{message}; job {job_id} carries request id {request_id}"
         raise DaemonError(refusal.code, message,
-                          refusal.fix or f"subfleet runs show {job_id}") from refusal
+                          refusal.fix or f"subfleet runs show {job_id}", reason=refusal.reason) from refusal
 
     def find_request(self, request_id: str) -> dict[str, Any] | None:
         """The job row carrying `request_id`, or None (C-6.2, C-16.3).

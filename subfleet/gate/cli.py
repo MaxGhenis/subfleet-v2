@@ -11,12 +11,14 @@ from pathlib import Path
 from typing import Sequence
 
 from ..client import Client, DaemonError, DaemonUnavailable, state_root
+from ..contracts import Exit
 from ..protocol import ProtocolError
 from .errors import GateError
 
 EXIT_CODES = {0: "agreement/completion", 1: "operational error", 2: "invalid input",
               3: "changes requested", 4: "blocked/invalid review",
-              5: "failed, unverified, or queued merge action"}
+              5: "failed, unverified, or queued merge action",
+              int(Exit.DAEMON_UNAVAILABLE): "daemon lacks family routing"}
 MANAGED = ("CLAUDE_CODE_MANAGED_SETTINGS_PATH", "CLAUDE_CODE_REMOTE_SETTINGS_PATH",
            "CLAUDE_CODE_MOCK_REMOTE_SETTINGS")
 
@@ -36,7 +38,7 @@ def configure(parser: argparse.ArgumentParser) -> None:
         child.add_argument("--json", action="store_true")
         child.add_argument("--dry-run", action="store_true")
         if kind != "continue":
-            child.add_argument("--peer", required=True, choices=("fable", "astra", "sol"))
+            child.add_argument("--peer", required=True, choices=("fable", "sol62", "astra", "sol"))
             child.add_argument("--main-model", help="main model for explicit family validation")
             child.add_argument("--brief")
             child.add_argument("-C", dest="workdir", default=None)
@@ -78,21 +80,27 @@ def _poll(client, gate_id: str) -> dict:
 
 def run(args, *, client=None, runner=subprocess.run, root: Path | None = None,
         poll_interval: float = .25) -> int:
-    from .service import preview
+    from ..policy import DEFAULT_POLICY_PATH, PolicyError, load_policy
+    from .service import preview, resolve_peer
     root = Path(root) if root is not None else state_root()
     try:
         if args.gate_command not in {"plan", "pr", "continue"}:
             raise GateError("choose gate pr, plan, or continue")
-        if getattr(args, "peer", None) == "sol":
-            print("subfleet gate: sol is retired from dispatch; using astra", file=sys.stderr)
-        if args.dry_run:
+        peer = getattr(args, "peer", None)
+        if args.dry_run or peer == "sol":
             try:
-                policy = json.loads((root / "policy.json").read_text())
-            except FileNotFoundError:
-                policy = {}
-            result = preview(args, root, runner=runner, policy=policy)
-            print(json.dumps(result, sort_keys=True, indent=None if args.json else 2))
-            return 0
+                policy = load_policy(root / "policy.json")
+            except PolicyError as exc:
+                if not isinstance(exc.__cause__, FileNotFoundError):
+                    raise
+                policy = load_policy(DEFAULT_POLICY_PATH)
+            if peer == "sol":
+                resolved = resolve_peer(policy, peer)
+                print(f"subfleet gate: sol is retired from dispatch; using {resolved}", file=sys.stderr)
+            if args.dry_run:
+                result = preview(args, root, runner=runner, policy=policy)
+                print(json.dumps(result, sort_keys=True, indent=None if args.json else 2))
+                return 0
         for key in MANAGED:
             if key in os.environ:
                 raise GateError(f"isolated review refused: inherited {key}; review the managed policy before retrying", 4)
@@ -102,7 +110,10 @@ def run(args, *, client=None, runner=subprocess.run, root: Path | None = None,
         client = client or Client(root)
         payload = {k: v for k, v in vars(args).items() if k not in {"handler", "command", "version"}}
         if args.gate_command != "continue":
+            from ..cli import _require_review_capabilities, caller_family
+            payload["caller_family"] = caller_family()
             payload["workdir"] = str(Path(args.workdir or Path.cwd()).expanduser().resolve())
+            _require_review_capabilities(client, family=True)
         # Files named by the caller are read by the daemon from absolute paths.
         for key in ("brief", "response"):
             if payload.get(key):
@@ -123,6 +134,8 @@ def run(args, *, client=None, runner=subprocess.run, root: Path | None = None,
         print(f"subfleet gate: {exc}", file=sys.stderr)
         if getattr(exc, "fix", None):
             print(f"  fix: {exc.fix}", file=sys.stderr)
+        if isinstance(exc, ProtocolError) and exc.code == Exit.DAEMON_UNAVAILABLE:
+            return int(Exit.DAEMON_UNAVAILABLE)
         return 1
     except KeyboardInterrupt:
         print("subfleet gate: interrupted; the peer job remains in the daemon store", file=sys.stderr)

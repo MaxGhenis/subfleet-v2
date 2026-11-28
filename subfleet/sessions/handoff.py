@@ -3339,6 +3339,7 @@ def handoff(sessions, policy: dict[str, Any], *, session_id: str | None, last: b
             model: str | None, stage_prompt, workdir: str | Path | None = None,
             task: str | None = None, tier: str | None = None,
             sandbox: str | None = None, caller_session: str | None = None,
+            caller_session_kind: str | None = None,
             caller_pid: int | None = None, out_path: str | None = None,
             current_session: str | None = None, request_id: str | None = None,
             minted: bool | None = None,
@@ -3399,6 +3400,7 @@ def handoff(sessions, policy: dict[str, Any], *, session_id: str | None, last: b
         out_path=out_path,
         name=f"handoff-{canonical[:8]}",
         caller_session=caller_session,
+        caller_session_kind=caller_session_kind,
         caller_pid=caller_pid,
     )
     # C-16.3: whose request id this is. The CLI mints one before calling (the
