@@ -1,0 +1,119 @@
+[
+ {
+  "mutant": "MH",
+  "file": "subfleet/adapters/claude.py",
+  "killers": [
+   "tests/unit/test_effort_env.py::test_an_empty_effort_pins_nothing_on_any_path"
+  ],
+  "rc": 1,
+  "killed": true,
+  "summary": "1 failed in 14.28s",
+  "seconds": 24.5,
+  "load_start": [
+   99.77392578125,
+   99.96142578125,
+   100.02880859375
+  ],
+  "load_end": [
+   100.09130859375,
+   99.884765625,
+   99.99072265625
+  ],
+  "restored_sha256": "510c649c37137de490a954d03c0c0de39c17ae224a3733f13816089e3435f3a7",
+  "restored_matches_head": true
+ },
+ {
+  "mutant": "R1-resume-pin-dropped",
+  "file": "subfleet/adapters/claude.py",
+  "killers": [
+   "tests/unit/test_effort_env.py::test_property_resume_effort_pins_settings_and_preserves_argv",
+   "tests/unit/test_effort_env.py::test_resumed_attempt_pins_the_effort_its_fresh_launch_pins"
+  ],
+  "rc": 1,
+  "killed": true,
+  "summary": "1 failed in 21.05s",
+  "seconds": 30.2,
+  "load_start": [
+   100.09130859375,
+   99.884765625,
+   99.99072265625
+  ],
+  "load_end": [
+   118.388671875,
+   104.15185546875,
+   101.5205078125
+  ],
+  "restored_sha256": "510c649c37137de490a954d03c0c0de39c17ae224a3733f13816089e3435f3a7",
+  "restored_matches_head": true
+ },
+ {
+  "mutant": "R2-daemon-drops-resume-effort",
+  "file": "subfleet/daemon.py",
+  "killers": [
+   "tests/fake/test_resume_contract.py::test_c12_resume_invokes_native_launch_on_original_lane"
+  ],
+  "rc": 1,
+  "killed": true,
+  "summary": "1 failed, 1 passed in 16.64s",
+  "seconds": 22.5,
+  "load_start": [
+   118.388671875,
+   104.15185546875,
+   101.5205078125
+  ],
+  "load_end": [
+   134.4609375,
+   109.19775390625,
+   103.42236328125
+  ],
+  "restored_sha256": "0dfa8f27d6aa1196a45c60898778c0ec34b6048d1c6a913e8799ecb0de39ebf8",
+  "restored_matches_head": true
+ },
+ {
+  "mutant": "R3-resume-flag-dropped",
+  "file": "subfleet/adapters/claude.py",
+  "killers": [
+   "tests/unit/test_effort_env.py::test_property_resume_effort_pins_settings_and_preserves_argv",
+   "tests/unit/test_effort_env.py::test_resumed_attempt_pins_the_effort_its_fresh_launch_pins"
+  ],
+  "rc": 1,
+  "killed": true,
+  "summary": "1 failed in 16.70s",
+  "seconds": 28.6,
+  "load_start": [
+   134.4609375,
+   109.19775390625,
+   103.42236328125
+  ],
+  "load_end": [
+   136.14599609375,
+   111.87646484375,
+   104.58349609375
+  ],
+  "restored_sha256": "510c649c37137de490a954d03c0c0de39c17ae224a3733f13816089e3435f3a7",
+  "restored_matches_head": true
+ },
+ {
+  "mutant": "P1-parity-env-only",
+  "file": "tests/unit/test_claude_v1_parity.py",
+  "killers": [
+   "tests/unit/test_effort_env.py::test_v1_source_parity_runs_by_default_where_the_v1_runner_exists"
+  ],
+  "rc": 1,
+  "killed": true,
+  "summary": "1 failed in 16.32s",
+  "seconds": 23.0,
+  "load_start": [
+   136.14599609375,
+   111.87646484375,
+   104.58349609375
+  ],
+  "load_end": [
+   142.49609375,
+   114.818359375,
+   105.802734375
+  ],
+  "restored_sha256": "691acfaf5c441e8ee882b1d1364e8b95fbb1c90864b4014c4a6f7675ab9be971",
+  "restored_matches_head": true
+ }
+]

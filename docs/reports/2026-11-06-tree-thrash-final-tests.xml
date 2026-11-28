@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="3" skipped="0" tests="52" time="710.499" timestamp="2026-11-06T09:08:30.889985-05:00" hostname="MacBook-Pro-1306.local"><testcase classname="tests.fake.test_admission_route_isolation" name="test_c6_12_the_incident_a_job_pinned_by_an_ambiguous_email_does_not_stop_the_pass" time="81.172"><failure message="subfleet.adapters.base.AdapterError: could not inspect the workdir: git rev-parse timed out after 60 s">subfleet/salvage.py:208: in _git
+    result = subprocess.run(["git", "-C", str(workdir), *args], env=_git_env(env),
+../../../.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/subprocess.py:557: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/subprocess.py:1221: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/subprocess.py:2154: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+../../../.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/subprocess.py:1268: in _check_timeout
+    raise TimeoutExpired(
+E   subprocess.TimeoutExpired: Command '['git', '-C', '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-required-last/popen-gw3/test_c6_12_the_incident_a_job_0/routing-state/work', 'rev-parse', '--verify', 'HEAD']' timed out after 60 seconds
+
+The above exception was the direct cause of the following exception:
+subfleet/daemon.py:3082: in submit
+    head = push_head if args.push_branch is not None else git_head(
+subfleet/salvage.py:257: in git_head
+    return _git(workdir, "rev-parse", "--verify", "HEAD", optional=True, timeout_s=timeout_s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/salvage.py:214: in _git
+    raise SalvageError(f"git {args[0]} timed out after {cap:g} s", timed_out=True) from exc
+E   subfleet.salvage.SalvageError: git rev-parse timed out after 60 s
+
+The above exception was the direct cause of the following exception:
+tests/fake/test_admission_route_isolation.py:98: in test_c6_12_the_incident_a_job_pinned_by_an_ambiguous_email_does_not_stop_the_pass
+    stuck = legacy(service, harness, EMAIL, pinned_model=None, task="review", tier="standard")
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/fake/test_admission_route_isolation.py:79: in legacy
+    job_id = submit(service, harness, **{"pinned_lane": "claude-a", **changes})
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/fake/test_admission_route_isolation.py:74: in submit
+    return service.dispatch("submit", harness.submit_args(**changes))["job_id"]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:114: in scoped
+    return function(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:4219: in dispatch
+    return self.submit(protocol.coerce_args(protocol.SubmitArgs, args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:3230: in submit
+    raise AdapterError(f"could not inspect the workdir: {exc}", code=int(Exit.OPERATIONAL),
+E   subfleet.adapters.base.AdapterError: could not inspect the workdir: git rev-parse timed out after 60 s</failure></testcase><testcase classname="tests.fake.test_admission_visibility" name="test_c6_16_why_names_priority_class_and_policy[False]" time="78.229"><failure message="subfleet.adapters.base.AdapterError: could not inspect the workdir: git rev-parse timed out after 60 s">subfleet/salvage.py:208: in _git
+    result = subprocess.run(["git", "-C", str(workdir), *args], env=_git_env(env),
+../../../.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/subprocess.py:557: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/subprocess.py:1221: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/subprocess.py:2154: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+../../../.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/subprocess.py:1268: in _check_timeout
+    raise TimeoutExpired(
+E   subprocess.TimeoutExpired: Command '['git', '-C', '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-required-last/popen-gw1/test_c6_16_why_names_priority_0/routing-state/work', 'rev-parse', '--verify', 'HEAD']' timed out after 60 seconds
+
+The above exception was the direct cause of the following exception:
+subfleet/daemon.py:3082: in submit
+    head = push_head if args.push_branch is not None else git_head(
+subfleet/salvage.py:257: in git_head
+    return _git(workdir, "rev-parse", "--verify", "HEAD", optional=True, timeout_s=timeout_s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/salvage.py:214: in _git
+    raise SalvageError(f"git {args[0]} timed out after {cap:g} s", timed_out=True) from exc
+E   subfleet.salvage.SalvageError: git rev-parse timed out after 60 s
+
+The above exception was the direct cause of the following exception:
+tests/fake/test_admission_visibility.py:76: in test_c6_16_why_names_priority_class_and_policy
+    root = submit(service, harness, caller_session="chosen", pinned_model="astra")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/fake/test_admission_visibility.py:33: in submit
+    return service.dispatch("submit", harness.submit_args(**changes))["job_id"]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:114: in scoped
+    return function(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:4219: in dispatch
+    return self.submit(protocol.coerce_args(protocol.SubmitArgs, args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:3230: in submit
+    raise AdapterError(f"could not inspect the workdir: {exc}", code=int(Exit.OPERATIONAL),
+E   subfleet.adapters.base.AdapterError: could not inspect the workdir: git rev-parse timed out after 60 s</failure></testcase><testcase classname="tests.fake.test_task_hold_admission" name="test_a_held_build_waits_while_a_review_on_the_same_lane_is_placed" time="19.975" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_job_with_no_task_and_a_job_of_another_task_are_not_held" time="6.019" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_held_build_retried_after_a_failed_attempt_waits" time="4.782" /><testcase classname="tests.fake.test_task_hold_admission" name="test_release_wakes_the_held_jobs_at_once" time="9.498" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_release_mid_pass_lets_the_later_jobs_of_that_pass_start" time="13.126" /><testcase classname="tests.fake.test_task_hold_admission" name="test_the_hold_ends_by_the_clock_with_no_reaper" time="15.540" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_second_hold_replaces_the_first" time="15.580" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_turn_of_a_held_task_is_placed" time="9.255" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_running_attempt_is_never_touched" time="7.226" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_hold_committed_after_the_pass_read_its_holds_still_stops_the_reservation" time="7.174" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_refused_hold_or_release_writes_nothing[args0-unknown-task]" time="4.615" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_refused_hold_or_release_writes_nothing[args1-unknown-task]" time="4.458" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_refused_hold_or_release_writes_nothing[args2-unknown-task]" time="5.601" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_refused_hold_or_release_writes_nothing[args3-task-hold-note]" time="5.859" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_refused_hold_or_release_writes_nothing[args4-task-hold-note]" time="8.256" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_refused_hold_or_release_writes_nothing[args5-task-hold-note]" time="6.948" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_refused_hold_or_release_writes_nothing[args6-task-hold-note]" time="7.392" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_refused_hold_or_release_writes_nothing[args7-task-hold-note]" time="9.643" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_refused_hold_or_release_writes_nothing[args8-task-hold-note]" time="7.152" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_refused_hold_or_release_writes_nothing[args9-task-hold-note]" time="10.984" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_refused_hold_or_release_writes_nothing[args10-task-hold-note]" time="9.417" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_refused_hold_or_release_writes_nothing[args11-task-hold-note]" time="6.131" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_refused_hold_or_release_writes_nothing[args12-task-hold-note]" time="7.290" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_refused_hold_or_release_writes_nothing[args13-task-hold-until]" time="8.768" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_refused_hold_or_release_writes_nothing[args14-task-hold-until]" time="6.459" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_refused_hold_or_release_writes_nothing[args15-task-hold-until]" time="6.167" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_refused_hold_or_release_writes_nothing[args16-task-hold-until]" time="4.417" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_refused_hold_or_release_writes_nothing[args17-task-hold-until]" time="1.284" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_refused_hold_or_release_writes_nothing[args18-unknown-task]" time="3.739" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_refused_hold_or_release_writes_nothing[args19-tasks-action]" time="3.762" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_note_at_the_limit_is_kept_whole" time="3.633" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_note_shaped_like_a_credential_is_refused_and_never_stored" time="2.192" /><testcase classname="tests.fake.test_task_hold_admission" name="test_release_of_a_task_with_no_hold_is_a_no_op" time="3.590" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_hold_on_a_task_the_policy_no_longer_routes_can_still_be_released" time="2.151" /><testcase classname="tests.fake.test_task_hold_admission" name="test_the_task_names_are_the_policys_chains" time="3.181" /><testcase classname="tests.fake.test_task_hold_admission" name="test_hold_and_release_are_events" time="6.061" /><testcase classname="tests.fake.test_task_hold_admission" name="test_status_shows_the_holds_in_force_and_raises_no_alert" time="6.703" /><testcase classname="tests.fake.test_task_hold_admission" name="test_why_names_the_note_and_the_end" time="8.363" /><testcase classname="tests.fake.test_task_hold_admission" name="test_offline_status_lists_the_holds" time="5.014" /><testcase classname="tests.fake.test_task_hold_admission" name="test_status_counts_every_held_job_past_the_jobs_it_lists[daemon]" time="46.168" /><testcase classname="tests.fake.test_task_hold_admission" name="test_status_counts_every_held_job_past_the_jobs_it_lists[offline]" time="40.798" /><testcase classname="tests.fake.test_task_hold_admission" name="test_an_unknown_task_is_refused_by_name_and_holds_nothing" time="6.175" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_release_signals_the_daemons_waiters_after_it_commits" time="4.265" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_reset_credit_is_never_spent_for_a_held_job" time="3.741" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_hold_needs_no_schema_change_and_survives_a_restart" time="4.476" /><testcase classname="tests.fake.test_task_hold_admission" name="test_no_lease_reaper_removes_a_hold" time="3.014" /><testcase classname="tests.fake.test_task_hold_admission" name="test_a_hold_is_no_lease_a_capacity_wait_counts" time="5.800" /><testcase classname="tests.fake.test_task_hold_admission" name="test_the_hold_shows_in_why_text_constants" time="0.011" /><testcase classname="tests.fake.test_task_hold_admission" name="test_quarantined_probe_can_recover_without_a_person" time="11.235" /><testcase classname="tests.fake.test_unrun_worktrees" name="test_a_job_cancelled_before_any_attempt_gives_back_its_tree" time="472.131"><failure message="subfleet.adapters.base.AdapterError: could not inspect the workdir: git rev-parse timed out after 60 s">subfleet/salvage.py:208: in _git
+    result = subprocess.run(["git", "-C", str(workdir), *args], env=_git_env(env),
+../../../.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/subprocess.py:557: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/subprocess.py:1221: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/subprocess.py:2154: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+../../../.local/share/uv/python/cpython-3.14.7-macos-aarch64-none/lib/python3.14/subprocess.py:1268: in _check_timeout
+    raise TimeoutExpired(
+E   subprocess.TimeoutExpired: Command '['git', '-C', '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261106-044747-tree-thrash-build-a2-8t9jwmf0/tree-thrash-required-last/popen-gw0/test_a_job_cancelled_before_an0/repo', 'rev-parse', '--verify', 'HEAD']' timed out after 60 seconds
+
+The above exception was the direct cause of the following exception:
+subfleet/daemon.py:3082: in submit
+    head = push_head if args.push_branch is not None else git_head(
+subfleet/salvage.py:257: in git_head
+    return _git(workdir, "rev-parse", "--verify", "HEAD", optional=True, timeout_s=timeout_s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/salvage.py:214: in _git
+    raise SalvageError(f"git {args[0]} timed out after {cap:g} s", timed_out=True) from exc
+E   subfleet.salvage.SalvageError: git rev-parse timed out after 60 s
+
+The above exception was the direct cause of the following exception:
+tests/fake/test_unrun_worktrees.py:100: in test_a_job_cancelled_before_any_attempt_gives_back_its_tree
+    job_id = submit(daemon, harness, repo)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/fake/test_unrun_worktrees.py:69: in submit
+    return daemon.dispatch("submit", args)["job_id"]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:114: in scoped
+    return function(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:4219: in dispatch
+    return self.submit(protocol.coerce_args(protocol.SubmitArgs, args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:3230: in submit
+    raise AdapterError(f"could not inspect the workdir: {exc}", code=int(Exit.OPERATIONAL),
+E   subfleet.adapters.base.AdapterError: could not inspect the workdir: git rev-parse timed out after 60 s</failure></testcase></testsuite></testsuites>

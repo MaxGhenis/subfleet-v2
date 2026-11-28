@@ -1,0 +1,11 @@
+tests/unit/test_cli.py
+tests/unit/test_notify_push.py
+tests/unit/test_turn_replay.py
+tests/fake/test_frozen_stream_nonregular.py
+tests/fake/test_gate_end_to_end.py
+tests/unit/test_effort_env.py
+tests/unit/test_conversation_status.py
+tests/fake/test_turn_wait_reasons.py
+tests/unit/test_approval_commit.py
+tests/fake/test_fake_provider.py
+tests/frontend/test_core_idle.py

@@ -1,0 +1,6 @@
+tests/fake/test_codex_turn_completed_fake.py
+tests/fake/test_turn_relay_exit_recovery.py
+tests/frontend/test_core_protocol.py
+tests/fake/test_detached_cwd_pins.py
+tests/process/test_provider_shell_environment.py
+tests/fake/test_conversation_pools.py
