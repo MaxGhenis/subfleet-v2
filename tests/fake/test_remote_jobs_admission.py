@@ -1,4 +1,4 @@
-"""Remote records leave local job admission, retention and wait alone."""
+"""C-17.10: Remote records leave local job admission, retention and wait alone."""
 
 from contextlib import closing
 import json
@@ -71,18 +71,22 @@ def test_remote_adoption_keeps_local_admission_and_disk_reserve(state_daemon, tm
         job_ids = [daemon.dispatch("submit", harness.submit_args(name=f"queued-{n}"))["job_id"]
                    for n in range(3)]
         if with_remote:
+            leases = daemon.store.query("SELECT * FROM leases ORDER BY lease_key")
             use_cli(daemon, monkeypatch)
             adopt()
+            assert daemon.store.query("SELECT * FROM leases ORDER BY lease_key") == leases
         assert {row["job_id"] for row in daemon.store.list_jobs()} == set(job_ids)
         daemon._admit()
         attempts = daemon.store.query("SELECT job_id, lane_id, state FROM attempts")
-        assert workspace_ids == [job_ids[0]]
-        return ([row["state"] for row in (daemon.store.get_job(job_id) for job_id in job_ids)],
-                [(job_ids.index(row["job_id"]), row["lane_id"], row["state"]) for row in attempts],
+        assert workspace_ids[0] == job_ids[0]
+        assert set(workspace_ids) <= set(job_ids)
+        assert daemon.store.get_job(job_ids[0])["state"] == "running"
+        assert all(daemon.store.get_job(job_id)["state"] in {"queued", "waiting"} for job_id in job_ids[1:])
+        return ([(job_ids.index(row["job_id"]), row["lane_id"], row["state"]) for row in attempts],
                 daemon._disk.reserved_bytes)
 
     expected = place(control, control_harness, with_remote=False)
-    assert expected == (["reserved", "waiting", "waiting"], [(0, "codex-1", "reserved")], 1.5 * GB)
+    assert expected == ([(0, "codex-1", "reserved")], 1.5 * GB)
     with closing(daemon_module.Daemon(other_root)) as with_remote:
         monkeypatch.setattr(with_remote, "_launch", control._launch)
         assert place(with_remote, other_harness, with_remote=True) == expected

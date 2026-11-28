@@ -1,6 +1,6 @@
 """Read-only view of the store for when the daemon is down (C-17.5).
 
-`runs`, `runs show`, `status`, and `kill` keep working without a daemon. Reads
+`runs`, `runs show`, `status`, `remote list`, and `kill` work without a daemon. Reads
 go through a `mode=ro` URI so this process can never write the store (C-3.4);
 offline `kill` is the one side effect, and it signals only a recorded process
 group whose identity it has verified (C-5.3, C-5.4). Anything it cannot verify
@@ -27,7 +27,7 @@ from .quota_projection import weekly_projections
 from .review_record import stored_review_result
 from .status_json import closure_row, decision_rows
 from .store import SCHEMA_VERSION as KNOWN_SCHEMA_VERSION
-from .store import WEEKLY_HISTORY_SQL, cancel_info, job_flags, notice_rows, shell_flags, weekly_history_params
+from .store import REMOTE_JOBS_SQL, WEEKLY_HISTORY_SQL, cancel_info, job_flags, notice_rows, shell_flags, weekly_history_params
 
 STORE_NAME = "state.sqlite3"
 RECEIPTS = ("start", "exit")            # C-5.2 receipts beside the store (C-17.5)
@@ -347,6 +347,14 @@ class Offline:
             return [dict(row) for row in conn.execute(
                 "SELECT * FROM lanes ORDER BY lane_id")]
 
+    @staticmethod
+    def _remote_job_rows(conn: sqlite3.Connection, tables: set[str]) -> list[dict[str, Any]]:
+        return [dict(row) for row in conn.execute(REMOTE_JOBS_SQL)] if "remote_jobs" in tables else []
+
+    def list_remote_jobs(self) -> list[dict[str, Any]]:
+        with self.reading() as conn:
+            return self._remote_job_rows(conn, self._tables(conn))
+
     def status(self) -> dict[str, Any]:
         at = datetime.now(timezone.utc)
         with self.reading() as conn:
@@ -396,6 +404,7 @@ class Offline:
             # below shows 50, and a count read from it would stop there (C-17.4).
             held_jobs = (task_holds.waiting_counts(conn.execute(task_holds.WAITING_SQL).fetchall())
                          if holds and "jobs" in tables else {})
+            remote = self._remote_job_rows(conn, tables)
         for lane in lanes:
             lane["in_flight"] = in_flight.get(lane.get("lane_id"), 0)
         for reading in readings:
@@ -421,6 +430,7 @@ class Offline:
             "alerts": active_alerts(latches),
             "claude_cards": self._cards_view(),     # C-9.10: the last snapshot the daemon wrote
             "task_holds": task_holds.listing(holds, waiting=held_jobs),
+            **({"remote_jobs": remote} if remote else {}),
         }
 
     def _cards_view(self) -> dict[str, Any]:

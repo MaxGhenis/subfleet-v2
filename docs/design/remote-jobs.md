@@ -83,7 +83,8 @@ The first slice adds `subfleet remote list` and `--json`. `subfleet status`
 shows a **Remote** section and explains that adopted states are unpolled.
 `subfleet status --json` includes `remote_jobs` when there are records, with
 null `last_polled_at` indicating the lack of a provider observation. With an
-empty table, existing status output stays byte-identical. Status obtains the
+empty table, status keeps its existing output fields and format. Offline JSON
+continues to report the actual on-disk schema version. Status obtains the
 records from the daemon when available and uses its existing offline store
 path otherwise. Local `wait`, including `wait --mine`, continues to follow
 local work only in this slice.

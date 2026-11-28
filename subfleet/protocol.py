@@ -62,6 +62,7 @@ OPS = (
     "notice.pending", "notice.ack", "notice.mark", "notice.list", "notice.withdraw", "ping", "daemon.status",
     "gate.start", "gate.poll", "gate.continue",
     "sessions", "pick", "operations", "tasks", "retention.delete",
+    "remote.adopt", "remote.forget", "remote.list",
     *CONVERSATION_OPS,
 )
 
@@ -271,6 +272,20 @@ class ListArgs:
 @dataclass
 class ShowArgs:
     job_id: str
+
+
+@dataclass
+class RemoteAdoptArgs:
+    url: str
+    repo: str | None = None
+    branch: str | None = None
+    name: str | None = None
+    account: str | None = None
+
+
+@dataclass
+class RemoteForgetArgs:
+    remote_id: str
 
 
 @dataclass

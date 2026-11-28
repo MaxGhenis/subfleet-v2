@@ -599,6 +599,9 @@ def format_status(data: dict[str, Any]) -> str:
         lines.append(format_runs(running))
     if turns:
         lines.append(f"conversation turns: {len(turns)} live — {PROG} runs --kind turn")
+    remote = rows_of(data.get("remote_jobs"))
+    if remote:
+        lines.extend(["", "Remote (state unpolled)", format_remote_jobs(remote)])
     return "\n".join(lines)
 
 
@@ -720,6 +723,49 @@ def cmd_status(args: argparse.Namespace) -> int:
         note(f"{PROG} status: offline — read from the store; "
              f"readings are as of the last daemon write")
     out(format_status(data))
+    return int(Exit.OK)
+
+
+# --- remote records (C-17.10) -------------------------------------------------
+
+def format_remote_jobs(rows: list[dict[str, Any]]) -> str:
+    return "\n".join(f"{row['remote_id']}  {row['provider']}  {row['state']}  {row['url']}"
+                     for row in rows) if rows else "no remote jobs"
+
+
+def cmd_remote(args: argparse.Namespace) -> int:
+    action = args.remote_command
+    params = {}
+    if action == "adopt":
+        params = _asdict(protocol.RemoteAdoptArgs(
+            args.url, repo=args.repo, branch=args.branch, name=args.name, account=args.account))
+    elif action == "forget":
+        params = _asdict(protocol.RemoteForgetArgs(args.remote_id))
+    try:
+        data = _client(args).call(f"remote.{action}", params)
+    except DaemonUnavailable as down:
+        if action != "list":
+            return _daemon_down(down)
+        _note_offline_reason(down)
+        store = _offline(args)
+        try:
+            data = {"remote_jobs": store.list_remote_jobs()}
+        except OfflineUnavailable as exc:
+            return _daemon_down(exc, down)
+        _note_schema(store)
+    except DaemonError as exc:
+        return _daemon_error(exc)
+    except ProtocolError as exc:
+        return _protocol_failure(exc)
+
+    if action == "adopt":
+        out(data["remote_job"]["remote_id"])
+    elif action == "forget":
+        out(f"forgot {data['remote_id']}")
+    elif args.json:
+        emit(data)
+    else:
+        out(format_remote_jobs(rows_of(data.get("remote_jobs"))))
     return int(Exit.OK)
 
 
@@ -3658,6 +3704,19 @@ def build_parser() -> argparse.ArgumentParser:
                     "and full attempt evidence.")
     _add_json(p_status)
     p_status.set_defaults(handler=cmd_status)
+
+    p_remote = sub.add_parser("remote", help="record cloud jobs started elsewhere")
+    p_remote.set_defaults(handler=cmd_remote)
+    remote_sub = p_remote.add_subparsers(dest="remote_command", required=True)
+    remote_adopt = remote_sub.add_parser("adopt", help="record a Claude or Codex cloud job")
+    remote_adopt.add_argument("url")
+    remote_adopt.add_argument("--repo", metavar="OWNER/NAME")
+    remote_adopt.add_argument("--branch")
+    remote_adopt.add_argument("--name")
+    remote_adopt.add_argument("--account", metavar="LABEL")
+    remote_forget = remote_sub.add_parser("forget", help="remove a remote job record")
+    remote_forget.add_argument("remote_id", metavar="ID")
+    _add_json(remote_sub.add_parser("list", help="list remote job records"))
 
     p_pick = sub.add_parser("pick", help="recommend a v2 Codex home or Claude email")
     p_pick.add_argument("family", nargs="?", choices=("codex", "claude"), default="codex")
