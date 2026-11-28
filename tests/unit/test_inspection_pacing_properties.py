@@ -63,10 +63,15 @@ def world(tmp_path, monkeypatch):
     root.mkdir()
     core = object.__new__(Daemon)
     core.root, core.store = root, Store(root / "state.sqlite3")
+    core.crash_hook = core.publish_hook = None    # what __init__ sets; C-4.3's stream freeze reads publish_hook
     core.stopping = threading.Event()
     core.term_grace_s, core.kill_settle_s, core.exit_settle_s, core.start_grace_s = .05, .3, .3, 10
     core._exit_settle, core._children, core._pending_launches, core._starting_deadlines = {}, {}, set(), {}
+    core._stream_check_failures = {}
     core._inspect_next, core.inspect_interval_s, core._inspect_retry = {}, INTERVAL, set()
+    core._reset_admission_state()        # C-6.14: what the attempt worker has heard of models answering
+    core.policy = {}                     # C-6.14: `admission.prove_*` at their defaults
+    core._native, core._v1_unread = set(), {}     # C-5.11: the attempts known to be this daemon's own
     core._launches, core._export_locks = {}, {}
     core.log = logging.getLogger("subfleet.test")
     core._salvage = lambda job, a: ([], None, {})
@@ -221,7 +226,7 @@ def test_c5_12_inspection_pacing_holds_its_properties(world, monkeypatch, plans,
                 core.store.add_attempt(attempt_id=aid, job_id=job, seq=1, lane_id="codex-1", model_requested="astra",
                                        state="running", guardian_pid=guardians[aid], child_pid=guardians[aid] + 1,
                                        pgid=guardians[aid], boot_id="boot", proc_start=STARTED,
-                                       started_at="2026-09-26T00:00:00Z", evidence_json="{}")
+                                       started_at=daemon_module.utcnow(), evidence_json="{}")
                 attempt_dir(core.root, job, 1).mkdir(parents=True, exist_ok=True)
                 inserted.add(aid)
                 inserted_at[aid] = clock[0]

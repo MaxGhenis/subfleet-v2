@@ -1,0 +1,51 @@
+{
+  "label": "retention_archive-part11",
+  "start": "2026-10-30T20:27:14.757225+00:00",
+  "loads": [
+    30.85498046875,
+    39.51220703125,
+    45.06689453125
+  ],
+  "seconds": 20.599256917004823,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_repositorys_history_is_measured_once_a_pass",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.7915959160018247
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_the_survey_remembers_a_bundle_that_came_out_over_the_limit",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 5.071262417011894
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_archive.py::test_a_repositorys_history_is_measured_once_a_pass",
+    "tests/unit/test_retention_archive.py::test_the_survey_remembers_a_bundle_that_came_out_over_the_limit"
+  ],
+  "all_nodes": [
+    "tests/unit/test_retention_archive.py::test_a_repositorys_history_is_measured_once_a_pass",
+    "tests/unit/test_retention_archive.py::test_the_survey_remembers_a_bundle_that_came_out_over_the_limit"
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_a_repositorys_history_is_measured_once_a_pass": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_the_survey_remembers_a_bundle_that_came_out_over_the_limit": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {},
+  "loaded": [],
+  "rss": 126222336
+}

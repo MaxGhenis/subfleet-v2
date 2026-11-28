@@ -1,0 +1,3 @@
+VERDICT #272: REQUEST_CHANGES
+
+R12-F1 (P2), confirmed at 20:00 UTC: both alternates and scan routes read through a short accepted NFC spelling while canonical returns an absolute string over PATH_MAX. A normalization rename makes the canonical string fail an equation; stat raises ENAMETOOLONG and the new filter drops the owner pin with no incomplete entry. Head retires owner; same Git read changes 0 to 128. 475f63278 records three places, keeps owner and reads 0. Initial observational probes: four passed; durable unicode-length.json records both routes/readers. Strict regressions added in tests/fake/test_retention_dependency_review_r12.py. Required holds and named mutants remain in progress. No product edits, commits or remote writes.

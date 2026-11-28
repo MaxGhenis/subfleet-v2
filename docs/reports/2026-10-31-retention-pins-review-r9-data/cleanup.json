@@ -1,0 +1,9 @@
+{
+  "completed": "2026-10-31T09:40:54.915240+00:00",
+  "removed": [
+    "/private/tmp/sf-r272r9",
+    "/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/sf-r272r9-fixtures"
+  ],
+  "owned_test_sessions_completed": true,
+  "no_bytecode_or_hypothesis_or_build": true
+}

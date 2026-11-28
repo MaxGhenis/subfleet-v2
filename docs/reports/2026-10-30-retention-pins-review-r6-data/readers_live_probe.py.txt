@@ -1,0 +1,21 @@
+import json,shutil
+from pathlib import Path
+from subfleet import dependencies, folders
+from tests.fake.test_retention_dependency_review_r2 import world, reader, maintain
+from tests.unit.retention_world import git
+
+def test_running_borrower_of_the_stripped_admin_twin(world):
+    tree=world.job('owner');original=world.admin('owner');actual=original.with_name('owner ')
+    original.rename(actual);(tree/'.git').write_text('gitdir: '+str(actual)+'\n')
+    shutil.copytree(actual,original)
+    outside=world.base/'outside';outside.mkdir();(outside/'.git').write_text('gitdir: '+str(original)+'\n')
+    head=git(outside,'rev-parse','HEAD');top=git(outside,'rev-parse','--show-toplevel')
+    assert git(outside,'fsck','--no-dangling')==''
+    recorded=dependencies.record(str(outside));assert not recorded.get('incomplete'),recorded
+    reader(world,recorded)
+    world.store.add_event('job.folder_spelled',job_id='borrower',data={'folder':folders.canonical(top)})
+    result=maintain(world)
+    after=git(outside,'rev-parse','HEAD',check=False)
+    data={'actual_admin':str(actual),'borrower_admin':str(original),'git_top':top,'recorded':recorded,'maintenance':result,'admin_exists_after':original.exists(),'Git_after':after,'head_before':head}
+    Path('docs/reports/2026-10-30-retention-pins-review-r6-data/reader-live-admin-twin.json').write_text(json.dumps(data,indent=2)+'\n')
+    assert after==head and original.is_dir(),data

@@ -1,0 +1,53 @@
+{
+  "name": "test_retention_archive-8",
+  "start": "2026-10-29T14:31:02.240838+00:00",
+  "load": [
+    32.384765625,
+    40.623046875,
+    38.46728515625
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_resume_fence_and_retention_exclude_each_other": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_stale_resume_fence_is_released": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_symlinks_are_archived_as_links_and_never_followed": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_swapped_directory_sends_nothing_outside": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_job_registered_inside_another_jobs_tree_retires_first_with_its_own_anchor": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_an_in_flight_host_is_refused_at_commit_and_its_guest_waits_for_it": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/unit/test_retention_archive.py::test_resume_fence_and_retention_exclude_each_other",
+    "tests/unit/test_retention_archive.py::test_stale_resume_fence_is_released",
+    "tests/unit/test_retention_archive.py::test_symlinks_are_archived_as_links_and_never_followed",
+    "tests/unit/test_retention_archive.py::test_a_swapped_directory_sends_nothing_outside",
+    "tests/unit/test_retention_archive.py::test_a_job_registered_inside_another_jobs_tree_retires_first_with_its_own_anchor",
+    "tests/unit/test_retention_archive.py::test_an_in_flight_host_is_refused_at_commit_and_its_guest_waits_for_it"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 49.751332499989076,
+  "rss": 124125184
+}

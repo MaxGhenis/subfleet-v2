@@ -71,10 +71,11 @@ from pathlib import Path
 from typing import Any
 
 from . import procs
-from .actions import reset_credit_op_keys
+from .actions import INHIBIT_MARKER, reset_credit_op_keys
 from .conversations import legacy
 from .conversations.store import ConversationError, ConversationStore
 from .contracts import READING_TTL_S, WINDOW_KEYS
+from .home_paths import home_path
 from .policy import DEFAULT_POLICY_PATH
 from .store import Store, utc_now
 
@@ -86,6 +87,10 @@ V1_ROSTER_DIR = Path("~/chief-of-staff/subfleet").expanduser()
 
 CLAUDE_ROSTER = "claude-accounts.json"
 CODEX_ROSTER = "codex-accounts.json"
+
+#: v1's hard reset hold (`subfleet/codex.py` RESET_INHIBIT_PATH, 2026-09-07),
+#: relative to `$HOME`; `SUBFLEET_RESET_INHIBIT` overrode it in v1 and here.
+V1_RESET_HOLD = Path("capacity-sprint-20260907/no-reset.json")
 
 #: Milestone this lane serves. Rows the manifest stages later than this are
 #: reported as `staged` and left alone until the integrator raises it.
@@ -153,6 +158,8 @@ MANIFEST: tuple[ManifestRow, ...] = (
     ManifestRow("keepalive", "import", 4, "admission-observed readings on the Haiku model",
                 ("keepalive.json",)),
     ManifestRow("reset-policy", "import", 4, "confirmed reset-credit actions", ("reset-policy.json",)),
+    ManifestRow("reset-settings", "import", 4,
+                "auto_reset.enabled false and v1's reset hold; never relaxed", (), "roster"),
     ManifestRow("alerts", "import", 5, "events of kind alert-latch", ("alerts.json",)),
     ManifestRow("cooldowns", "import", 4, "closures with scope, clock source, source_event",
                 ("D/cooldowns.json", "D/cooldowns.json.lock"), "D"),
@@ -958,6 +965,84 @@ def import_keepalive(writer: _Writer, report: StoreReport, *, v1_state: Path, ho
     return {"updated_at": updated_at, "mtime": path.stat().st_mtime if path.exists() else None}
 
 
+# --- codex-accounts.json auto_reset, and v1's reset hold ----------------------
+
+def import_reset_settings(writer: _Writer, report: StoreReport, *, roster_dir: Path,
+                          state_root: Path, v1_hold: Path, now: str) -> None:
+    """Manifest row `reset-settings`: v1's automatic-reset switch and its hold (C-23.16 (f)).
+
+    v1 turned automatic redemption off in `codex-accounts.json`
+    (`auto_reset.enabled: false`) and forbade every redemption, automatic or
+    manual, while its hold file existed. The first import carried neither, and
+    v2's default then redeemed all six gifted credits of 2026-09-22 in 4.5
+    hours with next to no work waiting. Both carry over, and only in the
+    safe direction: `false` is written into `reset_credits.enabled` of the
+    state root's `policy.json`; `true`, or no setting, leaves v2's value alone,
+    because enabling automatic redemption is an operator's choice in v2. An
+    existing hold file (a dangling link included, as v1 read it) creates the
+    `no-reset` marker, which the daemon checks at every consume; a hold that
+    is gone never removes the marker. With no `policy.json` yet the daemon
+    writes its default, which is already off.
+    """
+    config = _read_json(roster_dir / CODEX_ROSTER)
+    settings = config.get("auto_reset") if isinstance(config, dict) else None
+    enabled = settings.get("enabled") if isinstance(settings, dict) else None
+    report.seen += 1
+    policy_path = state_root / "policy.json"
+    if enabled is not False:
+        report.skip("v1-auto-reset-not-disabled")
+        if enabled is True:
+            report.note("v1 auto_reset.enabled is true; v2's reset_credits.enabled is left as it is "
+                        "(enabling automatic redemption is an operator's choice, C-23.16)")
+    elif not policy_path.is_file():
+        report.skip("no-policy-yet")
+        report.note(f"{policy_path} does not exist; the daemon writes its default, "
+                    "reset_credits.enabled false")
+    else:
+        policy = _read_json(policy_path)
+        reset = policy.get("reset_credits") if isinstance(policy, dict) else None
+        if not isinstance(reset, dict):
+            report.skip("policy-unreadable")
+            report.note(f"{policy_path} has no reset_credits object; not rewritten")
+        elif reset.get("enabled") is False:
+            report.skip("already-disabled")
+        else:
+            report.imported += 1
+            report.count("reset-credits-disabled")
+            report.note("reset_credits.enabled set to false from v1 auto_reset.enabled; "
+                        "the daemon reads policy.json at startup, and the policy hash changes "
+                        "as for any edit (C-6.12)")
+            if not writer.dry_run:
+                reset["enabled"] = False
+                _publish(policy_path, (json.dumps(policy, indent=2) + "\n").encode())
+    marker = state_root / INHIBIT_MARKER
+    if not os.path.lexists(v1_hold):
+        report.skip("no-v1-reset-hold")
+        return
+    report.seen += 1
+    if os.path.lexists(marker):
+        report.skip("hold-already-imported")
+        return
+    report.imported += 1
+    report.count("reset-hold-imported")
+    report.note(f"{v1_hold} exists: every reset-credit consume is refused "
+                f"while {marker} exists; remove it only with the operator's authorization")
+    if writer.dry_run:
+        return
+    try:
+        held = json.loads(v1_hold.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        held = None
+    state_root.mkdir(parents=True, mode=0o700, exist_ok=True)
+    _publish(marker, (json.dumps({
+        "source": str(v1_hold), "imported_at": now, "v1_hold": held,
+        "effect": "Every reset-credit consume, automatic or manual, is refused while this file exists (C-23.16).",
+        "release": "Delete only with the operator's explicit authorization; nothing removes it automatically.",
+    }, indent=2, sort_keys=True) + "\n").encode())
+
+
+
+
 # --- reset-policy.json --------------------------------------------------------
 
 def import_reset_policy(writer: _Writer, report: StoreReport, *, v1_state: Path, home: Path,
@@ -1089,8 +1174,11 @@ def import_cooldowns(writer: _Writer, report: StoreReport, *, delegate_state: Pa
                 report.skip("already-imported")
                 continue
             clock_source = "reported" if reported else "guessed"
+            # C-9.6: a cooldown is a limit, so it never extends, replaces or
+            # yields to a hold's row (`Store.put_closure`, D-HOLD1).
             existing = writer.one(
                 "SELECT * FROM closures WHERE lane_id=? AND scope=? AND released_at IS NULL "
+                "AND reason NOT IN ('operator-hold','auth-dead') "
                 "ORDER BY until_at DESC LIMIT 1", (lane_id, model_scope))
             if existing is not None and existing["until_at"] >= until_at:
                 # C-9.6: a new closure on the same lane and scope extends `until`
@@ -2020,7 +2108,8 @@ def import_v1(state_root: str | Path, *, v1_state: str | Path = V1_STATE,
               roster_dir: str | Path = V1_ROSTER_DIR, home: str | Path | None = None,
               dry_run: bool = False, milestone: int = DEFAULT_MILESTONE,
               write_report: bool = True, runs_limit: int | None = None,
-              now: str | None = None, claude_projects: str | Path | None = None) -> ImportReport:
+              now: str | None = None, claude_projects: str | Path | None = None,
+              v1_reset_hold: str | Path | None = None) -> ImportReport:
     """Import v1's state per `docs/migration.md`, idempotently and incrementally.
 
     Returns the `ImportReport` and, unless `write_report=False`, saves it to
@@ -2031,10 +2120,22 @@ def import_v1(state_root: str | Path, *, v1_state: str | Path = V1_STATE,
     `~/.claude/projects`, or `$SUBFLEET_CLAUDE_DIR/projects`).
     """
     state_root = Path(state_root).expanduser()
-    v1_state = Path(v1_state).expanduser()
-    delegate_state = Path(delegate_state).expanduser()
-    roster_dir = Path(roster_dir).expanduser()
-    home = Path(home).expanduser() if home is not None else Path.home()
+    v1_state = Path(home_path("SUBFLEET_V1_STATE", lambda: V1_STATE, test_only=True)
+                    if v1_state is V1_STATE else v1_state).expanduser()
+    delegate_state = Path(home_path("SUBFLEET_DELEGATE_STATE", lambda: DELEGATE_STATE, test_only=True)
+                          if delegate_state is DELEGATE_STATE else delegate_state).expanduser()
+    roster_dir = Path(home_path("SUBFLEET_V1_ROSTER_DIR", lambda: V1_ROSTER_DIR, test_only=True)
+                      if roster_dir is V1_ROSTER_DIR else roster_dir).expanduser()
+    from .home_paths import provider_home
+    explicit_home = home is not None
+    home = Path(home).expanduser() if home is not None else provider_home()
+    if v1_reset_hold is None:
+        if explicit_home and not os.environ.get("SUBFLEET_RESET_INHIBIT"):
+            # An explicit provider home also explicitly locates its default hold.
+            v1_reset_hold = home / V1_RESET_HOLD
+        else:
+            v1_reset_hold = home_path("SUBFLEET_RESET_INHIBIT", lambda: home / V1_RESET_HOLD)
+    v1_reset_hold = Path(v1_reset_hold).expanduser()
     now = now or utc_now()
     if _looks_like_v1_root(state_root):
         # A pass would put daemon.lock, state.sqlite3 and its report in the v1
@@ -2115,6 +2216,9 @@ def import_v1(state_root: str | Path, *, v1_state: str | Path = V1_STATE,
         row("reset-policy", lambda entry: import_reset_policy(
             writer, entry, v1_state=v1_state, home=home,
             cursor=cursors.get("reset-policy", {})))
+        row("reset-settings", lambda entry: import_reset_settings(
+            writer, entry, roster_dir=roster_dir, state_root=state_root,
+            v1_hold=v1_reset_hold, now=now))
         row("runs", lambda entry: import_runs(
             writer, entry, v1_state=v1_state, state_root=state_root, home=home, models=models,
             cursor=cursors.get("runs", {}), now=now, limit=runs_limit))
@@ -2160,7 +2264,8 @@ def import_legacy_cockpit(state_root: str | Path, *, v1_state: str | Path = V1_S
     either way.
     """
     state_root = Path(state_root).expanduser()
-    v1_state = Path(v1_state).expanduser()
+    v1_state = Path(home_path("SUBFLEET_V1_STATE", lambda: V1_STATE, test_only=True)
+                    if v1_state is V1_STATE else v1_state).expanduser()
     projects = Path(claude_projects).expanduser() if claude_projects is not None else None
     v1_ok = _is_v1_state(v1_state, state_root)
     if _looks_like_v1_root(state_root):
@@ -2208,15 +2313,20 @@ def main(argv: list[str] | None = None) -> int:
     """`python -m subfleet.importer [--dry-run] [--legacy-cockpit]`; the CLI keeps its own verbs."""
     parser = argparse.ArgumentParser(prog="subfleet.importer",
                                      description="import v1 state per docs/migration.md")
-    parser.add_argument("--state-root", default=os.environ.get("SUBFLEET_HOME") or "~/.subfleet")
-    parser.add_argument("--v1-state", default=str(V1_STATE))
-    parser.add_argument("--delegate-state", default=str(DELEGATE_STATE))
-    parser.add_argument("--roster-dir", default=str(V1_ROSTER_DIR))
+    parser.add_argument("--state-root", default=None)
+    # Keep the captured Path objects so omitted arguments use the guarded
+    # defaults; an explicitly supplied path keeps its historical precedence.
+    parser.add_argument("--v1-state", default=V1_STATE)
+    parser.add_argument("--delegate-state", default=DELEGATE_STATE)
+    parser.add_argument("--roster-dir", default=V1_ROSTER_DIR)
     parser.add_argument("--home", default=None,
                         help="where ~/.codex-<n> and ~/.claude.json live (default: $HOME)")
     parser.add_argument("--milestone", type=int, default=DEFAULT_MILESTONE)
     parser.add_argument("--runs-limit", type=int, default=None,
                         help="import at most this many run directories this pass")
+    parser.add_argument("--v1-reset-hold", default=None,
+                        help="v1's reset hold file (default: $SUBFLEET_RESET_INHIBIT, "
+                             "else ~/capacity-sprint-20260907/no-reset.json)")
     parser.add_argument("--dry-run", action="store_true",
                         help="write no row and no state-root file but the report")
     parser.add_argument("--legacy-cockpit", action="store_true",
@@ -2230,6 +2340,9 @@ def main(argv: list[str] | None = None) -> int:
                              "(default: $SUBFLEET_CLAUDE_DIR or ~/.claude)")
     parser.add_argument("--json", action="store_true", help="print the report as JSON")
     args = parser.parse_args(argv)
+    if args.state_root is None:
+        from .home_paths import home_path
+        args.state_root = home_path("SUBFLEET_HOME", lambda: "~/.subfleet")
     projects = Path(args.claude_dir).expanduser() / "projects" if args.claude_dir else None
     if args.cockpit_retired and not args.legacy_cockpit:
         parser.error("--cockpit-retired goes with --legacy-cockpit")
@@ -2242,7 +2355,8 @@ def main(argv: list[str] | None = None) -> int:
             report = import_v1(args.state_root, v1_state=args.v1_state,
                                delegate_state=args.delegate_state, roster_dir=args.roster_dir,
                                home=args.home, dry_run=args.dry_run, milestone=args.milestone,
-                               runs_limit=args.runs_limit, claude_projects=projects)
+                               runs_limit=args.runs_limit, claude_projects=projects,
+                               v1_reset_hold=args.v1_reset_hold)
     except ImportRefused as refusal:
         print(f"subfleet import: {refusal}", file=sys.stderr)
         return int(refusal.code)

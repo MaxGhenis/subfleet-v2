@@ -1,0 +1,993 @@
+{
+  "name": "independent-round",
+  "start": "2026-10-31T08:56:44.852251+00:00",
+  "load": [
+    68.46826171875,
+    60.7763671875,
+    48.33544921875
+  ],
+  "args": [
+    "-p",
+    "tests.conftest",
+    "--confcutdir=review-r9-data",
+    "review-r9-data/round_probes.py",
+    "review-r9-data/probes_r9.py"
+  ],
+  "phases": [
+    {
+      "node": "review-r9-data/round_probes.py::test_routine_matches_prerequisite[plain]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.2748811659985222,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/round_probes.py::test_routine_matches_prerequisite[plain]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.1729246670001885,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/round_probes.py::test_routine_matches_prerequisite[plain]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005890419997740537,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/round_probes.py::test_routine_matches_prerequisite[worktree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.018520125002396526,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/round_probes.py::test_routine_matches_prerequisite[worktree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.5159484590003558,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/round_probes.py::test_routine_matches_prerequisite[worktree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005220409984758589,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/round_probes.py::test_routine_matches_prerequisite[shared]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003756624999368796,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/round_probes.py::test_routine_matches_prerequisite[shared]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.43299937499978114,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/round_probes.py::test_routine_matches_prerequisite[shared]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004990419984096661,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/round_probes.py::test_routine_matches_prerequisite[new-workdir]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0028332500005490147,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/round_probes.py::test_routine_matches_prerequisite[new-workdir]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.32138675000169314,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/round_probes.py::test_routine_matches_prerequisite[new-workdir]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005348749982658774,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/round_probes.py::test_routine_matches_prerequisite[none]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.062591916997917,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/round_probes.py::test_routine_matches_prerequisite[none]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.15348141600043164,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/round_probes.py::test_routine_matches_prerequisite[none]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005466249967867043,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/round_probes.py::test_deeper_ref_link_is_the_documented_difference",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002739500003372086,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/round_probes.py::test_deeper_ref_link_is_the_documented_difference",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3578914169993368,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/round_probes.py::test_deeper_ref_link_is_the_documented_difference",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000554750000446802,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/round_probes.py::test_unused_top_entry_is_a_converse_bound_counterexample",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0026905000013357494,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/round_probes.py::test_unused_top_entry_is_a_converse_bound_counterexample",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.28187975000037113,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/round_probes.py::test_unused_top_entry_is_a_converse_bound_counterexample",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00041679200148792006,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[inside-owner]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6711690000011004,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[inside-owner]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 6.902699665999535,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[inside-owner]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.26408016700224834,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.8814583749990561,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 6.546177082997019,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.2250507920034579,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[worktrees]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.64525762500125,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[worktrees]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 9.027701291000994,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[worktrees]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00716820799789275,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[home]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 6.074725416001456,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[home]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 19.03229241599911,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[home]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.13344108399905963,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[fixture-root]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5942961660002766,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[fixture-root]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 5.863866416999372,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[fixture-root]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.1960501249996014,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[slash]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.9417527910009085,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[slash]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 5.397427332998632,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[slash]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.008431791997281834,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_r8_owner_removal_breaks_the_identical_real_git_read[admin-path]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7099352910008747,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_r8_owner_removal_breaks_the_identical_real_git_read[admin-path]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.8993994169977668,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_r8_owner_removal_breaks_the_identical_real_git_read[admin-path]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002803040999424411,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_r8_owner_removal_breaks_the_identical_real_git_read[gitfile]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.1905725840006198,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_r8_owner_removal_breaks_the_identical_real_git_read[gitfile]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.1328119169993442,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_r8_owner_removal_breaks_the_identical_real_git_read[gitfile]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.02338337499895715,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[1]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003549958000803599,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[1]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.11000858400075231,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[1]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006390000016835984,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[8]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.005441083998448448,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[8]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.12126866700054961,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[8]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005892500012123492,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[31]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.005458750001707813,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[31]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.1485521249996964,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[31]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003994170001533348,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[32]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.00198729199837544,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[32]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.21080300000176067,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[32]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005690830003004521,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[33]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.016414707999501843,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[33]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.268566999999166,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[33]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005822919993079267,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[40]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.005309791002218844,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[40]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.31126516600124887,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[40]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.020470667001063703,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[63]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.022864124999614432,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[63]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.20496954200280015,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[63]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007779579973430373,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[64]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0025521250026940834,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[64]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.20300966699869605,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[64]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003947080003854353,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[65]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.016162916999746813,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[65]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.38657099999909406,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[65]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006227499980013818,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[80]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0024026669998420402,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[80]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3391216660020291,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[80]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005184999972698279,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_scan_failure_classification[2]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0462441250019765,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_scan_failure_classification[2]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.11291487500056974,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_scan_failure_classification[2]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000495917000080226,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_scan_failure_classification[20]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0032004579989006743,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_scan_failure_classification[20]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.2107194169984723,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_scan_failure_classification[20]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004310000003897585,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_scan_failure_classification[62]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.006280374997004401,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_scan_failure_classification[62]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.20286345800195704,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_scan_failure_classification[62]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005479579995153472,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_scan_failure_classification[13]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.04248537499734084,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_scan_failure_classification[13]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.33786683400103357,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_scan_failure_classification[13]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00046720799946342595,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[False-False]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.1777695839991793,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[False-False]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.9469722920002823,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[False-False]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002947084001789335,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[False-True]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5906439999998838,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[False-True]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.432341499999893,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[False-True]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0029227500017441344,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[True-False]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5940999580016069,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[True-False]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.2970915000005334,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[True-False]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0069372919970192015,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[True-True]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.644656374999613,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[True-True]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.901953417000186,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[True-True]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0027192080015083775,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_parent_alternate_hint_is_not_scanned",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0037365839998528827,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_parent_alternate_hint_is_not_scanned",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.42737887499970384,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_parent_alternate_hint_is_not_scanned",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00055791699924157,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_absolute_and_relative_walks_apply_dotdot_after_links[False]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.02802062499904423,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_absolute_and_relative_walks_apply_dotdot_after_links[False]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.48117579099925933,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_absolute_and_relative_walks_apply_dotdot_after_links[False]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007052920009300578,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_absolute_and_relative_walks_apply_dotdot_after_links[True]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.009025375002238434,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_absolute_and_relative_walks_apply_dotdot_after_links[True]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.8047676249989308,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_absolute_and_relative_walks_apply_dotdot_after_links[True]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007750410004518926,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_outside_checkout_alias_is_a_listed_extra_location",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.003929958002117928,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_outside_checkout_alias_is_a_listed_extra_location",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.03529166699809139,
+      "failure": null
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_outside_checkout_alias_is_a_listed_extra_location",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004934579992550425,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "review-r9-data/round_probes.py::test_routine_matches_prerequisite[plain]",
+      "key": "base-comparison",
+      "value": "{\"base\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis0/repository/.git\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis0/repository/.git/objects\"]}, \"fix\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis0/repository/.git\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis0/repository/.git/objects\"]}, \"layout\": \"plain\"}"
+    },
+    {
+      "node": "review-r9-data/round_probes.py::test_routine_matches_prerequisite[worktree]",
+      "key": "base-comparison",
+      "value": "{\"base\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis1/repository/.git/worktrees/linked\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis1/repository/.git\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis1/repository/.git/objects\"]}, \"fix\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis1/repository/.git/worktrees/linked\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis1/repository/.git\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis1/repository/.git/objects\"]}, \"layout\": \"worktree\"}"
+    },
+    {
+      "node": "review-r9-data/round_probes.py::test_routine_matches_prerequisite[shared]",
+      "key": "base-comparison",
+      "value": "{\"base\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis2/shared/.git\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis2/shared/.git/objects\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis2/repository/.git/objects\"]}, \"fix\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis2/shared/.git\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis2/shared/.git/objects\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis2/repository/.git/objects\"]}, \"layout\": \"shared\"}"
+    },
+    {
+      "node": "review-r9-data/round_probes.py::test_routine_matches_prerequisite[new-workdir]",
+      "key": "base-comparison",
+      "value": "{\"base\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis3/repository/linked/.git\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis3/repository/.git/objects\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis3/repository/.git\"]}, \"fix\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis3/repository/linked/.git\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis3/repository/.git/objects\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_routine_matches_prerequis3/repository/.git\"]}, \"layout\": \"new-workdir\"}"
+    },
+    {
+      "node": "review-r9-data/round_probes.py::test_routine_matches_prerequisite[none]",
+      "key": "base-comparison",
+      "value": "{\"base\": {}, \"fix\": {}, \"layout\": \"none\"}"
+    },
+    {
+      "node": "review-r9-data/round_probes.py::test_deeper_ref_link_is_the_documented_difference",
+      "key": "D-R8-1",
+      "value": "{\"after\": 128, \"before\": 0, \"error\": \"fatal: invalid object name 'HEAD'.\\n\", \"input\": \"refs/heads/main -> owner/branch\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_deeper_ref_link_is_the_do0/stable/.git\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_deeper_ref_link_is_the_do0/stable/.git/objects\"]}}"
+    },
+    {
+      "node": "review-r9-data/round_probes.py::test_unused_top_entry_is_a_converse_bound_counterexample",
+      "key": "converse-bound-counterexample",
+      "value": "{\"after\": 0, \"before\": 0, \"input\": \"stable/.git/unused-entry -> unrelated/unused\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_unused_top_entry_is_a_con0/stable/.git\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_unused_top_entry_is_a_con0/stable/.git/objects\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_unused_top_entry_is_a_con0/unrelated/unused\"]}}"
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[inside-owner]",
+      "key": "width",
+      "value": "{\"after\": 0, \"before\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif0/stable/.git\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif0/stable/.git/objects\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif0/state/worktrees/owner/broad\"]}, \"states\": {\"running\": {\"other\": [], \"owner\": [\"borrower\"]}, \"succeeded\": {\"other\": [], \"owner\": []}, \"succeeded-exporting\": {\"other\": [], \"owner\": []}}, \"target\": \"inside-owner\"}"
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[tree]",
+      "key": "width",
+      "value": "{\"after\": 0, \"before\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif1/stable/.git\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif1/stable/.git/objects\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif1/state/worktrees/owner\"]}, \"states\": {\"running\": {\"other\": [], \"owner\": [\"borrower\"]}, \"succeeded\": {\"other\": [], \"owner\": []}, \"succeeded-exporting\": {\"other\": [], \"owner\": []}}, \"target\": \"tree\"}"
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[worktrees]",
+      "key": "width",
+      "value": "{\"after\": 0, \"before\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif2/stable/.git\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif2/stable/.git/objects\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif2/state/worktrees\"]}, \"states\": {\"running\": {\"other\": [], \"owner\": []}, \"succeeded\": {\"other\": [], \"owner\": []}, \"succeeded-exporting\": {\"other\": [], \"owner\": []}}, \"target\": \"worktrees\"}"
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[home]",
+      "key": "width",
+      "value": "{\"after\": 0, \"before\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif3/stable/.git\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif3/stable/.git/objects\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif3/home\"]}, \"states\": {\"running\": {\"other\": [], \"owner\": []}, \"succeeded\": {\"other\": [], \"owner\": []}, \"succeeded-exporting\": {\"other\": [], \"owner\": []}}, \"target\": \"home\"}"
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[fixture-root]",
+      "key": "width",
+      "value": "{\"after\": 0, \"before\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif4/stable/.git\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif4/stable/.git/objects\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif4/state\"]}, \"states\": {\"running\": {\"other\": [], \"owner\": []}, \"succeeded\": {\"other\": [], \"owner\": []}, \"succeeded-exporting\": {\"other\": [], \"owner\": []}}, \"target\": \"fixture-root\"}"
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[slash]",
+      "key": "width",
+      "value": "{\"after\": 0, \"before\": 0, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif5/stable/.git\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_unused_link_width_and_lif5/stable/.git/objects\", \"/\"]}, \"states\": {\"running\": {\"other\": [], \"owner\": []}, \"succeeded\": {\"other\": [], \"owner\": []}, \"succeeded-exporting\": {\"other\": [], \"owner\": []}}, \"target\": \"slash\"}"
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_r8_owner_removal_breaks_the_identical_real_git_read[admin-path]",
+      "key": "owner-removal",
+      "value": "{\"after\": 128, \"before\": 0, \"layout\": \"admin-path\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_r8_owner_removal_breaks_t0/stable/.git\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_r8_owner_removal_breaks_t0/stable/.git/objects\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_r8_owner_removal_breaks_t0/state/worktrees/owner/alias\"]}}"
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_r8_owner_removal_breaks_the_identical_real_git_read[gitfile]",
+      "key": "owner-removal",
+      "value": "{\"after\": 128, \"before\": 0, \"layout\": \"gitfile\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_r8_owner_removal_breaks_t1/stable/.git\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_r8_owner_removal_breaks_t1/stable/.git/objects\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_r8_owner_removal_breaks_t1/state/worktrees/owner/alias\"]}}"
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[1]",
+      "key": "hop-boundary",
+      "value": "{\"git_rc\": 0, \"hops\": 1, \"resolved\": \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_kernel_hop_boundary_again0/stable/.git\", \"walked\": 1}"
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[8]",
+      "key": "hop-boundary",
+      "value": "{\"git_rc\": 0, \"hops\": 8, \"resolved\": \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_kernel_hop_boundary_again1/stable/.git\", \"walked\": 8}"
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[31]",
+      "key": "hop-boundary",
+      "value": "{\"git_rc\": 0, \"hops\": 31, \"resolved\": \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_kernel_hop_boundary_again2/stable/.git\", \"walked\": 31}"
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[32]",
+      "key": "hop-boundary",
+      "value": "{\"git_rc\": 0, \"hops\": 32, \"resolved\": \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_kernel_hop_boundary_again3/stable/.git\", \"walked\": 32}"
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[33]",
+      "key": "hop-boundary",
+      "value": "{\"git_rc\": 128, \"hops\": 33, \"resolved\": \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_kernel_hop_boundary_again4/stable/.git\", \"walked\": 33}"
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[40]",
+      "key": "hop-boundary",
+      "value": "{\"git_rc\": 128, \"hops\": 40, \"resolved\": \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_kernel_hop_boundary_again5/stable/.git\", \"walked\": 40}"
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[63]",
+      "key": "hop-boundary",
+      "value": "{\"git_rc\": 128, \"hops\": 63, \"resolved\": \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_kernel_hop_boundary_again6/stable/.git\", \"walked\": 63}"
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[64]",
+      "key": "hop-boundary",
+      "value": "{\"git_rc\": 128, \"hops\": 64, \"resolved\": \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_kernel_hop_boundary_again7/stable/.git\", \"walked\": 64}"
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[65]",
+      "key": "hop-boundary",
+      "value": "{\"git_rc\": 128, \"hops\": 65, \"resolved\": \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_kernel_hop_boundary_again8/hop64\", \"walked\": 64}"
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[80]",
+      "key": "hop-boundary",
+      "value": "{\"git_rc\": 128, \"hops\": 80, \"resolved\": \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_kernel_hop_boundary_again9/hop64\", \"walked\": 64}"
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_scan_failure_classification[2]",
+      "key": "scan-failure",
+      "value": "{\"errno\": 2, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_scan_failure_classificati0/checkout/.git\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_scan_failure_classificati0/checkout/.git/objects\"]}}"
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_scan_failure_classification[20]",
+      "key": "scan-failure",
+      "value": "{\"errno\": 20, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_scan_failure_classificati1/checkout/.git\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_scan_failure_classificati1/checkout/.git/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_scan_failure_classificati1/checkout/.git\", \"reason\": \"[Errno 20] Not a directory: '/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_scan_failure_classificati1/checkout/.git'\"}]}}"
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_scan_failure_classification[62]",
+      "key": "scan-failure",
+      "value": "{\"errno\": 62, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_scan_failure_classificati2/checkout/.git\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_scan_failure_classificati2/checkout/.git/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_scan_failure_classificati2/checkout/.git\", \"reason\": \"[Errno 62] Too many levels of symbolic links: '/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_scan_failure_classificati2/checkout/.git'\"}]}}"
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_scan_failure_classification[13]",
+      "key": "scan-failure",
+      "value": "{\"errno\": 13, \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_scan_failure_classificati3/checkout/.git\", \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_scan_failure_classificati3/checkout/.git/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_scan_failure_classificati3/checkout/.git\", \"reason\": \"[Errno 13] Permission denied: '/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_scan_failure_classificati3/checkout/.git'\"}]}}"
+    },
+    {
+      "node": "review-r9-data/probes_r9.py::test_outside_checkout_alias_is_a_listed_extra_location",
+      "key": "outside-checkout-extra-location",
+      "value": "{\"input\": \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_outside_checkout_alias_is0/owner/unused-as-execution-path\", \"recorded\": {\"git\": [\"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_outside_checkout_alias_is0/owner/unused-as-execution-path\"]}, \"target\": \"/private/tmp/sf-r272r9/real-tmp/independent-round/pytest-of-maxghenis/pytest-0/test_outside_checkout_alias_is0/stable\"}"
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "review-r9-data/round_probes.py::test_routine_matches_prerequisite[plain]",
+    "review-r9-data/round_probes.py::test_routine_matches_prerequisite[worktree]",
+    "review-r9-data/round_probes.py::test_routine_matches_prerequisite[shared]",
+    "review-r9-data/round_probes.py::test_routine_matches_prerequisite[new-workdir]",
+    "review-r9-data/round_probes.py::test_routine_matches_prerequisite[none]",
+    "review-r9-data/round_probes.py::test_deeper_ref_link_is_the_documented_difference",
+    "review-r9-data/round_probes.py::test_unused_top_entry_is_a_converse_bound_counterexample",
+    "review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[inside-owner]",
+    "review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[tree]",
+    "review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[worktrees]",
+    "review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[home]",
+    "review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[fixture-root]",
+    "review-r9-data/probes_r9.py::test_unused_link_width_and_lifetime[slash]",
+    "review-r9-data/probes_r9.py::test_r8_owner_removal_breaks_the_identical_real_git_read[admin-path]",
+    "review-r9-data/probes_r9.py::test_r8_owner_removal_breaks_the_identical_real_git_read[gitfile]",
+    "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[1]",
+    "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[8]",
+    "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[31]",
+    "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[32]",
+    "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[33]",
+    "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[40]",
+    "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[63]",
+    "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[64]",
+    "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[65]",
+    "review-r9-data/probes_r9.py::test_kernel_hop_boundary_against_git[80]",
+    "review-r9-data/probes_r9.py::test_scan_failure_classification[2]",
+    "review-r9-data/probes_r9.py::test_scan_failure_classification[20]",
+    "review-r9-data/probes_r9.py::test_scan_failure_classification[62]",
+    "review-r9-data/probes_r9.py::test_scan_failure_classification[13]",
+    "review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[False-False]",
+    "review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[False-True]",
+    "review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[True-False]",
+    "review-r9-data/probes_r9.py::test_terminal_gone_target_and_evidence_cannot_pin[True-True]",
+    "review-r9-data/probes_r9.py::test_parent_alternate_hint_is_not_scanned",
+    "review-r9-data/probes_r9.py::test_absolute_and_relative_walks_apply_dotdot_after_links[False]",
+    "review-r9-data/probes_r9.py::test_absolute_and_relative_walks_apply_dotdot_after_links[True]",
+    "review-r9-data/probes_r9.py::test_outside_checkout_alias_is_a_listed_extra_location"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/subfleet/dependencies.py",
+  "product_sha256": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+  "end": "2026-10-31T08:59:02.593366+00:00",
+  "seconds": 137.74024875000032,
+  "peak_rss_mib": 114.65625,
+  "exit": 0
+}

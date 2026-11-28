@@ -1,0 +1,4 @@
+{
+  "test_pointer_inputs_keep_every_store_real_git_reads": true,
+  "test_named_own_inputs_keep_every_store_real_git_reads": true
+}

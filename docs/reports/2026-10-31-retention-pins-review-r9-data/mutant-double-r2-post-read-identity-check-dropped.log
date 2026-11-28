@@ -1,0 +1,15 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 08:40:54Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__ test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace] __
+tests/fake/test_retention_dependency_review_r2.py:82: in test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads
+    assert "owner" not in result["pruned"], (recorded, result)
+E   AssertionError: ({'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-double-r2-post-read-identity-check-dropped/pytest-of-maxghenis/pytes...ternates_d0/outside/.git/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48054, 'bytes_after': 0, ...})
+E   assert 'owner' not in ['owner']
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]
+1 failed in 9.82s
+{"name": "mutant-double-r2-post-read-identity-check-dropped", "start": "2026-10-31T08:40:57.367777+00:00", "load": [36.33447265625, 33.04638671875, 31.076171875], "seconds": 12.63531900000089, "exit": 1}

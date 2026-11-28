@@ -1,0 +1,66 @@
+{
+  "name": "mutant-r8-alias-location-recording-dropped",
+  "start": "2026-10-31T18:28:30.608633+00:00",
+  "load": [
+    70.4912109375,
+    65.76318359375,
+    60.83837890625
+  ],
+  "pytest_pid": 19650,
+  "failure_root": "/private/tmp/sf-fix272r11/failed-keep",
+  "args": [
+    "--mutant",
+    "r8-alias-location-recording-dropped",
+    "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[admin-path]"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[admin-path]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.2311909999989439,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[admin-path]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 6.445935499999905,
+      "wasxfail": null,
+      "failure": "tests/fake/test_retention_dependency_review_r8.py:44: in test_running_job_keeps_tree_containing_required_git_pointer\n    assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)\nE   AssertionError: ({'git': ['/private/tmp/sf-fix272r11/real-tmp/mutant-r8-alias-location-recording-dropped/pytest-of-maxghenis/pytest-0/...independent-storage/.git/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48856, 'bytes_after': 0, ...})\nE   assert ('owner' not in ['owner'])"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[admin-path]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0032452079976792447,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[admin-path]",
+      "key": "R8-F1",
+      "value": "{\"error_after\": \"fatal: not a git repository: (null)\\n\", \"git_after\": 128, \"git_before\": 0, \"layout\": \"admin-path\", \"recorded\": {\"git\": [\"/private/tmp/sf-fix272r11/real-tmp/mutant-r8-alias-location-recording-dropped/pytest-of-maxghenis/pytest-0/test_running_job_keeps_tree_co0/independent-storage/.git\", \"/private/tmp/sf-fix272r11/real-tmp/mutant-r8-alias-location-recording-dropped/pytest-of-maxghenis/pytest-0/test_running_job_keeps_tree_co0/independent-storage/.git/objects\"]}, \"result\": {\"added_bytes\": 23524, \"archived_bytes\": 49487, \"bytes_after\": 0, \"bytes_before\": 48856, \"conflicts\": [], \"deferred\": {}, \"errors\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"holder_scan_failed\": false, \"in_flight\": [], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}, \"pools\": {\"detached\": {\"added_bytes\": 23524, \"archived_bytes\": 49487, \"bytes_after\": 0, \"bytes_before\": 48856, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 1, \"jobs_before\": 2, \"max_bytes\": 0, \"max_jobs\": 0, \"unknown_size\": 0, \"unmeasured\": 0}, \"turn\": {\"added_bytes\": 0, \"archived_bytes\": 0, \"bytes_after\": 0, \"bytes_before\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"jobs_after\": 0, \"jobs_before\": 0, \"max_bytes\": 4294967296, \"max_jobs\": 2000, \"unknown_size\": 0, \"unmeasured\": 0}}, \"progressed\": true, \"protected\": [\"borrower\"], \"pruned\": [\"owner\"], \"reclaimed\": [\"owner\"], \"tmpdir_left\": []}}"
+    }
+  ],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "ebed2a43ddfc264b9faf0ee0101550081ea78df97acec789b8f16aeb82807a69",
+      "mutated": "167abc6f081d2b7aa068b144d4af1f523e198615ce49d064566d25fcf53a10bf"
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[admin-path]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-140216-pr272-fix-r11/subfleet/dependencies.py",
+  "product_sha256": "ebed2a43ddfc264b9faf0ee0101550081ea78df97acec789b8f16aeb82807a69",
+  "end": "2026-10-31T18:29:09.925305+00:00",
+  "seconds": 39.31599958299921,
+  "peak_rss_mib": 113.1875,
+  "exit": 1
+}

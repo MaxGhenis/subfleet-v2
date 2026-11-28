@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T09:17:17.385166+00:00",
+  "args": [
+    "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r9/real-tmp/shared-property-2",
+  "linked": false,
+  "driver_pid": 97936,
+  "lock_process_group": 98016
+}

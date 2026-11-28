@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T06:47:17.408168+00:00",
+  "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+  "args": [
+    "tests/frontend/test_review_r219_fix8_mutations.py",
+    "-k",
+    "test_round10_mutation_fails_its_named_regression and quiet_window_0ms",
+    "-s"
+  ]
+}

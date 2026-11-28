@@ -1,0 +1,58 @@
+{
+  "name": "mutant-r8-lexical-dotdot",
+  "start": "2026-10-31T10:12:03.384598+00:00",
+  "load": [
+    34.5439453125,
+    34.15087890625,
+    34.798828125
+  ],
+  "args": [
+    "--mutant",
+    "r8-lexical-dotdot",
+    "tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.8249937500004307,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.09771029100011219,
+      "wasxfail": null,
+      "failure": "tests/unit/test_retention_locations.py:37: in test_dotdot_applies_after_the_link_before_it\n    assert str(paths[\"admin\"]) in recorded[\"git\"], recorded\nE   AssertionError: {'git': ['/private/tmp/sf-fix272r9/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_...9/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/owner/admin/objects']}\nE   assert '/private/tmp/sf-fix272r9/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/stable/container/admin' in ['/private/tmp/sf-fix272r9/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_th...r9/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/owner/admin/objects']\nE    +  where '/private/tmp/sf-fix272r9/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/stable/container/admin' = str(PosixPath('/private/tmp/sf-fix272r9/real-tmp/mutant-r8-lexical-dotdot/pytest-of-maxghenis/pytest-0/test_dotdot_applies_after_the_0/stable/container/admin'))"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00048029100071289577,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "d4d8dcb9d4cf11e75318b49837393308d5a589cb7959f7ce13e0d4faa1adf512",
+      "mutated": "1e987a9f492281abc00165aa436bc0ff6614ba43d08f06797f8e5ff8a7013018"
+    }
+  ],
+  "collected": [
+    "tests/unit/test_retention_locations.py::test_dotdot_applies_after_the_link_before_it"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-055640-pr272-fix-r9/subfleet/dependencies.py",
+  "product_sha256": "d4d8dcb9d4cf11e75318b49837393308d5a589cb7959f7ce13e0d4faa1adf512",
+  "end": "2026-10-31T10:12:10.556798+00:00",
+  "seconds": 7.171899166001822,
+  "peak_rss_mib": 114.75,
+  "exit": 1
+}

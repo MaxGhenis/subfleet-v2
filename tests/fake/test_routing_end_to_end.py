@@ -103,13 +103,15 @@ def test_c6_4_second_unmeasured_job_waits_with_persisted_reason(routing_state):
     capped(service.policy)                          # C-6.4: the caps of before 2026-09-27 (tests/caps.py)
     first = service.submit(daemon_module.protocol.SubmitArgs(**harness.submit_args()))["job_id"]
     second = service.submit(daemon_module.protocol.SubmitArgs(**harness.submit_args()))["job_id"]
+    admission_started = utcnow()
     service._admit()
     assert len(service.store.list_attempts(first)) == 1
     assert not service.store.list_attempts(second)
     waiting = service.store.get_job(second)
     assert waiting["state"] == "waiting"
     assert waiting["wait_reason"] == "capacity"
-    assert waiting["next_check_at"] > utcnow()
+    # The recheck can become due while a slow pass or its assertions finish.
+    assert waiting["next_check_at"] > admission_started
     assert "no-slot" in service.dispatch("why", {"job_id": second})["text"]
 
 

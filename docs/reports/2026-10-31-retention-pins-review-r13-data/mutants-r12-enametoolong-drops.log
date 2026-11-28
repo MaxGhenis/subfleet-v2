@@ -1,0 +1,19 @@
+hold 23:09:29Z slot A load { 60.39 66.90 63.89 }
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_________ test_filter_keeps_readable_normalization_length[alternates] __________
+tests/fake/test_retention_dependency_review_r12.py:118: in test_filter_keeps_readable_normalization_length
+    check_normalization_length(world, monkeypatch, route, dependencies, record_property)
+tests/fake/test_retention_dependency_review_r12.py:107: in check_normalization_length
+    assert "owner" not in result["pruned"] and tree.is_dir(), observation
+E   AssertionError: {'route': 'alternates', 'raw': '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r12-ename.../ééééééééééééééééééééééééééééééééééé7/ééééééééééééééééééééééééééééééééééé8/source/.git/objects', 'raw_bytes': 850, ...}
+E   assert ('owner' not in ['owner'])
+__________________ test_filter_stat_table[found-ENAMETOOLONG] __________________
+tests/unit/test_retention_location_readable.py:173: in test_filter_stat_table
+    assert (place in result) == (outcome != "ELOOP")
+E   AssertionError: assert ('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r12-enametoolong-drops/pytest-of-maxghen...nglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglong' in []) == ('ENAMETOOLONG' != 'ELOOP')
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r12.py::test_filter_keeps_readable_normalization_length[alternates]
+FAILED tests/unit/test_retention_location_readable.py::test_filter_stat_table[found-ENAMETOOLONG]
+2 failed in 45.03s
+MUTANT {"name": "r12-enametoolong-drops", "rc": 1, "failed": 2, "killed": true, "same_as_fix_r12": true, "assertions": [["assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), observation"], ["assert (place in result) == (outcome != \"ELOOP\")"]]}

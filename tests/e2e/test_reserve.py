@@ -37,7 +37,9 @@ def test_c11_7_opus_lands_on_the_lane_with_slack_and_the_reserved_lane_is_named(
 def test_c11_7_no_slack_anywhere_holds_non_fable_work_and_says_why(e2e):
     e2e.enable_reserve()
     e2e.start(scenario="success-allowed", env={"SUBFLEET_FAKE_USAGE": "1=94/49,2=90/40"})
-    e2e.until(lambda: len(usage_rows(e2e)) >= 4, timeout=30)
+    e2e.until(lambda: {(r["lane_id"], r["scope"]) for r in usage_rows(e2e)} >= {
+        ("claude-1", "account"), ("claude-1", FABLE),
+        ("claude-2", "account"), ("claude-2", FABLE)}, timeout=30)
     result = e2e.cli(*e2e.run_args("opus", "--dry-run", "--why"))
     assert result.rc == 0, result
     decision = json.loads(result.stdout)
@@ -66,9 +68,11 @@ def test_c11_7_setup_token_lanes_stay_unmeasured_for_opus_while_fable_still_runs
 def test_c9_9_a_rate_limited_lane_is_left_alone_until_retry_after(e2e):
     e2e.enable_reserve()
     e2e.start(scenario="success-allowed", env={"SUBFLEET_FAKE_USAGE": "1=429,2=60/97"})
-    e2e.until(lambda: len(usage_rows(e2e)) >= 2, timeout=30)
-    verdicts = [json.loads(row["data_json"]) for row in e2e.rows(
-        "SELECT data_json FROM events WHERE kind='timer.verdict' AND lane_id='claude-1'")]
-    assert verdicts and verdicts[-1]["probe_status"] == "rate-limited" and verdicts[-1]["retry_after_s"] == 3035
+    # claude-2's readings can commit before claude-1's verdict in the same cycle.
+    verdicts = e2e.until(lambda: e2e.rows(
+        "SELECT data_json FROM events WHERE kind='timer.verdict' AND lane_id='claude-1' "
+        "AND data_json!='{}' ORDER BY event_id"), timeout=30)
+    verdict = json.loads(verdicts[-1]["data_json"])
+    assert verdict["probe_status"] == "rate-limited" and verdict["retry_after_s"] == 3035
     assert not e2e.rows("SELECT 1 FROM closures WHERE lane_id='claude-1'")
     assert not e2e.rows("SELECT 1 FROM readings WHERE lane_id='claude-1' AND source='oauth-usage'")

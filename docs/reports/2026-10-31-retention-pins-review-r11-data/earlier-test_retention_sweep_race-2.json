@@ -1,0 +1,51 @@
+{
+  "name": "earlier-test_retention_sweep_race-2",
+  "start": "2026-10-31T17:33:17.264268+00:00",
+  "load": [
+    63.07421875,
+    55.9072265625,
+    52.59912109375
+  ],
+  "pytest_pid": 80974,
+  "failure_root": "/private/tmp/sf-r272r11/failed-keep",
+  "args": [
+    "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 9.534432957996614,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 437.4516195420001,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003873329987982288,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_sweep_race.py::test_no_schedule_of_sweep_moves_loses_or_orphans_a_tree"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/subfleet/dependencies.py",
+  "product_sha256": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+  "end": "2026-10-31T17:41:16.170497+00:00",
+  "seconds": 478.90419783400284,
+  "peak_rss_mib": 113.90625,
+  "exit": 0
+}

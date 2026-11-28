@@ -190,7 +190,8 @@ def test_request_id_reuses_job_and_conflicting_payload_exits_two(e2e):
     e2e.prompt.write_text("A different payload.\n")
     conflict = e2e.cli(*args)
     assert conflict.rc == 2, conflict
-    assert "request" in conflict.stderr.lower()
+    # C-16.3: the different-payload refusal names the job (review r5 of #181).
+    assert f"request id already used with a different payload by job {identity}" in conflict.stderr, conflict
     assert len(e2e.rows("SELECT * FROM jobs")) == 1
     assert len(e2e.attempts(identity)) == 1
     assert len(e2e.rows("SELECT * FROM notices WHERE job_id=?", (identity,))) == 1

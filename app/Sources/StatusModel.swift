@@ -130,10 +130,11 @@ func dispatchableLanes(_ snapshot: Snapshot) -> [String: Int] {
     return counts
 }
 
-/// Auto's pick: the provider with more lanes ready, Claude on a tie or when
-/// nothing is known.
+/// Claude is the default, including unknown readiness and a tie at zero.
+/// Codex needs a ready lane and a known absence of ready Claude lanes.
 func autoProvider(_ counts: [String: Int]) -> String {
-    (counts["codex"] ?? 0) > (counts["claude"] ?? 0) ? "codex" : "claude"
+    guard let claude = counts["claude"] else { return "claude" }
+    return claude == 0 && (counts["codex"] ?? 0) > 0 ? "codex" : "claude"
 }
 
 // C-17.7, C-18.2: jobs submitted together by `run --batch` carry one label.
@@ -326,6 +327,9 @@ private func laneDisplay(
     else if unverified { status = "Identity unverified"; tone = .warning }
     else if offline { status = "Offline · cached"; tone = .warning }
     else if snapshotStale { status = "Snapshot stale"; tone = .warning }
+    // D-STATUS-SRC1: an operator's hold is not a provider limit. A held lane is
+    // never read, so its usage going stale is expected and does not hide it.
+    else if verdict == "held" { status = "Held"; tone = .neutral }
     else if evidenceStale { status = "Stale usage"; tone = .warning }
     else if verdict == "limited" { status = "Limited"; tone = .warning }
     else if dispatchable != true { status = "Unavailable"; tone = .neutral }

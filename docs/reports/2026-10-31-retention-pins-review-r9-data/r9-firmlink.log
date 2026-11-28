@@ -1,0 +1,73 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 09:11:42Z slot B load 
+FFFF                                                                     [100%]
+=================================== FAILURES ===================================
+____ test_firmlink_metadata_location_keeps_the_tree_real_git_reads[gitfile] ____
+tests/fake/test_retention_dependency_review_r9.py:73: in test_firmlink_metadata_location_keeps_the_tree_real_git_reads
+    assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)
+E   AssertionError: ({'git': ['/private/tmp/sf-r272r9/real-tmp/r9-firmlink/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio0/st...ytes_before': 48786, 'bytes_after': 0, ...}, b'fatal: not a git repository (or any of the parent directories): .git
+E     ')
+E   assert ('owner' not in ['owner'])
+___ test_firmlink_metadata_location_keeps_the_tree_real_git_reads[commondir] ___
+tests/fake/test_retention_dependency_review_r9.py:73: in test_firmlink_metadata_location_keeps_the_tree_real_git_reads
+    assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)
+E   AssertionError: ({'git': ['/private/tmp/sf-r272r9/real-tmp/r9-firmlink/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/ad...r9-firmlink/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio1/admin/commondir: No such file or directory
+E     ')
+E   assert ('owner' not in ['owner'])
+__ test_firmlink_metadata_location_keeps_the_tree_real_git_reads[alternates] ___
+tests/fake/test_retention_dependency_review_r9.py:73: in test_firmlink_metadata_location_keeps_the_tree_real_git_reads
+    assert 'owner' not in result['pruned'] and tree.is_dir(), (recorded, result, after.stderr)
+E   AssertionError: ({'git': ['/private/tmp/sf-r272r9/real-tmp/r9-firmlink/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio2/ad...'bytes_after': 0, ...}, b"fatal: path 'owner-only.txt' does not exist in '76d0856edb2a724385259ecd62890829d20a4baf'
+E     ")
+E   assert ('owner' not in ['owner'])
+_____ test_firmlink_metadata_location_keeps_the_tree_real_git_reads[refs] ______
+tests/fake/test_retention_dependency_review_r9.py:62: in test_firmlink_metadata_location_keeps_the_tree_real_git_reads
+    assert before.returncode == health.returncode == 0, (before.stderr, health.stderr)
+E   AssertionError: (b'', b'error: cannot open directory /private/tmp/sf-r272r9/real-tmp/r9-firmlink/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio3/stable/.git/refs: Not a directory
+E     ')
+E   assert 0 == 8
+E    +  where 0 = CompletedProcess(args=['git', '-c', 'maintenance.auto=false', '-c', 'gc.auto=0', '-c', 'core.hooksPath=/dev/null', '-C...54dd780c632cc70a11898ff57dcb289a6d87a19d:owner-only.txt'], returncode=0, stdout=b'R5 owner-only storage\n', stderr=b'').returncode
+E    +  and   8 = CompletedProcess(args=['git', '-c', 'maintenance.auto=false', '-c', 'gc.auto=0', '-c', 'core.hooksPath=/dev/null', '-C...real-tmp/r9-firmlink/pytest-of-maxghenis/pytest-0/test_firmlink_metadata_locatio3/stable/.git/refs: Not a directory\n').returncode
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[gitfile]
+FAILED tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[commondir]
+FAILED tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[alternates]
+FAILED tests/fake/test_retention_dependency_review_r9.py::test_firmlink_metadata_location_keeps_the_tree_real_git_reads[refs]
+4 failed in 21.90s
+{"name": "r9-firmlink", "start": "2026-10-31T09:11:44.439408+00:00", "load": [35.56396484375, 41.39453125, 46.5908203125], "seconds": 23.35172962499928, "exit": 1}

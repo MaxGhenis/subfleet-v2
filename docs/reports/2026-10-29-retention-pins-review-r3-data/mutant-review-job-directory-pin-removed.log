@@ -1,0 +1,91 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 13:53:27Z slot B load 
+{"start": "2026-10-29T13:53:28.033963+00:00", "load": [16.79248046875, 21.275390625, 22.412109375], "name": "mutant-review-job-directory-pin-removed"}
+Fworld = World(base=PosixPath('/private/tmp/sf-r272r3/cases-95777/pytest/test_c8_4_job_directory_depend0'), trusted=True, remot...-r272r3/cases-95777/pytest/test_c8_4_job_directory_depend0/state'), store=<subfleet.store.Store object at 0x10a5b4590>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10a339cd0>
+role = 'out_path', stage = 'census'
+
+    @pytest.mark.parametrize("role", ["review_root", "out_path", "git"])
+    @pytest.mark.parametrize("stage", ["census", "fence", "commit"])
+    def test_c8_4_job_directory_dependencies_are_rechecked_atomically(world, monkeypatch, role, stage):
+        world.job("owner", worktree=False)
+        folder = world.root / "jobs" / "owner"
+        before = snapshot(folder)
+        begun = []
+        original_begin = rarch.Retirement.begin
+        original_final = rarch.Retirement.final_check
+    
+        def begin(self, *a, **k):
+            begun.append(self.job_id)
+            if stage == "fence":
+                need(world, role)
+            return original_begin(self, *a, **k)
+    
+        def final(self):
+            original_final(self)
+            if stage == "commit":
+                need(world, role)
+            # Exercise the commit's own journal-path recheck independently of its pin callback.
+            self.ctx.pinned = lambda *_: None
+    
+        monkeypatch.setattr(rarch.Retirement, "begin", begin)
+        monkeypatch.setattr(rarch.Retirement, "final_check", final)
+        if stage == "census":
+            need(world, role)
+        result = run(world)
+        assert "owner" not in result["pruned"], result
+        assert snapshot(folder) == before
+>       assert bool(begun) == (stage != "census")
+E       AssertionError: assert True == ('census' != 'census')
+E        +  where True = bool(['owner'])
+
+tests/unit/test_retention_job_dependencies.py:93: AssertionError
+
+=================================== FAILURES ===================================
+_ test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-out_path] _
+
+world = World(base=PosixPath('/private/tmp/sf-r272r3/cases-95777/pytest/test_c8_4_job_directory_depend0'), trusted=True, remot...-r272r3/cases-95777/pytest/test_c8_4_job_directory_depend0/state'), store=<subfleet.store.Store object at 0x10a5b4590>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10a339cd0>
+role = 'out_path', stage = 'census'
+
+    @pytest.mark.parametrize("role", ["review_root", "out_path", "git"])
+    @pytest.mark.parametrize("stage", ["census", "fence", "commit"])
+    def test_c8_4_job_directory_dependencies_are_rechecked_atomically(world, monkeypatch, role, stage):
+        world.job("owner", worktree=False)
+        folder = world.root / "jobs" / "owner"
+        before = snapshot(folder)
+        begun = []
+        original_begin = rarch.Retirement.begin
+        original_final = rarch.Retirement.final_check
+    
+        def begin(self, *a, **k):
+            begun.append(self.job_id)
+            if stage == "fence":
+                need(world, role)
+            return original_begin(self, *a, **k)
+    
+        def final(self):
+            original_final(self)
+            if stage == "commit":
+                need(world, role)
+            # Exercise the commit's own journal-path recheck independently of its pin callback.
+            self.ctx.pinned = lambda *_: None
+    
+        monkeypatch.setattr(rarch.Retirement, "begin", begin)
+        monkeypatch.setattr(rarch.Retirement, "final_check", final)
+        if stage == "census":
+            need(world, role)
+        result = run(world)
+        assert "owner" not in result["pruned"], result
+        assert snapshot(folder) == before
+>       assert bool(begun) == (stage != "census")
+E       AssertionError: assert True == ('census' != 'census')
+E        +  where True = bool(['owner'])
+
+tests/unit/test_retention_job_dependencies.py:93: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_job_dependencies.py::test_c8_4_job_directory_dependencies_are_rechecked_atomically[census-out_path]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 1.31s

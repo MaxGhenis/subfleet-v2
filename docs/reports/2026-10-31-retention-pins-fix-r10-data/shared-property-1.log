@@ -1,0 +1,8 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 14:09:52Z slot A load 
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! KeyboardInterrupt !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+/Users/maxghenis/.subfleet/worktrees/20261031-073332-pr272-fix-r10/docs/reports/2026-10-31-retention-pins-fix-r10-data/run.py:173: KeyboardInterrupt
+(to show a full traceback on KeyboardInterrupt use --full-trace)
+61 deselected in 545.76s (0:09:05)
+{"name": "shared-property-1", "start": "2026-10-31T14:09:59.995998+00:00", "load": [40.04248046875, 57.6279296875, 73.109375], "seconds": 553.2351532920002, "exit": 2}

@@ -1,0 +1,545 @@
+{
+  "name": "earlier-test_retention_archive-4",
+  "start": "2026-10-31T17:06:42.654936+00:00",
+  "load": [
+    35.48779296875,
+    45.873046875,
+    54.48681640625
+  ],
+  "pytest_pid": 9735,
+  "failure_root": "/private/tmp/sf-r272r11/failed-keep",
+  "args": [
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[job-lease]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[live-attempt]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[parent]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[quarantined]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[queued]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[resume-fence]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[running]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[salvage-unresolvable]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[turn-keep-days]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[unread-notice]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[worktree-lease]",
+    "tests/unit/test_retention_archive.py::test_file_written_after_the_final_check_is_kept_in_conflicts",
+    "tests/unit/test_retention_archive.py::test_in_place_salvage_still_pins",
+    "tests/unit/test_retention_archive.py::test_interrupted_removal_resumes_and_leaves_no_half_tree",
+    "tests/unit/test_retention_archive.py::test_job_without_worktree_is_archived_with_its_rows",
+    "tests/unit/test_retention_archive.py::test_local_path_remote_is_not_a_remote",
+    "tests/unit/test_retention_archive.py::test_missing_worktree_with_a_live_registration_is_anchored",
+    "tests/unit/test_retention_archive.py::test_nested_linked_worktree_keeps_the_job",
+    "tests/unit/test_retention_archive.py::test_nested_repository_is_archived_byte_for_byte",
+    "tests/unit/test_retention_archive.py::test_network_url_classification"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[job-lease]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 3.4966900409999653,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[job-lease]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7759066250000615,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[job-lease]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.014320166999823414,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[live-attempt]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5781530420063064,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[live-attempt]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.8270836669980781,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[live-attempt]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.031875166001555044,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[parent]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.0282835000034538,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[parent]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.5137375420017634,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[parent]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.010594167004455812,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[quarantined]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6638295410011779,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[quarantined]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.067801833996782,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[quarantined]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.011013374998583458,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[queued]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5876563750061905,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[queued]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.247226833998866,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[queued]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.10184704199491534,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[resume-fence]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7026265000022249,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[resume-fence]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.1904882499948144,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[resume-fence]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.004494959001021925,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[running]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5408726669993484,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[running]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.0896074589982163,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[running]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.019544290997146163,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[salvage-unresolvable]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7203356669997447,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[salvage-unresolvable]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.6102510830023675,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[salvage-unresolvable]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0019922500068787485,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[turn-keep-days]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6402657920043566,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[turn-keep-days]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.9696612080006162,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[turn-keep-days]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.011272249998000916,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[unread-notice]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.45436466699902667,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[unread-notice]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3958028339984594,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[unread-notice]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0041805000000749715,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[worktree-lease]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6898167920007836,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[worktree-lease]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3793433329992695,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[worktree-lease]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0020727080045617186,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_file_written_after_the_final_check_is_kept_in_conflicts",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.45374837500276044,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_file_written_after_the_final_check_is_kept_in_conflicts",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.0354372080037137,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_file_written_after_the_final_check_is_kept_in_conflicts",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.001960667003004346,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_in_place_salvage_still_pins",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7031873329979135,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_in_place_salvage_still_pins",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.003338999995321501,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_in_place_salvage_still_pins",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.001583082994329743,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_interrupted_removal_resumes_and_leaves_no_half_tree",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7305256670006202,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_interrupted_removal_resumes_and_leaves_no_half_tree",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.2004382090017316,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_interrupted_removal_resumes_and_leaves_no_half_tree",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.06236150000040652,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_job_without_worktree_is_archived_with_its_rows",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.8976814580018981,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_job_without_worktree_is_archived_with_its_rows",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.30600970800151117,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_job_without_worktree_is_archived_with_its_rows",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0019668340028147213,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_local_path_remote_is_not_a_remote",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.7044152090020361,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_local_path_remote_is_not_a_remote",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 2.5599580830021296,
+      "wasxfail": null,
+      "failure": "tests/unit/test_retention_archive.py:245: in test_local_path_remote_is_not_a_remote\n    assert manifest[\"git\"][\"scratch\"] == \"no network remote\"\nE   AssertionError: assert 'scratch path' == 'no network remote'\nE     \nE     - no network remote\nE     + scratch path"
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_local_path_remote_is_not_a_remote",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.23376762500265613,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_missing_worktree_with_a_live_registration_is_anchored",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.5390623749990482,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_missing_worktree_with_a_live_registration_is_anchored",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.2516344579998986,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_missing_worktree_with_a_live_registration_is_anchored",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.011653209003270604,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_nested_linked_worktree_keeps_the_job",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.0026857499979087,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_nested_linked_worktree_keeps_the_job",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.0797632499961765,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_nested_linked_worktree_keeps_the_job",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.002252208003483247,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_nested_repository_is_archived_byte_for_byte",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6057410419962252,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_nested_repository_is_archived_byte_for_byte",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.3239740839999286,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_nested_repository_is_archived_byte_for_byte",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.04485270899749594,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_network_url_classification",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0024942919990280643,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_network_url_classification",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00036845899740001187,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_archive.py::test_network_url_classification",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004197919988655485,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[job-lease]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[live-attempt]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[parent]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[quarantined]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[queued]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[resume-fence]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[running]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[salvage-unresolvable]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[turn-keep-days]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[unread-notice]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[worktree-lease]",
+    "tests/unit/test_retention_archive.py::test_file_written_after_the_final_check_is_kept_in_conflicts",
+    "tests/unit/test_retention_archive.py::test_in_place_salvage_still_pins",
+    "tests/unit/test_retention_archive.py::test_interrupted_removal_resumes_and_leaves_no_half_tree",
+    "tests/unit/test_retention_archive.py::test_job_without_worktree_is_archived_with_its_rows",
+    "tests/unit/test_retention_archive.py::test_local_path_remote_is_not_a_remote",
+    "tests/unit/test_retention_archive.py::test_missing_worktree_with_a_live_registration_is_anchored",
+    "tests/unit/test_retention_archive.py::test_nested_linked_worktree_keeps_the_job",
+    "tests/unit/test_retention_archive.py::test_nested_repository_is_archived_byte_for_byte",
+    "tests/unit/test_retention_archive.py::test_network_url_classification"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/subfleet/dependencies.py",
+  "product_sha256": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+  "end": "2026-10-31T17:07:40.700086+00:00",
+  "seconds": 58.0444474169999,
+  "peak_rss_mib": 116.53125,
+  "exit": 1
+}

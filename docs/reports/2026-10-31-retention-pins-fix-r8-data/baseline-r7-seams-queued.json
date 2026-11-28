@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T07:36:01.247249+00:00",
+  "args": [
+    "-p",
+    "tests.conftest",
+    "--confcutdir=docs/reports/2026-10-31-retention-pins-fix-r7-data",
+    "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[same-size-running]",
+    "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[symlink-info-running]"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/real-tmp/baseline-r7-seams",
+  "linked": false
+}

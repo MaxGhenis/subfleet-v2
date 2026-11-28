@@ -16,6 +16,7 @@ from subfleet.conversations.codex_turn import (
 )
 from subfleet.conversations.turn import Image, TurnSpec
 from subfleet.guard.preflight import HOOK_KEY
+from subfleet.launch_env import codex_shell_args
 from tests.schema_check import errors
 
 SCHEMAS = Path(__file__).resolve().parents[1] / "fixtures" / "codex" / "app-server-0.153.3"
@@ -104,7 +105,8 @@ def to_running(turn, thread_id="thr-1"):
 
 def test_argv_requires_the_verified_override():
     """D-11 a turn server never starts without the verified hooks override."""
-    assert argv("/bin/codex", "hooks={x}") == ["/bin/codex", "app-server", "--listen", "stdio://", "-c", "hooks={x}"]
+    assert argv("/bin/codex", "hooks={x}") == ["/bin/codex", "app-server", "--listen", "stdio://", "-c", "hooks={x}",
+                                                *codex_shell_args()]
     with pytest.raises(ValueError):
         argv("/bin/codex", "")
 
@@ -334,11 +336,40 @@ def test_interrupt_waits_for_the_turn_id_then_uses_turn_interrupt():
     early = turn.interrupt()
     assert early.frames == []
     step = turn.feed(resp(ID_TURN, {"turn": {"id": "turn-1", "status": "inProgress", "items": []}}), 4)
+    assert step.frames[-1].stops is True
     body = json.loads(step.frames[-1].line)
     assert body["method"] == "turn/interrupt" and body["params"] == {"threadId": "thr-1", "turnId": "turn-1"}
     check_frames(step)
     end = turn.feed(note("turn/completed", threadId="thr-1", turn={"id": "turn-1", "status": "interrupted", "items": []}), 5)
     assert end.outcome.state == "interrupted"
+
+
+@pytest.mark.parametrize("method, decisions", [
+    ("item/commandExecution/requestApproval", ("allow", "allow-session", "deny", "cancel-turn")),
+    ("item/fileChange/requestApproval", ("allow", "allow-session", "deny", "cancel-turn")),
+    ("item/permissions/requestApproval", ("allow-turn", "deny")),
+])
+def test_codex_approval_stop_flag_matches_wire_cancel(method, decisions):
+    for decision in decisions:
+        turn = CodexTurn(spec())
+        turn.pending["42"] = (method, {"permissions": {"network": {"enabled": True}}})
+        [frame] = turn.respond("42", decision).frames
+        payload = json.loads(frame.line)["result"]
+        assert frame.stops is (payload.get("decision") == "cancel")
+
+
+@pytest.mark.parametrize("method, stops", [
+    ("applyPatchApproval", True), ("execCommandApproval", True),
+    ("mcpServer/elicitation/request", False), ("item/tool/requestUserInput", False),
+    ("account/chatgptAuthTokens/refresh", False), ("unknown/request", False),
+])
+def test_codex_unsupported_reply_stop_flag_matches_wire_abort(method, stops):
+    turn = CodexTurn(spec())
+    to_running(turn)
+    [frame] = turn.feed(json.dumps({"id": 42, "method": method, "params": {}}), 30).frames
+    payload = json.loads(frame.line)
+    assert frame.stops is stops
+    assert frame.stops is (payload.get("result", {}).get("decision") == "abort")
 
 
 def test_model_mismatch_on_the_thread_stops_before_the_turn():
@@ -449,7 +480,9 @@ def test_c23_6_a_turn_whose_shell_reaches_the_network_has_unified_exec_off():
     assert codex_turn.unified_exec_off("accept-edits", True, environ={}) is False
     assert codex_turn.unified_exec_off("bypass", False, environ={}) is False
     assert codex_turn.unified_exec_off("ask", False, environ={"SUBFLEET_CODEX_UNIFIED_EXEC": "off"}) is True
-    assert codex_turn.argv("codex", "hooks={x}", unified_exec_off=True)[-2:] == ["-c", "features.unified_exec=false"]
+    shell = codex_turn.codex_shell_args()
+    command = codex_turn.argv("codex", "hooks={x}", unified_exec_off=True)
+    assert command[-2 - len(shell):] == ["-c", "features.unified_exec=false", *shell]
 
 
 def test_c23_6_the_service_launches_network_turns_with_unified_exec_off(tmp_path, monkeypatch):

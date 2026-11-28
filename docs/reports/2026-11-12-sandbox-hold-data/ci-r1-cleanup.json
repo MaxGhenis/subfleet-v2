@@ -1,0 +1,375 @@
+{
+  "allocated_unique_paths": 3760,
+  "allocation_manifest_lines": 3760,
+  "error": "Traceback (most recent call last):\n  File \"/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/cleanup.py\", line 252, in <module>\n  File \"/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/cleanup.py\", line 240, in clean\n  File \"/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/cleanup.py\", line 47, in guarded_rmtree\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/shutil.py\", line 852, in rmtree\n    _rmtree_impl(path, dir_fd, onexc)\n    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/shutil.py\", line 721, in _rmtree_safe_fd\n    _rmtree_safe_fd_step(stack, onexc)\n    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/shutil.py\", line 791, in _rmtree_safe_fd_step\n    os.unlink(entry.name, dir_fd=topfd)\n    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^\nKeyboardInterrupt\n",
+  "external_allocated_unique_roots": 6,
+  "external_allocations": [
+    {
+      "canonical_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/sf-sbh-c1-sfwork-agr3i_7x",
+      "original_paths": [
+        "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/sf-sbh-c1-sfwork-agr3i_7x"
+      ]
+    },
+    {
+      "canonical_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/sf-sbh-c1-sfwork-d3tutwru",
+      "original_paths": [
+        "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/sf-sbh-c1-sfwork-d3tutwru"
+      ]
+    },
+    {
+      "canonical_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/sf-sbh-c1-sfwork-gfbkj1b9",
+      "original_paths": [
+        "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/sf-sbh-c1-sfwork-gfbkj1b9"
+      ]
+    },
+    {
+      "canonical_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/sf-sbh-c1-sfwork-vuov_cvk",
+      "original_paths": [
+        "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/sf-sbh-c1-sfwork-vuov_cvk"
+      ]
+    },
+    {
+      "canonical_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/sf-sbh-c1-sfwork-xc5ng8ol",
+      "original_paths": [
+        "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/sf-sbh-c1-sfwork-xc5ng8ol"
+      ]
+    },
+    {
+      "canonical_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/sf-sbh-c1-sfwork-xyi6u8qb",
+      "original_paths": [
+        "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/sf-sbh-c1-sfwork-xyi6u8qb"
+      ]
+    }
+  ],
+  "external_roots_deleted": [],
+  "finished_at": "2026-11-13T14:48:30.050066+00:00",
+  "git_inventory_command": [
+    "git",
+    "--no-optional-locks",
+    "-c",
+    "core.fsmonitor=false",
+    "ls-files",
+    "-z"
+  ],
+  "marker": "sf-sbh-c1",
+  "plugin_external_deletion_lines": 6,
+  "plugin_external_deletion_unique_paths": 6,
+  "preserved_files": [
+    {
+      "bytes": 658,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/assertion-audit.json",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-assertion-audit.json",
+      "sha256": "77421ca2c80007ffd1debb4be1667f7297fff447cb835fc56f19be54bfa28376"
+    },
+    {
+      "bytes": 177,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/branch.log",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-branch.log",
+      "sha256": "93a84e67ae15d49bf154ec194b670ec53fc2628a07d8f6c59c0c0b6cee86671a"
+    },
+    {
+      "bytes": 737,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/cleanup-path-check.json",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-cleanup-path-check.json",
+      "sha256": "8f9111d837fa2f8e814402d3700b19e52a2dbff784cd87751d9da2021ee699e1"
+    },
+    {
+      "bytes": 12024,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/cleanup.py",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-cleanup.py",
+      "sha256": "3e66f9849dd495b3035b8efa8c428fd4d2a402dc32d0e294005e75fea1be08be"
+    },
+    {
+      "bytes": 468,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/commit-fixtures.json",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-commit-fixtures.json",
+      "sha256": "93bbc53198c5f33d66ed347a6c78d7ae67799ebdc31687269bf1d018d5bf61f6"
+    },
+    {
+      "bytes": 407,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/commit-witness.json",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-commit-witness.json",
+      "sha256": "0fa094168f86b5723362e1309403f5b6d129ba3c58cffe69cc934c708ca7c622"
+    },
+    {
+      "bytes": 645,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/compile-check.json",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-compile-check.json",
+      "sha256": "736823d6897554e7a4f04ddfa8082557c0d369310a2fd46d1fdf0bb8d458a5a2"
+    },
+    {
+      "bytes": 887,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/contract-bundle.command.json",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-contract-bundle.command.json",
+      "sha256": "1c92260c15b9b863b6af18973362f01554a016c624484e604555a02d49775517"
+    },
+    {
+      "bytes": 556,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/contract-bundle.log",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-contract-bundle.log",
+      "sha256": "71edebbae918ea0f8da25e665bd8cac7495dc1db9b10901ab02465bb4339928f"
+    },
+    {
+      "bytes": 3140,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/expected-outcomes.txt",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-expected-outcomes.txt",
+      "sha256": "591c3bd89de079ab1a03b24c5172620e88aa680c6cc86257d8b42b59bc44ac4e"
+    },
+    {
+      "bytes": 783,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/fixed-build-budget.command.json",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-fixed-build-budget.command.json",
+      "sha256": "b0dd84c3e0dc6368f8d83264df39da815f9f5c3e91e196b5bad3e90b785ea36a"
+    },
+    {
+      "bytes": 111,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/fixed-build-budget.log",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-fixed-build-budget.log",
+      "sha256": "d65f9330ee3fcc4ebff280dbf496224826f15b366af356ab2ec67672e7b32c76"
+    },
+    {
+      "bytes": 853,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/fixed-busy-generated.command.json",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-fixed-busy-generated.command.json",
+      "sha256": "ee126eec0ff3b8bab79530a8a48b58bd5c11b7bf6a1c2cc401328b54652753a5"
+    },
+    {
+      "bytes": 99,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/fixed-busy-generated.log",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-fixed-busy-generated.log",
+      "sha256": "8878927a1c36982c0add2e10b776518ad860e98dba8d10ff51234adecbe64f2b"
+    },
+    {
+      "bytes": 796,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/fixed-store-completion.command.json",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-fixed-store-completion.command.json",
+      "sha256": "c3806689918227b8496c63200d122a343c047624909134f649968e50c9df6c46"
+    },
+    {
+      "bytes": 99,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/fixed-store-completion.log",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-fixed-store-completion.log",
+      "sha256": "775c43bbc5547da72dc4d2b24bc22debdb3a30ed4ed2dc4ea5bdbe80123ac220"
+    },
+    {
+      "bytes": 888,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/git_step.py",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-git_step.py",
+      "sha256": "ec22044bea53fa4fb1e535a636e7fc0289b4c04b73cde1f54b2d43975778db0a"
+    },
+    {
+      "bytes": 901,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/hold-reference-tests.txt",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-hold-reference-tests.txt",
+      "sha256": "b9b122e9051d1cddb2c75443556aa3409d41b213b164c190d86440d1c92168d2"
+    },
+    {
+      "bytes": 1795,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/named-tests-rg.txt",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-named-tests-rg.txt",
+      "sha256": "31b5efb1ae43660924377e0cb96d928da34443dcb55559e20ed77a4d1e063b7a"
+    },
+    {
+      "bytes": 1795,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/named-tests.txt",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-named-tests.txt",
+      "sha256": "4964ca19a88a22493aefe167aba1ffed285ce34ef06f9c56237531dcf349cda1"
+    },
+    {
+      "bytes": 1365,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/pytest_scratch.py",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-pytest_scratch.py",
+      "sha256": "23b772fcba7d2f56d46023d5194e439cf4633550569008fc2d906a82a4ec139b"
+    },
+    {
+      "bytes": 782,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/real-store-witness.command.json",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-real-store-witness.command.json",
+      "sha256": "fbae2373bd920045af6faf9840808e9e7ddb0b947c5c8af6c02803dddc9b952c"
+    },
+    {
+      "bytes": 99,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/real-store-witness.log",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-real-store-witness.log",
+      "sha256": "656776b018e4b2ca218f1b924d1cbbfe5ed700f22c62c66d3589e855cc8ff4b1"
+    },
+    {
+      "bytes": 783,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/repro-build-budget.command.json",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-repro-build-budget.command.json",
+      "sha256": "83a46e4169bf9157e342f627ee80661b5c95d33853ab89456a3919229a1c808d"
+    },
+    {
+      "bytes": 19888,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/repro-build-budget.log",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-repro-build-budget.log",
+      "sha256": "ba40fec5cddae5e210953e49fff1338434823a5229e30221ae8ce39f4e6f91b6"
+    },
+    {
+      "bytes": 797,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/repro-store-completion.command.json",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-repro-store-completion.command.json",
+      "sha256": "d7c357ed4560160089ac188750dfcd96213d4bc43e7dd2c7304ea38c404ce037"
+    },
+    {
+      "bytes": 5546,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/repro-store-completion.log",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-repro-store-completion.log",
+      "sha256": "be315c55d9efbe083847f988047bd1f46841a33b13280309b04923469d5cb2ee"
+    },
+    {
+      "bytes": 797,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/repro-store-interleavings.command.json",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-repro-store-interleavings.command.json",
+      "sha256": "b460fdf81bdab66b697399cc2f4589100cb35bdca7e8fa8428976623608ae13e"
+    },
+    {
+      "bytes": 3525,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/repro-store-interleavings.log",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-repro-store-interleavings.log",
+      "sha256": "368f49946d2553395d7f8357cd84ec817e0d1e9cf7693b927cb1587695673354"
+    },
+    {
+      "bytes": 1014,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/retry-store-interleavings.command.json",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-retry-store-interleavings.command.json",
+      "sha256": "0356cf7392342975723ed239fc783ff4db3675aea906f52936228cb031706a97"
+    },
+    {
+      "bytes": 23,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/retry-store-interleavings.log",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-retry-store-interleavings.log",
+      "sha256": "c75bbdfbbfd3ec4436b2111bf5804164f661e8a7de450c3eddfb4bd41eb57ed5"
+    },
+    {
+      "bytes": 13976,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/root-commands.md",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-root-commands.md",
+      "sha256": "85a7db7b0cb4af30f9eae7b6a5ab59b84cd2b52de6af42b889d8e234780f3392"
+    },
+    {
+      "bytes": 1862,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/run_tests.py",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-run_tests.py",
+      "sha256": "f853a497c10d52326caa013d0676f078532e5260f9c56a7161ab125aa6ff5e3a"
+    },
+    {
+      "bytes": 2180,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/selected-tests.txt",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-selected-tests.txt",
+      "sha256": "516807b73100ab9d1f2710f533a5acf618cdc8a746f839cdd86dfacc8b06872f"
+    },
+    {
+      "bytes": 2932,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/selected.command.json",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-selected.command.json",
+      "sha256": "1ff9fcc4de8cb98d02316e132781f3502d0de1ca5b01102695776b7fb0e4d32e"
+    },
+    {
+      "bytes": 12069,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/selected.log",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-selected.log",
+      "sha256": "aa23ba977ca693f2255a84f3b190e3d3667304be5bfb884ce8bad55ff1bde67a"
+    },
+    {
+      "bytes": 882,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/source-checks.json",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-source-checks.json",
+      "sha256": "05a5deaf8e9a5409db9904baea19f0a8b59c85236483e4303cd7e19c50928852"
+    },
+    {
+      "bytes": 29103,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/standin-audit.md",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-standin-audit.md",
+      "sha256": "e93e6dde9e43bfcea99dd0c069c3ecc02f85c5e09318dbaf223c939ca8a22ab7"
+    },
+    {
+      "bytes": 262,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/sync-api.log",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-sync-api.log",
+      "sha256": "c9edcddaa0a01b9adb45836fd637a9f95d51f520601df19460e8882016c7e7a1"
+    },
+    {
+      "bytes": 604,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/sync-dev.log",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-sync-dev.log",
+      "sha256": "257102202a913ae426bec79aa057b6a9e7afc87216640ed7f112f3269591e90a"
+    },
+    {
+      "bytes": 57,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/sync-py312-verify.log",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-sync-py312-verify.log",
+      "sha256": "387e7900492def908732bfa127e1d013161638416ede8e11152539b46f6dd437"
+    },
+    {
+      "bytes": 608,
+      "original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data/sync-py312.log",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-sync-py312.log",
+      "sha256": "3092633692d6d62a8ac1c875d5a7bc1b60596100e99ca1836b7006bcf6148260"
+    },
+    {
+      "bytes": 300115,
+      "original_path": "/private/tmp/sf-sbh-c1/temp-directories.jsonl",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-temp-directories.jsonl",
+      "sha256": "4ce9831fe2c6819017652611b6ddaec6ad93f1810a72178d27d2a047474660e2"
+    },
+    {
+      "bytes": 570,
+      "original_path": "/private/tmp/sf-sbh-c1/external-deletions.jsonl",
+      "original_present": true,
+      "preserved_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-data/ci-r1-external-deletions.jsonl",
+      "sha256": "e5c19c8f2bee44c95d46a7198ffc6817a7418f725059dea0107a7629e1a75aad"
+    }
+  ],
+  "scratch_original_path": "/private/tmp/sf-sbh-c1",
+  "started_at": "2026-11-13T14:43:11.804250+00:00",
+  "success": false,
+  "temporary_evidence_original_path": "/Users/maxghenis/.subfleet/worktrees/20261113-071657-sbh-fix-ci-r1/docs/reports/2026-11-12-sandbox-hold-ci-r1-data",
+  "temporary_evidence_quarantine_path": "/private/tmp/sf-sbh-c1/removed-ci-r1-evidence",
+  "temporary_evidence_removed": true,
+  "tracked_cache_directories_skipped": [],
+  "worktree_caches": []
+}

@@ -7,15 +7,17 @@ import pytest
 
 from subfleet import operations, protocol
 from tests.unit.test_timers_probe import rig, events
-from tests.unit.test_timers_reset_credits import store, lane, snapshot, component, HTTP, NOW
+from tests.unit.test_timers_reset_credits import store, lane, snapshot, component, wants, HTTP, NOW
 
 
 def test_targeted_dry_run_does_not_read_credit_endpoint_or_write_actions(store, tmp_path):
     first = lane(store, tmp_path)
     second = lane(store, tmp_path, number=2)
     http = HTTP(store=store)
+    waiting = wants(store, first.lane_id, second.lane_id)
     before = store.list_events()
-    result = component(store, http).evaluate(snapshot(store), now=NOW, target_lane_id=second.lane_id, dry_run=True)
+    result = component(store, http).evaluate(snapshot(store), now=NOW, target_lane_id=second.lane_id, dry_run=True,
+                                             demand=waiting)
     assert result['status'] == 'would-evaluate' and result['candidate_lanes'] == [second.lane_id]
     assert result['credit_verified'] is False
     assert http.calls == [] and store.query('SELECT * FROM actions') == []
@@ -27,24 +29,52 @@ def test_targeted_reset_spends_only_named_lane_and_retains_interval(store, tmp_p
     second = lane(store, tmp_path, number=2)
     http = HTTP(store=store)
     resets = component(store, http)
-    result = resets.evaluate(snapshot(store), now=NOW, target_lane_id=second.lane_id)
+    result = resets.evaluate(snapshot(store), now=NOW, target_lane_id=second.lane_id, demand=wants(store))
     assert result['status'] == 'confirmed' and result['lane_id'] == second.lane_id
     assert store.list_closures(first.lane_id, active_at=NOW.isoformat())
-    again = resets.evaluate(snapshot(store), now=NOW, target_lane_id=first.lane_id)
+    again = resets.evaluate(snapshot(store), now=NOW, target_lane_id=first.lane_id, demand=wants(store))
     assert again['status'] == 'interval-blocked'
     assert sum(request.get_method() == 'POST' for request, _ in http.calls) == 1
 
 
-@pytest.mark.parametrize('mode', ['healthy-other-lane', 'disabled-policy', 'unknown-target'])
-def test_target_does_not_bypass_fleet_trigger_or_enable_background_policy(store, tmp_path, mode):
+@pytest.mark.parametrize('mode', ['healthy-other-lane', 'disabled-policy', 'no-waiting-job', 'waiting-elsewhere'])
+def test_operator_names_one_lane_and_obeys_the_rule(store, tmp_path, mode):
+    """C-23.16 (e): `reset codex <lane>` spends on that lane alone, and only as the timer would:
+    the switch on, a job waiting on that lane, and no lane of its route with room."""
     target = lane(store, tmp_path)
-    if mode == 'healthy-other-lane':
-        lane(store, tmp_path, number=2, utilization=.1)
+    other = lane(store, tmp_path, number=2, utilization=.1 if mode == 'healthy-other-lane' else 1.)
     http = HTTP(store=store)
     resets = component(store, http, enabled=mode != 'disabled-policy')
-    result = resets.evaluate(snapshot(store), now=NOW,
+    waiting = wants(store, target.lane_id)
+    if mode == 'healthy-other-lane':
+        waiting = [{**waiting[0], 'verdict': 'lane-has-capacity', 'capacity_lanes': [other.lane_id]}]
+    elif mode == 'no-waiting-job':
+        waiting = []
+    elif mode == 'waiting-elsewhere':
+        waiting = wants(store, other.lane_id)
+    result = resets.evaluate(snapshot(store), now=NOW, target_lane_id=target.lane_id, demand=waiting)
+    assert result['status'] == {'healthy-other-lane': 'no-demand', 'disabled-policy': 'disabled',
+                                'no-waiting-job': 'no-demand', 'waiting-elsewhere': 'no-eligible-lane'}[mode]
+    assert not any(request.get_method() == 'POST' for request, _ in http.calls)
+    assert not store.query('SELECT * FROM actions')
+    spent = component(store, http).evaluate(snapshot(store), now=NOW, target_lane_id=target.lane_id,
+                                            demand=wants(store, target.lane_id, other.lane_id))
+    assert spent['status'] == 'confirmed' and spent['lane_id'] == target.lane_id
+    assert spent['trigger_reason'] == 'operator' and spent['job_id'] == 'job-1'
+
+
+@pytest.mark.parametrize('mode', ['unknown-target', 'unlimited-target', 'inhibited'])
+def test_operator_lane_still_needs_a_limit_a_known_lane_and_no_hold(store, tmp_path, mode):
+    """C-23.16 (e), (f): the operator's pin keeps C-23.16's limit test and the no-reset marker."""
+    target = lane(store, tmp_path, utilization=.2 if mode == 'unlimited-target' else 1.)
+    http = HTTP(store=store)
+    resets = component(store, http)
+    if mode == 'inhibited':
+        resets.inhibit = tmp_path / 'no-reset'
+        resets.inhibit.write_text('{}')
+    result = resets.evaluate(snapshot(store), now=NOW, demand=wants(store, target.lane_id),
                              target_lane_id='missing' if mode == 'unknown-target' else target.lane_id)
-    assert result['status'] in ('not-triggered', 'disabled', 'no-concrete-credit')
+    assert result['status'] == ('inhibited' if mode == 'inhibited' else 'no-eligible-lane')
     assert not http.calls and not store.query('SELECT * FROM actions')
 
 
@@ -53,7 +83,8 @@ def test_target_does_not_bypass_unshadowed_gift_priority(store, tmp_path):
     other = lane(store, tmp_path, number=2)
     http = HTTP(store=store)
     result = component(store, http).evaluate(snapshot(store, **{target.lane_id: {'app_shadowed': True}}),
-                                             now=NOW, target_lane_id=target.lane_id)
+                                             now=NOW, target_lane_id=target.lane_id,
+                                             demand=wants(store, target.lane_id))
     assert result['status'] == 'shadow-excluded'
     assert http.calls and all(request.get_method() == 'GET' for request, _ in http.calls)
     assert not store.query('SELECT * FROM actions')

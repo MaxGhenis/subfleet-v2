@@ -10,6 +10,7 @@ import pytest
 from subfleet import daemon as daemon_module, procs
 from subfleet.contracts import Launch, Outcome, OutcomeClass
 from subfleet.daemon import after, utcnow
+from subfleet.policy import admission_settings
 from tests.caps import capped
 from tests.fake.test_routing_end_to_end import routing_state
 from tests.fake_adapter import FakeAdapter
@@ -20,7 +21,7 @@ def reserved_probe(service, job_id, *, state="starting"):
     directory.mkdir(parents=True)
     record = {"holder": "probe:fixture", "job_id": job_id, "lane_id": "codex-1",
               "model_id": "gpt-6-astra", "directory": str(directory), "state": state,
-              "created_at": utcnow(), "deadline_at": after(60), "guardian_pid": 900001,
+              "created_at": utcnow(), "deadline_at": after(admission_settings(service.policy)["probe_deadline_s"]), "guardian_pid": 900001,
               "pgid": 900001, "boot_id": "boot", "proc_start": "start", "owned_identities": {}}
     service.store.acquire_lease("lane:codex-1:slot:0", record["holder"])
     service._save_probe(record)
@@ -52,6 +53,11 @@ def test_c11_probe_rechecks_lane_before_reserving_after_selection(routing_state,
 
     def pick_then_change(*args, **kwargs):
         decision = original_pick(*args, **kwargs)
+        if selected:
+            # C-11.4: a lane whose probe could not be reserved is passed over and the
+            # look evaluates again (review of #153); here no other lane takes the job.
+            assert decision.chosen_lane is None
+            return decision
         assert decision.chosen_lane == "codex-1"
         assert not service.store.conn.in_transaction
         service.store.update_lane(decision.chosen_lane, **change)
@@ -172,7 +178,7 @@ def test_c5_probe_gate_opens_after_durable_identity_and_readonly_launch(routing_
         assert stored["state"] == "starting"
         assert stored["guardian_pid"] == 900001
         assert stored["proc_start"] == "fixture-start"
-        assert not service.store.conn.in_transaction
+        assert service.store.conn.in_transaction  # Gate and cancellation serialize.
         writes.append((fd, value))
     monkeypatch.setattr(daemon_module.os, "write", release)
     def spawn(command, **kwargs):

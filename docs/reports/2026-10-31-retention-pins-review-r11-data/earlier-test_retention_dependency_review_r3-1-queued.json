@@ -1,0 +1,15 @@
+{
+  "queued": "2026-10-31T16:36:44.423715+00:00",
+  "args": [
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[exporting]",
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]",
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[exporting-legacy]",
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[exporting-recorded]",
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]",
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-recorded]"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/earlier-test_retention_dependency_review_r3-1",
+  "linked": false,
+  "driver_pid": 60892,
+  "lock_process_group": 60923
+}

@@ -1,0 +1,30 @@
+{
+  "exitstatus": 1,
+  "phases": [
+    {
+      "nodeid": "tests/unit/test_notice_keep.py::test_reused_same_second_ping_is_not_expired",
+      "when": "setup",
+      "outcome": "passed",
+      "exception": null,
+      "assertion": false,
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_notice_keep.py::test_reused_same_second_ping_is_not_expired",
+      "when": "call",
+      "outcome": "failed",
+      "exception": "AssertionError",
+      "assertion": true,
+      "failure": "retained = (<subfleet.store.Store object at 0x10c016a50>, PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sub...empt-20261106-081758-nk-fix-r2-a1-nzs7fcg2/sf-notice-keep-mutant-o-wdzi_avd/basetemp/test_reused_same_second_ping_i0'))\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10bd54b00>\n\n    def test_reused_same_second_ping_is_not_expired(retained, monkeypatch):\n        from subfleet import daemon\n        store, root = retained\n        then = NOW - timedelta(days=8)\n        outcome = write_outcome(store, root, \"reused\", \"s1\", then)\n        with store.transaction() as tx:\n            tx.execute(\"DELETE FROM service_notices WHERE notice_id=?\", (outcome,))\n        monkeypatch.setattr(daemon, \"utcnow\", lambda: stamp(then))\n        instance = SimpleNamespace(store=store, policy={}, _notify=lambda: None)\n        reply = daemon.Daemon.dispatch.__wrapped__(instance, \"ping\", {\"session_id\": \"s1\", \"text\": \"different ping\"})\n        assert -reply[\"notice_id\"] == outcome\n>       assert pin_notice_jobs(store.query, outcomes(store)) == {}\nE       AssertionError: assert {1: 'reused'} == {}\nE         \nE         Left contains 1 more item:\nE         {1: 'reused'}\nE         Use -v to get more diff\n\ntests/unit/test_notice_keep.py:104: AssertionError"
+    },
+    {
+      "nodeid": "tests/unit/test_notice_keep.py::test_reused_same_second_ping_is_not_expired",
+      "when": "teardown",
+      "outcome": "passed",
+      "exception": null,
+      "assertion": false,
+      "failure": null
+    }
+  ],
+  "collection_errors": []
+}

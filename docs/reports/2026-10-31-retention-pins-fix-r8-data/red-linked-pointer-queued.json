@@ -1,0 +1,8 @@
+{
+  "queued": "2026-10-31T07:07:36.827663+00:00",
+  "args": [
+    "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/link-tmp/red-linked-pointer",
+  "linked": true
+}

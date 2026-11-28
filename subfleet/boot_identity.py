@@ -23,6 +23,17 @@ def read_identity(read: Callable[[list[str]], str]) -> str | None:
     return value or boot_seconds(read)
 
 
+def differ(recorded: str | None, other: str | None) -> bool:
+    """Do two recorded boot identities provably name different boots (D-QUAR-REUSE1)?
+
+    Only two boot-session UUIDs can say so. Legacy `kern.boottime` seconds can shift
+    within one boot, and seconds beside a UUID cannot be compared, so either is
+    "not provably different" (C-5.3), as a missing identity is.
+    """
+    first, second = session_uuid(str(recorded or "")), session_uuid(str(other or ""))
+    return bool(first and second and first != second)
+
+
 def matches(recorded: str, current: str, legacy_seconds: Callable[[], str | None]) -> bool | None:
     """A shifted legacy wall-clock timestamp is uncertainty, never proof of death.
 

@@ -1,0 +1,67 @@
+{
+  "name": "test_detached_retention_fence-10",
+  "start": "2026-10-29T06:44:42.116831+00:00",
+  "load": [
+    15.92578125,
+    20.4140625,
+    22.0498046875
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_stays_fenced_through_the_quarantine[read-only]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_stays_fenced_through_the_quarantine[worktree]"
+  ],
+  "phases": {
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_stays_fenced_through_the_quarantine[read-only]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_stays_fenced_through_the_quarantine[worktree]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_stays_fenced_through_the_quarantine[read-only]": {
+      "setup": {
+        "duration": 0.03418779200001154,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 1.350850167000317,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.00038712500827386975,
+        "wasxfail": null,
+        "properties": []
+      }
+    },
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_stays_fenced_through_the_quarantine[worktree]": {
+      "setup": {
+        "duration": 0.0022127500124042854,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 1.116942167005618,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.000414624999393709,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

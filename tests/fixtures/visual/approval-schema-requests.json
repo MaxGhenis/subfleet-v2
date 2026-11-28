@@ -1,0 +1,265 @@
+[
+  {
+    "id": "codex-write-stdin",
+    "kind": "command",
+    "definition": "CommandExecutionRequestApprovalParams",
+    "display": {
+      "command": "/bin/zsh -lc 'python3 manage.py migrate'",
+      "cwd": "/repo",
+      "input_kind": "writeStdin"
+    },
+    "request": {
+      "method": "item/commandExecution/requestApproval",
+      "params": {
+        "threadId": "thread-fixture",
+        "turnId": "turn-fixture",
+        "itemId": "item-fixture",
+        "startedAtMs": 1791100000000,
+        "approvalId": "callback-fixture",
+        "kind": "writeStdin",
+        "command": "/bin/zsh -lc 'python3 manage.py migrate'",
+        "cwd": "/repo",
+        "environmentId": "remote-production",
+        "commandActions": [
+          {
+            "type": "read",
+            "command": "cat settings.py",
+            "name": "settings.py",
+            "path": "/repo/settings.py"
+          }
+        ],
+        "networkApprovalContext": {
+          "host": "pypi.org",
+          "protocol": "https"
+        },
+        "proposedExecpolicyAmendment": [
+          "python3",
+          "manage.py"
+        ],
+        "proposedNetworkPolicyAmendments": [
+          {
+            "host": "pypi.org",
+            "action": "allow"
+          }
+        ],
+        "reason": "Migration needs access"
+      }
+    },
+    "expected": {
+      "params.kind": "writeStdin",
+      "params.command": "/bin/zsh -lc 'python3 manage.py migrate'",
+      "params.cwd": "/repo",
+      "params.environmentId": "remote-production",
+      "params.networkApprovalContext.host": "pypi.org",
+      "params.networkApprovalContext.protocol": "https",
+      "params.proposedExecpolicyAmendment[0]": "python3",
+      "params.proposedExecpolicyAmendment[1]": "manage.py",
+      "params.proposedNetworkPolicyAmendments[0].host": "pypi.org",
+      "params.proposedNetworkPolicyAmendments[0].action": "allow"
+    }
+  },
+  {
+    "id": "codex-file-change",
+    "kind": "file-change",
+    "definition": "FileChangeRequestApprovalParams",
+    "display": {
+      "grant_root": "/"
+    },
+    "request": {
+      "method": "item/fileChange/requestApproval",
+      "params": {
+        "threadId": "thread-fixture",
+        "turnId": "turn-fixture",
+        "itemId": "item-fixture",
+        "startedAtMs": 1791100000000,
+        "grantRoot": "/",
+        "reason": "Write release notes"
+      }
+    },
+    "expected": {
+      "params.grantRoot": "/"
+    }
+  },
+  {
+    "id": "codex-permissions",
+    "kind": "permissions",
+    "definition": "PermissionsRequestApprovalParams",
+    "display": {
+      "permissions": {
+        "fileSystem": {
+          "read": [
+            "/private/data"
+          ],
+          "write": [
+            "/repo/out/0",
+            "/repo/out/1",
+            "/repo/out/2",
+            "/repo/out/3",
+            "/repo/out/4",
+            "/repo/out/5",
+            "/repo/out/6",
+            "/repo/out/7",
+            "/repo/out/8",
+            "/repo/out/9",
+            "/repo/out/10",
+            "/repo/out/11"
+          ]
+        },
+        "network": {
+          "enabled": true
+        }
+      }
+    },
+    "request": {
+      "method": "item/permissions/requestApproval",
+      "params": {
+        "threadId": "thread-fixture",
+        "turnId": "turn-fixture",
+        "itemId": "item-fixture",
+        "startedAtMs": 1791100000000,
+        "cwd": "/repo",
+        "environmentId": "remote-production",
+        "permissions": {
+          "fileSystem": {
+            "read": [
+              "/private/data"
+            ],
+            "write": [
+              "/repo/out/0",
+              "/repo/out/1",
+              "/repo/out/2",
+              "/repo/out/3",
+              "/repo/out/4",
+              "/repo/out/5",
+              "/repo/out/6",
+              "/repo/out/7",
+              "/repo/out/8",
+              "/repo/out/9",
+              "/repo/out/10",
+              "/repo/out/11"
+            ]
+          },
+          "network": {
+            "enabled": true
+          }
+        },
+        "reason": "Grant directories"
+      }
+    },
+    "expected": {
+      "params.cwd": "/repo",
+      "params.environmentId": "remote-production",
+      "params.permissions.fileSystem.read[0]": "/private/data",
+      "params.permissions.fileSystem.write[0]": "/repo/out/0",
+      "params.permissions.fileSystem.write[1]": "/repo/out/1",
+      "params.permissions.fileSystem.write[2]": "/repo/out/2",
+      "params.permissions.fileSystem.write[3]": "/repo/out/3",
+      "params.permissions.fileSystem.write[4]": "/repo/out/4",
+      "params.permissions.fileSystem.write[5]": "/repo/out/5",
+      "params.permissions.fileSystem.write[6]": "/repo/out/6",
+      "params.permissions.fileSystem.write[7]": "/repo/out/7",
+      "params.permissions.fileSystem.write[8]": "/repo/out/8",
+      "params.permissions.fileSystem.write[9]": "/repo/out/9",
+      "params.permissions.fileSystem.write[10]": "/repo/out/10",
+      "params.permissions.fileSystem.write[11]": "/repo/out/11",
+      "params.permissions.network.enabled": "true"
+    }
+  },
+  {
+    "id": "claude-bash",
+    "kind": "tool",
+    "display": {
+      "tool": "Bash",
+      "description": "Run build",
+      "input": {
+        "command": "rm -rf build && make",
+        "description": "Run build",
+        "timeout": 120000,
+        "run_in_background": false,
+        "dangerouslyDisableSandbox": true
+      }
+    },
+    "request": {
+      "subtype": "can_use_tool",
+      "tool_name": "Bash",
+      "tool_use_id": "toolu-fixture",
+      "agent_id": "agent-fixture",
+      "display_name": "Bash",
+      "description": "Run build",
+      "decision_reason": "Permission required",
+      "decision_reason_type": "rule",
+      "classifier_approvable": true,
+      "suppress_always_allow_rule": false,
+      "requires_user_interaction": false,
+      "input": {
+        "command": "rm -rf build && make",
+        "description": "Run build",
+        "timeout": 120000,
+        "run_in_background": false,
+        "dangerouslyDisableSandbox": true
+      },
+      "blocked_path": "/private/cache",
+      "permission_suggestions": [
+        {
+          "type": "addDirectories",
+          "directories": [
+            "/repo/output"
+          ],
+          "destination": "session"
+        },
+        {
+          "type": "addRules",
+          "rules": [
+            {
+              "toolName": "Bash",
+              "ruleContent": "make:*"
+            }
+          ],
+          "behavior": "allow",
+          "destination": "localSettings"
+        }
+      ]
+    },
+    "expected": {
+      "input.command": "rm -rf build && make",
+      "input.timeout": "120000",
+      "input.run_in_background": "false",
+      "input.dangerouslyDisableSandbox": "true",
+      "blocked_path": "/private/cache",
+      "permission_suggestions[0].type": "addDirectories",
+      "permission_suggestions[0].directories[0]": "/repo/output",
+      "permission_suggestions[0].destination": "session",
+      "permission_suggestions[1].type": "addRules",
+      "permission_suggestions[1].rules[0].toolName": "Bash",
+      "permission_suggestions[1].rules[0].ruleContent": "make:*",
+      "permission_suggestions[1].behavior": "allow",
+      "permission_suggestions[1].destination": "localSettings"
+    }
+  },
+  {
+    "id": "claude-tool-description",
+    "kind": "tool",
+    "display": {
+      "tool": "mcp__issues__create_issue",
+      "title": "Create an issue"
+    },
+    "request": {
+      "subtype": "can_use_tool",
+      "tool_name": "mcp__issues__create_issue",
+      "tool_use_id": "toolu-issue",
+      "input": {
+        "title": "Review migration",
+        "description": "Deploy the migration to production after validation",
+        "labels": [
+          "security"
+        ]
+      },
+      "permission_suggestions": []
+    },
+    "expected": {
+      "input.title": "Review migration",
+      "input.description": "Deploy the migration to production after validation",
+      "input.labels[0]": "security"
+    }
+  }
+]

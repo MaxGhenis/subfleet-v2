@@ -1,0 +1,69 @@
+{
+ "at": "2026-11-15T03:03:05Z",
+ "outside_scratch": [
+  {
+   "path": "/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/.hypothesis",
+   "moved_to": "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/workspace-generated/00-.hypothesis",
+   "removed": true
+  },
+  {
+   "path": "/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/.venv",
+   "moved_to": "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/workspace-generated/01-.venv",
+   "removed": true
+  },
+  {
+   "path": "/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/subfleet/__pycache__",
+   "moved_to": "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/workspace-generated/02-subfleet___pycache__",
+   "removed": true
+  },
+  {
+   "path": "/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/subfleet/adapters/__pycache__",
+   "moved_to": "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/workspace-generated/03-subfleet_adapters___pycache__",
+   "removed": true
+  },
+  {
+   "path": "/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/subfleet/conversations/__pycache__",
+   "moved_to": "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/workspace-generated/04-subfleet_conversations___pycache__",
+   "removed": true
+  },
+  {
+   "path": "/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/subfleet/gate/__pycache__",
+   "moved_to": "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/workspace-generated/05-subfleet_gate___pycache__",
+   "removed": true
+  },
+  {
+   "path": "/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/subfleet/guard/__pycache__",
+   "moved_to": "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/workspace-generated/06-subfleet_guard___pycache__",
+   "removed": true
+  },
+  {
+   "path": "/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/subfleet/sessions/__pycache__",
+   "moved_to": "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/workspace-generated/07-subfleet_sessions___pycache__",
+   "removed": true
+  },
+  {
+   "path": "/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/tests/__pycache__",
+   "moved_to": "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/workspace-generated/08-tests___pycache__",
+   "removed": true
+  },
+  {
+   "path": "/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/tests/fake/__pycache__",
+   "moved_to": "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/workspace-generated/09-tests_fake___pycache__",
+   "removed": true
+  },
+  {
+   "path": "/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/tests/unit/__pycache__",
+   "moved_to": "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/workspace-generated/10-tests_unit___pycache__",
+   "removed": true
+  },
+  {
+   "path": "/Users/maxghenis/.subfleet/worktrees/20261114-185808-ia-fix-r2/tools/__pycache__",
+   "moved_to": "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2/workspace-generated/11-tools___pycache__",
+   "removed": true
+  }
+ ],
+ "scratch": {
+  "path": "/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ia-f2",
+  "removed": true
+ }
+}

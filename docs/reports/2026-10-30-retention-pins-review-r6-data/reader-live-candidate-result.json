@@ -1,0 +1,6 @@
+{
+  "result": "not a P2 proof",
+  "reason": "Real Git fsck rejected worktrees/owner-space/ORIG_HEAD as invalid refname before retention.",
+  "retention_reached": false,
+  "log": "reader-live-admin-probe.log"
+}

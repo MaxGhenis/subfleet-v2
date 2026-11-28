@@ -28,9 +28,11 @@ with the reason. Two signals identify one, and either is enough:
 C-26.13 says what else is not the kit's: a session a Subfleet conversation
 binds, or one a conversation turn ran. The daemon reports those as
 `conversation_sessions` beside `lane_sessions`. The transcript shape cannot
-stand in for that list: a conversation's transcript has one SDK prompt per
-turn, so after two turns `headless_transcript` stops calling it a lane and the
-kit would treat it as an interactive session, nudge it, and revive it. Such a
+stand in for that list: a conversation opened from a desktop session keeps the
+app's `claude-desktop` entries, so `headless_transcript` calls it a session and
+the kit would nudge it and revive it, while one the Subfleet app started is
+`sdk-cli` throughout and reads as a lane, the wrong reason to refuse it (and a
+transcript older than `entrypoint` stops reading as a lane after two turns). Such a
 session is never listed, not even with lanes included; a request naming one is
 refused with `CONVERSATION_REASON` and `CONVERSATION_FIX`.
 

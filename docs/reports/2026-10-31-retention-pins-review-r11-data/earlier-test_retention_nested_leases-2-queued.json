@@ -1,0 +1,16 @@
+{
+  "queued": "2026-10-31T17:18:48.589635+00:00",
+  "args": [
+    "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:other-commit]",
+    "tests/unit/test_retention_nested_leases.py::test_only_another_holder_keeps_the_job[retention:other-selection]",
+    "tests/unit/test_retention_nested_leases.py::test_the_census_sees_a_writer_in_a_folder_inside_the_worktree",
+    "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[alias]",
+    "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[census]",
+    "tests/unit/test_retention_nested_leases.py::test_the_commit_recheck_sees_a_writer_inside_the_tree[unrecorded]",
+    "tests/unit/test_retention_nested_leases.py::test_the_worktree_lease_pin_is_exactly_a_lease_on_or_in_the_tree"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/earlier-test_retention_nested_leases-2",
+  "linked": false,
+  "driver_pid": 93963,
+  "lock_process_group": 94059
+}

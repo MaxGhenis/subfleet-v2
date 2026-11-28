@@ -13,8 +13,9 @@ from pathlib import Path
 
 import pytest
 
-from subfleet import cli, doctor
+from subfleet import cli, client, doctor
 from subfleet.contracts import Exit
+from tests.fake.conftest import process_inspection_available  # noqa: F401
 
 STATUSES = {doctor.PASS, doctor.FAIL, doctor.UNKNOWN, doctor.WARN}
 
@@ -22,7 +23,7 @@ STATUSES = {doctor.PASS, doctor.FAIL, doctor.UNKNOWN, doctor.WARN}
 @pytest.fixture
 def stub_probes(monkeypatch):
     """Every subprocess the table would run answers 0 with a stub version line."""
-    def run(argv, timeout=20.0):
+    def run(argv, timeout=20.0, **kwargs):
         return 0, f"stub {Path(argv[0]).name}"
     monkeypatch.setattr(doctor, "_run", run)
     monkeypatch.setattr(doctor, "_run_full", run)
@@ -313,13 +314,22 @@ def test_daemon_lock_row_passes_with_neither_lock_nor_socket(root):
     assert item["status"] == doctor.PASS and "no daemon" in item["detail"]
 
 
-def test_daemon_lock_row_fails_on_a_lock_whose_process_is_gone(root):
+def test_daemon_lock_row_fails_on_a_lock_whose_process_is_gone(root, monkeypatch):
     """C-5.8 a lock naming a dead pid beside a live socket is the stale case."""
+    seen = []
+
+    def gone(pid):
+        seen.append(pid)
+        return "", ""
+
+    monkeypatch.setattr(client, "boot_id", lambda: "1")
+    monkeypatch.setattr(client, "proc_status", gone)
     (root / "daemon.sock").touch()
     (root / "daemon.lock").write_text(json.dumps(
         {"pid": 999999, "boot_id": "1", "proc_start": "Mon Jan  1 00:00:00 2001"}))
     item = doctor.check_daemon_lock(root)
     assert item["status"] == doctor.FAIL and "stale" in item["detail"]
+    assert seen == [999999]
 
 
 def test_daemon_lock_row_fails_on_a_socket_with_no_lock(root):
@@ -329,14 +339,25 @@ def test_daemon_lock_row_fails_on_a_socket_with_no_lock(root):
     assert item["status"] == doctor.FAIL and "no daemon.lock" in item["detail"]
 
 
-def test_daemon_lock_row_passes_against_a_live_daemon(daemon, root):
+def test_daemon_lock_row_passes_against_a_live_daemon(daemon, root, monkeypatch):
     """C-5.3 the lock is verified by process identity, not by a bare pid; here
     the fake daemon holds the socket and the lock names this very process."""
-    from subfleet.client import boot_id, proc_start
+    # Process parsing/inspection has its own tests. This table test should not
+    # depend on a runner allowing ps to inspect even the current process.
+    started = "Sun Sep 20 23:26:42 2026"
+    seen = []
+
+    def process_status(pid):
+        seen.append(pid)
+        return "S", started
+
+    monkeypatch.setattr(client, "boot_id", lambda: "1")
+    monkeypatch.setattr(client, "proc_status", process_status)
     daemon({"ping": lambda request: {"pong": True, "version": "test"}})
     (root / "daemon.lock").write_text(json.dumps(
-        {"pid": os.getpid(), "boot_id": boot_id(), "proc_start": proc_start(os.getpid())}))
+        {"pid": os.getpid(), "boot_id": "1", "proc_start": started}))
     assert doctor.check_daemon_lock(root)["status"] == doctor.PASS
+    assert seen and set(seen) == {os.getpid()}
 
 
 # --- --live -------------------------------------------------------------------
@@ -513,3 +534,89 @@ def test_guard_preflight_settings_row_fails_on_a_cache_override_outside_the_root
     monkeypatch.setenv(guard.CACHE_ENV, "../shared")
     item = {i["check"]: i for i in doctor.checks(root)}["codex guard preflight settings"]
     assert item["status"] == doctor.FAIL and guard.CACHE_ENV in item["detail"] and guard.CACHE_ENV in item["fix"]
+
+
+# --- descriptors (C-16.6, C-16.7) ---------------------------------------------
+
+def test_c16_6_the_plist_row_reads_number_of_files(tmp_path):
+    """C-16.6 absent plist and absent key are unknown (the daemon raises its own
+    limit); a low value fails; a written value passes."""
+    import plistlib
+    plist = tmp_path / "com.subfleet.daemon.plist"
+    assert doctor.check_launchd_limit(plist)["status"] == doctor.UNKNOWN
+    plist.write_bytes(plistlib.dumps({"Label": "com.subfleet.daemon"}))
+    item = doctor.check_launchd_limit(plist)
+    assert item["status"] == doctor.UNKNOWN and "daemon install" in item["fix"]
+    plist.write_bytes(plistlib.dumps({"SoftResourceLimits": {"NumberOfFiles": 256}}))
+    item = doctor.check_launchd_limit(plist)
+    assert item["status"] == doctor.FAIL and "runs --running" in item["fix"]
+    plist.write_bytes(cli._plist(tmp_path))
+    assert doctor.check_launchd_limit(plist)["status"] == doctor.PASS
+
+
+def test_c16_6_live_reports_the_daemons_descriptors(daemon, root):
+    """C-16.6, C-16.7 `--live` reads `descriptors` from daemon.status and judges it."""
+    budget = {"soft_limit": 65536, "hard_limit": None, "open": 37, "connections": 2,
+              "max_connections": 512, "refused": 0, "idle_closed": 1, "abandoned": 3,
+              "accept_failures": 0}
+    daemon({"daemon.status": lambda request: {"descriptors": budget}})
+    item = doctor.check_descriptors_live(root)
+    assert item["status"] == doctor.PASS
+    assert "37 open of soft limit 65536 (hard unlimited); 2 of 512 client connections" in item["detail"]
+    budget.update(soft_limit=256)
+    assert doctor.check_descriptors_live(root)["status"] == doctor.FAIL
+    budget.update(soft_limit=4096, open=4000)
+    assert doctor.check_descriptors_live(root)["status"] == doctor.FAIL
+    budget.update(open=None)                     # the daemon could not even list /dev/fd
+    assert doctor.check_descriptors_live(root)["status"] == doctor.FAIL
+
+
+def test_c16_6_live_descriptors_is_unknown_for_an_older_daemon(daemon, root):
+    daemon({"daemon.status": lambda request: {"pid": 1}})
+    assert doctor.check_descriptors_live(root)["status"] == doctor.UNKNOWN
+
+
+def test_c16_6_the_descriptor_rows_are_in_the_tables(daemon, root, stub_probes):
+    """C-17.5 the plist row is offline (a file read); the daemon's own numbers are `--live` only."""
+    daemon({"ping": lambda request: {"pong": True, "version": "t"},
+            "daemon.status": lambda request: {"descriptors": {"soft_limit": 65536, "open": 9}}})
+    names = {item["check"] for item in doctor.checks(root)}
+    live = {item["check"] for item in doctor.checks(root, live=True)}
+    assert "launchd open-file limit" in names and "daemon descriptors" not in names
+    assert "daemon descriptors" in live
+
+
+def test_daemon_lock_row_is_unknown_when_process_inspection_is_unavailable(root, monkeypatch):
+    """C-5.3: denied inspection proves neither a stale lock nor a live holder."""
+    from subfleet import client
+
+    (root / "daemon.sock").touch()
+    (root / "daemon.lock").write_text(json.dumps(
+        {"pid": 999999, "boot_id": "1", "proc_start": "Mon Jan 1 00:00:00 2001"}))
+    monkeypatch.setattr(client, "_run", lambda argv: (-1, ""))
+    item = doctor.check_daemon_lock(root)
+    assert item["status"] == doctor.UNKNOWN
+    assert "could not report" in item["detail"]
+
+
+
+# #221 review r1b, P3-6: the two lock rows above fake process identity so they
+# run where inspection is denied. One real case each keeps `ps`/`sysctl` in CI.
+def test_daemon_lock_row_fails_on_a_dead_pid_by_real_identity(root, process_inspection_available):
+    import subprocess
+    from subfleet.client import boot_id
+    child = subprocess.Popen(["/usr/bin/true"])
+    child.wait()
+    (root / "daemon.sock").touch()
+    (root / "daemon.lock").write_text(json.dumps(
+        {"pid": child.pid, "boot_id": boot_id(), "proc_start": "Mon Jan  1 00:00:00 2001"}))
+    item = doctor.check_daemon_lock(root)
+    assert item["status"] == doctor.FAIL and "stale" in item["detail"]
+
+
+def test_daemon_lock_row_passes_against_a_live_daemon_by_real_identity(daemon, root, process_inspection_available):
+    from subfleet.client import boot_id, proc_start
+    daemon({"ping": lambda request: {"pong": True, "version": "test"}})
+    (root / "daemon.lock").write_text(json.dumps(
+        {"pid": os.getpid(), "boot_id": boot_id(), "proc_start": proc_start(os.getpid())}))
+    assert doctor.check_daemon_lock(root)["status"] == doctor.PASS

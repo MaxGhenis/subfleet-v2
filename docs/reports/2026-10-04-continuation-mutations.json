@@ -1,0 +1,22 @@
+[
+  {
+    "mutation": "blocked-wake",
+    "killed": true,
+    "result": "1 failed in 30.29s"
+  },
+  {
+    "mutation": "unlimited-wakes",
+    "killed": true,
+    "result": "1 failed in 36.87s"
+  },
+  {
+    "mutation": "request-replay",
+    "killed": true,
+    "result": "1 failed in 15.22s"
+  },
+  {
+    "mutation": "unblock-live-writer",
+    "killed": true,
+    "result": "1 failed in 44.80s"
+  }
+]

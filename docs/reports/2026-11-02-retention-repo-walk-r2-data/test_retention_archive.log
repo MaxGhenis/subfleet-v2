@@ -1,0 +1,5 @@
+.....................................
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! KeyboardInterrupt !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+/Users/maxghenis/.subfleet/worktrees/20261102-091908-ret-walk-fix-r3/subfleet/retention_fs.py:1151: KeyboardInterrupt
+(to show a full traceback on KeyboardInterrupt use --full-trace)
+37 passed in 796.71s (0:13:16)

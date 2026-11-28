@@ -1,0 +1,60 @@
+{
+  "label": "mutant-r3-census-moved-after-recovery",
+  "start": "2026-10-31T06:30:16.125024+00:00",
+  "loads": [
+    37.6376953125,
+    34.06103515625,
+    33.69287109375
+  ],
+  "seconds": 14.934065958999781,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.753518624998833,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 2.8169111250008427,
+      "properties": [],
+      "failure": "world = World(base=PosixPath('/private/tmp/sf-r272r8/cases-23604/pytest/test_c8_4_recovery_discovers_i0'), trusted=True, remot...-r272r8/cases-23604/pytest/test_c8_4_recovery_discovers_i0/state'), store=<subfleet.store.Store object at 0x109086510>)\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1085cb950>\nrecorded = False, state = 'running'\n\n    @pytest.mark.parametrize(\"recorded\", [\n        pytest.param(False, id=\"legacy\"),\n        pytest.param(True, id=\"recorded\"),\n    ])\n    @pytest.mark.parametrize(\"state\", [\"running\", \"succeeded\"], ids=[\"live\", \"exporting\"])\n    def test_c8_4_recovery_discovers_incomplete_before_quarantine(world, monkeypatch, recorded, state):\n        tree = world.job(\"owner\")\n        outside = world.base / \"outside\"\n        alternate = outside / \".git\" / \"objects\" / \"info\" / \"alternates\"\n        alternate.parent.mkdir(parents=True)\n        alternate.write_bytes(b\"# valid\\n\")\n    \n        def insert(data):\n            world.store.add_job(job_id=\"borrower\", request_id=\"borrower\", payload_digest=\"d\",\n                                kind=\"dispatch\", state=state, sandbox=\"read-only\",\n                                workdir=str(outside), prompt_path=\"/p\")\n            world.store.add_event(\"job.submitted\", job_id=\"borrower\", data=data)\n            if state == \"succeeded\":\n                world.store.acquire_lease(\"out:/outside/result\", \"borrower\")\n    \n        # A legacy job predates both passes. Its alternates become malformed\n        # between them, so recovery must use the resumed pass's fresh census.\n        if not recorded:\n            insert({})\n        original = rarch.Retirement.quarantine\n    \n        class Crash(BaseException):\n            pass\n    \n        def crash(self):\n            raise Crash()\n    \n        with monkeypatch.context() as patch:\n            patch.setattr(rarch.Retirement, \"quarantine\", crash)\n            with pytest.raises(Crash):\n                maintain(world)\n        assert tree.is_dir()\n        alternate.write_bytes(b'\"bad\\\\z\"\\n')\n        if recorded:\n            insert({\"depends\": {\"incomplete\": [{\"file\": str(alternate), \"reason\": \"invalid Git C escape\"}]}})\n        observations = []\n    \n        def observing(self):\n            try:\n                return original(self)\n            finally:\n                observations.append(tree.is_dir())\n    \n        monkeypatch.setattr(rarch.Retirement, \"quarantine\", observing)\n        result = maintain(world)\n        # The final rollback is insufficient: a live job must not lose its path\n        # during recovery, before the incomplete evidence is finally discovered.\n        assert tree.is_dir() and \"owner\" not in result[\"pruned\"], result\n>       assert observations == [True], (observations, result)\nE       AssertionError: ([False], {'pruned': [], 'errors': [], 'bytes_before': 0, 'bytes_after': 0, ...})\nE       assert [False] == [True]\nE         \nE         At index 0 diff: False != True\nE         Use -v to get more diff\n\ntests/fake/test_retention_dependency_review_r3.py:125: AssertionError"
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.2335763749997568,
+      "properties": [],
+      "failure": null
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]"
+  ],
+  "all_nodes": [
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]"
+  ],
+  "property_settings": {},
+  "loaded": [
+    {
+      "module": "subfleet.retention",
+      "original": "e08ffd693d85249fedef40e2ee493137a2b588dcfe801cfb376784f85e438de2",
+      "mutated": "3d3a3739adfc66dc745dc5f7e6f8ea3518f8c90074a757f93b50ff40b4479ff3"
+    }
+  ],
+  "dependency_source": {
+    "file": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/subfleet/dependencies.py",
+    "sha256": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d"
+  },
+  "rss": 119259136
+}

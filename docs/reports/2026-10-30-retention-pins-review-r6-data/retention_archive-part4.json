@@ -1,0 +1,219 @@
+{
+  "label": "retention_archive-part4",
+  "start": "2026-10-30T20:09:46.304658+00:00",
+  "loads": [
+    51.2177734375,
+    51.57763671875,
+    51.16064453125
+  ],
+  "seconds": 128.30049224999675,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_an_unmeasurable_job_is_decided_and_backs_off",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.1062450000026729
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_persistent_error_keeps_the_cache_and_backs_off",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 7.509496708007646
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_slice_moves_forward_when_one_file_outlasts_it",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 5.795846709006582
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_slice_moves_forward_when_the_cached_rewalk_outlasts_it",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 37.88089829099772
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_interrupted_removal_resumes_and_leaves_no_half_tree",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.078268208002555
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[begin]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 5.459713709002244
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[lock]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.269176959001925
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[quarantine]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.235560291999718
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[archive]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.314818707993254
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[final_check]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.970421624995652
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[commit]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 5.301095040995278
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[publish]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 6.761295167001663
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_published_archive_keeps_no_progress_log",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 8.08418241700565
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_retention_never_prunes_other_registrations",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.534368792010355
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_archive.py::test_an_unmeasurable_job_is_decided_and_backs_off",
+    "tests/unit/test_retention_archive.py::test_a_persistent_error_keeps_the_cache_and_backs_off",
+    "tests/unit/test_retention_archive.py::test_a_slice_moves_forward_when_one_file_outlasts_it",
+    "tests/unit/test_retention_archive.py::test_a_slice_moves_forward_when_the_cached_rewalk_outlasts_it",
+    "tests/unit/test_retention_archive.py::test_interrupted_removal_resumes_and_leaves_no_half_tree",
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[begin]",
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[lock]",
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[quarantine]",
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[archive]",
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[final_check]",
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[commit]",
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[publish]",
+    "tests/unit/test_retention_archive.py::test_a_published_archive_keeps_no_progress_log",
+    "tests/unit/test_retention_archive.py::test_retention_never_prunes_other_registrations"
+  ],
+  "all_nodes": [
+    "tests/unit/test_retention_archive.py::test_an_unmeasurable_job_is_decided_and_backs_off",
+    "tests/unit/test_retention_archive.py::test_a_persistent_error_keeps_the_cache_and_backs_off",
+    "tests/unit/test_retention_archive.py::test_a_slice_moves_forward_when_one_file_outlasts_it",
+    "tests/unit/test_retention_archive.py::test_a_slice_moves_forward_when_the_cached_rewalk_outlasts_it",
+    "tests/unit/test_retention_archive.py::test_interrupted_removal_resumes_and_leaves_no_half_tree",
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[begin]",
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[lock]",
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[quarantine]",
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[archive]",
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[final_check]",
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[commit]",
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[publish]",
+    "tests/unit/test_retention_archive.py::test_a_published_archive_keeps_no_progress_log",
+    "tests/unit/test_retention_archive.py::test_retention_never_prunes_other_registrations"
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_an_unmeasurable_job_is_decided_and_backs_off": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_persistent_error_keeps_the_cache_and_backs_off": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_slice_moves_forward_when_one_file_outlasts_it": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_slice_moves_forward_when_the_cached_rewalk_outlasts_it": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_interrupted_removal_resumes_and_leaves_no_half_tree": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[begin]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[lock]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[quarantine]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[archive]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[final_check]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[commit]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_crash_at_any_step_is_recovered_by_the_next_pass[publish]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_published_archive_keeps_no_progress_log": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_retention_never_prunes_other_registrations": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {},
+  "loaded": [],
+  "rss": 124567552
+}

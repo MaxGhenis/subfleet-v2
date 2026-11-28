@@ -1,0 +1,3225 @@
+[
+  {
+    "name": "test_retention_dependency_incomplete",
+    "start": "2026-10-29T06:22:28.445360+00:00",
+    "load": [
+      18.4208984375,
+      21.1279296875,
+      22.5849609375
+    ],
+    "counts": {
+      "P": 19
+    },
+    "selected": 19,
+    "slot": "B",
+    "pytest_seconds": 32.8,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_dependency_review_r1",
+    "start": "2026-10-29T06:22:28.445360+00:00",
+    "load": [
+      18.4208984375,
+      21.1279296875,
+      22.5849609375
+    ],
+    "counts": {
+      "P": 18
+    },
+    "selected": 18,
+    "slot": "A",
+    "pytest_seconds": 6.01,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_alternates",
+    "start": "2026-10-29T06:22:38.250617+00:00",
+    "load": [
+      17.14501953125,
+      20.76171875,
+      22.4375
+    ],
+    "counts": {
+      "P": 23
+    },
+    "selected": 23,
+    "slot": "A",
+    "pytest_seconds": 29.53,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_dependencies",
+    "start": "2026-10-29T06:23:09.875711+00:00",
+    "load": [
+      14.58984375,
+      19.71484375,
+      21.986328125
+    ],
+    "counts": {
+      "P": 30
+    },
+    "selected": 30,
+    "slot": "A",
+    "pytest_seconds": 23.88,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_job_dependencies",
+    "start": "2026-10-29T06:23:15.129438+00:00",
+    "load": [
+      14.78271484375,
+      19.66943359375,
+      21.95703125
+    ],
+    "counts": {
+      "P": 12
+    },
+    "selected": 12,
+    "slot": "B",
+    "pytest_seconds": 6.95,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_dependency_spelling",
+    "start": "2026-10-29T06:23:23.793412+00:00",
+    "load": [
+      14.3994140625,
+      19.5087890625,
+      21.88671875
+    ],
+    "counts": {
+      "P": 16
+    },
+    "selected": 16,
+    "slot": "B",
+    "pytest_seconds": 7.13,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_folded_pin",
+    "start": "2026-10-29T06:23:32.701195+00:00",
+    "load": [
+      14.1904296875,
+      19.2939453125,
+      21.78271484375
+    ],
+    "counts": {
+      "P": 38
+    },
+    "selected": 38,
+    "slot": "B",
+    "pytest_seconds": 74.43,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_dependency_units",
+    "start": "2026-10-29T06:23:35.369317+00:00",
+    "load": [
+      13.9345703125,
+      19.15625,
+      21.71923828125
+    ],
+    "counts": {
+      "P": 19
+    },
+    "selected": 19,
+    "slot": "A",
+    "pytest_seconds": 16.95,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_dependency_properties-1",
+    "start": "2026-10-29T06:24:02.199877+00:00",
+    "load": [
+      13.6904296875,
+      18.70263671875,
+      21.48193359375
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 60.88,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_dependency_properties-2",
+    "start": "2026-10-29T06:24:54.705927+00:00",
+    "load": [
+      13.6513671875,
+      17.7900390625,
+      20.9619140625
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 62.91,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "mutant-git-storage-no-commondir",
+    "start": "2026-10-29T06:25:25.188664+00:00",
+    "load": [
+      14.23583984375,
+      17.47412109375,
+      20.7333984375
+    ],
+    "counts": {
+      "F": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 1.83,
+    "exitstatus": 1,
+    "mutant": "git-storage-no-commondir"
+  },
+  {
+    "name": "mutant-git-storage-no-worktrees-fallback",
+    "start": "2026-10-29T06:25:31.982637+00:00",
+    "load": [
+      14.6171875,
+      17.4990234375,
+      20.72314453125
+    ],
+    "counts": {
+      "F": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 2.06,
+    "exitstatus": 1,
+    "mutant": "git-storage-no-worktrees-fallback"
+  },
+  {
+    "name": "mutant-git-storage-no-alternates",
+    "start": "2026-10-29T06:25:36.980345+00:00",
+    "load": [
+      16.4091796875,
+      17.82275390625,
+      20.818359375
+    ],
+    "counts": {
+      "F": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 1.99,
+    "exitstatus": 1,
+    "mutant": "git-storage-no-alternates"
+  },
+  {
+    "name": "mutant-git-storage-alternates-one-level",
+    "start": "2026-10-29T06:25:41.648840+00:00",
+    "load": [
+      18.2177734375,
+      18.17431640625,
+      20.9248046875
+    ],
+    "counts": {
+      "F": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 2.17,
+    "exitstatus": 1,
+    "mutant": "git-storage-alternates-one-level"
+  },
+  {
+    "name": "mutant-git-storage-gitfile-relative-to-cwd",
+    "start": "2026-10-29T06:25:46.449146+00:00",
+    "load": [
+      19.9619140625,
+      18.53662109375,
+      21.0361328125
+    ],
+    "counts": {
+      "F": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 1.41,
+    "exitstatus": 1,
+    "mutant": "git-storage-gitfile-relative-to-cwd"
+  },
+  {
+    "name": "mutant-git-storage-nearest-ignores-gitfiles",
+    "start": "2026-10-29T06:25:49.605186+00:00",
+    "load": [
+      20.125,
+      18.59375,
+      21.04150390625
+    ],
+    "counts": {
+      "F": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 2.66,
+    "exitstatus": 1,
+    "mutant": "git-storage-nearest-ignores-gitfiles"
+  },
+  {
+    "name": "mutant-record-raw-spelling",
+    "start": "2026-10-29T06:25:55.241006+00:00",
+    "load": [
+      20.51513671875,
+      18.69970703125,
+      21.064453125
+    ],
+    "counts": {
+      "F": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 2.01,
+    "exitstatus": 1,
+    "mutant": "record-raw-spelling"
+  },
+  {
+    "name": "test_retention_dependency_properties-3",
+    "start": "2026-10-29T06:26:00.676197+00:00",
+    "load": [
+      19.8330078125,
+      18.58837890625,
+      21.01123046875
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 148.93,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "mutant-fences-not-retention-only",
+    "start": "2026-10-29T06:26:00.676810+00:00",
+    "load": [
+      19.8330078125,
+      18.58837890625,
+      21.01123046875
+    ],
+    "counts": {
+      "F": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 6.33,
+    "exitstatus": 1,
+    "mutant": "fences-not-retention-only"
+  },
+  {
+    "name": "mutant-record-no-output",
+    "start": "2026-10-29T06:26:10.581604+00:00",
+    "load": [
+      19.1953125,
+      18.4873046875,
+      20.9462890625
+    ],
+    "counts": {
+      "F": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 3.79,
+    "exitstatus": 1,
+    "mutant": "record-no-output"
+  },
+  {
+    "name": "mutant-record-no-git",
+    "start": "2026-10-29T06:26:16.984324+00:00",
+    "load": [
+      20.62060546875,
+      18.79443359375,
+      21.0400390625
+    ],
+    "counts": {
+      "F": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 7.49,
+    "exitstatus": 1,
+    "mutant": "record-no-git"
+  },
+  {
+    "name": "mutant-review-quoted-decode-removed",
+    "start": "2026-10-29T06:26:27.457484+00:00",
+    "load": [
+      34.8486328125,
+      21.87060546875,
+      22.103515625
+    ],
+    "counts": {
+      "F": 1,
+      "U": 1
+    },
+    "selected": 2,
+    "slot": "A",
+    "pytest_seconds": 6.34,
+    "exitstatus": 1,
+    "mutant": "review-quoted-decode-removed"
+  },
+  {
+    "name": "mutant-review-export-row-removed",
+    "start": "2026-10-29T06:26:37.726773+00:00",
+    "load": [
+      39.0703125,
+      23.25927734375,
+      22.5966796875
+    ],
+    "counts": {
+      "P": 2,
+      "F": 1,
+      "U": 1
+    },
+    "selected": 4,
+    "slot": "A",
+    "pytest_seconds": 10.35,
+    "exitstatus": 1,
+    "mutant": "review-export-row-removed"
+  },
+  {
+    "name": "mutant-review-alternates-cap-restored",
+    "start": "2026-10-29T06:26:50.297946+00:00",
+    "load": [
+      37.775390625,
+      23.77734375,
+      22.7939453125
+    ],
+    "counts": {
+      "F": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 6.5,
+    "exitstatus": 1,
+    "mutant": "review-alternates-cap-restored"
+  },
+  {
+    "name": "mutant-review-job-directory-pin-removed",
+    "start": "2026-10-29T06:26:59.820112+00:00",
+    "load": [
+      34.50048828125,
+      23.537109375,
+      22.7197265625
+    ],
+    "counts": {
+      "F": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 2.23,
+    "exitstatus": 1,
+    "mutant": "review-job-directory-pin-removed"
+  },
+  {
+    "name": "review-r2",
+    "start": "2026-10-29T06:27:47.044456+00:00",
+    "load": [
+      32.6328125,
+      24.45947265625,
+      23.09228515625
+    ],
+    "counts": {
+      "X": 4,
+      "P": 12
+    },
+    "selected": 16,
+    "slot": "A",
+    "pytest_seconds": 35.66,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_dependency_properties-4",
+    "start": "2026-10-29T06:28:30.295071+00:00",
+    "load": [
+      26.5107421875,
+      23.93994140625,
+      22.9658203125
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 45.89,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_shared_folders-1",
+    "start": "2026-10-29T06:29:16.019553+00:00",
+    "load": [
+      23.96484375,
+      23.78125,
+      22.9658203125
+    ],
+    "counts": {
+      "P": 2
+    },
+    "selected": 2,
+    "slot": "B",
+    "pytest_seconds": 9.87,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_shared_folders-2",
+    "start": "2026-10-29T06:29:19.069896+00:00",
+    "load": [
+      23.96484375,
+      23.78125,
+      22.9658203125
+    ],
+    "counts": {
+      "P": 4
+    },
+    "selected": 4,
+    "slot": "A",
+    "pytest_seconds": 6.42,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_shared_folders-4",
+    "start": "2026-10-29T06:29:28.970109+00:00",
+    "load": [
+      28.2392578125,
+      24.7216796875,
+      23.31005859375
+    ],
+    "counts": {
+      "P": 2
+    },
+    "selected": 2,
+    "slot": "A",
+    "pytest_seconds": 4.11,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "quotes-r2",
+    "start": "2026-10-29T06:29:34.585809+00:00",
+    "load": [
+      29.23974609375,
+      25.05810546875,
+      23.4462890625
+    ],
+    "counts": {
+      "P": 15
+    },
+    "selected": 15,
+    "slot": "B",
+    "pytest_seconds": 7.9,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_shared_folders-6",
+    "start": "2026-10-29T06:29:36.057758+00:00",
+    "load": [
+      29.23974609375,
+      25.05810546875,
+      23.4462890625
+    ],
+    "counts": {
+      "P": 2
+    },
+    "selected": 2,
+    "slot": "A",
+    "pytest_seconds": 4.35,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_shared_folders-8",
+    "start": "2026-10-29T06:29:42.984544+00:00",
+    "load": [
+      28.89990234375,
+      25.05712890625,
+      23.455078125
+    ],
+    "counts": {
+      "P": 8
+    },
+    "selected": 8,
+    "slot": "A",
+    "pytest_seconds": 7.22,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "review-r2-final",
+    "start": "2026-10-29T06:29:44.577644+00:00",
+    "load": [
+      28.66748046875,
+      25.07275390625,
+      23.4697265625
+    ],
+    "counts": {
+      "X": 5,
+      "P": 14
+    },
+    "selected": 19,
+    "slot": "B",
+    "pytest_seconds": 23.11,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_shared_folders-10",
+    "start": "2026-10-29T06:29:52.040065+00:00",
+    "load": [
+      27.57275390625,
+      24.9052734375,
+      23.419921875
+    ],
+    "counts": {
+      "P": 2
+    },
+    "selected": 2,
+    "slot": "A",
+    "pytest_seconds": 4.05,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_shared_folders-12",
+    "start": "2026-10-29T06:29:58.383715+00:00",
+    "load": [
+      26.48583984375,
+      24.72412109375,
+      23.3642578125
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 145.95,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "review-r2-red",
+    "start": "2026-10-29T06:30:09.679937+00:00",
+    "load": [
+      22.56982421875,
+      23.93798828125,
+      23.10693359375
+    ],
+    "counts": {
+      "F": 5
+    },
+    "selected": 5,
+    "slot": "B",
+    "pytest_seconds": 13.8,
+    "exitstatus": 1,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_shared_folders-3",
+    "start": "2026-10-29T06:30:27.499119+00:00",
+    "load": [
+      25.7294921875,
+      24.5888671875,
+      23.35400390625
+    ],
+    "counts": {
+      "P": 4
+    },
+    "selected": 4,
+    "slot": "B",
+    "pytest_seconds": 8.01,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_shared_folders-5",
+    "start": "2026-10-29T06:30:36.778778+00:00",
+    "load": [
+      23.3173828125,
+      24.10791015625,
+      23.197265625
+    ],
+    "counts": {
+      "P": 2
+    },
+    "selected": 2,
+    "slot": "B",
+    "pytest_seconds": 2.02,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_shared_folders-7",
+    "start": "2026-10-29T06:30:40.180392+00:00",
+    "load": [
+      22.25048828125,
+      23.87353515625,
+      23.11962890625
+    ],
+    "counts": {
+      "P": 4
+    },
+    "selected": 4,
+    "slot": "B",
+    "pytest_seconds": 7.96,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_shared_folders-9",
+    "start": "2026-10-29T06:30:49.837977+00:00",
+    "load": [
+      20.453125,
+      23.43310546875,
+      22.9716796875
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 3.41,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_shared_folders-11",
+    "start": "2026-10-29T06:30:57.185284+00:00",
+    "load": [
+      21.29736328125,
+      23.55859375,
+      23.0185546875
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 7.05,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_shared_folders-13",
+    "start": "2026-10-29T06:31:09.486097+00:00",
+    "load": [
+      18.947265625,
+      22.92724609375,
+      22.8017578125
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 3.17,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_shared_folders-15",
+    "start": "2026-10-29T06:31:14.590147+00:00",
+    "load": [
+      18.7109375,
+      22.81201171875,
+      22.76171875
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 5.34,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_shared_folders-17",
+    "start": "2026-10-29T06:31:22.734326+00:00",
+    "load": [
+      22.81787109375,
+      23.59521484375,
+      23.0380859375
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 4.03,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_shared_folders-19",
+    "start": "2026-10-29T06:31:29.184168+00:00",
+    "load": [
+      22.83203125,
+      23.5849609375,
+      23.03759765625
+    ],
+    "counts": {
+      "P": 2
+    },
+    "selected": 2,
+    "slot": "B",
+    "pytest_seconds": 2.97,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_shared_folders-21",
+    "start": "2026-10-29T06:31:34.582212+00:00",
+    "load": [
+      26.85498046875,
+      24.39501953125,
+      23.32958984375
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 3.25,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_shared_folders-23",
+    "start": "2026-10-29T06:31:39.787220+00:00",
+    "load": [
+      26.7861328125,
+      24.42138671875,
+      23.34521484375
+    ],
+    "counts": {
+      "P": 2
+    },
+    "selected": 2,
+    "slot": "B",
+    "pytest_seconds": 7.39,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_shared_folders-25",
+    "start": "2026-10-29T06:31:56.791518+00:00",
+    "load": [
+      24.90234375,
+      24.134765625,
+      23.26220703125
+    ],
+    "counts": {
+      "P": 4
+    },
+    "selected": 4,
+    "slot": "B",
+    "pytest_seconds": 18.09,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_shared_folders-27",
+    "start": "2026-10-29T06:32:30.084409+00:00",
+    "load": [
+      20.9794921875,
+      23.208984375,
+      22.95654296875
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 17.91,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_shared_folders-14",
+    "start": "2026-10-29T06:32:31.494983+00:00",
+    "load": [
+      20.9794921875,
+      23.208984375,
+      22.95654296875
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 7.79,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_shared_folders-16",
+    "start": "2026-10-29T06:32:47.584562+00:00",
+    "load": [
+      18.232421875,
+      22.49462890625,
+      22.7060546875
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 138.11,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-2",
+    "start": "2026-10-29T06:32:57.771496+00:00",
+    "load": [
+      16.6650390625,
+      22.01708984375,
+      22.53369140625
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 7.34,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-4",
+    "start": "2026-10-29T06:33:15.299227+00:00",
+    "load": [
+      14.103515625,
+      21.07763671875,
+      22.18359375
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 7.78,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-6",
+    "start": "2026-10-29T06:33:32.931291+00:00",
+    "load": [
+      13.267578125,
+      20.55078125,
+      21.9755859375
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 12.05,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-8",
+    "start": "2026-10-29T06:33:57.260885+00:00",
+    "load": [
+      17.0380859375,
+      20.87060546875,
+      22.0498046875
+    ],
+    "counts": {
+      "P": 2
+    },
+    "selected": 2,
+    "slot": "B",
+    "pytest_seconds": 4.7,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-10",
+    "start": "2026-10-29T06:34:10.636826+00:00",
+    "load": [
+      22.47216796875,
+      21.822265625,
+      22.36474609375
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 2.62,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-12",
+    "start": "2026-10-29T06:34:18.978767+00:00",
+    "load": [
+      26.03759765625,
+      22.572265625,
+      22.6259765625
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 3.57,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-14",
+    "start": "2026-10-29T06:34:25.647386+00:00",
+    "load": [
+      30.41259765625,
+      23.63623046875,
+      23.00341796875
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 9.85,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-16",
+    "start": "2026-10-29T06:34:37.648365+00:00",
+    "load": [
+      30.9794921875,
+      23.99072265625,
+      23.13671875
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 6.62,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-18",
+    "start": "2026-10-29T06:34:47.740948+00:00",
+    "load": [
+      29.1982421875,
+      23.841796875,
+      23.09375
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 5.42,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-20",
+    "start": "2026-10-29T06:34:57.221186+00:00",
+    "load": [
+      28.02392578125,
+      23.7646484375,
+      23.07470703125
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 15.22,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "mutant-r2-c-escape-bell-wrong",
+    "start": "2026-10-29T06:35:09.343836+00:00",
+    "load": [
+      26.70263671875,
+      23.6650390625,
+      23.0498046875
+    ],
+    "counts": {
+      "F": 1,
+      "U": 11
+    },
+    "selected": 12,
+    "slot": "A",
+    "pytest_seconds": 1.42,
+    "exitstatus": 1,
+    "mutant": "r2-c-escape-bell-wrong"
+  },
+  {
+    "name": "mutant-r2-alternates-file-cap",
+    "start": "2026-10-29T06:35:12.713826+00:00",
+    "load": [
+      26.70263671875,
+      23.6650390625,
+      23.0498046875
+    ],
+    "counts": {
+      "F": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 1.45,
+    "exitstatus": 1,
+    "mutant": "r2-alternates-file-cap"
+  },
+  {
+    "name": "mutant-r2-export-join-request-id",
+    "start": "2026-10-29T06:35:16.185226+00:00",
+    "load": [
+      26.32568359375,
+      23.63720703125,
+      23.04345703125
+    ],
+    "counts": {
+      "F": 1,
+      "U": 1
+    },
+    "selected": 2,
+    "slot": "A",
+    "pytest_seconds": 6.79,
+    "exitstatus": 1,
+    "mutant": "r2-export-join-request-id"
+  },
+  {
+    "name": "mutant-r2-jobdir-final-check-removed",
+    "start": "2026-10-29T06:35:25.452167+00:00",
+    "load": [
+      26.65625,
+      23.796875,
+      23.10693359375
+    ],
+    "counts": {
+      "F": 1,
+      "U": 2
+    },
+    "selected": 3,
+    "slot": "A",
+    "pytest_seconds": 1.9,
+    "exitstatus": 1,
+    "mutant": "r2-jobdir-final-check-removed"
+  },
+  {
+    "name": "job-directory-original",
+    "start": "2026-10-29T06:35:31.657682+00:00",
+    "load": [
+      26.123046875,
+      23.7333984375,
+      23.08837890625
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 1.34,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "review-r2-latest",
+    "start": "2026-10-29T06:35:35.913801+00:00",
+    "load": [
+      27.47412109375,
+      24.05322265625,
+      23.20458984375
+    ],
+    "counts": {
+      "X": 6,
+      "P": 14
+    },
+    "selected": 20,
+    "slot": "A",
+    "pytest_seconds": 35.51,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "review-r2-latest-red",
+    "start": "2026-10-29T06:36:15.092764+00:00",
+    "load": [
+      22.84130859375,
+      23.2919921875,
+      22.96337890625
+    ],
+    "counts": {
+      "F": 6
+    },
+    "selected": 6,
+    "slot": "A",
+    "pytest_seconds": 19.05,
+    "exitstatus": 1,
+    "mutant": null
+  },
+  {
+    "name": "proof-r2-f1",
+    "start": "2026-10-29T06:36:37.701639+00:00",
+    "load": [
+      23.33154296875,
+      23.37060546875,
+      22.99853515625
+    ],
+    "counts": {
+      "P": 3
+    },
+    "selected": 3,
+    "slot": "A",
+    "pytest_seconds": 5.67,
+    "exitstatus": 0,
+    "mutant": "proof-r2-f1"
+  },
+  {
+    "name": "proof-r2-f2",
+    "start": "2026-10-29T06:36:46.885630+00:00",
+    "load": [
+      23.80859375,
+      23.47265625,
+      23.0390625
+    ],
+    "counts": {
+      "P": 3
+    },
+    "selected": 3,
+    "slot": "A",
+    "pytest_seconds": 7.14,
+    "exitstatus": 0,
+    "mutant": "proof-r2-f2"
+  },
+  {
+    "name": "test_retention_archive-22",
+    "start": "2026-10-29T06:37:00.629927+00:00",
+    "load": [
+      26.154296875,
+      24.00439453125,
+      23.23583984375
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 3.11,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-24",
+    "start": "2026-10-29T06:37:07.448803+00:00",
+    "load": [
+      25.1005859375,
+      23.8212890625,
+      23.17578125
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 3.48,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-26",
+    "start": "2026-10-29T06:37:13.796439+00:00",
+    "load": [
+      26.77392578125,
+      24.189453125,
+      23.30908203125
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 10.48,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-28",
+    "start": "2026-10-29T06:37:26.052515+00:00",
+    "load": [
+      27.29248046875,
+      24.41259765625,
+      23.40283203125
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 33.45,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-30",
+    "start": "2026-10-29T06:38:03.240893+00:00",
+    "load": [
+      27.02099609375,
+      24.7392578125,
+      23.56640625
+    ],
+    "counts": {
+      "P": 7
+    },
+    "selected": 7,
+    "slot": "A",
+    "pytest_seconds": 36.95,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "memory-observed",
+    "start": "2026-10-29T06:38:45.040652+00:00",
+    "load": [
+      28.42724609375,
+      25.31640625,
+      23.8310546875
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 9.63,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_shared_folders-18",
+    "start": "2026-10-29T06:38:45.205746+00:00",
+    "load": [
+      28.42724609375,
+      25.31640625,
+      23.8310546875
+    ],
+    "counts": {
+      "P": 4
+    },
+    "selected": 4,
+    "slot": "B",
+    "pytest_seconds": 27.87,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_shared_folders-20",
+    "start": "2026-10-29T06:39:16.603858+00:00",
+    "load": [
+      23.70703125,
+      24.4453125,
+      23.56494140625
+    ],
+    "counts": {
+      "P": 2
+    },
+    "selected": 2,
+    "slot": "B",
+    "pytest_seconds": 1.86,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_shared_folders-22",
+    "start": "2026-10-29T06:39:20.899861+00:00",
+    "load": [
+      22.849609375,
+      24.2548828125,
+      23.5029296875
+    ],
+    "counts": {
+      "P": 2
+    },
+    "selected": 2,
+    "slot": "B",
+    "pytest_seconds": 4.11,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_shared_folders-24",
+    "start": "2026-10-29T06:39:27.852242+00:00",
+    "load": [
+      22.4609375,
+      24.15087890625,
+      23.47021484375
+    ],
+    "counts": {
+      "P": 4
+    },
+    "selected": 4,
+    "slot": "B",
+    "pytest_seconds": 11.23,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_shared_folders-26",
+    "start": "2026-10-29T06:39:40.973121+00:00",
+    "load": [
+      23.0478515625,
+      24.20556640625,
+      23.50146484375
+    ],
+    "counts": {
+      "P": 2
+    },
+    "selected": 2,
+    "slot": "B",
+    "pytest_seconds": 2.58,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-1",
+    "start": "2026-10-29T06:39:45.474052+00:00",
+    "load": [
+      22.8037109375,
+      24.1357421875,
+      23.48046875
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 4.39,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-3",
+    "start": "2026-10-29T06:39:51.096712+00:00",
+    "load": [
+      21.7783203125,
+      23.90087890625,
+      23.4013671875
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 5.21,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-5",
+    "start": "2026-10-29T06:39:59.039373+00:00",
+    "load": [
+      20.9150390625,
+      23.6865234375,
+      23.32861328125
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 3.15,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-7",
+    "start": "2026-10-29T06:40:05.223277+00:00",
+    "load": [
+      19.08251953125,
+      23.2021484375,
+      23.1611328125
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 2.87,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-9",
+    "start": "2026-10-29T06:40:10.227256+00:00",
+    "load": [
+      19.23583984375,
+      23.16552734375,
+      23.1484375
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 1.1,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-11",
+    "start": "2026-10-29T06:40:13.625646+00:00",
+    "load": [
+      19.23583984375,
+      23.16552734375,
+      23.1484375
+    ],
+    "counts": {
+      "P": 2
+    },
+    "selected": 2,
+    "slot": "B",
+    "pytest_seconds": 8.86,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-13",
+    "start": "2026-10-29T06:40:25.293465+00:00",
+    "load": [
+      19.84423828125,
+      23.107421875,
+      23.12744140625
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 4.38,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-15",
+    "start": "2026-10-29T06:40:32.225160+00:00",
+    "load": [
+      22.3388671875,
+      23.5703125,
+      23.29052734375
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 7.78,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-17",
+    "start": "2026-10-29T06:40:42.764824+00:00",
+    "load": [
+      27.38525390625,
+      24.63232421875,
+      23.67138671875
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 3.24,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-19",
+    "start": "2026-10-29T06:40:47.494769+00:00",
+    "load": [
+      27.03369140625,
+      24.60498046875,
+      23.6669921875
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 15.61,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-21",
+    "start": "2026-10-29T06:41:05.435962+00:00",
+    "load": [
+      24.2958984375,
+      24.1806640625,
+      23.5380859375
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 2.36,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-23",
+    "start": "2026-10-29T06:41:09.206612+00:00",
+    "load": [
+      24.2958984375,
+      24.1806640625,
+      23.5380859375
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 1.67,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-25",
+    "start": "2026-10-29T06:41:11.989836+00:00",
+    "load": [
+      22.99072265625,
+      23.91162109375,
+      23.44677734375
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 1.31,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-27",
+    "start": "2026-10-29T06:41:14.825056+00:00",
+    "load": [
+      23.3115234375,
+      23.962890625,
+      23.46728515625
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 4.19,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-29",
+    "start": "2026-10-29T06:41:20.523484+00:00",
+    "load": [
+      22.5654296875,
+      23.79736328125,
+      23.41162109375
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 3.01,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-31",
+    "start": "2026-10-29T06:41:25.023976+00:00",
+    "load": [
+      22.19970703125,
+      23.70068359375,
+      23.3798828125
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 4.44,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-33",
+    "start": "2026-10-29T06:41:30.862138+00:00",
+    "load": [
+      21.54296875,
+      23.53955078125,
+      23.32470703125
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 1.24,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-35",
+    "start": "2026-10-29T06:41:33.353098+00:00",
+    "load": [
+      21.54296875,
+      23.53955078125,
+      23.32470703125
+    ],
+    "counts": {
+      "P": 16
+    },
+    "selected": 16,
+    "slot": "B",
+    "pytest_seconds": 11.5,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-37",
+    "start": "2026-10-29T06:41:46.733795+00:00",
+    "load": [
+      19.427734375,
+      22.9736328125,
+      23.1259765625
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 3.66,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-39",
+    "start": "2026-10-29T06:41:52.414406+00:00",
+    "load": [
+      19.31298828125,
+      22.890625,
+      23.095703125
+    ],
+    "counts": {
+      "P": 2
+    },
+    "selected": 2,
+    "slot": "B",
+    "pytest_seconds": 6.5,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-41",
+    "start": "2026-10-29T06:42:02.218763+00:00",
+    "load": [
+      17.72705078125,
+      22.4326171875,
+      22.93017578125
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 6.21,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "review-r2-closeout",
+    "start": "2026-10-29T06:42:07.188393+00:00",
+    "load": [
+      18.14892578125,
+      22.44189453125,
+      22.93017578125
+    ],
+    "counts": {
+      "X": 6,
+      "P": 15
+    },
+    "selected": 21,
+    "slot": "A",
+    "pytest_seconds": 28.0,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-43",
+    "start": "2026-10-29T06:42:09.770677+00:00",
+    "load": [
+      18.13671875,
+      22.36767578125,
+      22.90087890625
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 2.48,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-32",
+    "start": "2026-10-29T06:42:13.916806+00:00",
+    "load": [
+      18.13671875,
+      22.36767578125,
+      22.90087890625
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 3.47,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-34",
+    "start": "2026-10-29T06:42:19.186236+00:00",
+    "load": [
+      17.96533203125,
+      22.26171875,
+      22.8603515625
+    ],
+    "counts": {
+      "P": 2
+    },
+    "selected": 2,
+    "slot": "B",
+    "pytest_seconds": 3.67,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-45",
+    "start": "2026-10-29T06:42:24.667845+00:00",
+    "load": [
+      20.09033203125,
+      22.58056640625,
+      22.96630859375
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 3.06,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-47",
+    "start": "2026-10-29T06:42:29.364062+00:00",
+    "load": [
+      20.09033203125,
+      22.58056640625,
+      22.96630859375
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 5.74,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-49",
+    "start": "2026-10-29T06:42:36.859360+00:00",
+    "load": [
+      19.48681640625,
+      22.36474609375,
+      22.884765625
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 1.78,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-51",
+    "start": "2026-10-29T06:42:40.031233+00:00",
+    "load": [
+      19.04736328125,
+      22.2255859375,
+      22.83251953125
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 2.87,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-53",
+    "start": "2026-10-29T06:42:44.383026+00:00",
+    "load": [
+      19.04736328125,
+      22.2255859375,
+      22.83251953125
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 1.53,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-55",
+    "start": "2026-10-29T06:42:47.591273+00:00",
+    "load": [
+      19.20361328125,
+      22.205078125,
+      22.82177734375
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 1.83,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-57",
+    "start": "2026-10-29T06:42:50.793331+00:00",
+    "load": [
+      18.54638671875,
+      22.01904296875,
+      22.75244140625
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 2.89,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-59",
+    "start": "2026-10-29T06:42:58.085098+00:00",
+    "load": [
+      17.70166015625,
+      21.7861328125,
+      22.66552734375
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 6.72,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-61",
+    "start": "2026-10-29T06:43:07.206229+00:00",
+    "load": [
+      17.2314453125,
+      21.546875,
+      22.56982421875
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 3.87,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-63",
+    "start": "2026-10-29T06:43:12.799187+00:00",
+    "load": [
+      18.013671875,
+      21.63720703125,
+      22.595703125
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 5.03,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-65",
+    "start": "2026-10-29T06:43:19.606262+00:00",
+    "load": [
+      17.40869140625,
+      21.3857421875,
+      22.49462890625
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 1.78,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-67",
+    "start": "2026-10-29T06:43:23.091038+00:00",
+    "load": [
+      17.40869140625,
+      21.3857421875,
+      22.49462890625
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 3.03,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-69",
+    "start": "2026-10-29T06:43:28.135561+00:00",
+    "load": [
+      17.21533203125,
+      21.279296875,
+      22.45068359375
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 3.53,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-71",
+    "start": "2026-10-29T06:43:33.330777+00:00",
+    "load": [
+      17.51806640625,
+      21.2744140625,
+      22.44189453125
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 2.41,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-73",
+    "start": "2026-10-29T06:43:37.361041+00:00",
+    "load": [
+      17.95703125,
+      21.302734375,
+      22.44482421875
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 1.96,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-75",
+    "start": "2026-10-29T06:43:41.040836+00:00",
+    "load": [
+      20.68310546875,
+      21.81201171875,
+      22.61767578125
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 1.79,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-77",
+    "start": "2026-10-29T06:43:44.514364+00:00",
+    "load": [
+      20.68310546875,
+      21.81201171875,
+      22.61767578125
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 5.74,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-79",
+    "start": "2026-10-29T06:43:51.730380+00:00",
+    "load": [
+      21.89404296875,
+      22.0322265625,
+      22.68603515625
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 4.19,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-81",
+    "start": "2026-10-29T06:43:59.158696+00:00",
+    "load": [
+      20.94140625,
+      21.83203125,
+      22.611328125
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 1.74,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-83",
+    "start": "2026-10-29T06:44:03.100404+00:00",
+    "load": [
+      20.38525390625,
+      21.70166015625,
+      22.560546875
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 2.15,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_turn_workdirs",
+    "start": "2026-10-29T06:44:06.619854+00:00",
+    "load": [
+      19.55322265625,
+      21.50732421875,
+      22.48681640625
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 1.9,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_cwd_rechecks",
+    "start": "2026-10-29T06:44:09.617788+00:00",
+    "load": [
+      19.55322265625,
+      21.50732421875,
+      22.48681640625
+    ],
+    "counts": {
+      "P": 3
+    },
+    "selected": 3,
+    "slot": "A",
+    "pytest_seconds": 1.86,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_detached_retention_fence-2",
+    "start": "2026-10-29T06:44:12.880223+00:00",
+    "load": [
+      18.8681640625,
+      21.33251953125,
+      22.41943359375
+    ],
+    "counts": {
+      "P": 4
+    },
+    "selected": 4,
+    "slot": "A",
+    "pytest_seconds": 12.61,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_detached_retention_fence-4",
+    "start": "2026-10-29T06:44:29.898759+00:00",
+    "load": [
+      17.06689453125,
+      20.78515625,
+      22.19873046875
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 3.67,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_detached_retention_fence-6",
+    "start": "2026-10-29T06:44:35.771168+00:00",
+    "load": [
+      16.1806640625,
+      20.53955078125,
+      22.103515625
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 1.44,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_detached_retention_fence-8",
+    "start": "2026-10-29T06:44:38.505041+00:00",
+    "load": [
+      16.1806640625,
+      20.53955078125,
+      22.103515625
+    ],
+    "counts": {
+      "P": 4
+    },
+    "selected": 4,
+    "slot": "A",
+    "pytest_seconds": 2.49,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_detached_retention_fence-10",
+    "start": "2026-10-29T06:44:42.116831+00:00",
+    "load": [
+      15.92578125,
+      20.4140625,
+      22.0498046875
+    ],
+    "counts": {
+      "P": 2
+    },
+    "selected": 2,
+    "slot": "A",
+    "pytest_seconds": 3.4,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_detached_retention_fence-12",
+    "start": "2026-10-29T06:44:46.479415+00:00",
+    "load": [
+      15.37109375,
+      20.22412109375,
+      21.97314453125
+    ],
+    "counts": {
+      "P": 2
+    },
+    "selected": 2,
+    "slot": "A",
+    "pytest_seconds": 1.63,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_detached_retention_fence-14",
+    "start": "2026-10-29T06:44:49.400590+00:00",
+    "load": [
+      15.37109375,
+      20.22412109375,
+      21.97314453125
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 3.27,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_detached_retention_fence-16",
+    "start": "2026-10-29T06:44:56.494187+00:00",
+    "load": [
+      14.39111328125,
+      19.85400390625,
+      21.8212890625
+    ],
+    "counts": {
+      "P": 4
+    },
+    "selected": 4,
+    "slot": "A",
+    "pytest_seconds": 2.94,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_detached_retention_fence-18",
+    "start": "2026-10-29T06:45:02.938641+00:00",
+    "load": [
+      14.0390625,
+      19.68994140625,
+      21.751953125
+    ],
+    "counts": {
+      "P": 8
+    },
+    "selected": 8,
+    "slot": "A",
+    "pytest_seconds": 4.22,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_detached_retention_fence-20",
+    "start": "2026-10-29T06:45:09.019246+00:00",
+    "load": [
+      13.79541015625,
+      19.54541015625,
+      21.6884765625
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 18.75,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-36",
+    "start": "2026-10-29T06:45:23.061287+00:00",
+    "load": [
+      13.83447265625,
+      19.27294921875,
+      21.55322265625
+    ],
+    "counts": {
+      "P": 2
+    },
+    "selected": 2,
+    "slot": "B",
+    "pytest_seconds": 3.87,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-38",
+    "start": "2026-10-29T06:45:28.326925+00:00",
+    "load": [
+      14.568359375,
+      19.33447265625,
+      21.5615234375
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 3.12,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_detached_retention_fence-22",
+    "start": "2026-10-29T06:45:29.059278+00:00",
+    "load": [
+      14.568359375,
+      19.33447265625,
+      21.5615234375
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 1.81,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_detached_retention_fence-24",
+    "start": "2026-10-29T06:45:32.137292+00:00",
+    "load": [
+      15.1630859375,
+      19.37841796875,
+      21.56396484375
+    ],
+    "counts": {
+      "P": 2
+    },
+    "selected": 2,
+    "slot": "A",
+    "pytest_seconds": 2.38,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-40",
+    "start": "2026-10-29T06:45:32.863911+00:00",
+    "load": [
+      15.1630859375,
+      19.37841796875,
+      21.56396484375
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 4.03,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_detached_retention_fence-26",
+    "start": "2026-10-29T06:45:35.808608+00:00",
+    "load": [
+      16.11083984375,
+      19.5048828125,
+      21.595703125
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 1.68,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-42",
+    "start": "2026-10-29T06:45:38.310170+00:00",
+    "load": [
+      16.11083984375,
+      19.5048828125,
+      21.595703125
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 1.06,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_detached_retention_fence-28",
+    "start": "2026-10-29T06:45:38.825159+00:00",
+    "load": [
+      16.11083984375,
+      19.5048828125,
+      21.595703125
+    ],
+    "counts": {
+      "P": 2
+    },
+    "selected": 2,
+    "slot": "A",
+    "pytest_seconds": 1.81,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-44",
+    "start": "2026-10-29T06:45:40.660762+00:00",
+    "load": [
+      16.1015625,
+      19.4462890625,
+      21.5625
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 2.72,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_writer_retention_fence",
+    "start": "2026-10-29T06:45:42.353903+00:00",
+    "load": [
+      16.1015625,
+      19.4462890625,
+      21.5625
+    ],
+    "counts": {
+      "P": 23
+    },
+    "selected": 23,
+    "slot": "A",
+    "pytest_seconds": 29.27,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-46",
+    "start": "2026-10-29T06:45:45.088513+00:00",
+    "load": [
+      17.53466796875,
+      19.6875,
+      21.63525390625
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 2.98,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-48",
+    "start": "2026-10-29T06:45:49.987533+00:00",
+    "load": [
+      25.01904296875,
+      21.203125,
+      22.15869140625
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 8.77,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-50",
+    "start": "2026-10-29T06:46:00.173264+00:00",
+    "load": [
+      22.85009765625,
+      20.8662109375,
+      22.02783203125
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 4.15,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-52",
+    "start": "2026-10-29T06:46:05.836437+00:00",
+    "load": [
+      23.74267578125,
+      21.083984375,
+      22.09765625
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 1.39,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-54",
+    "start": "2026-10-29T06:46:08.934882+00:00",
+    "load": [
+      23.74267578125,
+      21.083984375,
+      22.09765625
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 3.08,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_test_module_names",
+    "start": "2026-10-29T06:46:13.382685+00:00",
+    "load": [
+      24.24365234375,
+      21.23193359375,
+      22.1435546875
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 0.71,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-56",
+    "start": "2026-10-29T06:46:18.993680+00:00",
+    "load": [
+      23.50341796875,
+      21.12841796875,
+      22.1015625
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 1.94,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-58",
+    "start": "2026-10-29T06:46:22.042185+00:00",
+    "load": [
+      22.7421875,
+      21.009765625,
+      22.0537109375
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 2.36,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-60",
+    "start": "2026-10-29T06:46:25.451459+00:00",
+    "load": [
+      21.7216796875,
+      20.82666015625,
+      21.98291015625
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 3.42,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-62",
+    "start": "2026-10-29T06:46:29.938581+00:00",
+    "load": [
+      20.70263671875,
+      20.6298828125,
+      21.90673828125
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 1.39,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-64",
+    "start": "2026-10-29T06:46:32.506523+00:00",
+    "load": [
+      20.70263671875,
+      20.6298828125,
+      21.90673828125
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 2.52,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-66",
+    "start": "2026-10-29T06:46:36.323053+00:00",
+    "load": [
+      19.84521484375,
+      20.453125,
+      21.8369140625
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 3.4,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-68",
+    "start": "2026-10-29T06:46:41.473496+00:00",
+    "load": [
+      18.81640625,
+      20.2294921875,
+      21.74951171875
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 2.43,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-70",
+    "start": "2026-10-29T06:46:45.205446+00:00",
+    "load": [
+      18.0302734375,
+      20.04296875,
+      21.6748046875
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 1.93,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-72",
+    "start": "2026-10-29T06:46:48.319731+00:00",
+    "load": [
+      18.0302734375,
+      20.04296875,
+      21.6748046875
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 3.53,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-74",
+    "start": "2026-10-29T06:46:54.177126+00:00",
+    "load": [
+      18.10791015625,
+      20.025390625,
+      21.65869140625
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 5.08,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-76",
+    "start": "2026-10-29T06:47:02.847526+00:00",
+    "load": [
+      16.82568359375,
+      19.68017578125,
+      21.5166015625
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 1.62,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-78",
+    "start": "2026-10-29T06:47:05.765293+00:00",
+    "load": [
+      16.27880859375,
+      19.51904296875,
+      21.44873046875
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 0.89,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-80",
+    "start": "2026-10-29T06:47:07.774326+00:00",
+    "load": [
+      16.27880859375,
+      19.51904296875,
+      21.44873046875
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 0.69,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_archive-82",
+    "start": "2026-10-29T06:47:09.479538+00:00",
+    "load": [
+      16.27880859375,
+      19.51904296875,
+      21.44873046875
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 1.52,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_turns",
+    "start": "2026-10-29T06:47:12.190230+00:00",
+    "load": [
+      15.53564453125,
+      19.31103515625,
+      21.36376953125
+    ],
+    "counts": {
+      "P": 7
+    },
+    "selected": 7,
+    "slot": "A",
+    "pytest_seconds": 2.48,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_retention_worktree_cwd",
+    "start": "2026-10-29T06:47:15.770840+00:00",
+    "load": [
+      14.93212890625,
+      19.123046875,
+      21.28515625
+    ],
+    "counts": {
+      "P": 7
+    },
+    "selected": 7,
+    "slot": "A",
+    "pytest_seconds": 3.93,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_detached_retention_fence-1",
+    "start": "2026-10-29T06:47:21.038765+00:00",
+    "load": [
+      15.498046875,
+      19.17041015625,
+      21.2890625
+    ],
+    "counts": {
+      "P": 6
+    },
+    "selected": 6,
+    "slot": "A",
+    "pytest_seconds": 3.91,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_detached_retention_fence-3",
+    "start": "2026-10-29T06:47:26.119456+00:00",
+    "load": [
+      15.5380859375,
+      19.11767578125,
+      21.2578125
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 1.55,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_detached_retention_fence-5",
+    "start": "2026-10-29T06:47:29.105690+00:00",
+    "load": [
+      15.5380859375,
+      19.11767578125,
+      21.2578125
+    ],
+    "counts": {
+      "F": 1
+    },
+    "selected": 1,
+    "slot": "B",
+    "pytest_seconds": 1.54,
+    "exitstatus": 1,
+    "mutant": null
+  },
+  {
+    "name": "test_detached_retention_fence-7",
+    "start": "2026-10-29T06:47:31.832484+00:00",
+    "load": [
+      15.17431640625,
+      18.982421875,
+      21.197265625
+    ],
+    "counts": {
+      "P": 4
+    },
+    "selected": 4,
+    "slot": "B",
+    "pytest_seconds": 2.44,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_detached_retention_fence-9",
+    "start": "2026-10-29T06:47:35.465862+00:00",
+    "load": [
+      15.48046875,
+      18.982421875,
+      21.18408203125
+    ],
+    "counts": {
+      "P": 2
+    },
+    "selected": 2,
+    "slot": "B",
+    "pytest_seconds": 1.42,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_detached_retention_fence-11",
+    "start": "2026-10-29T06:47:38.062634+00:00",
+    "load": [
+      15.48046875,
+      18.982421875,
+      21.18408203125
+    ],
+    "counts": {
+      "P": 2
+    },
+    "selected": 2,
+    "slot": "B",
+    "pytest_seconds": 1.9,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_detached_retention_fence-13",
+    "start": "2026-10-29T06:47:41.026786+00:00",
+    "load": [
+      15.36181640625,
+      18.8994140625,
+      21.1416015625
+    ],
+    "counts": {
+      "P": 2
+    },
+    "selected": 2,
+    "slot": "B",
+    "pytest_seconds": 1.75,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_detached_retention_fence-15",
+    "start": "2026-10-29T06:47:43.912474+00:00",
+    "load": [
+      15.36181640625,
+      18.8994140625,
+      21.1416015625
+    ],
+    "counts": {
+      "P": 6
+    },
+    "selected": 6,
+    "slot": "B",
+    "pytest_seconds": 3.02,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_detached_retention_fence-17",
+    "start": "2026-10-29T06:47:48.055702+00:00",
+    "load": [
+      15.41259765625,
+      18.85107421875,
+      21.111328125
+    ],
+    "counts": {
+      "P": 8
+    },
+    "selected": 8,
+    "slot": "B",
+    "pytest_seconds": 4.29,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_detached_retention_fence-19",
+    "start": "2026-10-29T06:47:54.822946+00:00",
+    "load": [
+      14.49365234375,
+      18.54248046875,
+      20.97509765625
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 7.51,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_detached_retention_fence-21",
+    "start": "2026-10-29T06:48:04.246710+00:00",
+    "load": [
+      13.8134765625,
+      18.333984375,
+      20.88720703125
+    ],
+    "counts": {
+      "P": 4
+    },
+    "selected": 4,
+    "slot": "A",
+    "pytest_seconds": 1.02,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_detached_retention_fence-23",
+    "start": "2026-10-29T06:48:06.413284+00:00",
+    "load": [
+      14.388671875,
+      18.3779296875,
+      20.8876953125
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 1.57,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_detached_retention_fence-25",
+    "start": "2026-10-29T06:48:09.105869+00:00",
+    "load": [
+      14.388671875,
+      18.3779296875,
+      20.8876953125
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 1.5,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "detached-neutral",
+    "start": "2026-10-29T06:48:11.830614+00:00",
+    "load": [
+      15.23828125,
+      18.48779296875,
+      20.91162109375
+    ],
+    "counts": {
+      "P": 1
+    },
+    "selected": 1,
+    "slot": "A",
+    "pytest_seconds": 1.72,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_detached_retention_fence-27",
+    "start": "2026-10-29T06:48:11.985776+00:00",
+    "load": [
+      15.23828125,
+      18.48779296875,
+      20.91162109375
+    ],
+    "counts": {
+      "P": 8
+    },
+    "selected": 8,
+    "slot": "B",
+    "pytest_seconds": 4.24,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_detached_retention_fence-29",
+    "start": "2026-10-29T06:48:17.371290+00:00",
+    "load": [
+      14.978515625,
+      18.3798828125,
+      20.859375
+    ],
+    "counts": {
+      "P": 8
+    },
+    "selected": 8,
+    "slot": "A",
+    "pytest_seconds": 4.15,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_state_contract",
+    "start": "2026-10-29T06:48:22.723773+00:00",
+    "load": [
+      15.22021484375,
+      18.37353515625,
+      20.84228515625
+    ],
+    "counts": {
+      "P": 37
+    },
+    "selected": 37,
+    "slot": "A",
+    "pytest_seconds": 22.69,
+    "exitstatus": 0,
+    "mutant": null
+  },
+  {
+    "name": "test_invariants_index",
+    "start": "2026-10-29T06:48:46.623907+00:00",
+    "load": [
+      14.04638671875,
+      17.83203125,
+      20.57373046875
+    ],
+    "counts": {
+      "P": 25
+    },
+    "selected": 25,
+    "slot": "A",
+    "pytest_seconds": 0.58,
+    "exitstatus": 0,
+    "mutant": null
+  }
+]

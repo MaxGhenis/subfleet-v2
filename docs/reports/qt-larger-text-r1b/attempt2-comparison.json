@@ -1,0 +1,28 @@
+{
+  "old_order": "rejected",
+  "new_order": "accepted",
+  "old_behavior": "passed",
+  "new_behavior": "passed",
+  "pending": {
+    "ended_at": -1,
+    "ended_by": "",
+    "outstanding": true,
+    "requested_at": 0.576464056968689
+  },
+  "geometry_checks": [
+    {
+      "at": 1.26322603225708,
+      "distance": 0,
+      "event": "reveal_check",
+      "position": {
+        "content": 48691,
+        "from_end": 0,
+        "offset": 48208,
+        "viewport": 483
+      },
+      "presented": false,
+      "source": "clip",
+      "target": "person:m000040"
+    }
+  ]
+}

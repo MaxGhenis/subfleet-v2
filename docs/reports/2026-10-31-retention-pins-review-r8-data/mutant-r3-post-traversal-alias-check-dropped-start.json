@@ -1,0 +1,1 @@
+{"start": "2026-10-31T06:29:53.217096+00:00", "loads": [36.501953125, 33.6025390625, 33.5263671875], "pid": 15817, "args": ["tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]"], "fixture_root": "/private/tmp/sf-r272r8"}

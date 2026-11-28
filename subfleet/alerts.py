@@ -15,11 +15,8 @@ from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime, timedelta
 from typing import Any
 
-from .status_json import dispatchable, instant, lane_verdict, timestamp
-
-
-def _home(lane: Mapping[str, Any]) -> str:
-    return str(lane.get("home") or lane.get("credential_ref") or lane["lane_id"])
+from .render import _held_text, lane_home as _home
+from .status_json import CREDENTIAL_VERDICTS, dispatchable, instant, lane_verdict, timestamp
 
 
 def _login(lane: Mapping[str, Any]) -> str:
@@ -49,8 +46,7 @@ def evaluate_conditions(snapshot: Mapping[str, Any], *, now: str | datetime | No
         email = lane.get("email") or str(lane.get("account_key", home)).removeprefix(f"{provider}:")
         if lane.get("enabled", True) or lane.get("duplicate_of") or lane.get("identity_status") == "non-canonical":
             groups[(provider, str(lane.get("account_key", lane["lane_id"])))].append(lane)
-        if verdict in {"auth-dead", "auth-revoked", "revoked", "no-auth", "auth-suspect",
-                       "token-invalid", "secret-missing", "no-token", "expired-token", "free-plan"}:
+        if verdict in CREDENTIAL_VERDICTS:
             if provider == "codex":
                 kind = ("noauth" if verdict == "no-auth" else "suspect" if verdict in {"auth-suspect", "expired-token"}
                         else "free-plan" if verdict == "free-plan" else "revoked")
@@ -75,7 +71,10 @@ def evaluate_conditions(snapshot: Mapping[str, Any], *, now: str | datetime | No
                         f"{home} has provider-observed unused weekly capacity that resets at {reset_at}. "
                         "Queue Codex work before that reset; inspect with subfleet status.", home=home, daily=True)
         for closure in lane.get("closures", ()):
-            if closure.get("reason") == "auth-dead":
+            # D-STATUS-SRC1: an operator hold is the operator's own act, and
+            # `status` shows it; a dead credential has its alert above. Only a
+            # limit is called limited.
+            if closure.get("reason") in ("auth-dead", "operator-hold"):
                 continue
             scope = str(closure.get("scope", "account"))
             until = closure.get("until_at") or "unknown"
@@ -97,12 +96,20 @@ def evaluate_conditions(snapshot: Mapping[str, Any], *, now: str | datetime | No
         available = [lane for lane in members if dispatchable(lane)]
         if members and not available:
             key = "codex-fleet-empty" if provider == "codex" else "claude-lanes-empty"
-            add(key, "critical" if provider == "codex" else "warn", f"{provider}: no dispatchable lanes",
-                "All enrolled lanes are exhausted, unavailable, or unknown. Run: subfleet status",
-                home=f"fleet:{provider}")
+            causes = fleet_causes(members)
+            # D-STATUS-SRC1: a fleet the operators hold is their own act.
+            held_only = len(causes["held"]) == len(members)
+            add(key, "warn" if held_only or provider != "codex" else "critical",
+                f"{provider}: no dispatchable lanes", fleet_empty_body(provider, causes),
+                home=f"fleet:{provider}", causes={cause: len(rows) for cause, rows in causes.items()})
         elif provider == "codex" and len(available) == 1:
             add("codex-fleet-low", "warn", "codex: only one dispatchable lane",
                 f"Only {_home(available[0])} has observed headroom. Run: subfleet status", home="fleet:codex")
+
+    for warning in (snapshot.get("claude_cards") or {}).get("warnings") or ():
+        condition = card_condition(warning, at)
+        if condition:
+            add(**condition)
 
     expiry = snapshot.get("capacity_expiry") or {}
     unused = expiry.get("projected_unused_windows_raw", expiry.get("projected_unused_windows"))
@@ -114,6 +121,137 @@ def evaluate_conditions(snapshot: Mapping[str, Any], *, now: str | datetime | No
             f"More than one observed weekly window of capacity is projected to expire unused by {reset}. "
             "Queue Codex work before the reset; inspect with subfleet status.", home="fleet:codex", daily=True)
     return list(conditions.values())
+
+
+#: D-STATUS-SRC1: why a fleet has no dispatchable lane, one cause per lane, in
+#: the order the fleet-empty alert names them.
+FLEET_CAUSES = ("held", "limited", "credential", "disabled", "other")
+
+
+def fleet_causes(members: Iterable[Mapping[str, Any]]) -> dict[str, list[Mapping[str, Any]]]:
+    """Each of a fleet's lanes under the one cause its verdict names (`lane_verdict`)."""
+    causes: dict[str, list[Mapping[str, Any]]] = {cause: [] for cause in FLEET_CAUSES}
+    for lane in members:
+        verdict = lane_verdict(lane)
+        cause = ("held" if verdict == "held" else "limited" if verdict == "limited"
+                 else "credential" if verdict in CREDENTIAL_VERDICTS
+                 else "disabled" if not lane.get("enabled", True) else "other")
+        causes[cause].append(lane)
+    return causes
+
+
+def _last_end(lane: Mapping[str, Any], held: bool) -> datetime | None:
+    """When the lane's holds (or its account limits) end: the latest end of them, unparseable ones left out."""
+    ends = []
+    for row in lane.get("closures", ()):
+        if (row.get("reason") == "operator-hold" if held
+                else row.get("scope") == "account" and row.get("reason") not in ("operator-hold", "auth-dead")):
+            try:
+                ends.append(instant(row["until_at"]))
+            except (AttributeError, KeyError, TypeError, ValueError):
+                continue
+    return max(ends, default=None)
+
+
+def _earliest(lanes: Iterable[Mapping[str, Any]], held: bool) -> str | None:
+    ends = [end for lane in lanes if (end := _last_end(lane, held)) is not None]
+    return timestamp(min(ends)) if ends else None
+
+
+def fleet_empty_body(provider: str, causes: Mapping[str, list[Mapping[str, Any]]]) -> str:
+    """D-STATUS-SRC1: the fleet-empty alert's body, naming each cause with its count.
+
+    Only provider-limited lanes are called limited. Held lanes carry their
+    operators' notes and latest release bounds through the shared hold renderer."""
+    parts = []
+    held = causes.get("held") or []
+    if held:
+        details = [_held_text(row, home=_home(lane)) for lane in held for row in lane.get("closures", ())
+                   if row.get("reason") == "operator-hold"]
+        parts.append(f"{len(held)} held (" + "; ".join(details) + ")")
+    limited = causes.get("limited") or []
+    if limited:
+        reset = _earliest(limited, held=False)
+        parts.append(f"{len(limited)} provider-limited" + (f" (earliest reset {reset})" if reset else ""))
+    for cause, words in (("credential", "credential-blocked"), ("disabled", "disabled"),
+                         ("other", "otherwise unavailable")):
+        if causes.get(cause):
+            parts.append(f"{len(causes[cause])} {words}")
+    return f"No {provider} lane is dispatchable: {', '.join(parts)}. Run: subfleet status"
+
+
+def _when(value: Any, now: datetime) -> str:
+    if not isinstance(value, str) or not value:
+        return "an unknown time"
+    left = instant(value) - now
+    days = left.total_seconds() / 86400
+    return f"{value} (in {days:.1f} days)" if days >= 0 else value
+
+
+def card_condition(warning: Mapping[str, Any], now: datetime) -> dict[str, Any] | None:
+    """C-9.10: one card or credit warning as an alert condition.
+
+    Every body says what is at risk and when, and that spending it is the
+    operator's act: Subfleet reads cards and credits and never redeems one.
+    """
+    kind, login = warning.get("kind"), str(warning.get("login") or "?")
+    lanes = ", ".join(warning.get("lanes") or ()) or "no lane"
+    who = f"{login} ({lanes})"
+    home = f"claude-cards:{login}"
+    never = "Subfleet never redeems or claims; using it is your call."
+    # A card kept through a read that listed none is as last listed, not as read now.
+    listed = (f"This is the card as last listed {warning.get('listed_at') or 'before'}; the read at "
+              f"{warning.get('unlisted_at') or 'a later time'} listed none ({warning.get('unlisted')}), so check "
+              f"Settings, Usage. " if warning.get("unlisted") else "")
+    if kind == "card-expiring":
+        subject = f"claude: unused limit reset on {login} expires soon"
+        body = (f"{who} holds {warning.get('resets_left')} unused limit reset(s) ({warning.get('grant')}) "
+                f"that expire at {_when(warning.get('at'), now)}. Use it from Settings, Usage, Reset for free "
+                f"(web or desktop) before then, or it is lost. {listed}{never}")
+    elif kind == "card-lapse-risk":
+        reasons = "; ".join(warning.get("reasons") or ()) or "plan lapsing"
+        subject = f"claude: unused limit reset on {login} is lost if its plan lapses"
+        body = (f"{who} holds {warning.get('resets_left')} unused limit reset(s) ({warning.get('grant')}); "
+                f"{reasons}. A card is lost when the plan is cancelled or downgraded before it is used. "
+                f"{listed}{never}")
+    elif kind == "credit-expiring":
+        subject = f"claude: {warning.get('label')} on {login} expires soon"
+        body = (f"{who} has ${warning.get('remaining_dollars'):.2f} of {warning.get('label')} left, "
+                f"expiring at {_when(warning.get('at'), now)}; what is unspent then is lost. {never}")
+    elif kind == "credit-lapse-risk":
+        reasons = "; ".join(warning.get("reasons") or ()) or "plan lapsing"
+        subject = f"claude: {warning.get('label')} on {login} may go with its plan"
+        body = (f"{who} has ${warning.get('remaining_dollars'):.2f} of {warning.get('label')} left; {reasons}. "
+                f"When two of these accounts' plans ended (2026-09-30, 2026-10-04) their usage stopped showing "
+                f"the credit. {never}")
+    elif kind == "card-lost":
+        why = "with its plan" if warning.get("reason") == "lapse" else "unused at its end"
+        subject = f"claude: a limit reset on {login} was lost {why}"
+        body = (f"{who} held {', '.join(warning.get('grants') or ())} unused at the last read; it was lost "
+                f"{why} (seen {warning.get('at')}).")
+    elif kind == "credit-lost":
+        credits = ", ".join(f"{row.get('label')} (${(row.get('remaining_dollars') or 0):.2f})"
+                            for row in warning.get("credits") or ())
+        if warning.get("reason") == "lapse":
+            subject = f"claude: {login}'s plan lapsed with promotional credit unspent"
+            body = (f"{who} had {credits} left at the last read and its plan has lapsed (seen "
+                    f"{warning.get('at')}). When two of these accounts' plans ended (2026-09-30, 2026-10-04) "
+                    f"their usage stopped showing the credit.")
+        else:
+            subject = f"claude: a promotional credit on {login} ended unspent"
+            body = f"{who} had {credits} left at the last read; a read after its end shows it unspent or gone (seen {warning.get('at')})."
+    elif kind == "credit-claimable":
+        subject = f"claude: {login} has an unclaimed promotional credit"
+        body = (f"{who} is eligible for the cloud-session credit and has not claimed it. Claim it in the Claude "
+                f"app, at claude.ai/code/claim-credit, or with /claim-credit in Claude Code. {never}")
+    else:
+        return None
+    # A warning that stops because the card or credit was used or lost is not
+    # a recovery: its latch clears without a "recovered" notice. A loss is told
+    # once.
+    lost = kind in ("card-lost", "credit-lost")
+    return {"key": f"claude-{kind}:{warning.get('key')}", "severity": "warn", "subject": subject,
+            "body": body, "home": home, "recover": False, **({"once": True} if lost else {"daily": True})}
 
 
 def operator_session(policy: Mapping[str, Any]) -> str | None:

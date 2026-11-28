@@ -6,6 +6,9 @@ specification those clauses cite. Transition plan: `~/subfleet-desktop-transitio
 Code maps of the base revision (`3f155e5`) are in `docs/desktop/maps/`;
 citations of the form `file.py:N` refer to that revision.
 
+Continuation amendment, 2026-10-04: C-24.10–12 add durable unattended wakes,
+clear blocks superseded outside Subfleet, and show native turns after binding.
+
 Revision 2 folds in an adversarial review of revision 1 by five independent
 lenses (durability, v2 integration, security, provider protocol, product),
 recorded in `docs/desktop/reviews/2026-09-24-contract-review.md` with each
@@ -161,7 +164,9 @@ sort ahead of detached jobs within their tier. A turn that cannot be placed
 never enters `waiters` for detached jobs, so it neither holds them
 `behind-older-job` nor causes `slot-kept`; turns hold back only other
 competing turns (review F-04), and only while the policy sets a turn cap
-(C-26.9, 2026-09-27). Turns never trigger an admission probe: a lane
+(C-26.9, 2026-09-27); a turn waiting for a lease holds none back and
+keeps the last turn slot instead (C-6.9, 2026-10-06). Turns never
+trigger an admission probe: a lane
 whose verdict would require one (C-11.4 unmeasured writable, C-11.7
 `requires_probe`) is not a candidate for a turn, reason `probe-required`
 (review F-03). Turns have their own capacity, counted apart from detached
@@ -184,11 +189,15 @@ are `approval.respond`, `approval.get` (full input), `message.resolve`,
 with `LOCAL_PEERPID` (verified available from Python on this macOS) and
 refuses (exit 7) when the caller or any ancestor is a live guardian's
 descendant or carries `SUBFLEET_ATTEMPT`/`SUBFLEET_ROOT`, and accepts only
-when the caller is the installed Subfleet app's executable or has a
-controlling terminal. Approval nonces appear only in person-only results.
-This is a boundary against agents Subfleet launched and headless agents; any
-process of the same user that drives a terminal remains inside the trust
-boundary, as with `daemon.sock` today (review SEC-1).
+when the caller is the installed Subfleet app's executable (or, on a
+development state root, the development build, D-21). Approval nonces appear
+only in person-only results. This is a boundary against agents Subfleet
+launched and headless agents. A controlling terminal is not a person
+(D-PB1, 2026-10-11): an agent's process can drop its markers, keep a
+pseudo-terminal and outlive its parent, and once launchd adopts it nothing
+above it is Subfleet's; an SSH login looks the same. So these operations are
+the app's alone, and every other op stays open to any process of the same
+user, as with `daemon.sock` today (review SEC-1).
 
 **D-9. Permission policy.** Per conversation, part of every message's
 settings and digest. Mapping from an existing Claude session's last recorded
@@ -343,9 +352,13 @@ alive `ceiling + 15 s` after `result` is stopped by the D-13 escalation
 an existing session's recorded cwd (C-30.2: that of the transcript copy it
 continues), or for a new conversation a directory the
 person picks (default: a new git worktree when the directory is a
-repository). Turns run in place and hold `worktree:<git toplevel or
-directory>`; two conversations on one checkout take turns (a lease wait,
-never a refusal; review F-06). A directory outside git is allowed. A checkout
+repository). Turns run in place. Two conversations on one checkout run at
+once: each turn holds a row of its own on the folder
+(`worktree-turn:<git toplevel or directory>:<job id>`), never the exclusive
+`worktree:` lease, which only a detached writer holds (C-24.5, 2026-09-29;
+the owner's ruling "nothing should be queued"). Until then they took turns
+on `worktree:<git toplevel or directory>` (a lease wait, never a refusal;
+review F-06). A directory outside git is allowed. A checkout
 on `main` or `master` needs `allow_main`, person-only, settable at creation or
 on an existing conversation with confirmation. C-13.2 still binds every
 detached job.
@@ -531,17 +544,52 @@ cwd and first-prompt preview across the whole index (review U-F5). The daemon
 never scans the Claude projects tree or Codex session trees on a request or
 control thread.
 
-**D-24. One feed, one focused poll, and notifications.** The app long-polls
-one global `conversation.watch` (a compact change feed: conversation, message,
-state, pending approvals) and `conversation.events` only for the conversation
-on screen. A row whose `state` is null says something else about its message
+**D-24. One feed, one focused poll, and notifications.** The app long-polls one
+global `conversation.watch` (a compact change feed: conversation, message,
+state, pending approvals) and `conversation.events` only for the focused
+conversation. A row whose `state` is null says something else about its message
 changed (an approval asked or answered, or its turn's end snapshot recorded,
 D-25) and carries no kind: the app fetches that message again. Both polls run
-on a dedicated bounded pool (8 threads) with at most one of each per client;
-the `requests` pool that `message.submit` and the session hooks use is never
-held by a poll (review U-F3). A turn that completes, fails, needs approval, or
-becomes `delivery-unknown` while its conversation is not focused posts a local
-notification; the Dock badge counts pending approvals.
+on a dedicated pool, `subfleet-poll`, with a thread for every connection the
+daemon may hold (C-16.7), and at most one of each per client; the `requests`
+pool that `message.submit` and the session hooks use is never held by a poll
+(review U-F3). A turn that completes, fails, needs approval, or becomes
+`delivery-unknown` while its conversation is not on screen posts a local
+notification, once the app has its feed baseline; the Dock badge counts pending
+approvals. The focused conversation is on screen only while the app is active,
+its main window is visible (neither closed nor miniaturized nor wholly covered)
+and holds the key window (itself, or a sheet or child window of it), and the
+displays are awake in an active login session. Focus alone is not enough: it
+stays set while the person works in another app or has closed the window, the
+commonest wait (send, switch away, wait for the outcome). The key window
+matters because the menu bar panel, while it is key, makes the app active
+without raising the main window. `UIModel` reads that flag from AppKit and
+CoreGraphics as the app is activated or left and as a window or the session
+changes, and reads it all again before it folds each feed page and before a
+notification arriving while the app is frontmost is shown; until it knows, a
+conversation counts as not on screen. An approval is announced when the feed's
+count of a conversation's pending approvals rises over the feed's own last
+count, never over the count `conversation.list` or `approval.list` last gave,
+which could land first and hide the rise; a conversation the feed has not
+reported starts, at the baseline, from the list's count. A notification carries
+its conversation and its kind; a tool approval's also carries the one request
+it advertises, for its Allow once action (C-29.9). Clicking it, or choosing
+Allow once, opens the main window on that conversation, and an approval's
+brings the conversation's oldest waiting card into view (C-27.5) while one
+still waits. A response that comes before the app has its first conversation
+list and feed baseline (the click that launched the app) waits for them, and is
+dropped if the person opens something else or starts a conversation meanwhile;
+with the daemon's endpoint refused there is nothing to open. A click that
+replaces the focused conversation closes an approval request open in it, so an
+answer never goes to a conversation the window no longer shows. The model's
+notification delegate, the only one, is set before launch ends, as the system
+requires for the click that launched the app to reach it. While the app is
+frontmost the system shows a notification only if the app asks. The app asks
+for every one whose conversation is still not on screen: for another
+conversation the window shows at most a sidebar badge (a count of waiting
+approvals, a turn no longer running), for the focused one with the main window
+closed or miniaturized it shows nothing, and each kind is something the person
+acts on.
 
 **D-25. Changes are shown per turn and per conversation.** At the start and
 end of each writable turn (any permission but `read-only`) in a workspace that
@@ -574,7 +622,11 @@ working tree now, so it also shows what the person changed between turns,
 which a finished turn's `turn.diff` leaves out. A `to` that is the working
 tree now lists the nested repositories with no commit its snapshot left out
 (`to.skipped`, C-13.1), which the diff cannot show, and the Changes pane says
-so; a stored end's list is in the turn's receipt and evidence. Both run on the file pool
+so; a stored end's list is in the turn's receipt and evidence. Conversations
+share folders (D-16), so neither claims one conversation made what it shows:
+each carries `shared`, the other conversations whose turns wrote in the folder
+while this turn ran (or since the conversation's first turn), which the Changes
+pane names above the diff (C-26.14, 2026-09-29). Both run on the file pool
 `conversation.history` uses (C-25.3), read git's plumbing (`diff-tree` with no
 external diff driver or textconv filter), and return at most 1,000 files and
 512 KiB of unified diff, cut at a line with `truncated: true`; the bound is on
@@ -779,17 +831,21 @@ ops (D-8) are marked †.
 
 | Op | Arguments → result |
 |---|---|
-| `capabilities` | `{}` → `{protocol:1, daemon_version, conversation_schema:1, capabilities:[…], limits:{…}, codex_writable}`. A daemon without it answers "unknown op"; the client then sends no conversation op. `conversation_schema` versions the ops' shapes, not the store (§3): an added op is a capability (`diff.v1` for the two diff ops, with `limits.diff_bytes` and `limits.diff_files`; `runs.v1` for `conversation.runs`), not a new schema. |
-| `conversation.list` | `{provider?, query?, limit?, include_catalog?}` → `{conversations:[Conversation], catalog:{generated_at, complete, items:[CatalogItem], state, age_s, stale_after_s, refreshing}}`; `state` is `absent`, `unreadable`, `stale` or `fresh` (C-30.1) |
+| `capabilities` | `{}` → `{protocol:1, daemon_version, conversation_schema:1, capabilities:[…], limits:{…}, codex_writable}`. A daemon without it answers "unknown op"; the client then sends no conversation op. `conversation_schema` versions the ops' shapes, not the store (§3): an added op is a capability (`diff.v1` for the two diff ops, with `limits.diff_bytes` and `limits.diff_files`; `runs.v1` for `conversation.runs`; `conversation.status.v1` for the read-only focused refresh), not a new schema. |
+| `conversation.list` | `{provider?, query?, limit?, include_catalog?}` → `{conversations:[Conversation], catalog:{generated_at, complete, items:[CatalogItem], state, age_s, stale_after_s, refreshing}}`; conversations include `last_activity`, the later of `updated_at` and their native transcript mtime from the last catalog run, sorted descending before applying `limit`; no transcript scan. `state` is `absent`, `unreadable`, `stale` or `fresh` (C-30.1) |
+| `conversation.status` | `{conversation_id}` → `{conversation, message_ids}` in sequence order, including queued and settled identities. Advertised as `conversation.status.v1`. Read-only: reads state and identities only; no transcript or message bodies. The app fetches unknown and changed receipts with `message.status` before publishing a focused page. |
 | `conversation.open` | `{conversation_id}` or `{native:{provider, session_id, home?}}` → `{conversation, messages (latest 50), events_cursor, pending_approvals}`. Opening a native session creates its row once, applying D-9's mapping. |
-| `conversation.create` | `{request_id, provider, workspace, workspace_kind, allow_main†, title?, settings}` → `{conversation, created}`; a worktree conversation's `conversation.worktree` is `{path, branch, source, repository, base, created_at}` (C-26.10) |
+| `conversation.create` | `{request_id, provider?, workspace?, workspace_kind?, allow_main†, title?, settings}` → `{conversation, created}`; omitted provider means Claude, and an empty/omitted workspace means a private scratch folder stable by request id. Ask, Accept edits and Bypass in an in-place repo on `main`/`master` require `allow_main`; Claude Bypass is writable for protected-folder checks, including handoff (C-26.10). A worktree conversation's `conversation.worktree` is `{path, branch, source, repository, base, created_at}`. |
+| `workspace.check` | `{workspace?, provider?, permission?, workspace_kind?, allow_main?}` → `{ok, reason, fix, workspace}`; read-only folder admission using create's C-26.10 and C-13.2 checks, on the file pool. An empty/omitted workspace previews scratch without creating it; omitted provider means Claude. Advertised as `workspace.check.v1`: only a ready daemon known to lack it skips the preview and lets create decide. Until readiness is established, Start is disabled with a reason; folder validation resumes when the daemon is ready. |
 | `conversation.settings` | `{conversation_id, settings, confirm_widen?†}` → `{conversation}`; widening is person-only |
+| `conversation.rename` | `{conversation_id, title}` → `{conversation}`; a person's title takes precedence over generated titles. |
 | `conversation.unblock` † | `{conversation_id, choice:"continue"|"leave", confirm:true}` → `{conversation}` |
 | `conversation.history` | `{conversation_id, before?, limit?}` → a page of the native transcript, newest first, scrubbed (D-11); it reads at most 4 MiB of rows below its cursor (or one larger row, up to 68 MiB: the cap plus 64 MiB) and 8 MiB past it for results, and `next_before` is null once the file's first row is reached (C-29.8) |
 | `conversation.events` | `{conversation_id, after, limit?, wait_s?}` → `{events, next, reset, floor}`; long-poll ≤ 50 s; page ≤ 256 KiB; `reset:true` exactly when `after` < the floor |
 | `message.submit` | `{conversation_id, message_id, after_message_id, text, attachments:[sha256], settings}` → Receipt; same id + digest returns the stored receipt; different digest exit 2 `message-id-conflict`; unknown predecessor exit 2 `out-of-order` |
 | `message.status` | `{message_ids}` → `{messages:[Receipt]}` |
 | `message.cancel` | `{message_id}` → Receipt (§4) |
+| `message.steer` † | `{message_id, into?}` → Receipt, including `steered_into`; advertised as `steer.v1`. A queued message joins the named running host, subject to C-24.9. |
 | `turn.interrupt` | `{message_id}` → Receipt (D-13) |
 | `message.resolve` † | `{message_id, resolution:"not-delivered"|"delivered", confirm:true}` → Receipt |
 | `approval.list` | `{conversation_id?}` → `{approvals:[{approval_id, message_id, kind, display, options, created_at, state, request_id}]}` (no nonce; `request_id` is the provider's, as its `approval.requested` event carries it, C-27.5) |
@@ -799,13 +855,20 @@ ops (D-8) are marked †.
 | `catalog.refresh` | `{}` → `{requested, running, generated_at}` |
 | `conversation.watch` | `{after, wait_s?}` → `{changes:[{seq, conversation_id, message_id, state, state_reason, pending_approvals}], next}`; `state_reason` says why a message waits, so a hold shows without a second open; `state` is null on a row that reports no state change (an approval asked or answered, or a turn's end snapshot recorded), after which the client fetches that message again (D-24) |
 | `conversation.runs` | `{conversation_id, limit?}` → `{runs:[{job_id, name, kind, state, task, tier, sandbox, wait_reason, created_at, started_at, finished_at, out_path, workdir, lane_id, model_served, model_requested, attempt_state, attempts}]}`: the detached jobs whose caller is the conversation's native session (a Claude turn's tools carry it), turn jobs excluded, lane and model from the latest attempt; the app shows the live ones under the header and all of them on click |
-| `models.list` | `{provider}` → `{models:[{short, id, value, values, efforts, default_effort, fast:{supported, billing}, image_input, observed_at}], source}` (D-19) |
-| `turn.diff` | `{message_id, path?}` → `{message_id, conversation_id, available, root, path, from:{tree, head, message_id, at}, to:{tree, head, live, at, skipped?}, files:[{path, status, additions, deletions, binary, from?}], files_truncated, stats:{files, additions, deletions, complete}, diff, truncated, scrubbed}`; `status` is `added`, `deleted`, `modified`, `renamed` (with `from`), `type-changed` or `copied`; counts are null for a binary file; `path` names a file or a directory (every changed file under it) relative to `root`, the checkout's top level, and a path with a `.` or `..` part or a leading `/` is exit 2; with `available:false`, `reason` and `detail` instead of `root`, `path`, `from` and `to`, and empty lists (D-25) |
+| `models.list` | `{provider}` → `{models:[{short, id, value, values, efforts, default_effort, fast:{supported, billing}, image_input, observed_at}], default_models:{provider:model_id}, source}` (D-19); first-use Claude defaults to `claude-opus-5-5`; Codex follows the fleet policy's hard-tier Codex model (shipped policy: `gpt-6-astra`). When no active hard-tier choice exists, the daemon selects the first active unscoped model, or the first active model if all are scoped. The loaded policy's `retired` map excludes models by alias or id; Astra remains active in the shipped policy. Auto uses Claude unless Codex has a ready lane and Claude has none. |
+| `turn.diff` | `{message_id, path?}` → `{message_id, conversation_id, available, root, path, from:{tree, head, message_id, at}, to:{tree, head, live, at, skipped?}, files:[{path, status, additions, deletions, binary, from?}], files_truncated, stats:{files, additions, deletions, complete}, diff, truncated, scrubbed, shared:[{conversation_id, title, message_ids, from, to}]}`; `status` is `added`, `deleted`, `modified`, `renamed` (with `from`), `type-changed` or `copied`; counts are null for a binary file; `path` names a file or a directory (every changed file under it) relative to `root`, the checkout's top level, and a path with a `.` or `..` part or a leading `/` is exit 2; with `available:false`, `reason` and `detail` instead of `root`, `path`, `from` and `to`, and empty lists (D-25) |
 | `conversation.diff` | `{conversation_id, path?}` → as `turn.diff` without `message_id`; `from` is the conversation's first writable turn's start, `to` the working tree now |
 | `conversation.handoff` | `{request_id, from:{conversation_id} or {native:{provider, session_id, home?}}, to:{provider, settings, workspace?, title?, allow_main?†}, confirm_widen?†}` → `{conversation, created, brief: Receipt, moved:[Receipt], withdrawn:[message_id], handoff_from}` (D-18). A target above Ask or on main is person-only, as `conversation.create`. Refusals: `live-turn` and `source-changed` (exit 2, nothing changed; send again), `no-history`, `request-id-conflict` (2), `lane-run` (7). |
+| `conversation.wake` | `{request_id, session_id?, calling_job?, runs?, prs?, at?, note?}` → `{request_id, kinds}`; registers the calling conversation's wake triggers, idempotent by request id (Continuation amendment below). Advertised as `wake.v1`. |
+| `suggestion.create` | `{request_id, title, tldr, brief, workspace?, worktree?, provider?, model?, session_id?, calling_job?}` → `{suggestion, created, scrubbed}`; proposes a conversation without starting it (C-25.7). Advertised with the other suggestion ops as `suggestions.v1`. |
+| `suggestion.list` | `{conversation_id?, suggestion_ids?, limit?, closed_limit?}` → `{suggestions, open, limits, watch_seq}`; read-only, with full briefs for named IDs (C-25.7). |
+| `suggestion.start` † | `{suggestion_id, permission?, confirm_widen?}` → `{suggestion, conversation, message, created}`; starts the proposed conversation with its brief (C-25.7). |
+| `suggestion.dismiss` † | `{suggestion_id}` → `{suggestion, changed}`; closes an open proposal (C-25.7). |
+| `suggestion.withdraw` | `{suggestion_id, session_id?, calling_job?}` → `{suggestion, changed}`; its creator withdraws an open proposal (C-25.7). |
 
 Receipt: `{message_id, conversation_id, seq, origin, state, state_reason,
-created, settings, served, stop_requested, updated_at}`.
+created, settings, served, stop_requested, updated_at, job_id}`. `job_id` is
+null during an unbound dispatch claim and names the durable job once bound.
 
 Event kinds: `status`, `accepted`, `served`, `text.delta`, `text`,
 `thinking.delta`, `thinking`, `tool.started`, `tool.completed`, `diff`,
@@ -1031,6 +1094,13 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
   tool call`, or `Running <tool>` while a tool call is open) and
   counts up the seconds since that began: a long think or a slow tool reads
   as work, not as a hang (Max, 2026-09-24: two silent minutes read as broken).
+- A waiting message's strip is its `state_reason`, `<kind>: <detail>`, in
+  words (C-24.4, 2026-09-29): what admission's last turn pass found (the job
+  and conversation holding a lease, closed lanes and their first reset,
+  lanes' other reasons), and "Waiting for capacity" only for `capacity:`. A
+  message with no reason reads as such, never as capacity: on 2026-09-28
+  four messages read "Waiting for capacity" for hours while another
+  conversation's turn held their folder.
 - A conversation whose Claude session a live process outside Subfleet holds
   (`live_elsewhere` on every conversation view, from the last catalog run if
   it is fresh) shows D-17's words above the composer: open in the Claude app
@@ -1070,15 +1140,89 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
   card back once when the first page of older history that opening loads adds
   rows above it. On 2026-09-27 a card sat above five queued messages and a failover
   turn, and the strip said "Needs your approval" with only a Stop.
-- Display order is the order turns began (each turn's first event), then the
-  messages still queued (or not yet received) in the order the daemon sends
-  them (an unblock note first, C-24.8). Sequence order had put a failover
-  continuation (D-6), which C-26.7 runs ahead of the queue, after the messages
-  queued before the limit, and an unblock note below the turn that ran after
-  it. A message that never began (withdrawn, refused, or a continuation not
-  yet sent) sits right after the latest turn that began among the messages
-  before it. The view follows the newest row of the turn that began last,
-  not the last row, which may be a queued bubble.
+- Display order remains the order turns began (each turn's first event), with
+  the final Timeline API's request-id approval joins and reconciliation. The
+  queue is projected into a compact tray above the composer (C-29.7). Initial
+  placement uses the dispatcher: a live turn, a conversation block, an earlier
+  dispatchable message, or a deferral puts a waiting message in the tray. An
+  idle first send stays in the timeline across its queued receipt. Placement
+  then moves only forward: a tray row stays through claims, retries and cleared
+  blocks until a job binds it; a message shown in the timeline stays there
+  through requeues, deferrals and holds, with the reason and Withdraw on its
+  status line. A missed steer says “Unread until the current turn ends.” only
+  while that turn is live. Dispatch order puts repairs first, then missed
+  steers, ordinary messages and wakes, with sequence order within each group
+  and arrival order for unreceipted sends. A queued failover continuation stays
+  a timeline notice and counts as ahead. Before publishing a focused watch or
+  event page, the app fetches message.status for identities it has not learned.
+  Focused watch refreshes use conversation.status for the conversation state
+  and message ids, with no transcript read. Unblock actions refresh these ids
+  too, and daemon-created continuations are learned by the same watch path.
+  turn.completed updates the message state even without another receipt.
+  Withdraw uses the outbox before receipt and message.cancel afterwards, with
+  bounded dispatching retries and a status read before stopping only that
+  message's own live turn. A second withdrawal is settled already; an unblock
+  note cannot be withdrawn. Pre-start withdrawals, including tombstones, leave
+  one line. Only an eligible head offers Send now, through the steer engine;
+  busy rows hide their actions and show a spinner. The tray expands from three
+  rows plus Show N more into a list capped at 200 points of rows, and shrinks
+  when fewer rows remain. QueueTray.notice is an optional seam; the
+  conversation view currently supplies no per-message notices.
+- Conversations get fresh view identity when selected and, on macOS 15+, an
+  initial bottom scroll anchor. An explicit app scroll to an approval or search
+  row suspends that conversation’s opening pin, including any scheduled pin,
+  so later measurement and history cannot undo the reveal (C-27.5, C-29.12).
+  While Timeline.startReading's log read settles, changes jump to the end
+  without animation unless an explicit approval or search reveal that scrolls
+  the timeline has suspended settling and ordinary following (C-27.5, C-29.7,
+  C-29.12). Suspension starts before scrolling and preserves the revealed
+  position even while the lazy end marker's disappearance is pending. Each
+  reveal request names its target row, which the view marks with a
+  `RevealTargetMark` (an NSView in the row's background), and the reveal is
+  outstanding until that row is presented in the clip. While it is
+  outstanding, the end coming into view releases nothing: the reveal's scroll
+  can leave the end before the lazy stack has laid out the row, and measuring
+  the rows it then lays out can shrink the document under the clip and clamp
+  it to the end (CI run 40251214771, a 6,382 pt shrink with no page, history
+  or row change). The opening pin reads the mark's presented frame after each
+  clip or document change, whenever the mark's place in the document changes,
+  and on the turn after the reveal's completion. SwiftUI moves a row by moving
+  the host view it makes for the mark, so the mark's own frame can stay put:
+  before the main run loop next sleeps (the last `beforeWaiting` observer),
+  the mark compares its frame in the document's coordinates (and whether it is
+  hidden) with what it last reported, and reports a change; a reused mark that
+  takes a new row id reports again. A completion can arrive before its scroll
+  is laid out, so that turn first lays out the window. When the row is
+  presented the reveal has landed, and the end visible beside it releases
+  suspension (a nearby reveal). A reveal whose target row leaves the model
+  before it is presented (a reset, a history change, a rebuild), or is not in
+  the model when it is requested, is abandoned at once: the view cancels that
+  request by id in the pin, clears its pending state and releases suspension
+  if the end marker is on screen; otherwise the marker's next appearance does.
+  Once no reveal is outstanding the marker appearing again releases it, as
+  before. The person's live scroll, wheel or paging keys end an outstanding
+  reveal and release suspension if the end is then visible. The person's own
+  new send ends any reveal and releases suspension before the move is chosen,
+  catch-up included: it glides to the end, or during catch-up the settling
+  move jumps there. The send's move can land short while its row is measured,
+  so until the measured end settles, the person scrolls or a reveal starts,
+  later changes follow as if the end were on screen. A landing check settles
+  it: after 300 ms without a clip or document change, pending layout is
+  applied, and a measured gap within `column + 1` ends the check; a wider gap
+  re-pins the clip, and layout changes restart the wait. The marker’s first
+  appearance does not end it. The wait outlasts the 150 ms glide: in round 10's
+  stale-glide scene, where the glide's last frame lands on the old end 150 ms
+  after the clip rests at the new one, a check on the next turn ended before
+  that frame took the clip 1,662–1,676 pt from the end. Following lasts longer
+  than the check: from the send until the person scrolls or a reveal starts, document
+  frame changes re-pin the clip to the end, as the opening pin does, so growth
+  after a quiet landing is followed too (review r8: 600 pt above the clip had
+  left the reply 779 pt behind). Person input cancels queued pins immediately. Release does not scroll;
+  catch-up resumes on the next changed key. Other changes follow only with the
+  end on screen. Remote event-only turns do not count as the person's own
+  send.
+  Approval positioning on opening also has
+  no animation; subsequent newly pending cards retain their explicit reveal.
 - A listed session that cannot continue here (a Codex-app thread) opens as a
   page saying why, instead of a failed `conversation.open`.
 - ⌘K, and File > Search…, open a quick-switch palette over the window
@@ -1294,3 +1438,82 @@ labelled handoff, whose brief now reads Codex rollouts too:
   the app asks once per conversation.
 - Codex-app threads in `~/.codex` continue by labelled handoff unless the
   relocation test passes.
+
+## Continuation amendment (2026-10-04)
+
+**D-28. A conversation can arrange its next turn.** Detached runs submitted
+inside a turn carry that turn's job as their parent. The daemon collects their
+terminal outcomes and sends one Subfleet message when the conversation is idle.
+The message carries every new completion; consumed job ids survive restarts.
+It waits for the running turn to end because the steer interface intentionally
+accepts only person messages, binds each steer to its host, and requires a
+person's peer check. A service wake has its own visible origin and the same
+durable message/turn dispatch path. Hooks do not repeat notices it carries.
+`subfleet wait` and `run --wait` return receipts without acknowledging notices;
+only `notice.ack` and `runs show` acknowledge (C-15.3), so a waiter returning
+after a turn ends cannot consume the only wake.
+
+An agent can call:
+
+```sh
+subfleet wake --runs JOB1 JOB2 --pr owner/repo#12 --at 2026-10-04T12:00:00Z --note 'Inspect progress'
+```
+
+`conversation.wake` resolves the calling session or the calling turn job (a
+new session may not be bound yet), and returns a request id. Supply
+`--request-id UUID` for retry across CLI invocations. Runs wait for all listed
+jobs; PRs wait for any named event; kinds in one request are alternatives.
+The final-text compatibility grammar is consecutive trailing lines:
+
+```text
+WAKE-ME: runs=JOB1,JOB2 prs=owner/repo#12,owner/repo#13 at=2026-10-04T12:00:00Z note="Inspect the results"
+```
+
+Fields are optional and unique, separated by whitespace with shell quoting;
+one trigger is required. Empty run/PR placeholders are ignored when another trigger exists. Bullets, bold markup and a standard DONE, WAITING ON MAX or HANDED TO close-out are accepted; fences, quotes and indented code are excluded. Invalid lines produce a visible refusal without discarding valid lines. Each line registers independently and replay uses its
+message id, so it does not register twice. Each conversation has at most one
+pending wake per kind; replacement consumes the older kind. A trigger kind
+lists at most 16 targets and a note has at most 4,000 characters. Times must
+have a timezone and be at least five minutes away on first acceptance.
+Final-text timers must meet this floor both from now and from turn-job creation
+(message creation if no job exists); a replay keeps its original acceptance.
+
+PR state is read by one batched `gh api graphql --input -` invocation across
+conversations per cycle, at least 60 seconds apart (persisted even across
+restart), with a 20-second timeout. Head checks, PR state and submitted review
+ids form a durable baseline. Merge/close, completed check transitions and new
+submitted reviews latch readiness even when a conversation cannot wake yet.
+Re-arms retain the last fired request's snapshot; an observation that never reached a wake cannot become a new baseline. With no previous snapshot, dated events strictly after registration cover the gap before the first observation; final-text watches use turn-job creation (or message creation) so an event during the turn is still announced. Partial alias errors preserve other watches and refuse the inaccessible watch once, with an explicit message. Refused targets persist per conversation; a re-arm is refused visibly without creating another wake. Transport failures and incomplete check sets prove no event. The bounded PR worker never holds dispatch and is joined on shutdown. A pending all-of run request gathers its targets into one wake; only the runs kind of a request for already-delivered results is satisfied silently, leaving its timer and PR alternatives armed. A registered run whose row has been pruned counts as finished with state `pruned`. A durable activation timestamp and one-time snapshot exclude historical completions on upgrade while retaining new completions within that same stored second. Notice repair uses a durable queue with batches of at most 500, and completed repairs cause no writes; job lookups are indexed and automatic discovery and request evaluation are paced to once per second. Eligibility is read without a write transaction and target reads are batched. An idle evaluation commits nothing and does not wake long-poll readers.
+
+Wakes wait behind blocks, legacy holds, archives, personal input, turns and
+leases. The same transaction rechecks these guards when it accepts a wake and
+consumes its triggers. Eight consecutive unattended wakes impose a 30-minute
+cooldown before each later wake: several build/review rounds can finish before
+a self-sustaining loop is slowed. A person message resets the counter. If it
+arrives while a wake awaits capacity, the guarded no-attempt cancellation
+withdraws that wake's job and keeps the wake message queued behind personal
+input. Person predecessors and person FIFO are unchanged.
+
+**D-29. A block protects an execution boundary, not an obsolete timestamp.**
+The store keeps `blocked_at` separately from `updated_at`, so sending into a
+blocked conversation does not move the boundary. A catalog transcript mtime
+strictly after it is the continuation criterion; it is not a count of new turns. Catalog and live-writer checks are paced at five seconds per unchanged block. Clear only after
+the fresh C-26.3 live-writer check passes and Subfleet has no live/queued turn
+or lease. Record `conversation.unblocked: continued-elsewhere` atomically with
+clearing the observed block. Preserve handoff and import holds. Historical
+unknown messages become failed as superseded, with no inferred delivery or
+automatic resend. Pre-upgrade blocks use the last settled blocked-turn time.
+
+**D-30. Binding does not freeze native history.** The catalog keeps exact paths
+and file metadata for bound sessions too, including sessions hidden as known
+attempts. `conversation.open` returns one bounded history page on a dedicated read pool;
+history reads prefer catalog paths and can use recorded attempt paths or the
+exact Claude workspace/session path before catalog discovery. They never scan
+native trees. Prompt UUIDs (Claude)
+and turn-context ids (Codex) classify ownership. Synthetic user rows such as
+interrupts, compaction summaries and task notifications do not divide a turn. Subfleet-owned native rows are
+deduplicated against its event stream. Outside rows survive the first-event
+boundary, read "Made in another app", and merge in timestamp order. If a group
+is larger than the read cap and ownership is unavailable, the older conservative
+filter applies until an earlier page identifies it. Reopening refreshes the
+tail; changing conversations lands at the bottom without an animated scroll.

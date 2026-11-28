@@ -1,0 +1,51 @@
+{
+  "name": "admission-writer",
+  "start": "2026-10-31T19:15:15.178541+00:00",
+  "load": [
+    49.83203125,
+    61.40087890625,
+    65.68359375
+  ],
+  "pytest_pid": 10784,
+  "failure_root": "/private/tmp/sf-fix272r11/failed-keep",
+  "args": [
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.28406837500369875,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 20.818501124995237,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_writer_retention_fence.py::test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006571250050910749,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/fake/test_writer_retention_fence.py::test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-140216-pr272-fix-r11/subfleet/dependencies.py",
+  "product_sha256": "71066920a6f158ab189ac0b931ef62e774314276df23cb28855f0edcb0bdd4bc",
+  "end": "2026-10-31T19:15:54.297355+00:00",
+  "seconds": 39.11865362500248,
+  "peak_rss_mib": 121.921875,
+  "exit": 0
+}

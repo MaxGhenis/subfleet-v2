@@ -1,0 +1,12 @@
+{
+  "trial": {
+    "file": "subfleet/dependencies.py",
+    "patches": [
+      {
+        "old": "    aliases.check(incomplete)\n    return list(dict.fromkeys(folders.canonical(each) for each in found))",
+        "new": "    for pointer in aliases.pointers:\n        found.append(os.path.dirname(aliases.paths[pointer][0]))\n    for alias in aliases.paths:\n        if os.path.islink(alias):\n            found.append(os.path.dirname(os.path.abspath(alias)))\n    aliases.check(incomplete)\n    return list(dict.fromkeys(folders.canonical(each) for each in found))"
+      }
+    ]
+  },
+  "scope": "Positive baseline only for the two executed inputs; not a complete intermediate-symlink traversal repair."
+}

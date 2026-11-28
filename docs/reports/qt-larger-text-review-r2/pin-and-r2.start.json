@@ -1,0 +1,16 @@
+{
+  "name": "pin-and-r2",
+  "start": "2026-10-31T05:35:34.115372+00:00",
+  "load": [
+    36.88330078125,
+    33.228515625,
+    28.8486328125
+  ],
+  "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+  "args": [
+    "tests/frontend/test_review_pr284_pin.py",
+    "tests/frontend/test_review_pr284_r2.py",
+    "-s"
+  ],
+  "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+}

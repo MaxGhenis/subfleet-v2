@@ -1,0 +1,6 @@
+tests/unit/test_retention_regenerable.py::test_tool_layouts_split_the_tools_entries_from_everything_else[.pytest_cache]
+tests/unit/test_retention_regenerable.py::test_tool_layouts_split_the_tools_entries_from_everything_else[.ruff_cache]
+tests/unit/test_retention_regenerable.py::test_tool_layouts_split_the_tools_entries_from_everything_else[.uv-cache]
+tests/unit/test_retention_regenerable.py::test_without_git_nothing_is_regenerable
+tests/unit/test_retention_regenerable.py::test_work_inside_a_tool_entry_is_archived
+tests/unit/test_retention_regenerable.py::test_work_left_inside_a_tool_directory_is_archived

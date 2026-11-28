@@ -1,0 +1,60 @@
+{
+  "name": "mutant-r8-link-location-followed",
+  "start": "2026-10-31T16:50:04.634481+00:00",
+  "load": [
+    59.69140625,
+    55.693359375,
+    63.53466796875
+  ],
+  "pytest_pid": 24097,
+  "failure_root": "/private/tmp/sf-r272r11/failed-keep",
+  "args": [
+    "--mutant",
+    "r8-link-location-followed",
+    "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-target-HEAD]"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-target-HEAD]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 7.520653207997384,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-target-HEAD]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 1.3220194169989554,
+      "wasxfail": null,
+      "failure": "tests/unit/test_retention_locations.py:20: in test_required_locations_survive_two_relative_links\n    observation = check_location_input(tmp_path, dict(position=position, chain=2, relative=True,\ntests/unit/test_retention_location_inputs.py:151: in check_location_input\n    assert held, recorded\nE   AssertionError: {'git': ['/private/tmp/sf-r272r11/real-tmp/mutant-r8-link-location-followed/pytest-of-maxghenis/pytest-0/test_required...8-link-location-followed/pytest-of-maxghenis/pytest-0/test_required_locations_surviv0/stable/container/admin/objects']}\nE   assert False"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-target-HEAD]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000666583000565879,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+      "mutated": "26705581a8ff5147b5d7a3918d5b47c0d490d6c034ee6594c76be053a63f02dc"
+    }
+  ],
+  "collected": [
+    "tests/unit/test_retention_locations.py::test_required_locations_survive_two_relative_links[gitfile-target-HEAD]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/subfleet/dependencies.py",
+  "product_sha256": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+  "end": "2026-10-31T16:50:32.646828+00:00",
+  "seconds": 28.011654957997962,
+  "peak_rss_mib": 111.265625,
+  "exit": 1
+}

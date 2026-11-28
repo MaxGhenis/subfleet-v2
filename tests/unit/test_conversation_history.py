@@ -25,6 +25,38 @@ def results(uid, *pairs):
                 {"type": "tool_result", "tool_use_id": t, "content": text, "is_error": err} for t, text, err in pairs]}}
 
 
+def test_catalog_resolved_tail_labels_outside_turns_without_discovery(tmp_path, monkeypatch):
+    path = write(tmp_path / "native.jsonl", [
+        {"type": "user", "uuid": "owned", "message": {"content": "local question"}},
+        assistant("a-01", {"type": "text", "text": "local answer"}),
+        {"type": "user", "uuid": "outside", "message": {"content": "outside question"}},
+        assistant("a-02", {"type": "text", "text": "outside answer"}),
+    ])
+    (tmp_path / "catalog.json").write_text(json.dumps({"native_records": {
+        "claude:session": {"path": str(path), "mtime": path.stat().st_mtime}}}))
+    monkeypatch.setattr(history.transcripts, "transcript_path", lambda *a: (_ for _ in ()).throw(AssertionError("no tree scan")))
+    page = history.page({"provider": "claude", "native_session_id": "session"}, root=tmp_path, lanes=[],
+                        resolved_only=True, owned={"owned"})
+    assert [(i["text"], i["source"]) for i in page["items"]] == [
+        ("outside answer", "other-app"), ("outside question", "other-app"),
+        ("local answer", "subfleet"), ("local question", "subfleet")]
+
+
+def test_codex_turn_context_labels_outside_and_owned_turns(tmp_path):
+    path = write(tmp_path / "rollout.jsonl", [
+        {"type": "turn_context", "payload": {"turn_id": "owned-turn"}},
+        {"type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"text": "local question"}]}},
+        {"type": "response_item", "payload": {"type": "message", "role": "assistant", "content": [{"text": "local answer"}]}},
+        {"type": "turn_context", "payload": {"turn_id": "outside-turn"}},
+        {"type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"text": "outside question"}]}},
+        {"type": "response_item", "payload": {"type": "message", "role": "assistant", "content": [{"text": "outside answer"}]}},
+    ])
+    items, _ = history._codex_items(path, None, 50, owned=set(), owned_turns={"owned-turn"})
+    assert [(i["text"], i["source"]) for i in items] == [
+        ("outside answer", "other-app"), ("outside question", "other-app"),
+        ("local answer", "subfleet"), ("local question", "subfleet")]
+
+
 def test_claude_calls_carry_results_errors_and_thoughts(tmp_path):
     path = write(tmp_path / "s.jsonl", [
         assistant("a-01", {"type": "thinking", "thinking": "plan", "signature": "s"},

@@ -1,0 +1,131 @@
+Using CPython 3.12.14 interpreter at: /Users/maxghenis/.local/bin/python3.12
+Creating virtual environment at: /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/venv312
+   Building subfleet @ file:///Users/maxghenis/.subfleet/worktrees/20261009-030201-pr148-fix4
+Downloading pygments (1.2MiB)
+ Downloaded pygments
+      Built subfleet @ file:///Users/maxghenis/.subfleet/worktrees/20261009-030201-pr148-fix4
+Installed 8 packages in 107ms
+FFFliteral root changes=[('out:/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/t/sf-pr148-fix4.0kwn8g/pytest-of-maxghenis/pytest-0/test_rollback_percent_encoded_0/peer-result.md', 'out:/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-0/test_rollback_percent_encoded_0/Peer-Result.md')]; requested_unchanged=True; live_peer_modified=True
+F
+=================================== FAILURES ===================================
+_________ test_missing_component_before_loop_is_clean_refusal[parent] __________
+subfleet/daemon.py:1881: in submit
+    out = str(Path(args.out_path).expanduser().resolve(strict=True)) if args.out_path else None
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/pathlib.py:1240: in resolve
+    s = self._flavour.realpath(self, strict=strict)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   FileNotFoundError: [Errno 2] No such file or directory: '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-0/test_missing_component_before_0/Missing'
+
+During handling of the above exception, another exception occurred:
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/pathlib.py:1250: in resolve
+    p.stat()
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/pathlib.py:840: in stat
+    return os.stat(self, follow_symlinks=follow_symlinks)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   OSError: [Errno 62] Too many levels of symbolic links: '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-0/test_missing_component_before_0/loop/result.md'
+
+During handling of the above exception, another exception occurred:
+/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/test_output_loop_r4.py:16: in test_missing_component_before_loop_is_clean_refusal
+    submit(service,harness,out_path=str(path),caller_session=None)
+tests/fake/test_admission_latency.py:55: in submit
+    return service.dispatch("submit", harness.submit_args(**changes))["job_id"]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:2671: in dispatch
+    return self.submit(protocol.coerce_args(protocol.SubmitArgs, args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:1884: in submit
+    out = str(Path(args.out_path).expanduser().resolve())
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/pathlib.py:1252: in resolve
+    check_eloop(e)
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/pathlib.py:1237: in check_eloop
+    raise RuntimeError("Symlink loop from %r" % e.filename)
+E   RuntimeError: Symlink loop from '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-0/test_missing_component_before_0/loop/result.md'
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4484773840:daemon.py:644 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+__________ test_missing_component_before_loop_is_clean_refusal[file] ___________
+subfleet/daemon.py:1881: in submit
+    out = str(Path(args.out_path).expanduser().resolve(strict=True)) if args.out_path else None
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/pathlib.py:1240: in resolve
+    s = self._flavour.realpath(self, strict=strict)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   FileNotFoundError: [Errno 2] No such file or directory: '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-0/test_missing_component_before_1/Missing'
+
+During handling of the above exception, another exception occurred:
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/pathlib.py:1250: in resolve
+    p.stat()
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/pathlib.py:840: in stat
+    return os.stat(self, follow_symlinks=follow_symlinks)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   OSError: [Errno 62] Too many levels of symbolic links: '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-0/test_missing_component_before_1/loop'
+
+During handling of the above exception, another exception occurred:
+/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/test_output_loop_r4.py:16: in test_missing_component_before_loop_is_clean_refusal
+    submit(service,harness,out_path=str(path),caller_session=None)
+tests/fake/test_admission_latency.py:55: in submit
+    return service.dispatch("submit", harness.submit_args(**changes))["job_id"]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:2671: in dispatch
+    return self.submit(protocol.coerce_args(protocol.SubmitArgs, args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:1884: in submit
+    out = str(Path(args.out_path).expanduser().resolve())
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/pathlib.py:1252: in resolve
+    check_eloop(e)
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/pathlib.py:1237: in check_eloop
+    raise RuntimeError("Symlink loop from %r" % e.filename)
+E   RuntimeError: Symlink loop from '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-0/test_missing_component_before_1/loop'
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4484808528:daemon.py:644 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+______ test_missing_component_before_loop_when_nonstrict_suppresses_eloop ______
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/pathlib.py:1250: in resolve
+    p.stat()
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/pathlib.py:840: in stat
+    return os.stat(self, follow_symlinks=follow_symlinks)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   OSError: [Errno 62] Too many levels of symbolic links: '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-0/test_missing_component_before_2/loop'
+
+During handling of the above exception, another exception occurred:
+/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/test_output_loop_r4.py:37: in test_missing_component_before_loop_when_nonstrict_suppresses_eloop
+    submit(service,harness,out_path=str(requested),caller_session=None)
+tests/fake/test_admission_latency.py:55: in submit
+    return service.dispatch("submit", harness.submit_args(**changes))["job_id"]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:2671: in dispatch
+    return self.submit(protocol.coerce_args(protocol.SubmitArgs, args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:1966: in submit
+    digest = ids.payload_digest(prompt, workdir=str(workdir), workdir_head=head,
+subfleet/ids.py:81: in payload_digest
+    "out_path": str(Path(out_path).expanduser().resolve()) if out_path is not None else None,
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/test_output_loop_r4.py:34: in modern_resolve
+    return real(path,strict=strict)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/pathlib.py:1252: in resolve
+    check_eloop(e)
+../../../.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/lib/python3.12/pathlib.py:1237: in check_eloop
+    raise RuntimeError("Symlink loop from %r" % e.filename)
+E   RuntimeError: Symlink loop from '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-0/test_missing_component_before_2/loop'
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4484845776:daemon.py:644 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+_______ test_rollback_percent_encoded_root_repairs_only_the_locked_store _______
+/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/test_rollback_r4.py:259: in test_rollback_percent_encoded_root_repairs_only_the_locked_store
+    assert changes == [("out:" + folders.identity(intended_stored),
+E   AssertionError: assert [('out:/priva...r-Result.md')] == [('out:/priva...d-Result.md')]
+E     
+E     At index 0 diff: ('out:/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/t/sf-pr148-fix4.0kwn8g/pytest-of-maxghenis/pytest-0/test_rollback_percent_encoded_0/peer-result.md', 'out:/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-0/test_rollback_percent_encoded_0/Peer-Result.md') != ('out:/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/t/sf-pr148-fix4.0kwn8g/pytest-of-maxghenis/pytest-0/test_rollback_percent_encoded_0/intended-result.md', 'out:/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr...
+E     
+E     ...Full output truncated (2 lines hidden), use '-vv' to show
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4484772304:daemon.py:644 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4484712256:daemon.py:644 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+=========================== short test summary info ============================
+FAILED ../../../../../var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/test_output_loop_r4.py::test_missing_component_before_loop_is_clean_refusal[parent]
+FAILED ../../../../../var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/test_output_loop_r4.py::test_missing_component_before_loop_is_clean_refusal[file]
+FAILED ../../../../../var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/test_output_loop_r4.py::test_missing_component_before_loop_when_nonstrict_suppresses_eloop
+FAILED ../../../../../var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/test_rollback_r4.py::test_rollback_percent_encoded_root_repairs_only_the_locked_store
+4 failed in 18.45s

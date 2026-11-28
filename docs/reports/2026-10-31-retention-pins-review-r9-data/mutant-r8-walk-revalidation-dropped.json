@@ -1,0 +1,55 @@
+{
+  "name": "mutant-r8-walk-revalidation-dropped",
+  "start": "2026-10-31T08:40:16.405713+00:00",
+  "load": [
+    38.208984375,
+    32.97265625,
+    30.9638671875
+  ],
+  "args": [
+    "--mutant",
+    "r8-walk-revalidation-dropped",
+    "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.7636687910016917,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.3517249169999559,
+      "failure": "tests/unit/test_retention_locations.py:59: in test_changed_link_chain_with_the_same_final_target_is_incomplete\n    assert any(error[\"file\"] == str(alias) for error in errors), errors\nE   AssertionError: []\nE   assert False\nE    +  where False = any(<generator object test_changed_link_chain_with_the_same_final_target_is_incomplete.<locals>.<genexpr> at 0x10ab28b80>)"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005045830002927687,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+      "mutated": "f5da0eef384e760521eb5224c1160f673d370b28285eeaf89a66f8f83ce0e34a"
+    }
+  ],
+  "collected": [
+    "tests/unit/test_retention_locations.py::test_changed_link_chain_with_the_same_final_target_is_incomplete"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/subfleet/dependencies.py",
+  "product_sha256": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+  "end": "2026-10-31T08:40:27.772555+00:00",
+  "seconds": 11.3664989170029,
+  "peak_rss_mib": 111.5,
+  "exit": 1
+}

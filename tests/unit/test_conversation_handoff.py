@@ -23,6 +23,7 @@ import pytest
 
 from subfleet.adapters.base import AdapterError
 from subfleet.contracts import Exit
+from subfleet.daemon import Daemon as RealDaemon
 from subfleet.conversations import service as service_module
 from subfleet.conversations.service import CLAIMED, ConversationService
 from subfleet.conversations.store import ConversationError
@@ -36,7 +37,20 @@ CODEX = {"model": "gpt-6-astra", "effort": None, "fast": False, "permission": "r
 
 
 class Daemon:
-    """The daemon seams the service calls, without a control loop."""
+    """Real main-store cancellation, with no pools or control loop. What the borrowed
+    methods read is checked by tests/unit/test_fake_daemon_borrowed_methods.py."""
+
+    _job = RealDaemon._job
+    _running_s = RealDaemon._running_s
+    _request_cancel = RealDaemon._request_cancel
+    _cancel_info = RealDaemon._cancel_info
+    _cancel_requester = staticmethod(RealDaemon._cancel_requester)
+    _notice = RealDaemon._notice
+    _earlier_attempt = RealDaemon._earlier_attempt
+    _scan_observers = RealDaemon._scan_observers
+    _release_ending = RealDaemon._release_ending
+    _keep_for_cwd = RealDaemon._keep_for_cwd
+    _cwd_notice = staticmethod(RealDaemon._cwd_notice)
 
     def __init__(self, root: Path):
         self.root = root
@@ -56,6 +70,7 @@ class Daemon:
 @pytest.fixture
 def world(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "user-home"))         # no real ~/.codex or ~/.claude
+    monkeypatch.setenv("SUBFLEET_CODEX_APP_HOME", str(tmp_path / "user-home" / ".codex"))
     home = fx.claude_home(tmp_path, monkeypatch)
     workspace = tmp_path / "work"
     workspace.mkdir()
@@ -201,7 +216,7 @@ def test_a_waiting_message_moves_only_while_its_job_has_no_attempt(world):
     the cancel's audit event; with an attempt, the handoff is refused."""
     cid, (waiting, queued) = source(world, "waiting on capacity", "behind it")
     job_id = turn_job(world, waiting, cid, state="waiting")
-    world.store.set_state(waiting, "waiting", job_id=job_id)
+    world.store.set_state(waiting, "waiting", reason="admission: sent to the daemon, which has not placed it yet", job_id=job_id)
     attempt(world, job_id, state="reserved")
     with pytest.raises(ConversationError) as err:
         handoff(world, cid)
@@ -215,7 +230,8 @@ def test_a_waiting_message_moves_only_while_its_job_has_no_attempt(world):
     assert world.daemon.store.get_job(job_id)["state"] == "cancelled"
     event = world.daemon.store.one("SELECT data_json FROM events WHERE kind='job.cancel_requested' AND job_id=?",
                                    (job_id,))
-    assert json.loads(event["data_json"]) == {"by": "conversation.handoff", "request_id": "h-1"}
+    assert json.loads(event["data_json"]) == {"by": "daemon", "reason": "conversation.handoff",
+                                             "running_s": 0.0, "request_id": "h-1"}
     assert world.store.message(waiting)["state"] == "cancelled"
 
 
@@ -225,7 +241,7 @@ def test_a_retry_after_a_crash_still_moves_the_message_whose_job_it_cancelled(wo
     message `cancelled`, the same request finds its own marker and moves it."""
     cid, (waiting,) = source(world, "waiting on capacity")
     job_id = turn_job(world, waiting, cid, state="waiting")
-    world.store.set_state(waiting, "waiting", job_id=job_id)
+    world.store.set_state(waiting, "waiting", reason="admission: sent to the daemon, which has not placed it yet", job_id=job_id)
     marker = {"by": "conversation.handoff", "request_id": "h-1"}
     assert world.service._cancel_job_without_attempt(job_id, by=marker)
     world.store.set_state(waiting, "cancelled", reason="cancelled: 130")      # what the tick does
@@ -246,7 +262,8 @@ def test_a_rolled_back_handoff_keeps_a_missed_steer_running_next(world, monkeypa
     world.store.set_state(missed, "queued", reason="steer-missed: interrupt-cancelled")
     assert [m["message_id"] for m in world.store.next_dispatchable()] == [missed]
     job_id = turn_job(world, missed, cid, state="waiting")
-    world.store.set_state(missed, "waiting", job_id=job_id)
+    world.store.set_state(missed, "waiting", reason="admission: sent to the daemon, which has not placed it yet",
+                          job_id=job_id)
 
     def fail_commit(*args, **kwargs):
         raise OSError("commit failed")
@@ -274,7 +291,7 @@ def test_every_failure_after_fencing_restores_the_source(world, monkeypatch, fai
     cid, ids = source(world, "waiting first", "queued second", "queued third")
     waiting = ids[0]
     job_id = turn_job(world, waiting, cid, state="waiting")
-    world.store.set_state(waiting, "waiting", job_id=job_id)
+    world.store.set_state(waiting, "waiting", reason="admission: sent to the daemon, which has not placed it yet", job_id=job_id)
     before = [world.store.message(mid) for mid in ids]
     cancel = world.service._cancel_job_without_attempt
     discard = world.store.discard_handoff
@@ -385,7 +402,7 @@ def test_a_failure_reading_the_committed_handoff_keeps_its_messages_and_texts(wo
     """
     cid, ids = source(world, "waiting first", "queued second")
     job_id = turn_job(world, ids[0], cid, state="waiting")
-    world.store.set_state(ids[0], "waiting", job_id=job_id)
+    world.store.set_state(ids[0], "waiting", reason="admission: sent to the daemon, which has not placed it yet", job_id=job_id)
     conversation = world.store.conversation
 
     def fail_read(conversation_id):
@@ -419,7 +436,7 @@ def test_a_restart_lifts_a_stale_handoff_fence_before_dispatch(world, monkeypatc
     cid, ids = source(world, "waiting first", "queued second", "queued third")
     waiting = ids[0]
     job_id = turn_job(world, waiting, cid, state="waiting")
-    world.store.set_state(waiting, "waiting", job_id=job_id)
+    world.store.set_state(waiting, "waiting", reason="admission: sent to the daemon, which has not placed it yet", job_id=job_id)
     turn_seq = world.store.message(waiting)["turn_seq"]
     assert world.store.fence(cid, "handoff:h-1")
     world.service._handing_off.add(cid)
@@ -471,7 +488,7 @@ def test_a_retry_after_a_fenced_crash_moves_the_restored_message_in_order(world)
     """
     cid, ids = source(world, "waiting first", "queued second", "queued third")
     job_id = turn_job(world, ids[0], cid, state="waiting")
-    world.store.set_state(ids[0], "waiting", job_id=job_id)
+    world.store.set_state(ids[0], "waiting", reason="admission: sent to the daemon, which has not placed it yet", job_id=job_id)
     assert world.store.fence(cid, "handoff:h-1")
     assert world.service._cancel_job_without_attempt(job_id, by={"by": "conversation.handoff", "request_id": "h-1"})
     world.service._settle_unstarted()
@@ -490,7 +507,7 @@ def test_a_tick_during_handoff_keeps_its_fence_until_commit(world, monkeypatch):
     """
     cid, ids = source(world, "waiting first", "queued second")
     job_id = turn_job(world, ids[0], cid, state="waiting")
-    world.store.set_state(ids[0], "waiting", job_id=job_id)
+    world.store.set_state(ids[0], "waiting", reason="admission: sent to the daemon, which has not placed it yet", job_id=job_id)
     cancel = world.service._cancel_job_without_attempt
 
     def cancel_and_tick(job_id, *, by):
@@ -517,7 +534,7 @@ def test_stale_fence_recovery_restores_only_its_own_cancelled_unattempted_jobs(w
     """
     cid, (mid,) = source(world, "waiting")
     job_id = turn_job(world, mid, cid, state="waiting")
-    world.store.set_state(mid, "waiting", job_id=job_id)
+    world.store.set_state(mid, "waiting", reason="admission: sent to the daemon, which has not placed it yet", job_id=job_id)
     marker = {"by": "conversation.handoff", "request_id": "h-1"}
     if cancel_kind == "cancel-request-only":
         with world.daemon.store.transaction("job.cancel_requested", job_id=job_id, data=marker) as tx:
@@ -542,7 +559,7 @@ def test_a_failed_fence_lift_is_retried_by_the_next_control_loop_tick(world, mon
     """
     cid, ids = source(world, "waiting first", "queued second")
     job_id = turn_job(world, ids[0], cid, state="waiting")
-    world.store.set_state(ids[0], "waiting", job_id=job_id)
+    world.store.set_state(ids[0], "waiting", reason="admission: sent to the daemon, which has not placed it yet", job_id=job_id)
     turn_seq = world.store.message(ids[0])["turn_seq"]
     restore = world.store.restore_after_handoff
     calls = []
@@ -666,7 +683,8 @@ def test_a_withdrawal_and_the_dispatcher_cannot_both_win(world, monkeypatch):
     assert world.daemon.store.get_job(seen["jobs"][mid])["state"] == "cancelled"
     world.service._dispatch()
     bound = world.store.message(later)
-    assert bound["state"] == "waiting" and bound["job_id"] and bound["state_reason"] is None
+    assert bound["state"] == "waiting" and bound["job_id"]
+    assert bound["state_reason"] == "admission: sent to the daemon, which has not placed it yet"      # I3
     receipt = world.service.op_message_cancel({"message_id": later}, None)
     assert receipt["state"] == "cancelled"
     assert world.daemon.store.get_job(bound["job_id"])["state"] == "cancelled"
@@ -828,7 +846,7 @@ def test_a_damaged_attachment_fails_the_handoff_before_the_source_is_touched(wor
     world.store.submit_message(conversation_id=cid, message_id=mid, after_message_id=None,
                                text="review this image", attachments=[sha], settings=ASK)
     job_id = turn_job(world, mid, cid, state="waiting")
-    world.store.set_state(mid, "waiting", job_id=job_id)
+    world.store.set_state(mid, "waiting", reason="admission: sent to the daemon, which has not placed it yet", job_id=job_id)
     if damage == "missing":
         stored.unlink()
     else:

@@ -1,0 +1,15 @@
+F
+=================================== FAILURES ===================================
+_____ test_idle_pass_rests_from_its_end_for_at_least_four_durations[0.01] ______
+tests/fake/test_idle_admission_pacing.py:74: in test_idle_pass_rests_from_its_end_for_at_least_four_durations
+    assert len(clock.starts) == count
+E   assert 2 == 1
+E    +  where 2 = len([1000.0, 1002.009])
+E    +    where [1000.0, 1002.009] = namespace(now=1002.019, duration=0.01, placed=0, error=False, during=None, starts=[1000.0, 1002.009], ends=[1000.01, 1002.019], turns=[], offer=<function paced.<locals>.offer at 0x1088d19b0>).starts
+------------------------------ Captured log setup ------------------------------
+INFO     subfleet.daemon.4432733120:daemon.py:997 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4432733120:daemon.py:1087 reset credits: automatic redemption off; no-reset marker absent
+=========================== short test summary info ============================
+FAILED tests/fake/test_idle_admission_pacing.py::test_idle_pass_rests_from_its_end_for_at_least_four_durations[0.01]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 3.36s

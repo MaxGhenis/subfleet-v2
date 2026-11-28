@@ -1,0 +1,76 @@
+{
+  "name": "test_turn_retention_job_directory",
+  "start": "2026-10-31T18:44:50.984163+00:00",
+  "load": [
+    66.6884765625,
+    61.33056640625,
+    60.46826171875
+  ],
+  "pytest_pid": 25773,
+  "failure_root": "/private/tmp/sf-fix272r11/failed-keep",
+  "args": [
+    "tests/fake/test_turn_retention_job_directory.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_turn_retention_job_directory.py::test_review_retirement_leaves_a_live_readonly_turns_job_directory_in_place",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.155311292000988,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_job_directory.py::test_review_retirement_leaves_a_live_readonly_turns_job_directory_in_place",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 10.791466915994533,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_job_directory.py::test_review_retirement_leaves_a_live_readonly_turns_job_directory_in_place",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007680829949094914,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_job_directory.py::test_a_turn_submitted_after_the_job_directory_fence_waits_and_keeps_its_cwd",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0037118340042070486,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_job_directory.py::test_a_turn_submitted_after_the_job_directory_fence_waits_and_keeps_its_cwd",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 6.721650250001403,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_turn_retention_job_directory.py::test_a_turn_submitted_after_the_job_directory_fence_waits_and_keeps_its_cwd",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007011669949861243,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/fake/test_turn_retention_job_directory.py::test_review_retirement_leaves_a_live_readonly_turns_job_directory_in_place",
+    "tests/fake/test_turn_retention_job_directory.py::test_a_turn_submitted_after_the_job_directory_fence_waits_and_keeps_its_cwd"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-140216-pr272-fix-r11/subfleet/dependencies.py",
+  "product_sha256": "71066920a6f158ab189ac0b931ef62e774314276df23cb28855f0edcb0bdd4bc",
+  "end": "2026-10-31T18:46:02.482318+00:00",
+  "seconds": 71.4968887089999,
+  "peak_rss_mib": 121.078125,
+  "exit": 0
+}

@@ -1,0 +1,120 @@
+{
+  "label": "reader-probes",
+  "start": "2026-10-30T19:16:44.478857+00:00",
+  "loads": [
+    38.353515625,
+    44.03515625,
+    50.07275390625
+  ],
+  "seconds": 25.354844292000053,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "readers_probe.py::test_archive_and_survey[admin-space]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.4307529170037014
+    },
+    {
+      "nodeid": "readers_probe.py::test_archive_and_survey[admin-decoy]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.414268416003324
+    },
+    {
+      "nodeid": "readers_probe.py::test_archive_and_survey[common-space]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.7930752910033334
+    },
+    {
+      "nodeid": "readers_probe.py::test_nested_gitfile_reader[ ]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.8413664160034386
+    },
+    {
+      "nodeid": "readers_probe.py::test_nested_gitfile_reader[\\t]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.5317933750047814
+    },
+    {
+      "nodeid": "readers_probe.py::test_bundle_verifier_uses_stripped_common",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.6329935829999158
+    },
+    {
+      "nodeid": "readers_probe.py::test_registration_discard_uses_stripped_common_output",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.4276568750065053
+    }
+  ],
+  "nodes": [
+    "readers_probe.py::test_archive_and_survey[admin-space]",
+    "readers_probe.py::test_archive_and_survey[admin-decoy]",
+    "readers_probe.py::test_archive_and_survey[common-space]",
+    "readers_probe.py::test_nested_gitfile_reader[ ]",
+    "readers_probe.py::test_nested_gitfile_reader[\\t]",
+    "readers_probe.py::test_bundle_verifier_uses_stripped_common",
+    "readers_probe.py::test_registration_discard_uses_stripped_common_output"
+  ],
+  "all_nodes": [
+    "readers_probe.py::test_archive_and_survey[admin-space]",
+    "readers_probe.py::test_archive_and_survey[admin-decoy]",
+    "readers_probe.py::test_archive_and_survey[common-space]",
+    "readers_probe.py::test_nested_gitfile_reader[ ]",
+    "readers_probe.py::test_nested_gitfile_reader[\\t]",
+    "readers_probe.py::test_bundle_verifier_uses_stripped_common",
+    "readers_probe.py::test_registration_discard_uses_stripped_common_output"
+  ],
+  "phases": {
+    "readers_probe.py::test_archive_and_survey[admin-space]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "readers_probe.py::test_archive_and_survey[admin-decoy]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "readers_probe.py::test_archive_and_survey[common-space]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "readers_probe.py::test_nested_gitfile_reader[ ]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "readers_probe.py::test_nested_gitfile_reader[\\t]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "readers_probe.py::test_bundle_verifier_uses_stripped_common": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "readers_probe.py::test_registration_discard_uses_stripped_common_output": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 121700352
+}

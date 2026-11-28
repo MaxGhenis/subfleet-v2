@@ -1,0 +1,18 @@
+queued 2026-10-31T21:34:47Z load { 81.46 87.01 85.92 } TMPDIR=/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/link/hold-h04-inputs-pointer-linked
+hold 21:34:47Z slot A load { 81.46 87.01 85.92 }
+...                                                                      [100%]
+=============================== warnings summary ===============================
+tests/unit/test_retention_location_inputs.py::test_location_inputs_keep_the_places_real_git_traverses
+  tests/unit/test_retention_location_inputs.py:158: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @settings(max_examples=55, deadline=None, database=None, derandomize=True,
+
+tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads
+  tests/unit/test_retention_pointer_inputs.py:123: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @settings(max_examples=100, deadline=None, database=None, derandomize=True,
+
+tests/unit/test_retention_pointer_inputs.py::test_named_own_inputs_keep_every_store_real_git_reads
+  tests/unit/test_retention_pointer_inputs.py:208: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @settings(max_examples=40, deadline=None, database=None, derandomize=True,
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+3 passed, 3 warnings in 296.64s (0:04:56)

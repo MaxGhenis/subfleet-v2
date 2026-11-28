@@ -52,11 +52,11 @@ def test_argv_carries_resume_model_effort_and_the_permission_policy():
                             "--model", "opus", "--effort", "high", "--resume", SID,
                             "--permission-mode", "default", "--permission-prompt-tool", "stdio",
                             "--disallowedTools", "Monitor,CronCreate,ScheduleWakeup,RemoteTrigger,EnterPlanMode,ExitPlanMode",
-                            "--settings", '{"disableAllHooks":false}']
+                            "--settings", '{"disableAllHooks":false,"env":{"CLAUDE_CODE_RETRY_WATCHDOG":"0"}}']
     bypass = argv(spec(permission="bypass", native_session_id=None, new_session_id=SID, fast=True, effort=None))
     # C-26.11: every writable mode keeps the user's hooks on and routes interaction prompts to the person.
     assert "--session-id" in bypass and bypass[bypass.index("--permission-prompt-tool") + 1] == "stdio"
-    assert bypass[-2:] == ["--settings", '{"disableAllHooks":false,"fastMode":true}']
+    assert bypass[-2:] == ["--settings", '{"disableAllHooks":false,"fastMode":true,"env":{"CLAUDE_CODE_RETRY_WATCHDOG":"0"}}']
     with pytest.raises(ValueError):
         argv(spec(permission="everything"))
 
@@ -214,6 +214,7 @@ def test_interrupt_during_the_turn_uses_the_control_protocol():
     turn = ClaudeTurn(spec(), read_bytes=lambda p: b"")
     started(turn)
     step = turn.interrupt()
+    assert step.frames[0].stops is True
     assert json.loads(step.frames[0].line)["request"] == {"subtype": "interrupt"}
     assert json.loads(step.frames[0].line)["request_id"] == INTERRUPT_REQUEST_ID
     end = turn.feed(line(type="result", subtype="error_during_execution", is_error=True), 9)
@@ -717,15 +718,29 @@ def test_replay_primes_steer_fates_without_emitting_input():
     assert [f.tag for f in end.frames] == ["close"]
 
 
-def test_cancel_turn_approval_also_cancels_queued_steers():
+@pytest.mark.parametrize("restore", [False, True], ids=["live-answer", "written-answer-replay"])
+def test_cancel_turn_approval_also_cancels_queued_steers(restore):
     turn = steer_running()
     turn.steer(STEER, "queued")
     turn.steer_written(STEER)
     turn.feed(line(type="control_request", request_id="approve", request={
         "subtype": "can_use_tool", "tool_name": "Bash", "input": {"command": "echo wait"}}), 5)
-    step = turn.respond("approve", "cancel-turn")
-    assert [f.tag for f in step.frames] == ["approval:approve", "interrupt"]
-    assert json.loads(step.frames[1].line)["request"] == {"subtype": "interrupt", "cancel_queued": True}
+    step = (turn.restore_answer("approve", "cancel-turn") if restore else turn.respond("approve", "cancel-turn"))
+    assert [f.tag for f in step.frames] == (["interrupt"] if restore else ["approval:approve", "interrupt"])
+    assert all(frame.stops is True for frame in step.frames)
+    assert json.loads(step.frames[-1].line)["request"] == {"subtype": "interrupt", "cancel_queued": True}
+
+
+@pytest.mark.parametrize("tool", ["Bash", "AskUserQuestion"])
+@pytest.mark.parametrize("decision", ["allow", "answer", "deny", "cancel-turn"])
+def test_claude_approval_stop_flag_matches_wire_interrupt(tool, decision):
+    turn = ClaudeTurn(spec(), read_bytes=lambda p: b"")
+    started(turn)
+    turn.pending["stop-guard"] = {"tool_name": tool, "input": {}}
+    [frame] = turn.respond("stop-guard", decision, answers={"Branch?": "dev"}).frames
+    payload = json.loads(frame.line)["response"]["response"]
+    assert frame.stops is (payload.get("interrupt") is True)
+    assert frame.stops is (decision == "cancel-turn")
 
 
 # --- the unseen-steer watchdog and the held result (steer review, 2026-09-28) -------------

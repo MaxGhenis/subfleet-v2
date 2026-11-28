@@ -1,0 +1,52 @@
+{
+  "property_and_example_records": 240,
+  "route_inputs": 9,
+  "routine_inputs": 5,
+  "long_prefix_inputs": 18,
+  "final_route_rechecks": 9,
+  "linked_audits": {
+    "linked-test_retention_locations": {
+      "records": 19,
+      "storage_returns": 24,
+      "physical_predicate_false": 18,
+      "nonphysical_predicate_false": 0
+    },
+    "linked-test_retention_dependency_review_r10": {
+      "records": 12,
+      "storage_returns": 14,
+      "physical_predicate_false": 0,
+      "nonphysical_predicate_false": 0
+    },
+    "linked-test_retention_dependency_review_r9": {
+      "records": 4,
+      "storage_returns": 4,
+      "physical_predicate_false": 0,
+      "nonphysical_predicate_false": 0
+    },
+    "linked-test_retention_location_spelling": {
+      "records": 65,
+      "storage_returns": 130,
+      "physical_predicate_false": 118,
+      "nonphysical_predicate_false": 0
+    },
+    "linked-test_retention_pointer_inputs": {
+      "records": 227,
+      "storage_returns": 227,
+      "physical_predicate_false": 0,
+      "nonphysical_predicate_false": 0
+    },
+    "linked-test_retention_location_cycles": {
+      "records": 20,
+      "storage_returns": 67,
+      "physical_predicate_false": 0,
+      "nonphysical_predicate_false": 0
+    },
+    "linked-test_retention_location_inputs": {
+      "records": 55,
+      "storage_returns": 55,
+      "physical_predicate_false": 90,
+      "nonphysical_predicate_false": 0
+    }
+  },
+  "incomplete_comparisons": 281
+}

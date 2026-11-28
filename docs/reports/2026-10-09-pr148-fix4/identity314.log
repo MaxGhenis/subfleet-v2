@@ -1,0 +1,9 @@
+.....s...........sss.................................................... [ 66%]
+...............x....................                                     [100%]
+=========================== short test summary info ============================
+SKIPPED [1] tests/unit/test_folders.py:173: needs a home under the Data volume's /Users firmlink, as macOS has
+SKIPPED [1] tests/unit/test_filesystem_identity_agreement.py:73: hdiutil create Case-sensitive HFS+: hdiutil: create failed - Device not configured
+SKIPPED [1] tests/unit/test_filesystem_identity_agreement.py:73: hdiutil create HFS+: hdiutil: create failed - Device not configured
+SKIPPED [1] tests/unit/test_filesystem_identity_agreement.py:73: hdiutil create ExFAT: hdiutil: create failed - Device not configured
+XFAIL tests/fake/test_canonical_identity_fix3.py::test_hung_mount_identity_work_has_a_real_deadline - P3-6: filesystem identity has no wall-clock bound for a hung mount
+103 passed, 4 skipped, 1 xfailed in 154.56s (0:02:34)

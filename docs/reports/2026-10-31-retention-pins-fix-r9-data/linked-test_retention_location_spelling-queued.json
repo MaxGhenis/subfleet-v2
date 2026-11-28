@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T10:02:37.645434+00:00",
+  "args": [
+    "tests/unit/test_retention_location_spelling.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r9/link-tmp/linked-test_retention_location_spelling",
+  "linked": true,
+  "driver_pid": 66716,
+  "lock_process_group": 66751
+}

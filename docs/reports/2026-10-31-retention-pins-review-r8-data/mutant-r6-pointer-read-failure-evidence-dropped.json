@@ -1,0 +1,60 @@
+{
+  "label": "mutant-r6-pointer-read-failure-evidence-dropped",
+  "start": "2026-10-31T06:35:38.251940+00:00",
+  "loads": [
+    38.92626953125,
+    36.3857421875,
+    34.806640625
+  ],
+  "seconds": 18.08277362500121,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.3222836250006367,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 5.065497875000801,
+      "properties": [],
+      "failure": "world = World(base=PosixPath('/private/tmp/sf-r272r8/cases-76143/pytest/test_crlf_padded_pointer_keeps0'), trusted=True, remot...-r272r8/cases-76143/pytest/test_crlf_padded_pointer_keeps0/state'), store=<subfleet.store.Store object at 0x1073117f0>)\nlayout = 'gitfile', padded = True\n\n    @pytest.mark.parametrize(\"layout\", [\"gitfile\", \"commondir\"])\n    @pytest.mark.parametrize(\"padded\", [\n        pytest.param(False, id=\"short-control\"),\n        pytest.param(True, id=\"padded\"),\n    ])\n    def test_crlf_padded_pointer_keeps_the_storage_real_git_reads(world, layout, padded):\n        tree = world.job(\"owner\")\n        owner, commit = source(world, tree)\n        outside = repo(world.base / \"outside\")\n        git(owner, \"fetch\", \"--quiet\", str(outside), \"HEAD\")\n        if layout == \"gitfile\":\n            (outside / \".git\").rename(world.base / \"unused.git\")\n            pointer = outside / \".git\"\n            prefix = b\"gitdir: \"\n        else:\n            pointer = outside / \".git\" / \"commondir\"\n            prefix = b\"\"\n        pointer.write_bytes(prefix + str(owner / \".git\").encode()\n                           + b\"\\r\\n\" * (35000 if padded else 1))\n        assert git(outside, \"fsck\", \"--no-dangling\") == \"\"\n        assert git(outside, \"show\", commit + \":owner-only.txt\") == \"R5 owner-only storage\"\n        recorded = dependencies.record(str(outside))\n        reader(world, recorded)\n        result = maintain(world)\n>       assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)\nE       AssertionError: ({}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48939, 'bytes_after': 0, ...})\nE       assert ('owner' not in ['owner'])\n\ntests/fake/test_retention_dependency_review_r6.py:76: AssertionError"
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.07479595800032257,
+      "properties": [],
+      "failure": null
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]"
+  ],
+  "all_nodes": [
+    "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]"
+  ],
+  "property_settings": {},
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+      "mutated": "941102c21eda0cdc6632ff4c5c24703c383a6f07825c355ba8dbdc4c22b33279"
+    }
+  ],
+  "dependency_source": {
+    "file": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/subfleet/dependencies.py",
+    "sha256": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d"
+  },
+  "rss": 121307136
+}

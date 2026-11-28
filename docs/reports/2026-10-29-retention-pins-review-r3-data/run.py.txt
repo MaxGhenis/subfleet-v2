@@ -1,0 +1,67 @@
+import datetime
+import hashlib
+import importlib.abc
+import importlib.machinery
+import json
+import os
+from pathlib import Path
+import resource
+import shutil
+import signal
+import sys
+import time
+
+ROOT = Path('/private/tmp/sf-r272r3')
+sys.path.insert(0, os.getcwd())
+name, *args = sys.argv[1:]
+data = {'name': name, 'start': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'load': os.getloadavg(), 'phases': {}, 'nodes': [], 'loaded': []}
+start = time.monotonic()
+fixture_root = (Path('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261029-084118-pr272-review-r3-a1-04vmk40r/sf-r272r3')
+                if any(a.startswith('tests/unit/test_retention_archive.py') for a in args) else ROOT)
+fixture_tmp = fixture_root/('cases-'+str(os.getpid()))
+fixture_tmp.mkdir(exist_ok=True)
+os.environ['TMPDIR'] = str(fixture_tmp)
+definition = json.loads((ROOT/'definitions.json').read_text()).get(os.environ.get('SF_MUTANT', '')) if (ROOT/'definitions.json').exists() else None
+if definition:
+    class Loader(importlib.machinery.SourceFileLoader):
+        def get_code(self, fullname):
+            source = Path(self.get_filename(fullname)).read_text()
+            assert source.count(definition['old']) == 1, (fullname, source.count(definition['old']))
+            mutated = source.replace(definition['old'], definition['new'])
+            data['loaded'].append({'module': fullname, 'original_sha256': hashlib.sha256(source.encode()).hexdigest(), 'mutated_sha256': hashlib.sha256(mutated.encode()).hexdigest()})
+            return compile(mutated, self.get_filename(fullname), 'exec')
+    class Finder(importlib.abc.MetaPathFinder):
+        def find_spec(self, fullname, path=None, target=None):
+            if fullname != definition['file'].removesuffix('.py').replace('/', '.'):
+                return None
+            spec = importlib.machinery.PathFinder.find_spec(fullname, path)
+            spec.loader = Loader(fullname, spec.origin)
+            return spec
+    sys.meta_path.insert(0, Finder())
+
+import tests.failed_keep
+tests.failed_keep.ROOT = ROOT/'failed'
+import pytest
+
+class Observer:
+    def pytest_collection_finish(self, session):
+        data['nodes'] = [item.nodeid for item in session.items]
+    def pytest_runtest_logreport(self, report):
+        data['phases'].setdefault(report.nodeid, {})[report.when] = report.outcome
+        if getattr(report, 'wasxfail', None):
+            data['phases'][report.nodeid]['xfail'] = str(report.wasxfail)
+        if report.failed:
+            print(str(report.longrepr), flush=True)
+
+signal.alarm(570)
+print(json.dumps({'start': data['start'], 'load': data['load'], 'name': name}), flush=True)
+try:
+    rc = pytest.main(['-q', '-p', 'no:cacheprovider', '--basetemp='+str(fixture_tmp/'pytest'), *args], plugins=[Observer()])
+    data['rc'] = int(rc)
+finally:
+    signal.alarm(0)
+    data['seconds'] = time.monotonic()-start
+    data['rss'] = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    (ROOT/'logs'/f'{name}.json').write_text(json.dumps(data, indent=2)+'\n')
+    shutil.rmtree(fixture_tmp, ignore_errors=True)
+raise SystemExit(rc)

@@ -1,0 +1,41 @@
+{
+  "case": "empty-commondir-with-own-object-store",
+  "cases": [
+    {
+      "pointer_hex": "",
+      "git_exit": 128,
+      "stdout": "",
+      "stderr": "fatal: failed to read /private/tmp/sf-fix272r5/tmp/empty-common-4wb8dgn5/checkout/.git/commondir: No such file or directory\n",
+      "discovery": {
+        "git": [
+          "/private/tmp/sf-fix272r5/tmp/empty-common-4wb8dgn5/checkout/.git",
+          "/private/tmp/sf-fix272r5/tmp/empty-common-4wb8dgn5/checkout/.git/objects"
+        ]
+      }
+    },
+    {
+      "pointer_hex": "0a",
+      "git_exit": 0,
+      "stdout": "local objects\n",
+      "stderr": "",
+      "discovery": {
+        "git": [
+          "/private/tmp/sf-fix272r5/tmp/empty-common-4wb8dgn5/checkout/.git",
+          "/private/tmp/sf-fix272r5/tmp/empty-common-4wb8dgn5/checkout/.git/objects"
+        ]
+      }
+    },
+    {
+      "pointer_hex": "0d0a",
+      "git_exit": 0,
+      "stdout": "local objects\n",
+      "stderr": "",
+      "discovery": {
+        "git": [
+          "/private/tmp/sf-fix272r5/tmp/empty-common-4wb8dgn5/checkout/.git",
+          "/private/tmp/sf-fix272r5/tmp/empty-common-4wb8dgn5/checkout/.git/objects"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 14:52:15Z slot A load 
+START ordinary-comparison-final 2026-10-30T14:52:16.526678+00:00 load=(20.98779296875, 20.1279296875, 19.2958984375)
+ORDINARY running added ['/private/tmp/sf-r272r5/cases-84385/pytest/test_ordinary_initial_recordin0/home/project/.git/objects', '/private/tmp/sf-r272r5/cases-84385/pytest/test_ordinary_initial_recordin0/state/worktrees/owner/ordinary/.git/objects'] verdict ('worktree-in-use', ['borrower'])
+.ORDINARY succeeded added ['/private/tmp/sf-r272r5/cases-84385/pytest/test_ordinary_initial_recordin1/home/project/.git/objects', '/private/tmp/sf-r272r5/cases-84385/pytest/test_ordinary_initial_recordin1/state/worktrees/owner/ordinary/.git/objects'] verdict (None, [])
+.
+2 passed, 6 deselected in 8.82s

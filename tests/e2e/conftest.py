@@ -18,6 +18,8 @@ from typing import NamedTuple
 
 import pytest
 
+from subfleet.home_paths import PYTEST_MARKER, PYTEST_SESSION, PYTEST_SESSION_ID, SAFE_HOME_PATHS
+from tests.e2e import dev_app as development_app
 from tests.fake.profile import derived_identity as claude_identity
 
 REPO = Path(__file__).resolve().parents[2]
@@ -51,6 +53,18 @@ if Path(sys.argv[0]).name == "subfleetd":
     # guard reads a quiet machine here (tests/conftest.py's QUIET_MACHINE).
     import subfleet.machine
     subfleet.machine.read = lambda: {"load1": 0.5, "load5": 0.5, "cpus": 8, "memory_pressure": 1, "observed_at": 0.0}
+    # A slow disk under an approval's request file, as CI's was (C-27.1): the publish
+    # waits before it writes, and nothing else changes. Any commit that shows an
+    # approval's event before its row would show it for this long.
+    publish_delay = float(os.environ.get("SUBFLEET_E2E_APPROVAL_PUBLISH_DELAY_S", "0"))
+    if publish_delay:
+        from subfleet.conversations.store import ConversationStore
+        original_publish = ConversationStore._publish
+        def slow_publish(self, path, data):
+            if path.parent.name == "approvals":
+                time.sleep(publish_delay)
+            return original_publish(self, path, data)
+        ConversationStore._publish = slow_publish
     original_init = Daemon.__init__
     def observed_init(self, *args, **kwargs):
         kwargs.setdefault("desktop_prober", lambda: None)
@@ -68,6 +82,9 @@ if Path(sys.argv[0]).name == "subfleetd":
         if os.environ.get("SUBFLEET_E2E_STOP_GRACE_S"):
             kwargs["stop_grace_s"] = float(os.environ["SUBFLEET_E2E_STOP_GRACE_S"])
         original_init(self, *args, **kwargs)
+        clock_file = os.environ.get("SUBFLEET_FAKE_WAKE_CLOCK")
+        if clock_file:
+            self.conversations.wakes.now = lambda: time.time() + float(Path(clock_file).read_text())
     Daemon.__init__ = observed_init
 '''
 
@@ -90,10 +107,22 @@ class E2E:
         self.out = self.workdir / "out.md"
         self.process: subprocess.Popen | None = None
         self.logs = []
+        #: Why no person-only request can be made here (C-25.6), when the `e2e` fixture
+        #: could not name the development app's stand-in; `Conversations.as_person` says it.
+        self.no_person: str | None = None
         shutil.copyfile(REPO / "subfleet/default_policy.json", self.root / "policy.json")
         # C-11.7's reserve rule is exercised by tests/e2e/test_reserve.py; every other case
         # here describes admission mechanics the rule sits on top of, so it starts off.
         self.policy_update(lambda policy: policy.setdefault("reserve", {}).update(models=[]))
+        # Runtime observers and fake-provider state are deliberate harness
+        # authority. Keep production's non-Subfleet defaults restrictive. The
+        # Claude lanes' E2E_CLAUDE_TOKEN_* references are not named: a lane
+        # credential reaches only its own lane, as its token (D-ENV1).
+        self.policy_update(lambda policy: policy.setdefault("env", {}).update({"pass": [
+            "PYTHONPATH", "CLAUDE_FAKE_PROJECTS_DIR", "GIT_CONFIG_NOSYSTEM",
+            "GIT_CONFIG_GLOBAL", "GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL",
+            "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL",
+        ]}))
         binary_dir = self.root / "bin"
         binary_dir.mkdir()
         for provider in ("codex", "claude"):
@@ -107,9 +136,20 @@ class E2E:
         projects.mkdir(parents=True)
         self.env = {key: value for key, value in os.environ.items()
                     if not key.startswith(("SUBFLEET_", "CLAUDE", "CODEX", "ANTHROPIC", "GIT_"))}
+        self.env.update({name: str(user_home / "isolated" / relative)
+                         for name, relative in SAFE_HOME_PATHS.items()})
+        for name in (PYTEST_SESSION, PYTEST_SESSION_ID):
+            if name in os.environ:
+                self.env[name] = os.environ[name]
+        # D-ST1 (C-20.6): a shell the daemon starts, such as a review launch's
+        # publish hook self-test (C-12.4), meets this session's keychain
+        # recorder before any system directory, or the exec guard refuses it.
+        recorder = ((str(Path(os.environ[PYTEST_SESSION]) / "keychain-bin"),)
+                    if PYTEST_SESSION in os.environ else ())
         self.env.update({
+            PYTEST_MARKER: "1",
             "HOME": str(user_home), "SUBFLEET_HOME": str(self.root),
-            "PATH": os.pathsep.join((str(binary_dir), "/usr/sbin", "/sbin", "/bin",
+            "PATH": os.pathsep.join((str(binary_dir), *recorder, "/usr/sbin", "/sbin", "/bin",
                                      os.environ.get("PATH", "/usr/bin"))),
             "PYTHONPATH": os.pathsep.join((str(observer_dir), str(REPO))),
             "CLAUDE_CODE_SESSION_ID": "e2e-caller", "CLAUDECODE": "1",
@@ -119,6 +159,8 @@ class E2E:
             "E2E_CLAUDE_TOKEN_1": "fake-subscription-token-1",
             "E2E_CLAUDE_TOKEN_2": "fake-subscription-token-2",
             "CLAUDE_FAKE_PROJECTS_DIR": str(projects),
+            "SUBFLEET_CLAUDE_DIR": str(user_home / ".claude"),
+            "CLAUDE_CONFIG_DIR": str(user_home / ".claude"),
             "SUBFLEET_FAKE_DIAGNOSTICS_PATH": str(self.root / "codex-env.json"),
             "SUBFLEET_FAKE_ENV_REPORT": str(self.root / "claude-env.json"),
             "SUBFLEET_FAKE_STDIN_REPORT": str(self.root / "claude-stdin.md"),
@@ -312,25 +354,57 @@ def e2e_process_inspection():
         pytest.skip(f"C-5.3 e2e requires permitted ps/sysctl inspection: {exc}")
 
 
+@pytest.fixture(scope="session")
+def dev_app(tmp_path_factory) -> Path | str:
+    """The person of every person-only request here (C-25.6; a terminal is not one
+    since D-PB1): the development app's stand-in, `tests/e2e/dev_app.py`, compiled
+    once. Otherwise why there is none, which `Conversations.as_person` reports; tests
+    that need no person still run."""
+    try:
+        return development_app.build(tmp_path_factory.mktemp("dev-app")) or development_app.NO_COMPILER
+    except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+        return str(exc)
+
+
 @pytest.fixture
-def e2e(request, e2e_process_inspection):
+def e2e(request, e2e_process_inspection, dev_app):
     # macOS AF_UNIX's sun_path cannot fit pytest's usual temporary root.
     with tempfile.TemporaryDirectory(prefix="sf-e2e-", dir="/tmp") as directory:
         harness = E2E(Path(directory))
+        # Every daemon this harness starts knows the stand-in as the development app
+        # (D-21). Its state root is under /tmp, never ~/.subfleet, so the name widens
+        # nothing else.
+        if isinstance(dev_app, Path):
+            harness.env[development_app.ENV] = str(dev_app)
+        else:
+            harness.no_person = dev_app
+        closed = False
         try:
             yield harness
         finally:
-            harness.close()
-            # Keep the state root of a failed test so daemon logs, receipts and the
-            # store (with any quarantine census) can be read afterwards.
-            report = getattr(request.node, "rep_call", None)
-            if report is not None and report.failed:
-                import re, shutil, sys
-                keep = Path("/tmp/sf-failed") / re.sub(r"[^A-Za-z0-9_.-]", "_", request.node.name)
-                shutil.rmtree(keep, ignore_errors=True)
-                shutil.copytree(directory, keep, symlinks=True, ignore_dangling_symlinks=True,
-                                ignore=_sockets)
-                print(f"\n[e2e harness] kept state root at {keep}", file=sys.stderr)
+            try:
+                harness.close()
+                closed = True
+            finally:
+                # Keep the state root of a failed test so daemon logs, receipts and the
+                # store (with any quarantine census) can be read afterwards, and of a close()
+                # that raised, as the live app test's dev_daemon does. A failed setup counts as
+                # well as a failed call: a fixture built on this one that starts the daemon
+                # (conv, hooked, dispatching) fails the setup when the start's wait times out.
+                # The copy is taken after close() either way; close()'s error is raised after
+                # it, and a copy that fails never replaces it.
+                from tests.failed_keep import failed_keep_dir, setup_or_call_failed
+                if not closed or setup_or_call_failed(request.node):
+                    import shutil, sys
+                    keep = failed_keep_dir(request.node.name)
+                    try:
+                        shutil.rmtree(keep, ignore_errors=True)
+                        shutil.copytree(directory, keep, symlinks=True, ignore_dangling_symlinks=True,
+                                        ignore=_sockets)
+                    except OSError as error:
+                        print(f"\n[e2e harness] could not keep the state root ({error})", file=sys.stderr)
+                    else:
+                        print(f"\n[e2e harness] kept state root at {keep}", file=sys.stderr)
 
 
 def _sockets(directory, names):

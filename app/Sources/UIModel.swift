@@ -7,7 +7,7 @@
 // threads. Every answer is folded into `ConversationStoreState` on the main
 // actor, so the views only ever read settled state (design D-24).
 
-#if !SUBFLEET_MODEL_TEST
+#if !SUBFLEET_MODEL_TEST || SUBFLEET_UI_MODEL_TEST
 import AppKit
 import SwiftUI
 import UserNotifications
@@ -23,14 +23,28 @@ final class UIModel: ObservableObject {
     @Published private(set) var state = ConversationStoreState()
     /// The last thing that went wrong, shown in the window's status line.
     @Published var problem: String?
+    @Published private(set) var withdrawingMessages: Set<String> = []
+    @Published private(set) var accountSnapshot: Snapshot?
     /// A listed session that cannot continue here, shown in place of a conversation.
     @Published var lockedEntry: SidebarEntry?
+    @Published private(set) var failedDrafts: [FailedConversationDraft] = []
+    @Published var selectedFailedDraftID: String?
+    /// The refused create being edited; retry preserves its queued message ids.
+    @Published var failedDraftKey: String?
     /// Each conversation's dispatched runs (its sub-agents), newest first.
     @Published var runs: [String: [RunSummary]] = [:]
     @Published var busy = false
     @Published var newDraft = NewConversationDraft() {
         didSet { saveNewDraft() }
     }
+    private var draftNeedsWorkspaceDefault = true
+    private var draftWorkspaceChecks = 0
+    private var draftCheckInFlight = false
+    /// A retry edits its own persisted draft; the ordinary composer stays intact.
+    private var composerBeforeRetry: NewConversationDraft?
+    private var workspaceDefaultBeforeRetry = false
+    private var restoringComposer = false
+    private let refusedDraftNotice = "A conversation could not start. Review its saved draft."
     /// Sends that should open their conversation when the outbox receives it.
     private var draftDestinations: [String: Int] = [:]
     /// The Changes pane's subject while it is open (C-26.14).
@@ -49,13 +63,22 @@ final class UIModel: ObservableObject {
     /// The person asked to see a conversation's oldest waiting card (the sidebar's
     /// hand badge, the strip's Review); cleared once it is in view.
     @Published private(set) var approvalReveal: ApprovalReveal?
+    /// The suggestion the sidebar's Suggested section has open in the detail column (C-29.14).
+    @Published var selectedSuggestionID: String?
+    /// Suggestions whose Start or Dismiss this app is waiting on.
+    @Published private(set) var suggestionsActing: Set<String> = []
     private var reveals = 0
+    /// Moves on when a notification's click opens the conversation already
+    /// focused, which moves no focus: the sidebar puts its highlight back on that
+    /// conversation, which a native session chosen just before may have taken.
+    @Published private(set) var focusReasserted = 0
     /// What the stale-approvals check last read, per conversation (the daemon's
     /// count and the cards shown), so an unchanged mismatch is read once.
     private var staleRead: [String: [Int]] = [:]
 
     let paths: AppPaths
     let drafts: DraftStore
+    private let defaults: UserDefaults
     private(set) var engine: ConversationEngine?
     private let outboxQueue = DispatchQueue(label: "org.maxghenis.subfleet.outbox")
     /// Reads that run git on the daemon (the diffs) wait here, never behind a send.
@@ -69,32 +92,49 @@ final class UIModel: ObservableObject {
     private var availabilityChecks = 0
     /// What `lostDaemon` put in the status line, cleared when the daemon is back.
     private var lostProblem: String?
-    private lazy var notificationDelegate = ApprovalNotificationDelegate { [weak self] action, userInfo in
-        self?.handleNotification(action: action, userInfo: userInfo)
-    }
+    /// The notification center's delegate, the only one (C-29.9).
+    private(set) lazy var notificationDelegate = ApprovalNotificationDelegate(
+        receive: { [weak self] action, requestID, userInfo in
+            self?.handleNotification(action: action, requestID: requestID, userInfo: userInfo)
+        },
+        present: { [weak self] requestID, userInfo in
+            self?.showsWhileFrontmost(requestID: requestID, userInfo: userInfo) ?? true
+        })
+    private var notificationsRegistered = false
 
-    init() {
-        paths = AppPaths.standard()
+    init(paths: AppPaths = .standard(), client: DaemonCalling? = nil, defaults: UserDefaults = .standard,
+         state initialState: ConversationStoreState = ConversationStoreState()) {
+        self.paths = paths
+        self.defaults = defaults
         drafts = DraftStore(directory: paths.draftsDirectory)
+        self.state = initialState
+        defaults.removeObject(forKey: "lastWorkspace")
         let draftURL = paths.support.appendingPathComponent("new-conversation-draft.json")
         if let data = try? Data(contentsOf: draftURL),
            var saved = try? JSONDecoder().decode(NewConversationDraft.self, from: data) {
             saved.restore()
             newDraft = saved
+            draftNeedsWorkspaceDefault = false
         } else {
-            let defaults = UserDefaults.standard
-            newDraft.workspace = defaults.string(forKey: "lastWorkspace")
-            let provider = defaults.string(forKey: "providerChoice") ?? "claude"
-            newDraft.provider = ["claude", "codex"].contains(provider) ? provider : "claude"
-            newDraft.settings.model = defaults.string(forKey: "lastModel.\(newDraft.provider)") ?? ""
+            // Folder history is only considered after daemon admission; older
+            // versions remembered home even when create had refused it.
+            let provider = defaults.string(forKey: "providerChoice") ?? "auto"
+            newDraft.providerChoice = ["auto", "claude", "codex"].contains(provider) ? provider : "auto"
             newDraft.settings.permission = defaults.string(forKey: "lastPermission") ?? PermissionPolicy.ask.rawValue
         }
         for directory in [paths.support, paths.caches, paths.draftsDirectory, paths.attachmentsDirectory] {
             try? ensurePrivateDirectory(directory)
         }
         do {
-            let client = try DaemonClient.forCurrentEndpoint()
+            let client = try client ?? DaemonClient.forCurrentEndpoint()
             engine = ConversationEngine(client: client, outbox: try Outbox(url: paths.outboxURL))
+            if let id = newDraft.messageID, engine?.outbox.entry(id) != nil {
+                // The journal write won the crash race. Do not offer the same
+                // words as a new message when the app relaunches.
+                newDraft.journaled()
+            }
+            failedDrafts = engine?.outbox.failedDrafts ?? []
+            if !failedDrafts.isEmpty { problem = refusedDraftNotice }
         } catch DaemonClientError.endpointRefused(let reason) {
             state.availability = .refused(reason)
         } catch {
@@ -107,8 +147,9 @@ final class UIModel: ObservableObject {
     func start() {
         guard !started, engine != nil else { return }
         started = true
-        notificationDelegate.register()
+        registerNotifications()
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+        observeOnScreen()
         Task { await connect() }
         pumpTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.pump() }
@@ -139,18 +180,24 @@ final class UIModel: ObservableObject {
         // A navigation while the baseline was loading keeps its focus.
         baseline.focus(state.focusedConversationID)
         state = baseline
-        state.watchBaselined = true
+        state.markBaselined()
+        // The copy was taken before the drain; read what is on screen now.
+        noteOnScreen()
         startWatchLoop()
+        // A notification clicked before now (the click that launched the app).
+        let clicked = clicks.baselineLanded(navigation: navigation, pendingApprovals: state.pendingApprovals)
         if let focused = state.focusedConversationID {
             startEventsLoop(focused)
-        } else if !newDraft.isPresented,
+        } else if clicked == nil, !newDraft.isPresented,
                   let requested = ProcessInfo.processInfo.environment["SUBFLEET_OPEN_CONVERSATION"], !requested.isEmpty {
             // A launch that names a conversation opens it (notifications and links reuse this).
             focus(requested)
         }
+        if let clicked { openClicked(clicked) }
     }
 
     func refreshList() async {
+        refreshAccountUsage()
         guard let engine, state.availability.isReady else { return }
         do {
             let list = try await onOutbox { try engine.list(query: nil, provider: nil) }
@@ -159,6 +206,89 @@ final class UIModel: ObservableObject {
         } catch {
             report(error)
         }
+        await refreshSuggestions()
+    }
+
+    // MARK: Suggested conversations (C-25.7, C-29.14)
+
+    /// Whether the daemon serves suggestions (C-25.1).
+    var canSuggest: Bool { state.availability.capabilities?.has(suggestionsCapability) == true }
+
+    /// The suggestion open in the detail column, as the app knows it now.
+    var selectedSuggestion: Suggestion? { selectedSuggestionID.flatMap { state.suggestions[$0] } }
+
+    /// Every open suggestion and the recently closed ones; the watch feed keeps them
+    /// current between reads.
+    func refreshSuggestions() async {
+        guard let engine, canSuggest else { return }
+        if let list = try? await onReads({ try engine.suggestions() }) { state.apply(suggestions: list) }
+    }
+
+    /// Show a suggestion in the detail column, with its whole brief.
+    func selectSuggestion(_ id: String) {
+        selectedFailedDraftID = nil
+        endFailedDraftEditing()
+        newDraft.leave()
+        lockedEntry = nil
+        navigation += 1
+        selectedSuggestionID = id
+        state.focus(nil)
+        eventsGeneration += 1
+        loadSuggestionBrief(id)
+    }
+
+    /// A listing carries a brief's first 2,000 characters; the card asks for the rest.
+    func loadSuggestionBrief(_ id: String) {
+        guard let engine, state.suggestions[id]?.brief_truncated == true else { return }
+        Task {
+            if let found = try? await onReads({ try engine.suggestions(ids: [id]) }) {
+                state.apply(suggestionRows: found.suggestions, readAt: found.watch_seq ?? 0)
+            }
+        }
+    }
+
+    /// A person's Start (C-25.6): the daemon makes the conversation, submits the
+    /// brief as its first message, and the app opens it.
+    func startSuggestion(_ suggestion: Suggestion, permission: PermissionPolicy = .ask, confirmedWiden: Bool = false) {
+        guard let engine, !suggestionsActing.contains(suggestion.suggestion_id) else { return }
+        suggestionsActing.insert(suggestion.suggestion_id)
+        Task {
+            defer { suggestionsActing.remove(suggestion.suggestion_id) }
+            do {
+                let result = try await onReads {
+                    try engine.startSuggestion(suggestion.suggestion_id, permission: permission, confirmedWiden: confirmedWiden)
+                }
+                state.upsert(result.suggestion)
+                state.upsert(result.conversation)
+                if let receipt = result.message {
+                    state.apply(receipt: receipt)
+                    if let text = receipt.text {
+                        state.setPersonText(text, conversationID: result.conversation.conversation_id, messageID: receipt.message_id)
+                    }
+                }
+                if selectedSuggestionID == suggestion.suggestion_id { selectedSuggestionID = nil }
+                focus(result.conversation.conversation_id)
+            } catch {
+                report(error)
+                await refreshSuggestions()
+            }
+        }
+    }
+
+    /// A person's Dismiss (C-25.6): the card stays, saying so.
+    func dismissSuggestion(_ suggestion: Suggestion) {
+        guard let engine, !suggestionsActing.contains(suggestion.suggestion_id) else { return }
+        suggestionsActing.insert(suggestion.suggestion_id)
+        Task {
+            defer { suggestionsActing.remove(suggestion.suggestion_id) }
+            do {
+                let result = try await onReads { try engine.dismissSuggestion(suggestion.suggestion_id) }
+                state.upsert(result.suggestion)
+            } catch {
+                report(error)
+                await refreshSuggestions()
+            }
+        }
     }
 
     private func startWatchLoop() {
@@ -166,19 +296,27 @@ final class UIModel: ObservableObject {
         Thread.detachNewThread { [weak self] in
             WatchLoop(engine: engine,
                       cursor: { DispatchQueue.main.sync(execute: { self?.state.watchCursor }) },
-                      deliver: { page in DispatchQueue.main.async { self?.fold(watch: page) } },
+                      deliver: { update in DispatchQueue.main.sync { self?.fold(watch: update) } },
                       lost: { error in DispatchQueue.main.async { self?.lostDaemon(error) } },
-                      regained: { DispatchQueue.main.async { self?.regainedDaemon() } }).run()
+                      regained: { DispatchQueue.main.async { self?.regainedDaemon() } },
+                      focusedConversationID: { DispatchQueue.main.sync { self?.state.focusedConversationID } },
+                      knownMessageIDs: { id in DispatchQueue.main.sync { self?.state.knownMessageIDs(in: id) ?? [] } }).run()
         }
     }
 
-    private func fold(watch page: WatchPage) {
+    private func fold(watch update: WatchUpdate) {
+        let page = update.page
         let known = Set(state.conversations.map(\.conversation_id))
-        state.apply(watch: page)
+        // One publication: a settled host must never expose the tray projection
+        // with a block from the previous list refresh. Read visibility as the page lands.
+        var next = state
+        next.focusedOnScreen = noteOnScreen(publish: false)
+        next.apply(update: update)
+        state = next
         for intent in state.drainNotifications() { post(intent) }
         updateBadge()
         refreshApprovalsIfStale()
-        if page.changes.contains(where: { !known.contains($0.conversation_id) }) {
+        if page.changes.contains(where: { !$0.conversation_id.isEmpty && !known.contains($0.conversation_id) }) {
             Task { await refreshList() }
         }
     }
@@ -213,6 +351,7 @@ final class UIModel: ObservableObject {
         let availability = await onOutbox { engine.checkAvailability() }
         guard check == availabilityChecks else { return nil }
         state.availability = availability
+        if newDraft.isPresented { validateNewDraftWorkspace() }
         return availability
     }
 
@@ -233,10 +372,16 @@ final class UIModel: ObservableObject {
                 guard let cursor else { return }
                 do {
                     let page = try engine.events(conversationID: conversationID, after: cursor, wait: catchingUp ? 0 : nil)
+                    let known = DispatchQueue.main.sync { self?.state.knownMessageIDs(in: conversationID) ?? [] }
+                    let receipts = try engine.unknownReceipts(in: page, knownMessageIDs: known)
                     failures = 0
                     let result: Timeline.PageResult? = DispatchQueue.main.sync {
                         guard let self, self.eventsGeneration == generation else { return nil }
-                        return self.state.apply(events: page, conversationID: conversationID)
+                        var next = self.state
+                        next.apply(receipts: receipts, conversationID: conversationID)
+                        let result = next.apply(events: page, conversationID: conversationID)
+                        self.state = next
+                        return result
                     }
                     switch result {
                     case nil, .superseded?: return
@@ -259,6 +404,9 @@ final class UIModel: ObservableObject {
 
     func select(_ entry: SidebarEntry?) {
         guard let entry else { return }
+        selectedSuggestionID = nil
+        selectedFailedDraftID = nil
+        endFailedDraftEditing()
         newDraft.leave()
         if !entry.continuable {
             // Opening one only fails (not-continuable): say what it is instead.
@@ -284,9 +432,18 @@ final class UIModel: ObservableObject {
         eventsGeneration += 1
     }
 
-    func focus(_ conversationID: String) {
+    /// What showing a conversation leaves: a failed or new conversation's
+    /// draft, a suggestion, and a locked session's page.
+    private func leavePages() {
+        selectedSuggestionID = nil
+        selectedFailedDraftID = nil
+        endFailedDraftEditing()
         newDraft.leave()
         lockedEntry = nil
+    }
+
+    func focus(_ conversationID: String) {
+        leavePages()
         guard state.focusedConversationID != conversationID else { return }
         state.focus(conversationID)
         navigation += 1
@@ -299,8 +456,20 @@ final class UIModel: ObservableObject {
         busy = true
         defer { busy = false }
         do {
+            // Capture the app's receipt identities on the main actor before
+            // opening on the outbox queue. Settled history already held here
+            // must not be fetched and folded on each conversation switch.
+            let knownConversationID: String?
+            switch target {
+            case .conversation(let id): knownConversationID = id
+            case .native(let native):
+                knownConversationID = state.conversations.first {
+                    $0.provider == native.provider && $0.native_session_id == native.session_id
+                }?.conversation_id
+            }
+            let known = knownConversationID.map { state.knownMessageIDs(in: $0) } ?? []
             let (result, steers) = try await onOutbox { () throws -> (ConversationOpenResult, [OutboxSteer]) in
-                let open = try engine.open(target)
+                let open = try engine.open(target, knownMessageIDs: known)
                 return (open, engine.outbox.steers(in: open.conversation.conversation_id))
             }
             // The daemon's state is kept either way; the screen moves only if the
@@ -327,6 +496,20 @@ final class UIModel: ObservableObject {
             }
             report(error)
         }
+    }
+
+    /// A read of the same status projection used by the quota panel; no RPC additions.
+    func refreshAccountUsage() {
+        let environment = ProcessInfo.processInfo.environment
+        guard let url = resolveDaemonEndpoint(environment: environment, home: FileManager.default.homeDirectoryForCurrentUser,
+                                              flavor: .current).endpoint?.statusURL,
+              let data = try? Data(contentsOf: url),
+              let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data) else {
+            accountSnapshot = nil
+            return
+        }
+        accountSnapshot = snapshot
+        state.laneLabels = laneLabels(from: snapshot)
     }
 
     /// Lanes ready per provider, read from `status.json` now; empty when the
@@ -359,6 +542,156 @@ final class UIModel: ObservableObject {
         guard let engine else { return }
         if let found = try? await onOutbox({ try engine.runs(conversationID: conversationID) }), runs[conversationID] != found {
             runs[conversationID] = found
+        }
+    }
+
+    // MARK: Notifications
+
+    /// Clicks, one held until `connect` has its baseline.
+    private var clicks = NotificationClicks()
+
+    /// Makes the model's delegate the notification center's, with its Allow once
+    /// action, once. In the app the call that acts is the app delegate's, in
+    /// `applicationWillFinishLaunching`: the system delivers the click that
+    /// launched the app only to a delegate set before launch ends (C-29.9), and
+    /// `start` runs later, when the main window first appears. `start`'s call
+    /// then does nothing; it acts only in a build with no app delegate (the
+    /// view-test build).
+    func registerNotifications() {
+        guard !notificationsRegistered else { return }
+        notificationsRegistered = true
+        notificationDelegate.register()
+    }
+
+    /// Whether one that arrives while the app is frontmost shows: as it would in
+    /// the background, unless its conversation is on screen by now, the focused
+    /// one with the main window visible and holding the key window (D-24).
+    func showsWhileFrontmost(requestID: String, userInfo: [AnyHashable: Any]) -> Bool {
+        NotificationTarget(requestID: requestID, userInfo: userInfo)?
+            .showsWhileFrontmost(onScreenConversationID: onScreenConversationID()) ?? true
+    }
+
+    /// A clicked notification (C-29.9): its conversation, and for an approval
+    /// still waiting that conversation's oldest card (C-27.5), which the
+    /// conversation view scrolls to once the card is in its timeline.
+    func show(_ target: NotificationTarget) {
+        if let opening = clicks.click(target, baselined: state.watchBaselined, navigation: navigation,
+                                      pendingApprovals: state.pendingApprovals) {
+            openClicked(opening)
+        }
+    }
+
+    private func openClicked(_ opening: NotificationOpening) {
+        if opening.revealsCard { revealApprovals(in: opening.conversationID) }
+        guard state.focusedConversationID == opening.conversationID else {
+            // `focus` takes a new token, which drops any open still on its way.
+            focus(opening.conversationID)
+            return
+        }
+        // Already focused, where `focus` changes nothing: open it again under a
+        // new token, so the click still drops an open on its way (a native session
+        // chosen just before) and replaces its own conversation's, not loses it.
+        leavePages()
+        focusReasserted += 1
+        navigation += 1
+        let token = navigation
+        Task { await open(.conversation(opening.conversationID), token: token) }
+    }
+
+    // MARK: On screen (D-24)
+
+    /// The main window, as its content last reported it (`MainWindowReader`).
+    /// A closed window reads as not visible, and the reference ends with it.
+    weak var mainWindow: NSWindow? {
+        didSet { noteOnScreen() }
+    }
+    private var onScreenObservers: [NSObjectProtocol] = []
+
+    /// Reads from AppKit whether the focused conversation is on screen: the
+    /// app is active, the main window is visible (neither closed nor
+    /// miniaturized nor wholly covered: `occlusionState`) and the key window
+    /// is it or a window attached to it, and its display is awake in a session
+    /// on the console. The focus alone stays set while the person works in
+    /// another app or has closed the window, where its conversation's turns
+    /// must notify like any other's.
+    @discardableResult
+    private func noteOnScreen(publish: Bool = true) -> Bool {
+        let visible = mainWindow.map {
+            $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible) && holdsKey($0) && shown($0)
+        } ?? false
+        let onScreen = onScreenOverride ?? (NSApp?.isActive == true && visible)
+        if publish && state.focusedOnScreen != onScreen { state.focusedOnScreen = onScreen }
+        return onScreen
+    }
+
+    /// Stands in for what AppKit would say when set: the UI-model probes have no
+    /// window to show, and set it to decide with the focused conversation on
+    /// screen. Nil in the app.
+    var onScreenOverride: Bool?
+
+    /// Whether the display showing `window` is awake (CoreGraphics: an asleep
+    /// display "is therefore not drawable") and this login session is on the
+    /// console, not switched out for another user's (`CGSessionCopyCurrentDictionary`,
+    /// whose `kCGSessionOnConsoleKey` is the string below). Read each time rather
+    /// than kept from NSWorkspace's notifications, so a missed wake cannot leave
+    /// the conversation counted off screen.
+    private func shown(_ window: NSWindow) -> Bool {
+        let number = window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
+        guard CGDisplayIsAsleep(number.map { CGDirectDisplayID($0.uint32Value) } ?? CGMainDisplayID()) == 0 else {
+            return false
+        }
+        let session = CGSessionCopyCurrentDictionary() as? [String: Any]
+        return session?["kCGSSessionOnConsoleKey"] as? Bool ?? true
+    }
+
+    /// Whether the key window is `window` or one attached to it (a sheet, or a
+    /// child window). The menu bar panel makes `NSApp.isActive` true while it is
+    /// key, without raising the main window, which may be all but covered by
+    /// another app's (seen 2026-09-30 in a probe app with the same scenes).
+    private func holdsKey(_ window: NSWindow) -> Bool {
+        var key = NSApp?.keyWindow
+        while let current = key {
+            if current === window { return true }
+            key = current.sheetParent ?? current.parent
+        }
+        return false
+    }
+
+    /// The conversation on screen now, read again from AppKit: the
+    /// notification center's delegate asks as a notification arrives while
+    /// the app is frontmost.
+    func onScreenConversationID() -> String? {
+        noteOnScreen()
+        return state.onScreenConversationID
+    }
+
+    /// Keeps `focusedOnScreen` current as the app is activated or left, as a
+    /// window becomes or stops being key or is miniaturized, restored, closed,
+    /// covered or uncovered, and as the displays sleep or wake and the session
+    /// is switched away or back. The two decisions that use it (`fold(watch:)`
+    /// and the delegate's `willPresent`) read it all again as well, so a change
+    /// these do not report cannot make them wrong.
+    private func observeOnScreen() {
+        let names: [Notification.Name] = [
+            NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification,
+            NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
+            NSWindow.didChangeOcclusionStateNotification, NSWindow.didMiniaturizeNotification,
+            NSWindow.didDeminiaturizeNotification, NSWindow.willCloseNotification,
+        ]
+        onScreenObservers = names.map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                // Read after the change lands: a closing window is still visible while it is told.
+                Task { @MainActor in self?.noteOnScreen() }
+            }
+        }
+        let workspace: [Notification.Name] = [
+            NSWorkspace.screensDidSleepNotification, NSWorkspace.screensDidWakeNotification,
+            NSWorkspace.sessionDidResignActiveNotification, NSWorkspace.sessionDidBecomeActiveNotification,
+        ]
+        onScreenObservers += workspace.map { name in
+            NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.noteOnScreen() }
+            }
         }
     }
 
@@ -440,49 +773,210 @@ final class UIModel: ObservableObject {
     }
 
     func openNewDraft() {
+        selectedSuggestionID = nil
+        selectedFailedDraftID = nil
+        endFailedDraftEditing()
         navigation += 1
         lockedEntry = nil
         state.focus(nil)
         eventsGeneration += 1
         reconcileNewDraft()
         newDraft.open()
+        validateNewDraftWorkspace(selectDefault: true)
     }
 
     func reconcileNewDraft() {
-        newDraft.reconcile(models: state.models[newDraft.provider] ?? [], capabilities: state.availability.capabilities)
+        let provider = (newDraft.providerChoice ?? newDraft.provider) == "auto"
+            ? autoProvider(providerCapacity()) : (newDraft.providerChoice ?? newDraft.provider)
+        if provider != newDraft.provider {
+            newDraft.provider = provider
+            newDraft.settings.model = ""
+            newDraft.settings.effort = nil
+            newDraft.confirmWiden = false
+            newDraft.invalidateWorkspaceCheck()
+        }
+        newDraft.reconcile(models: state.models[provider] ?? [], capabilities: state.availability.capabilities,
+                           defaultModel: state.modelDefaults[provider],
+                           rememberedModel: defaults.string(forKey: "lastModel.\(provider)"))
+        if newDraft.isPresented, newDraft.workspaceCheckTransient == true, !draftCheckInFlight {
+            validateNewDraftWorkspace()
+        }
+    }
+
+    func selectNewDraftProvider(_ choice: String) {
+        newDraft.providerChoice = choice
+        reconcileNewDraft()
+        validateNewDraftWorkspace()
+    }
+
+    func useNewScratchFolder() {
+        draftNeedsWorkspaceDefault = false
+        newDraft.workspace = nil
+        newDraft.scratchWorkspace = scratchWorkspace(support: paths.support).path
+        validateNewDraftWorkspace()
+    }
+
+    /// The check's generation and exact picks prevent a slow previous answer
+    /// from enabling Start after the person changes folder or permission.
+    func validateNewDraftWorkspace(selectDefault: Bool = false) {
+        guard let engine else { return }
+        newDraft.invalidateWorkspaceCheck()
+        draftWorkspaceChecks += 1
+        let generation = draftWorkspaceChecks
+        let provider = newDraft.provider
+        let permission = newDraft.settings.permission
+        let recovery = failedDrafts.first { $0.id == failedDraftKey }?.create
+        let selectingDefault = draftNeedsWorkspaceDefault && (selectDefault || newDraft.workspace == nil)
+        let candidates = selectingDefault ? recentWorkspaces() : []
+        // Unknown readiness is not an old daemon. Keep the draft and explain
+        // why Start must wait for a capability handshake and folder validation.
+        guard let capabilities = state.availability.capabilities else {
+            if newDraft.resolvedWorkspace == nil { newDraft.scratchWorkspace = scratchWorkspace(support: paths.support).path }
+            if let selected = newDraft.resolvedWorkspace {
+                let reason = state.availability.banner?.detail ?? "Waiting for the daemon to become ready."
+                newDraft.applyWorkspaceCheck(WorkspaceCheckResult(ok: false, reason: "Could not check folder: \(reason)",
+                                                                 fix: "Try again when the daemon is available."),
+                                             workspace: selected, provider: provider, permission: permission, transient: true)
+            }
+            draftCheckInFlight = false
+            return
+        }
+        // C-25.1: older daemons decide admission at create. Do not call an op
+        // they have not advertised, either here or at Start.
+        if !capabilities.has("workspace.check.v1") {
+            if selectingDefault { newDraft.workspace = candidates.first; draftNeedsWorkspaceDefault = false }
+            if newDraft.resolvedWorkspace == nil { newDraft.scratchWorkspace = scratchWorkspace(support: paths.support).path }
+            if let selected = newDraft.resolvedWorkspace {
+                newDraft.applyWorkspaceCheck(WorkspaceCheckResult(ok: true), workspace: selected,
+                                             provider: provider, permission: permission)
+            }
+            draftCheckInFlight = false
+            return
+        }
+        draftCheckInFlight = true
+        Task {
+            defer { if generation == draftWorkspaceChecks { draftCheckInFlight = false } }
+            do {
+                if selectingDefault {
+                    var accepted: (String, WorkspaceCheckResult)?
+                    for path in candidates {
+                        let result = try await onReads { try engine.checkWorkspace(path, provider: provider, permission: permission) }
+                        guard generation == draftWorkspaceChecks else { return }
+                        if result.ok { accepted = (path, result); break }
+                    }
+                    guard generation == draftWorkspaceChecks else { return }
+                    draftNeedsWorkspaceDefault = false
+                    if let (path, result) = accepted {
+                        newDraft.workspace = path
+                        newDraft.applyWorkspaceCheck(result, workspace: path, provider: provider, permission: permission)
+                        return
+                    }
+                    newDraft.workspace = nil
+                }
+                if newDraft.workspace == nil, newDraft.scratchWorkspace == nil {
+                    newDraft.scratchWorkspace = scratchWorkspace(support: paths.support).path
+                }
+                guard let selected = newDraft.resolvedWorkspace else { return }
+                // The scratch folder is not created until Start. Checking its
+                // existing parent applies the daemon's folder policy now; Start
+                // checks the new directory itself before journaling anything.
+                let checkPath = newDraft.workspace ?? paths.support.path
+                let result = try await onReads {
+                    try engine.checkWorkspace(checkPath, provider: provider, permission: permission,
+                                              kind: recovery?.workspace_kind ?? "in-place", allowMain: recovery?.allow_main)
+                }
+                guard generation == draftWorkspaceChecks else { return }
+                newDraft.applyWorkspaceCheck(result, workspace: selected, provider: provider, permission: permission)
+                if !result.ok, defaults.string(forKey: "lastWorkspace") == newDraft.workspace {
+                    defaults.removeObject(forKey: "lastWorkspace")
+                }
+            } catch {
+                guard generation == draftWorkspaceChecks, let selected = newDraft.resolvedWorkspace else { return }
+                newDraft.applyWorkspaceCheck(WorkspaceCheckResult(ok: false, reason: "Could not check folder: \(error)",
+                                                                   fix: "Try again when the daemon is available."),
+                                             workspace: selected, provider: provider, permission: permission, transient: true)
+            }
+        }
     }
 
     private func saveNewDraft() {
-        guard let data = try? JSONEncoder().encode(newDraft) else { return }
-        try? atomicWrite(data, to: paths.support.appendingPathComponent("new-conversation-draft.json"))
+        guard !restoringComposer else { return }
+        var saved = newDraft
+        if saved.workspaceCheck?.ok == false && saved.workspaceCheckTransient != true {
+            saved.workspace = nil
+            saved.scratchWorkspace = nil
+            saved.invalidateWorkspaceCheck()
+        }
+        guard let data = try? JSONEncoder().encode(saved) else { return }
+        let url = failedDraftKey.map(retryDraftURL) ?? paths.support.appendingPathComponent("new-conversation-draft.json")
+        try? atomicWrite(data, to: url)
     }
 
     func sendNewDraft(stayHere: Bool) {
-        guard let engine, newDraft.canSend else { return }
+        guard let engine, newDraft.canStart, let workspace = newDraft.resolvedWorkspace else { return }
+        guard state.availability.isReady else { validateNewDraftWorkspace(); return }
+        let recovering = failedDraftKey
+        if recovering == nil {
+            if newDraft.requestID == nil { newDraft.requestID = "app-" + UUID().uuidString.lowercased() }
+            if newDraft.messageID == nil { newDraft.messageID = Outbox.newMessageID() }
+        }
         let draft = newDraft
+        let recovery = failedDrafts.first { $0.id == recovering }?.create
+        guard recovering == nil || recovery != nil else { return }
         let token = navigation
-        let messageID = Outbox.newMessageID()
+        let messageID = failedDrafts.first(where: { $0.id == recovering })?.messages.first?.key
+            ?? draft.messageID ?? Outbox.newMessageID()
+        let checkSupported = state.availability.capabilities.map { $0.has("workspace.check.v1") } ?? true
         if !stayHere { draftDestinations[messageID] = token }
         newDraft.isSubmitting = true
+        // A conversation the person starts is newer than any click still held.
+        clicks.drop()
         Task {
             do {
-                try await onOutbox {
-                    let key = try engine.createConversation(provider: draft.provider, workspace: draft.workspace ?? "",
-                                                            settings: draft.settings, confirmWiden: draft.confirmWiden)
-                    _ = try engine.send(conversation: key, text: draft.text, staged: draft.attachments,
-                                        settings: draft.settings, messageID: messageID)
+                try await onReads {
+                    if draft.workspace == nil { try ensurePrivateDirectory(URL(fileURLWithPath: workspace, isDirectory: true)) }
+                    if checkSupported {
+                        let check = try engine.checkWorkspace(workspace, provider: draft.provider, permission: draft.settings.permission,
+                                                         kind: recovery?.workspace_kind ?? "in-place", allowMain: recovery?.allow_main)
+                        guard check.ok else {
+                            throw DaemonClientError.daemon(DaemonError(code: 7, message: check.reason ?? "Folder refused", fix: check.fix))
+                        }
+                    }
                 }
-                newDraft.journaled()
-                let defaults = UserDefaults.standard
-                defaults.set(draft.workspace, forKey: "lastWorkspace")
-                defaults.set(draft.provider, forKey: "providerChoice")
+                try await onOutbox {
+                    if let recovering, var args = recovery {
+                        args.provider = draft.provider
+                        args.workspace = workspace
+                        args.settings = draft.settings
+                        args.confirm_widen = draft.confirmWiden
+                        try engine.outbox.retryFailedCreate(recovering, args: args, text: draft.text, staged: draft.attachments)
+                    } else {
+                        let key = try engine.createConversation(provider: draft.provider, workspace: workspace,
+                                                                settings: draft.settings, confirmWiden: draft.confirmWiden,
+                                                                requestID: draft.requestID!)
+                        _ = try engine.send(conversation: key, text: draft.text, staged: draft.attachments,
+                                            settings: draft.settings, messageID: messageID)
+                    }
+                }
+                if let recovering {
+                    try? FileManager.default.removeItem(at: retryDraftURL(recovering))
+                    if failedDraftKey == recovering { endFailedDraftEditing() }
+                } else if newDraft.messageID == messageID {
+                    newDraft.journaled()
+                    if draft.workspace == nil { newDraft.scratchWorkspace = nil; validateNewDraftWorkspace() }
+                } else if composerBeforeRetry?.messageID == messageID {
+                    composerBeforeRetry?.journaled()
+                    if draft.workspace == nil { composerBeforeRetry?.scratchWorkspace = nil }
+                }
+                defaults.set(draft.providerChoice ?? draft.provider, forKey: "providerChoice")
                 defaults.set(draft.settings.model, forKey: "lastModel.\(draft.provider)")
                 defaults.set(draft.settings.permission, forKey: "lastPermission")
                 pump()
             } catch {
                 draftDestinations.removeValue(forKey: messageID)
-                newDraft.isSubmitting = false
+                if failedDraftKey == recovering { newDraft.isSubmitting = false }
                 report(error)
+                validateNewDraftWorkspace()
             }
         }
     }
@@ -492,18 +986,23 @@ final class UIModel: ObservableObject {
     func send(conversationID: String, text: String, staged: [StagedAttachment], settings: ConversationSettings,
               steer: Bool = false) {
         guard let engine else { return }
+        let provider = state.conversation(conversationID)?.provider
         let messageID = Outbox.newMessageID()
         // The turn the person steers into now: a steer that reaches the daemon after
-        // it ended is refused, never joined to the next turn (C-24.9).
+        // it ended is refused, never joined to the next turn (C-24.9). The composer
+        // asks to steer only while there is one, in this same main-actor turn; with
+        // none, the message queues rather than steer without naming a turn.
         let into = steer ? state.steerHost(forComposerOf: conversationID)?.messageID : nil
+        let steering = into != nil
         state.addLocalMessage(conversationID: conversationID, messageID: messageID, text: text,
-                              attachments: staged.map(\.sha256), settings: settings, steer: steer)
+                              attachments: staged.map(\.sha256), settings: settings, steer: steering)
         Task {
             do {
                 _ = try await onOutbox {
                     try engine.send(conversation: conversationID, text: text, staged: staged, settings: settings,
-                                    messageID: messageID, steer: steer, into: into)
+                                    messageID: messageID, steer: steering, into: into)
                 }
+                if let provider { defaults.set(settings.model, forKey: "lastModel.\(provider)") }
                 pump()
             } catch {
                 report(error)
@@ -511,15 +1010,17 @@ final class UIModel: ObservableObject {
         }
     }
 
-    /// Steer a queued message into the running turn (C-24.9): journaled, then sent.
-    /// A refusal leaves it queued and its status line says why. The queue tray's
-    /// "Send now" (DESIGN.md sections 7 to 9) calls this.
-    func steer(messageID: String, conversationID: String) {
+    /// Steer a queued message into the running turn `into` (C-24.9): journaled, then
+    /// sent. A refusal leaves it queued and its status line says why. The queue tray's
+    /// "Send now" (DESIGN.md sections 7 to 9) calls this with the turn the tray showed
+    /// when it offered the action (`QueuedMessage.steerInto`), never the turn live when
+    /// the click lands: one that ended meanwhile has the daemon refuse the steer
+    /// (`no-live-turn`), so the message stays queued and never joins the next turn.
+    func steer(messageID: String, conversationID: String, into: String) {
         guard let engine else { return }
         // Slash commands and shell input wait for the turn to end (DESIGN.md section 9).
         let text = state.timelines[conversationID]?.turn(messageID)?.personText ?? ""
         guard steerable(text: text) else { return }
-        let into = state.timelines[conversationID]?.liveMessageID
         state.requestSteer(conversationID: conversationID, messageID: messageID)
         Task {
             do {
@@ -584,14 +1085,16 @@ final class UIModel: ObservableObject {
     func pump() {
         guard let engine, state.availability.isReady else { return }
         Task {
-            let (report, texts) = await onOutbox { () -> (OutboxSender.Report, [String: String]) in
+            let (report, texts, refusedDrafts) = await onOutbox { () -> (OutboxSender.Report, [String: String], [FailedConversationDraft]) in
                 let report = engine.pump()
                 var texts: [String: String] = [:]
                 for receipt in report.receipts {
                     if let text = engine.outbox.text(of: receipt.message_id) { texts[receipt.message_id] = text }
                 }
-                return (report, texts)
+                return (report, texts, engine.outbox.failedDrafts)
             }
+            failedDrafts = refusedDrafts
+            if refusedDrafts.isEmpty && problem == refusedDraftNotice { problem = nil }
             guard !report.receipts.isEmpty || !report.conversations.isEmpty || !report.failed.isEmpty
                     || !report.steers.isEmpty else { return }
             for receipt in report.receipts {
@@ -610,11 +1113,136 @@ final class UIModel: ObservableObject {
                     focus(id)
                 }
             }
-            if !report.failed.isEmpty { problem = "\(report.failed.count) message(s) could not be sent; see the conversation" }
+            if !report.failed.isEmpty {
+                problem = refusedDrafts.isEmpty ? "\(report.failed.count) message(s) could not be sent; see the conversation"
+                    : refusedDraftNotice
+            }
+        }
+    }
+
+    // MARK: Refused conversations
+
+    var selectedFailedDraft: FailedConversationDraft? {
+        failedDrafts.first { $0.id == selectedFailedDraftID }
+    }
+
+    func selectFailedDraft(_ id: String? = nil) {
+        guard let draft = failedDrafts.first(where: { id == nil || $0.id == id }) else { return }
+        selectedSuggestionID = nil
+        navigation += 1
+        endFailedDraftEditing()
+        newDraft.leave()
+        lockedEntry = nil
+        state.focus(nil)
+        eventsGeneration += 1
+        selectedFailedDraftID = draft.id
+    }
+
+    func changeFailedDraftFolder(_ draft: FailedConversationDraft) {
+        guard failedDrafts.contains(where: { $0.id == draft.id }) else { return }
+        endFailedDraftEditing()
+        let savedRetry = try? Data(contentsOf: retryDraftURL(draft.id))
+        composerBeforeRetry = newDraft
+        workspaceDefaultBeforeRetry = draftNeedsWorkspaceDefault
+        failedDraftKey = draft.id
+        navigation += 1
+        lockedEntry = nil
+        state.focus(nil)
+        eventsGeneration += 1
+        draftNeedsWorkspaceDefault = false
+        selectedFailedDraftID = nil
+        newDraft = NewConversationDraft()
+        newDraft.provider = draft.create.provider
+        newDraft.providerChoice = draft.create.provider
+        newDraft.workspace = draft.create.workspace
+        newDraft.text = draft.firstMessage?.text ?? ""
+        newDraft.attachments = draft.firstMessage?.staged ?? []
+        newDraft.settings = draft.create.settings
+        newDraft.confirmWiden = draft.create.confirm_widen ?? false
+        newDraft.workspaceCheck = nil
+        if let data = savedRetry,
+           var saved = try? JSONDecoder().decode(NewConversationDraft.self, from: data) {
+            saved.restore()
+            newDraft = saved
+        }
+        newDraft.open()
+        reconcileNewDraft()
+        validateNewDraftWorkspace()
+    }
+
+    private func retryDraftURL(_ key: String) -> URL {
+        paths.support.appendingPathComponent("retry-\(sha256Hex(Data(key.utf8))).json")
+    }
+
+    private func endFailedDraftEditing() {
+        guard failedDraftKey != nil else { return }
+        draftWorkspaceChecks += 1
+        draftCheckInFlight = false
+        // Keep the retry key until restoring, so didSet cannot save retry text
+        // over the ordinary composer, even during navigation.
+        if var saved = composerBeforeRetry {
+            saved.restore()
+            restoringComposer = true
+            newDraft = saved
+            restoringComposer = false
+        }
+        composerBeforeRetry = nil
+        draftNeedsWorkspaceDefault = workspaceDefaultBeforeRetry
+        failedDraftKey = nil
+    }
+
+    func copyFailedDraft(_ draft: FailedConversationDraft) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(draft.text, forType: .string)
+    }
+
+    func discardFailedDraft(_ id: String) {
+        guard let engine else { return }
+        Task {
+            do {
+                failedDrafts = try await onOutbox {
+                    try engine.outbox.discardFailedDraft(id)
+                    return engine.outbox.failedDrafts
+                }
+                if selectedFailedDraftID == id { selectedFailedDraftID = nil }
+                try? FileManager.default.removeItem(at: retryDraftURL(id))
+                if failedDraftKey == id { endFailedDraftEditing(); newDraft.leave() }
+                if failedDrafts.isEmpty && problem == refusedDraftNotice { problem = nil }
+            } catch { report(error) }
+        }
+    }
+
+    /// A tray withdrawal always names its own message and conversation. Pending
+    /// clicks share one busy state, so a row cannot send a second action meanwhile.
+    func withdrawQueued(_ row: QueuedMessage, conversationID: String) {
+        guard row.canWithdraw, let engine, withdrawingMessages.insert(row.id).inserted else { return }
+        Task {
+            defer { withdrawingMessages.remove(row.id) }
+            do {
+                if case .withdraw = row.withdraw {
+                    let result = try await onOutbox { try engine.withdrawSend(row.id) }
+                    switch result {
+                    case .withdrawn(let receipt):
+                        if let receipt { state.apply(receipt: receipt) }
+                        else { state.withdrawLocal(conversationID: conversationID, messageID: row.id) }
+                    case .stopped(let receipt):
+                        if let receipt { state.apply(receipt: receipt) }
+                    case .inFlight: break
+                    }
+                } else if let receipt = try await onOutbox({ try engine.stop(row.withdraw) }) {
+                    state.apply(receipt: receipt)
+                }
+            } catch { report(error) }
         }
     }
 
     func stop(_ action: StopAction) {
+        if case .withdraw(let id) = action,
+           let (conversationID, timeline) = state.timelines.first(where: { $0.value.turn(id) != nil }),
+           let turn = timeline.turn(id) {
+            withdrawQueued(QueuedMessage(turn: turn), conversationID: conversationID)
+            return
+        }
         guard let engine else { return }
         Task {
             do {
@@ -629,9 +1257,17 @@ final class UIModel: ObservableObject {
         guard let engine else { return }
         Task {
             do {
-                let (conversation, receipt) = try await onOutbox { try engine.perform(choice.action, conversationID: conversationID) }
-                if let conversation { state.upsert(conversation) }
-                if let receipt { state.apply(receipt: receipt) }
+                let known = state.knownMessageIDs(in: conversationID)
+                let (conversation, receipt, refresh) = try await onOutbox {
+                    let (conversation, receipt) = try engine.perform(choice.action, conversationID: conversationID)
+                    let refresh = try engine.refreshConversation(conversationID, knownMessageIDs: known)
+                    return (conversation, receipt, refresh)
+                }
+                var next = state
+                if let conversation { next.upsert(conversation) }
+                if let receipt { next.apply(receipt: receipt) }
+                next.apply(refresh: refresh)
+                state = next
             } catch {
                 report(error)
             }
@@ -679,6 +1315,10 @@ final class UIModel: ObservableObject {
             _ = try await onOutbox {
                 try engine.respond(to: detail, decision: decision, answers: answers, message: message,
                                    reviewedMasked: reviewedMasked)
+            }
+            if let answers, decision == "answer" {
+                state.timelines[detail.approval.conversation_id]?.noteApprovalAnswer(
+                    approvalID: detail.approval.approval_id, answers: answers)
             }
             let approvals = try? await onOutbox { try engine.approvals(conversationID: detail.approval.conversation_id) }
             if let approvals { state.apply(approvals: approvals, conversationID: detail.approval.conversation_id) }
@@ -838,7 +1478,7 @@ final class UIModel: ObservableObject {
             let content = UNMutableNotificationContent()
             content.title = intent.title
             content.body = intent.body
-            content.userInfo = ["conversation_id": intent.conversationID]
+            content.userInfo = intent.userInfo(allowing: nil)
             if intent.kind == .approval, let engine {
                 let detail: ApprovalDetail? = try? await onOutbox {
                     let approvals = try engine.approvals(conversationID: intent.conversationID)
@@ -848,7 +1488,7 @@ final class UIModel: ObservableObject {
                 }
                 if let detail, let target = ApprovalNotificationTarget(detail: detail) {
                     content.categoryIdentifier = ApprovalNotificationDelegate.categoryID
-                    content.userInfo = target.userInfo
+                    content.userInfo = intent.userInfo(allowing: target)
                     let display = detail.approval.display
                     let summary = display.command ?? display.input ?? display.description ?? display.tool
                     if let summary { content.body += "\n" + summary }
@@ -859,20 +1499,39 @@ final class UIModel: ObservableObject {
         }
     }
 
-    private func handleNotification(action: String, userInfo: [AnyHashable: Any]) {
+    /// A notification's response (C-29.9). Any but a dismissal opens the main
+    /// window on its conversation, an approval's at the conversation's oldest
+    /// waiting card while one waits (`show`: a response before the first list
+    /// and feed baseline waits for them). Allow once also answers the one
+    /// request the notification advertised (`allowOnce`). Returns Allow once's
+    /// work, for a probe to wait on.
+    @discardableResult
+    func handleNotification(action: String, requestID: String, userInfo: [AnyHashable: Any]) -> Task<Void, Never>? {
         guard action != UNNotificationDismissActionIdentifier,
-              let conversationID = userInfo["conversation_id"] as? String, !conversationID.isEmpty else { return }
+              let target = NotificationTarget(requestID: requestID, userInfo: userInfo) else { return nil }
+        show(target)
         #if !SUBFLEET_VIEW_TEST
+        // Nil before the window first appears (the click that launched the app):
+        // the window, the app's first scene, presents itself at launch, and
+        // `connect` opens the held click in it.
         SubfleetAppDelegate.openMain?()
         #endif
         NSApp?.activate(ignoringOtherApps: true)
-        focus(conversationID)
-        guard action == ApprovalNotificationDelegate.allowOnceID else { return }
+        guard action == ApprovalNotificationDelegate.allowOnceID else { return nil }
+        return allowOnce(userInfo)
+    }
+
+    /// Allow once, as release/217's delegate answered it (c3763edba): the request
+    /// the notification advertised is read again and allowed only if it is still
+    /// that pending, unmasked request with an `allow` option; otherwise it is left
+    /// for review in the conversation. Returns the work, for a probe to wait on.
+    @discardableResult
+    func allowOnce(_ userInfo: [AnyHashable: Any]) -> Task<Void, Never>? {
         guard let target = ApprovalNotificationTarget(userInfo: userInfo) else {
             problem = "Review the pending request in the conversation."
-            return
+            return nil
         }
-        Task {
+        return Task {
             guard let detail = await approvalDetail(target.approvalID, reveal: false) else { return }
             guard target.canAllow(detail) else {
                 problem = "This request needs review. Use the approval card's details in the conversation."

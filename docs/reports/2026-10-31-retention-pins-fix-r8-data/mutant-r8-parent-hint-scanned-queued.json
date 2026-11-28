@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T07:31:12.605124+00:00",
+  "args": [
+    "--mutant",
+    "r8-parent-hint-scanned",
+    "tests/unit/test_retention_locations.py::test_inferred_parent_is_not_scanned"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/real-tmp/mutant-r8-parent-hint-scanned",
+  "linked": false
+}

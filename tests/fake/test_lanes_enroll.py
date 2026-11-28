@@ -11,7 +11,7 @@ from subfleet import daemon as daemon_module
 from subfleet import protocol
 from subfleet.adapters.base import AdapterError
 from subfleet.adapters.registry import register
-from subfleet.contracts import LaneInfo, Reading, ReadingLabel
+from subfleet.contracts import ClockSource, Closure, ClosureReason, LaneInfo, Reading, ReadingLabel
 from subfleet.daemon import Daemon
 from subfleet.procs import Containment
 from tests.fake.conftest import Harness
@@ -123,3 +123,79 @@ def test_c9_6_hold_records_an_operator_closure_and_release_lifts_it(core, tmp_pa
         daemon.dispatch("lanes", {"action": "hold", "lane_id": "claude-9", "until": "2027-01-01T00:00:00Z"})
     with pytest.raises(protocol.ProtocolError):
         daemon.dispatch("lanes", {"action": "hold", "lane_id": "claude-1", "until": "soon"})
+
+
+def test_c9_6_release_limits_only_lifts_active_guessed_quota_closures(core, tmp_path):
+    daemon, root = core
+    daemon.dispatch("lanes", {"action": "enroll", "credential": str(login_dir(tmp_path, "lane1@example.test"))})
+
+    def add(lane, scope, reason, clock=ClockSource.GUESSED, until="2099-01-01T00:00:00Z"):
+        return daemon.store.add_closure(Closure(lane, scope, until, reason, clock, "fixture"))
+
+    guessed = [add("claude-1", "account", ClosureReason.PROVIDER_LIMIT),
+               add("claude-1", "model", ClosureReason.CREDITS)]
+    reported = add("claude-1", "reported-model", ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED)
+    kept = [reported, add("claude-1", "hold", ClosureReason.OPERATOR_HOLD, ClockSource.REPORTED),
+            add("codex-1", "account", ClosureReason.PROVIDER_LIMIT),
+            add("claude-1", "expired", ClosureReason.CREDITS, until="2000-01-01T00:00:00Z")]
+    already = add("claude-1", "released", ClosureReason.CREDITS)
+    with daemon.store.transaction("fixture.released") as tx:
+        tx.execute("UPDATE closures SET released_at='2000-01-01T00:00:00Z' WHERE closure_id=?", (already,))
+    reply = daemon.dispatch("lanes", {"action": "release-limits", "lane_id": "claude-1",
+                                       "note": "  report text falsely matched quota  "})
+    assert reply["released"] == "claude-1"
+    assert reply["limits_released"] == guessed
+    assert reply["limits_reported"] == [reported]
+    for row in daemon.store.list_closures():
+        if row["closure_id"] in guessed:
+            assert row["released_at"]
+        elif row["closure_id"] in kept:
+            assert row["released_at"] is None
+        elif row["closure_id"] == already:
+            assert row["released_at"] == "2000-01-01T00:00:00Z"
+    events = [e for e in daemon.store.list_events() if e["kind"] == "lane.limits_released"]
+    assert len(events) == 1 and events[0]["lane_id"] == "claude-1"
+    assert json.loads(events[0]["data_json"]) == {
+        "note": "report text falsely matched quota", "closure_ids": guessed,
+        "reported_closure_ids": [reported]}
+
+
+@pytest.mark.parametrize("clock,reason", [(ClockSource.REPORTED, ClosureReason.PROVIDER_LIMIT),
+                                        (ClockSource.REPORTED, ClosureReason.CREDITS)])
+def test_c9_6_release_limits_refuses_reported_clock(core, clock, reason):
+    daemon, _ = core
+    closure_id = daemon.store.add_closure(Closure("codex-1", "account", "2099-01-01T00:00:00Z",
+                                                 reason, clock, "fixture"))
+    with pytest.raises(protocol.ProtocolError, match="reported clock") as refused:
+        daemon.dispatch("lanes", {"action": "release-limits", "lane_id": "codex-1", "note": "operator"})
+    assert refused.value.code == 2
+    assert daemon.store.one("SELECT released_at FROM closures WHERE closure_id=?", (closure_id,))["released_at"] is None
+    assert not [e for e in daemon.store.list_events() if e["kind"] == "lane.limits_released"]
+
+
+@pytest.mark.parametrize("state", ("none", "expired", "released", "operator-hold"))
+def test_c9_6_release_limits_refuses_when_none_open(core, state):
+    daemon, _ = core
+    if state != "none":
+        closure_id = daemon.store.add_closure(Closure("codex-1", "account",
+            "2000-01-01T00:00:00Z" if state == "expired" else "2099-01-01T00:00:00Z",
+            ClosureReason.OPERATOR_HOLD if state == "operator-hold" else ClosureReason.CREDITS,
+            ClockSource.GUESSED, "fixture"))
+        if state == "released":
+            with daemon.store.transaction("fixture.released") as tx:
+                tx.execute("UPDATE closures SET released_at='2000-01-01T00:00:00Z' WHERE closure_id=?", (closure_id,))
+    with pytest.raises(protocol.ProtocolError, match="no open"):
+        daemon.dispatch("lanes", {"action": "release-limits", "lane_id": "codex-1", "note": "operator"})
+
+
+@pytest.mark.parametrize("note", (None, "", "   "))
+def test_c9_6_release_limits_requires_note(core, note):
+    daemon, _ = core
+    with pytest.raises(protocol.ProtocolError, match="--note is required"):
+        daemon.dispatch("lanes", {"action": "release-limits", "lane_id": "codex-1", "note": note})
+
+
+def test_c9_6_release_limits_refuses_unknown_lane(core):
+    daemon, _ = core
+    with pytest.raises(protocol.ProtocolError, match="unknown lane"):
+        daemon.dispatch("lanes", {"action": "release-limits", "lane_id": "missing", "note": "operator"})

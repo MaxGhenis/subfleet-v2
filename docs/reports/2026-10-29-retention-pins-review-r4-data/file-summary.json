@@ -1,0 +1,376 @@
+[
+  {
+    "file": "tests/fake/test_turn_retention_job_properties.py",
+    "passed": 1,
+    "xfailed": 0,
+    "start": "2026-10-30T02:51:31.111981+00:00",
+    "loads": [
+      20.5576171875,
+      25.076171875,
+      25.95849609375
+    ]
+  },
+  {
+    "file": "tests/unit/test_retention_archive.py",
+    "passed": 108,
+    "xfailed": 0,
+    "start": "2026-10-30T02:51:32.708213+00:00",
+    "loads": [
+      20.6728515625,
+      25.02490234375,
+      25.93505859375
+    ]
+  },
+  {
+    "file": "tests/fake/test_retention_dependency_review_r3.py",
+    "passed": 6,
+    "xfailed": 0,
+    "start": "2026-10-30T02:52:11.692962+00:00",
+    "loads": [
+      21.6982421875,
+      24.86279296875,
+      25.84228515625
+    ]
+  },
+  {
+    "file": "tests/unit/test_retention_dependency_aliases.py",
+    "passed": 10,
+    "xfailed": 0,
+    "start": "2026-10-30T02:52:35.816115+00:00",
+    "loads": [
+      21.03955078125,
+      24.47900390625,
+      25.6767578125
+    ]
+  },
+  {
+    "file": "tests/fake/test_retention_recovery_census.py",
+    "passed": 2,
+    "xfailed": 0,
+    "start": "2026-10-30T02:52:43.812280+00:00",
+    "loads": [
+      25.43408203125,
+      25.2900390625,
+      25.94921875
+    ]
+  },
+  {
+    "file": "probes.py",
+    "passed": 2,
+    "xfailed": 0,
+    "start": "2026-10-30T02:52:51.703881+00:00",
+    "loads": [
+      24.91845703125,
+      25.185546875,
+      25.908203125
+    ]
+  },
+  {
+    "file": "tests/fake/test_retention_dependency_review_r2.py",
+    "passed": 21,
+    "xfailed": 0,
+    "start": "2026-10-30T02:53:09.671249+00:00",
+    "loads": [
+      26.212890625,
+      25.48974609375,
+      26.00146484375
+    ]
+  },
+  {
+    "file": "tests/unit/test_retention_alternates_review_r2.py",
+    "passed": 15,
+    "xfailed": 0,
+    "start": "2026-10-30T02:53:58.461413+00:00",
+    "loads": [
+      24.625,
+      25.35107421875,
+      25.9296875
+    ]
+  },
+  {
+    "file": "tests/fake/test_retention_dependency_review_r1.py",
+    "passed": 18,
+    "xfailed": 0,
+    "start": "2026-10-30T02:54:14.669175+00:00",
+    "loads": [
+      21.65576171875,
+      24.6630859375,
+      25.67333984375
+    ]
+  },
+  {
+    "file": "tests/fake/test_retention_dependency_incomplete.py",
+    "passed": 19,
+    "xfailed": 0,
+    "start": "2026-10-30T02:54:30.325549+00:00",
+    "loads": [
+      21.1318359375,
+      24.40087890625,
+      25.5615234375
+    ]
+  },
+  {
+    "file": "tests/unit/test_retention_alternates.py",
+    "passed": 23,
+    "xfailed": 0,
+    "start": "2026-10-30T02:55:24.719698+00:00",
+    "loads": [
+      22.00048828125,
+      24.205078125,
+      25.42236328125
+    ]
+  },
+  {
+    "file": "tests/unit/test_retention_job_dependencies.py",
+    "passed": 12,
+    "xfailed": 0,
+    "start": "2026-10-30T02:56:31.060155+00:00",
+    "loads": [
+      27.28076171875,
+      25.29931640625,
+      25.744140625
+    ]
+  },
+  {
+    "file": "tests/fake/test_retention_dependencies.py",
+    "passed": 30,
+    "xfailed": 0,
+    "start": "2026-10-30T02:56:52.462032+00:00",
+    "loads": [
+      26.291015625,
+      25.263671875,
+      25.72021484375
+    ]
+  },
+  {
+    "file": "tests/fake/test_retention_dependency_spelling.py",
+    "passed": 16,
+    "xfailed": 0,
+    "start": "2026-10-30T02:58:03.505497+00:00",
+    "loads": [
+      24.1669921875,
+      25.0234375,
+      25.59912109375
+    ]
+  },
+  {
+    "file": "tests/unit/test_retention_dependency_units.py",
+    "passed": 19,
+    "xfailed": 0,
+    "start": "2026-10-30T02:58:28.021233+00:00",
+    "loads": [
+      26.8701171875,
+      25.55908203125,
+      25.77294921875
+    ]
+  },
+  {
+    "file": "tests/unit/test_retention_folded_pin.py",
+    "passed": 38,
+    "xfailed": 0,
+    "start": "2026-10-30T02:59:01.352913+00:00",
+    "loads": [
+      24.5439453125,
+      25.29736328125,
+      25.68017578125
+    ]
+  },
+  {
+    "file": "tests/unit/test_retention_archive_properties.py",
+    "passed": 2,
+    "xfailed": 0,
+    "start": "2026-10-30T03:00:34.480576+00:00",
+    "loads": [
+      26.41650390625,
+      25.17138671875,
+      25.55859375
+    ]
+  },
+  {
+    "file": "tests/unit/test_retention_dependency_properties.py",
+    "passed": 4,
+    "xfailed": 0,
+    "start": "2026-10-30T03:00:48.060579+00:00",
+    "loads": [
+      29.56884765625,
+      25.93017578125,
+      25.82177734375
+    ]
+  },
+  {
+    "file": "tests/unit/test_retention_nested_leases.py",
+    "passed": 27,
+    "xfailed": 0,
+    "start": "2026-10-30T03:02:08.013412+00:00",
+    "loads": [
+      18.92041015625,
+      23.6884765625,
+      24.98828125
+    ]
+  },
+  {
+    "file": "tests/unit/test_retention_salvage_properties.py",
+    "passed": 2,
+    "xfailed": 0,
+    "start": "2026-10-30T03:03:35.135105+00:00",
+    "loads": [
+      21.021484375,
+      22.86279296875,
+      24.52587890625
+    ]
+  },
+  {
+    "file": "tests/unit/test_retention_shared_folders.py",
+    "passed": 62,
+    "xfailed": 0,
+    "start": "2026-10-30T03:06:00.772774+00:00",
+    "loads": [
+      19.6953125,
+      21.251953125,
+      23.59228515625
+    ]
+  },
+  {
+    "file": "journal_probes.py",
+    "passed": 3,
+    "xfailed": 0,
+    "start": "2026-10-30T03:07:52.053927+00:00",
+    "loads": [
+      28.892578125,
+      24.53857421875,
+      24.62646484375
+    ]
+  },
+  {
+    "file": "tests/fake/test_detached_retention_fence.py",
+    "passed": 89,
+    "xfailed": 0,
+    "start": "2026-10-30T03:09:46.932075+00:00",
+    "loads": [
+      25.82470703125,
+      25.06640625,
+      24.84228515625
+    ]
+  },
+  {
+    "file": "tests/unit/test_retention_sweep_race.py",
+    "passed": 13,
+    "xfailed": 0,
+    "start": "2026-10-30T03:10:27.991574+00:00",
+    "loads": [
+      29.50048828125,
+      26.00537109375,
+      25.19091796875
+    ]
+  },
+  {
+    "file": "tests/unit/test_retention_81_notes.py",
+    "passed": 38,
+    "xfailed": 0,
+    "start": "2026-10-30T03:16:47.667452+00:00",
+    "loads": [
+      25.90185546875,
+      26.79296875,
+      26.0224609375
+    ]
+  },
+  {
+    "file": "tests/fake/test_writer_retention_fence.py",
+    "passed": 23,
+    "xfailed": 0,
+    "start": "2026-10-30T03:17:41.445466+00:00",
+    "loads": [
+      25.671875,
+      26.517578125,
+      25.96337890625
+    ]
+  },
+  {
+    "file": "tests/fake/test_state_contract.py",
+    "passed": 37,
+    "xfailed": 0,
+    "start": "2026-10-30T03:18:14.595144+00:00",
+    "loads": [
+      24.8701171875,
+      26.24755859375,
+      25.8876953125
+    ]
+  },
+  {
+    "file": "tests/unit/test_test_module_names.py",
+    "passed": 1,
+    "xfailed": 0,
+    "start": "2026-10-30T03:18:41.104168+00:00",
+    "loads": [
+      22.90380859375,
+      25.7177734375,
+      25.708984375
+    ]
+  },
+  {
+    "file": "tests/unit/test_invariants_index.py",
+    "passed": 25,
+    "xfailed": 0,
+    "start": "2026-10-30T03:18:43.711328+00:00",
+    "loads": [
+      21.7099609375,
+      25.42333984375,
+      25.60498046875
+    ]
+  },
+  {
+    "file": "tests/fake/test_turn_retention_cwd.py",
+    "passed": 6,
+    "xfailed": 0,
+    "start": "2026-10-30T03:18:46.099911+00:00",
+    "loads": [
+      21.7099609375,
+      25.42333984375,
+      25.60498046875
+    ]
+  },
+  {
+    "file": "tests/fake/test_turn_retention_quarantine.py",
+    "passed": 10,
+    "xfailed": 0,
+    "start": "2026-10-30T03:18:58.254184+00:00",
+    "loads": [
+      18.90625,
+      24.6318359375,
+      25.3193359375
+    ]
+  },
+  {
+    "file": "tests/fake/test_turn_retention_cwd_properties.py",
+    "passed": 1,
+    "xfailed": 0,
+    "start": "2026-10-30T03:19:16.041319+00:00",
+    "loads": [
+      21.25146484375,
+      24.86328125,
+      25.38916015625
+    ]
+  },
+  {
+    "file": "tests/fake/test_turn_retention_job_directory.py",
+    "passed": 2,
+    "xfailed": 0,
+    "start": "2026-10-30T03:19:24.117666+00:00",
+    "loads": [
+      19.1396484375,
+      24.291015625,
+      25.1796875
+    ]
+  },
+  {
+    "file": "tests/fake/test_retention_dependency_review_r4.py",
+    "passed": 48,
+    "xfailed": 5,
+    "start": "2026-10-30T03:22:37.745332+00:00",
+    "loads": [
+      20.2890625,
+      23.20068359375,
+      24.58251953125
+    ]
+  }
+]

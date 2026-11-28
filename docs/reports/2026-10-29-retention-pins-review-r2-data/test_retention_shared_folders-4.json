@@ -1,0 +1,31 @@
+{
+  "name": "test_retention_shared_folders-4",
+  "start": "2026-10-29T06:29:28.970109+00:00",
+  "load": [
+    28.2392578125,
+    24.7216796875,
+    23.31005859375
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_shared_folders.py::test_retirement_fence_blocks_actual_turn_reservation[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_retirement_fence_blocks_actual_turn_reservation[READER]"
+  ],
+  "phases": {
+    "tests/unit/test_retention_shared_folders.py::test_retirement_fence_blocks_actual_turn_reservation[TURN]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_retirement_fence_blocks_actual_turn_reservation[READER]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

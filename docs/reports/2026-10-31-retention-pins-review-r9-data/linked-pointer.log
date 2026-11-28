@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 08:31:43Z slot A load 
+..                                                                       [100%]
+2 passed in 68.77s (0:01:08)
+{"name": "linked-pointer", "start": "2026-10-31T08:31:46.723463+00:00", "load": [25.2099609375, 25.07275390625, 28.66455078125], "seconds": 70.4969851249989, "exit": 0}

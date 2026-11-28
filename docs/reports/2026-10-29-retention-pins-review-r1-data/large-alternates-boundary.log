@@ -1,0 +1,31 @@
+hold 04:36:13Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______________ test_large_valid_alternates_file_keeps_its_owner _______________
+
+tmp_path = PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r1/b-63c4c7efd556/test_large_valid_alternates_fi0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1077703e0>
+
+    def test_large_valid_alternates_file_keeps_its_owner(tmp_path,monkeypatch):
+     monkeypatch.setattr(procs,'worktree_cwd_pids',lambda *a,**k:frozenset())
+     w=World(tmp_path)
+     try:
+      tree=w.job('owner');source=repo(tree/'objects-source');oid=git(source,'rev-parse','HEAD')
+      borrower=tmp_path/'borrower';git(tmp_path,'clone','--quiet','--shared',str(source),str(borrower))
+      line=str(source/'.git'/'objects')+'\n'
+      text=line*((64*1024)//len(line.encode())+1)
+      (borrower/'.git/objects/info/alternates').write_text(text)
+      assert len(text.encode())>64*1024
+      assert git(borrower,'cat-file','-t',oid)=='commit'
+      data=dependencies.record(str(borrower))
+      w.store.add_job(job_id='reader',request_id='reader',payload_digest='d',kind='dispatch',state='running',sandbox='read-only',workdir=str(borrower),prompt_path='/p')
+      w.store.add_event('job.submitted',job_id='reader',data={'depends':data})
+      result=retention.maintenance(w.store,w.root,max_jobs=0,max_bytes=0,holders=lambda *a,**k:{})
+>     assert 'owner' not in result['pruned'],(data,result)
+E     AssertionError: ({'git': ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r1/b-63c4c7efd556/test_large_valid_alternates_fi0/borrower/.git']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48032, 'bytes_after': 0, ...})
+E     assert 'owner' not in ['owner']
+
+/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r1/test_large_alternates_probe.py:20: AssertionError
+=========================== short test summary info ============================
+FAILED ../../../../../var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r1/test_large_alternates_probe.py::test_large_valid_alternates_file_keeps_its_owner
+1 failed in 3.96s

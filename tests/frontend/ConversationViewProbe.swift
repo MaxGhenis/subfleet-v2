@@ -9,6 +9,7 @@ import SwiftUI
 
 @MainActor final class Presses {
     var review = 0, stop = 0, badge = 0
+    var recovery: [String] = []
 }
 
 @MainActor func host<V: View>(_ view: V, width: CGFloat) -> (size: CGSize, buttons: [NSButton], window: NSWindow) {
@@ -64,7 +65,43 @@ struct ConversationViewProbe {
             rows.append(["pending": pending, "width": hosted.size.width, "clicks": clicks,
                          "spoken": approvalsWaitingWords(pending)])
         }
-        let result: [String: Any] = ["strips": strips, "rows": rows,
+        var blockers: [[String: Any]] = []
+        for reason in ["unfinished-turn", "delivery-unknown"] {
+            let conversation = Conversation(
+                conversation_id: "blocked", provider: "claude", workspace: "/tmp/project", workspace_kind: "in-place",
+                allow_main: false, settings: ConversationSettings(model: "claude-opus-5-5"), origin: "person",
+                blocked_by: reason, created_at: "2026-09-24T12:00:00Z", updated_at: "2026-10-03T12:45:00Z",
+                last_message: LastMessage(message_id: "uncertain", state: "delivery-unknown"),
+                pending_approvals: 0, active: false)
+            let banner = makeBlockedBanner(for: conversation, timeline: nil)!
+            let presses = Presses()
+            let hosted = host(BlockedConversationBanner(banner: banner) { choice in
+                switch choice.action {
+                case .unblock(let choice): presses.recovery.append(choice.rawValue)
+                case .resolve(_, let resolution): presses.recovery.append(resolution.rawValue)
+                }
+            }, width: 640)
+            windows.append(hosted.window)
+            for button in hosted.buttons { button.performClick(nil) }
+            var state = ConversationStoreState()
+            state.upsert(conversation)
+            let entry = state.sidebarEntries()[0]
+            let marked = host(SidebarRow(entry: entry, showApprovals: {}), width: 300)
+            windows.append(marked.window)
+            var plain = entry
+            plain.blockedBy = nil
+            let unmarked = host(SidebarRow(entry: plain, showApprovals: {}), width: 300)
+            windows.append(unmarked.window)
+            blockers.append(["reason": reason, "labels": banner.choices.map(\.label), "clicks": presses.recovery,
+                             "needs_you": entry.needsYouLabel as Any? ?? NSNull(),
+                             "marked_width": marked.size.width, "plain_width": unmarked.size.width])
+        }
+        let notice = TaskNotification(summary: "Background tests completed", status: "completed", exitCode: 0)
+        let notification = host(TaskNotificationView(notice: notice), width: 640)
+        windows.append(notification.window)
+        let result: [String: Any] = ["strips": strips, "rows": rows, "blockers": blockers,
+                                     "task_notice": ["height": notification.size.height,
+                                                      "detail": notice.detail, "buttons": notification.buttons.count],
                                      "visible_windows": NSApp.windows.filter(\.isVisible).count]
         print(String(data: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), encoding: .utf8)!)
         withExtendedLifetime(windows) {}

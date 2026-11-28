@@ -62,16 +62,23 @@ def test_migration_preserves_old_jobs_without_authorizing_them(version_4_store):
         assert {key: after[key] for key in before} == before
         assert after["unmeasured_reserve_reason"] is None
         assert after["mcp_servers"] == "[]"
-        assert set(after) - set(before) == {"unmeasured_reserve_reason", "mcp_servers"}
+        assert after["needs_shell"] is False
+        # C-5.1, D-QOS-BOOKED1: the old job requested no provider QoS. Its row keeps
+        # NULL, and its domain record reads that as `utility` (`job_flags`).
+        assert after["provider_qos"] == "utility"
+        assert store.one("SELECT provider_qos FROM jobs WHERE job_id='old'")["provider_qos"] is None
+        assert set(after) - set(before) == {"unmeasured_reserve_reason", "mcp_servers", "push_branch", "push_remote",
+                                            "push_default_branch", "push_sha", "push_error", "needs_shell",
+                                            "provider_qos"}
         store.add_job(job_id="authorized", request_id="new-request", payload_digest="new",
                       kind="dispatch", workdir="/work", prompt_path="/prompt", sandbox="read-only",
                       pinned_model="fable", pinned_lane="claude-1", unmeasured_reserve_reason=REASON)
     with Store(version_4_store) as store:
         assert store.get_job("authorized")["unmeasured_reserve_reason"] == REASON
         assert store.get_job("old")["unmeasured_reserve_reason"] is None
-        assert [row["version"] for row in store.query("SELECT * FROM schema_version")] == [4, 5, 6]
+        assert [row["version"] for row in store.query("SELECT * FROM schema_version ORDER BY version")] == list(range(4, SCHEMA_VERSION + 1))
         assert [json.loads(row["data_json"]) for row in store.list_events()
-                if row["kind"] == "schema.migrated"] == [{"version": 5}, {"version": 6}]
+                if row["kind"] == "schema.migrated"] == [{"version": step} for step in range(5, SCHEMA_VERSION + 1)]
 
 
 def test_readonly_old_store_does_not_migrate_or_invent_authorization(version_4_store):

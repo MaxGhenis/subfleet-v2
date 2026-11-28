@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T09:58:29.166380+00:00",
+  "args": [
+    "tests/../docs/reports/2026-10-31-retention-pins-fix-r9-data/probes.py",
+    "-k",
+    "test_start_before_repair"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r9/real-tmp/start-before",
+  "linked": false,
+  "driver_pid": 4541,
+  "lock_process_group": 5056
+}

@@ -1,0 +1,3493 @@
+{
+  "head": "e798ddc9fb1f9d9430f11d98fcbf78db00fd514a",
+  "recorded_utc": "2026-10-28T15:06:24.133686+00:00",
+  "status": "implementation complete; validation partly obtained by job 20261028-125448-pr254-fix13v (see validation_r13v)",
+  "git": "named staging denied shared index.lock creation; no commits",
+  "constraints": {
+    "no_network": true,
+    "no_subagents": true,
+    "no_overlapping_pytest": true,
+    "long_foreground_runs": "shell yields running sessions after 30 s; user exception requested asynchronously, not received"
+  },
+  "checks": {
+    "python_ast_parse": [
+      "tests/frontend/test_review_r219_fix14_setup.py",
+      "tests/frontend/test_review_r219_fix8_mutations.py",
+      "tests/unit/test_ci_shard_plugin.py"
+    ],
+    "swift_syntax_parse": "passed via direct CLT compiler; no typecheck or native run",
+    "fresh_pytest_passes": 0,
+    "fresh_native_runs": 0,
+    "fresh_mutant_kills": 0,
+    "generated_swift_sources": "all replacement anchors unique; combined syntax parse stopped at 20 s without result",
+    "git_diff_check": "passed",
+    "final_head": "e798ddc9fb1f9d9430f11d98fcbf78db00fd514a",
+    "late_recovery_expiry": "final Python assertion accepts any measured gap; fixture-write policy alone controls rejection"
+  },
+  "holds": [
+    {
+      "label": "small-guards",
+      "queued_utc": "2026-10-28T14:46:01.327195+00:00",
+      "load": null,
+      "stopped": "interrupted before pytest; supervisor initially misread proc_listchildpids count; fixed for later attempts",
+      "returncode": 130,
+      "live_owned": [],
+      "pytest_phases": [],
+      "output": "sysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\n"
+    },
+    {
+      "label": "module-names",
+      "queued_utc": "2026-10-28T14:52:43.015006+00:00",
+      "load": 123.87060546875,
+      "args": [
+        "tests/unit/test_test_module_names.py"
+      ],
+      "foreground_budget": 20.0,
+      "stopped": "foreground deadline",
+      "returncode": -15,
+      "seconds": 20.21291229200142,
+      "owned_identities": {
+        "89224": "3b0ce26a00000000103c000000000000",
+        "89263": "3b0ce26a00000000e8cb090000000000",
+        "89279": "3b0ce26a0000000011870c0000000000",
+        "89290": "3b0ce26a00000000b0f10e0000000000",
+        "89316": "3c0ce26a000000004af1040000000000",
+        "89445": "3c0ce26a00000000439f0d0000000000",
+        "89519": "3d0ce26a00000000cb530a0000000000",
+        "89534": "3d0ce26a00000000c3040b0000000000",
+        "89572": "3d0ce26a00000000f1960d0000000000",
+        "89577": "3d0ce26a0000000021dd0d0000000000",
+        "89916": "3f0ce26a000000003c3a040000000000",
+        "89972": "3f0ce26a000000004d680a0000000000",
+        "89973": "3f0ce26a00000000346b0a0000000000",
+        "90420": "430ce26a000000001973050000000000"
+      },
+      "live_owned": [],
+      "pytest_phases": [],
+      "output": "sysctl: sysctl fmt -1 1024 1: Operation not permitted\nhold 14:52:47Z slot A load \n"
+    },
+    {
+      "label": "map-guard",
+      "queued_utc": "2026-10-28T14:56:35.327065+00:00",
+      "load": 99.94580078125,
+      "args": [
+        "tests/unit/test_ci_shard_plugin.py",
+        "-k",
+        "checked_in_map_fits or review_probes_share"
+      ],
+      "foreground_budget": 20.0,
+      "stopped": "foreground deadline",
+      "returncode": -15,
+      "seconds": 20.12890620899998,
+      "owned_identities": {
+        "29675": "230de26a00000000b4ff040000000000",
+        "29712": "230de26a00000000c774070000000000",
+        "29807": "230de26a00000000a83c0a0000000000",
+        "29842": "230de26a00000000ed790c0000000000",
+        "29987": "240de26a00000000e249030000000000",
+        "29995": "240de26a00000000d881030000000000",
+        "30004": "240de26a00000000fc08040000000000",
+        "30033": "240de26a000000006b81040000000000",
+        "30110": "240de26a00000000cb13080000000000",
+        "30112": "240de26a00000000b3a2080000000000",
+        "30287": "240de26a00000000dc0c0d0000000000",
+        "30152": "240de26a000000006e590a0000000000",
+        "30379": "250de26a000000007d6a010000000000",
+        "30479": "250de26a000000000b84060000000000",
+        "30543": "250de26a0000000035c9080000000000",
+        "31999": "2a0de26a000000006ec80d0000000000",
+        "32078": "2b0de26a00000000a776020000000000",
+        "32092": "2b0de26a00000000bd96030000000000",
+        "32110": "2b0de26a00000000661a050000000000",
+        "32106": "2b0de26a0000000091f6040000000000",
+        "32131": "2b0de26a00000000e2a4060000000000",
+        "32303": "2c0de26a00000000eb26040000000000",
+        "32321": "2c0de26a00000000a189060000000000",
+        "32336": "2c0de26a00000000029d080000000000",
+        "33285": "310de26a000000005b610b0000000000",
+        "33298": "310de26a00000000dc970d0000000000",
+        "33300": "310de26a00000000d1e90d0000000000",
+        "33302": "310de26a0000000056000e0000000000",
+        "33327": "320de26a000000004bdd030000000000",
+        "33427": "330de26a000000008f4a000000000000",
+        "33435": "330de26a000000009c56020000000000"
+      },
+      "live_owned": [],
+      "pytest_phases": [],
+      "output": "sysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\n"
+    },
+    {
+      "label": "swift-parse",
+      "queued_utc": "2026-10-28T14:59:23.880773+00:00",
+      "load": 115.2822265625,
+      "args": [
+        "--command",
+        "xcrun",
+        "swiftc",
+        "-frontend",
+        "-parse",
+        "tests/frontend/ReviewR219Fix8ViewProbe.swift"
+      ],
+      "foreground_budget": 20.0,
+      "stopped": "foreground deadline",
+      "returncode": -15,
+      "seconds": 20.071594458000618,
+      "owned_identities": {
+        "57989": "cb0de26a00000000b5740d0000000000"
+      },
+      "live_owned": [],
+      "pytest_phases": [],
+      "output": ""
+    },
+    {
+      "label": "swift-direct-parse",
+      "queued_utc": "2026-10-28T15:01:01.107690+00:00",
+      "load": 108.37646484375,
+      "args": [
+        "--command",
+        "/Library/Developer/CommandLineTools/usr/bin/swiftc",
+        "-frontend",
+        "-parse",
+        "tests/frontend/ReviewR219Fix8ViewProbe.swift"
+      ],
+      "foreground_budget": 20.0,
+      "returncode": 0,
+      "seconds": 16.423029000005045,
+      "owned_identities": {
+        "73230": "2d0ee26a00000000a8bb010000000000"
+      },
+      "live_owned": [],
+      "pytest_phases": [],
+      "output": ""
+    },
+    {
+      "label": "generated-swift-parse",
+      "queued_utc": "2026-10-28T15:07:27.381628+00:00",
+      "load": 81.60693359375,
+      "args": [
+        "--command",
+        "/Library/Developer/CommandLineTools/usr/bin/swiftc",
+        "-frontend",
+        "-parse",
+        "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-qtf13/SetupProbe.swift",
+        "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-qtf13/MutantProbe.swift"
+      ],
+      "foreground_budget": 20.0,
+      "stopped": "foreground deadline",
+      "returncode": -15,
+      "seconds": 20.06753645799472,
+      "owned_identities": {
+        "35003": "af0fe26a00000000a2f3050000000000"
+      },
+      "live_owned": [],
+      "output": ""
+    }
+  ],
+  "shards": {
+    "cold_setup_phases_from_review": [
+      401.2410662919974,
+      487.95611383300275
+    ],
+    "cached_file_wall_from_review": 62.52,
+    "cached_file_phases_from_review": 61.81704508301118,
+    "borrowed_view_ratio": 1.4882543255028835,
+    "setup_file_estimate": 818.2,
+    "new_fixture_mutant_allowance": 818.2,
+    "mutation_file_estimate": 1757.7,
+    "projected_shards": [
+      1962.4,
+      1962.4,
+      1962.4,
+      1962.4,
+      1962.3
+    ],
+    "guard_seconds": 2100,
+    "workflow_minutes": 45,
+    "note": "provisional cold-file allowances using measured review phases, not fresh complete cold-file or CI measurements"
+  },
+  "review_input_sha256": {
+    "2026-10-28-pr254-r11-validation.json": "2ad1e3f279e3760559b02c42b9652135006a0d3dc205a7adc05a4f869449db0c",
+    "review_pr254_r11_probes.py": "ccdc9256af15c80e83fe665599e2ca4a2df77582816d75da689d50975a42ef64",
+    "2026-10-28-pr254-r11-review.md": "4ec10232ce3b79752b2946676989f998f47eab7e5be23d89ab1bb34860f671d1"
+  },
+  "file_sha256": {
+    "tests/frontend/ReviewR219Fix8ViewProbe.swift": "818203e0d1b3d46c802b19b4561c467fccb0b61f5ce3c897962d5e6fbfa040b0",
+    "tests/frontend/test_review_r219_fix14_setup.py": "784850e58e53c06e82e0c1b31b281067279c75324cfbc4076259e759490dfa0b",
+    "tests/frontend/test_review_r219_fix8_mutations.py": "dc17d55ad163420d10b1bc064f414e6e2fcefc35d14d0a78c557afc3533f7037",
+    "tests/unit/test_ci_shard_plugin.py": "2642d2f9c9a359ef521b4aaaed3f1746dfbc746b23375582051374708f0e0826",
+    ".github/test-shards.json": "1346342b36a82ac89b6c5f77018053b6a57e80c1f0c4c7816600daf129463c13"
+  },
+  "cleanup": {
+    "scratch_bytes_before_builds": 18418322,
+    "remaining_owned_stdout_log_holders": [],
+    "scratch_removed": true,
+    "processes_in_assigned_cwd_before_cleanup": [],
+    "worktree_caches_removed": [
+      "tools/__pycache__"
+    ],
+    "scratch_allocated_bytes_before_cleanup": 21422080,
+    "completed_utc": "2026-10-28T15:11:47.433278+00:00",
+    "final_processes_in_assigned_cwd": []
+  },
+  "report_sha256": "bc2ee890f13a339385bff6fe0fd24be6074053ed2330fd867cb623cfca3db0c6",
+  "validation_r13v": {
+    "job": "20261028-125448-pr254-fix13v",
+    "head": "9a34da1b37ef22885418381e98e3ad96425b16c1",
+    "started_utc": "2026-10-28T17:43:56Z",
+    "recorded_utc": "2026-10-28T21:10:42Z",
+    "environment": "offline uv sync of the locked dev group (8 packages) into scratch, Python 3.14.7; pytest via suite_hold.sh, one pytest per hold, no xdist",
+    "build_only_steps": "full-source probe compiles ran as foreground build-only steps outside the lock (tests' own source builders, so the exact compile_probe cache key); no window, no test",
+    "green_cold_setup": {
+      "green1": {
+        "cold_setup_build_s": 357.22,
+        "build_label": "build-setup-cold1",
+        "cached_file_phases_s": 241.36,
+        "round13_formula_s": 890.8,
+        "vs_818_2_percent": 8.9,
+        "passed": 4
+      },
+      "green2": {
+        "cold_setup_build_s": 494.02,
+        "build_label": "build-setup-cold2b",
+        "cached_file_phases_s": 145.05,
+        "round13_formula_s": 951.1,
+        "vs_818_2_percent": 16.2,
+        "passed": 4
+      },
+      "green3": {
+        "cold_setup_build_s": 380.4,
+        "build_label": "build-setup-cold3",
+        "cached_file_phases_s": 96.79,
+        "round13_formula_s": 710.2,
+        "vs_818_2_percent": -13.2,
+        "passed": 4
+      }
+    },
+    "shard_decision": "all three measured repetitions within 20% of 818.2 s; map unchanged",
+    "holds": [
+      {
+        "label": "build-untraced",
+        "mode": "build",
+        "argv": [
+          "<scratch>/build.py",
+          "untraced_partial_correction"
+        ],
+        "queued_utc": "2026-10-28T17:53:57+00:00",
+        "admitted_utc": "2026-10-28T17:53:57+00:00",
+        "admit_line": "build load (59.08740234375, 73.4814453125, 84.48779296875)",
+        "admitted_after_s": null,
+        "run_s": null,
+        "elapsed_s": 338.7,
+        "end_utc": "2026-10-28T17:59:36+00:00",
+        "rc": 0,
+        "killed": null,
+        "load_queued": 59.08740234375,
+        "load_admitted": 59.08740234375,
+        "load_end": 82.86962890625,
+        "max_rss": 1212694528,
+        "pytest_summary": null,
+        "live_owned_after": [],
+        "passed": [],
+        "failed": [],
+        "errors": [],
+        "phases": [],
+        "native": [],
+        "outcomes": [],
+        "kill_lines": [],
+        "build": {
+          "variant": "untraced_partial_correction",
+          "cache_key": "0e0c95c8abc538a75b03f3c80a9681bbb7c15cb28f6bf1cff9af0e576b58d181",
+          "removed_first": false,
+          "cache_hit": false,
+          "seconds": 325.78,
+          "load_start": 62.03271484375,
+          "load_end": 81.6396484375,
+          "start_utc": "17:54:09Z",
+          "cached_after": true
+        }
+      },
+      {
+        "label": "red-mutant",
+        "mode": "lock",
+        "argv": [
+          "tests/frontend/test_review_r219_fix8_mutations.py",
+          "-k",
+          "round13"
+        ],
+        "queued_utc": "2026-10-28T17:59:57+00:00",
+        "admitted_utc": "2026-10-28T18:02:16+00:00",
+        "admit_line": "hold 18:02:15Z slot B load { 65.51 72.09 78.66 }",
+        "admitted_after_s": 138.9,
+        "run_s": 59.9,
+        "elapsed_s": 198.8,
+        "end_utc": "2026-10-28T18:03:15+00:00",
+        "rc": 0,
+        "killed": null,
+        "load_queued": 83.271484375,
+        "load_admitted": 65.513671875,
+        "load_end": 85.47412109375,
+        "max_rss": 115965952,
+        "pytest_summary": "1 passed, 20 deselected in 47.35s",
+        "live_owned_after": [],
+        "passed": [
+          "tests/frontend/test_review_r219_fix8_mutations.py::test_round13_fixture_mutation_fails_the_full_view_counter[untraced_partial_correction]"
+        ],
+        "failed": [],
+        "errors": [],
+        "phases": [
+          {
+            "seconds": 21.66,
+            "phase": "call",
+            "test": "tests/frontend/test_review_r219_fix8_mutations.py::test_round13_fixture_mutation_fails_the_full_view_counter[untraced_partial_correction]"
+          },
+          {
+            "seconds": 10.61,
+            "phase": "setup",
+            "test": "tests/frontend/test_review_r219_fix8_mutations.py::test_round13_fixture_mutation_fails_the_full_view_counter[untraced_partial_correction]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/frontend/test_review_r219_fix8_mutations.py::test_round13_fixture_mutation_fails_the_full_view_counter[untraced_partial_correction]"
+          }
+        ],
+        "native": [
+          {
+            "load": 73.44970703125,
+            "input_gap": 650,
+            "returncode": 70,
+            "before_zero": 650,
+            "quiet": null,
+            "reply": null,
+            "fixture_clip_writes": [
+              {
+                "at": 18.573657035827637,
+                "gap": 650
+              },
+              {
+                "at": 19.564643025398254,
+                "gap": 214
+              }
+            ],
+            "barrier": {
+              "catchup_pending": false,
+              "caught_up": true,
+              "cursor": 362,
+              "last_seq": 362,
+              "position": {
+                "content": 26764,
+                "from_end": 0,
+                "offset": 26188,
+                "viewport": 576
+              },
+              "reveal_pending": false,
+              "scene": "quiet-regrow-natural",
+              "zero_end_corrected_gaps": [],
+              "zero_end_correction_tolerance": 25,
+              "zero_end_first_gap": 650,
+              "zero_end_gap": 0
+            }
+          }
+        ],
+        "outcomes": [
+          {
+            "barrier": {
+              "catchup_pending": false,
+              "caught_up": true,
+              "cursor": 362,
+              "last_seq": 362,
+              "position": {
+                "content": 26764,
+                "from_end": 0,
+                "offset": 26188,
+                "viewport": 576
+              },
+              "reveal_pending": false,
+              "scene": "quiet-regrow-natural",
+              "zero_end_corrected_gaps": [],
+              "zero_end_correction_tolerance": 25,
+              "zero_end_first_gap": 650,
+              "zero_end_gap": 0
+            },
+            "fixture_clip_writes": [
+              {
+                "at": 18.573657035827637,
+                "gap": 650
+              },
+              {
+                "at": 19.564643025398254,
+                "gap": 214
+              }
+            ],
+            "fixture_write_count": 2,
+            "outcome": "readiness expired naming the gap"
+          },
+          {
+            "barrier": {
+              "catchup_pending": false,
+              "caught_up": true,
+              "cursor": 362,
+              "last_seq": 362,
+              "position": {
+                "content": 26764,
+                "from_end": 0,
+                "offset": 26188,
+                "viewport": 576
+              },
+              "reveal_pending": false,
+              "scene": "quiet-regrow-natural",
+              "zero_end_corrected_gaps": [],
+              "zero_end_correction_tolerance": 25,
+              "zero_end_first_gap": 650,
+              "zero_end_gap": 0
+            },
+            "fixture_clip_writes": [
+              {
+                "at": 18.573657035827637,
+                "gap": 650
+              },
+              {
+                "at": 19.564643025398254,
+                "gap": 214
+              }
+            ],
+            "fixture_write_count": 2,
+            "outcome": "readiness expired naming the gap"
+          }
+        ],
+        "kill_lines": [
+          "untraced_partial_correction killed by independent full-view counter: [{'at': 18.573657035827637, 'gap': 650}, {'at': 19.564643025398254, 'gap': 214}]"
+        ]
+      },
+      {
+        "label": "build-setup-cold1",
+        "mode": "build",
+        "argv": [
+          "<scratch>/build.py",
+          "setup",
+          "--cold"
+        ],
+        "queued_utc": "2026-10-28T18:03:59+00:00",
+        "admitted_utc": "2026-10-28T18:03:59+00:00",
+        "admit_line": "build load (87.0419921875, 78.138671875, 80.27392578125)",
+        "admitted_after_s": null,
+        "run_s": null,
+        "elapsed_s": 373.3,
+        "end_utc": "2026-10-28T18:10:12+00:00",
+        "rc": 0,
+        "killed": null,
+        "load_queued": 87.0419921875,
+        "load_admitted": 87.0419921875,
+        "load_end": 57.021484375,
+        "max_rss": 1254080512,
+        "pytest_summary": null,
+        "live_owned_after": [],
+        "passed": [],
+        "failed": [],
+        "errors": [],
+        "phases": [],
+        "native": [],
+        "outcomes": [],
+        "kill_lines": [],
+        "build": {
+          "variant": "setup",
+          "cache_key": "40cb594378205f114d807eae328c8c42aef3d7ce5d4efaa00b96bb6164147c2e",
+          "removed_first": false,
+          "cache_hit": false,
+          "seconds": 357.22,
+          "load_start": 78.27197265625,
+          "load_end": 57.021484375,
+          "start_utc": "18:04:14Z",
+          "cached_after": true
+        }
+      },
+      {
+        "label": "red-unmutated",
+        "mode": "lock",
+        "argv": [
+          "tests/frontend/test_review_r219_fix14_setup.py",
+          "-k",
+          "rejects_a_clip_650_pt_behind_after_valid_callback"
+        ],
+        "queued_utc": "2026-10-28T18:10:39+00:00",
+        "admitted_utc": "2026-10-28T18:12:16+00:00",
+        "admit_line": "hold 18:12:15Z slot A load { 46.71 58.66 69.33 }",
+        "admitted_after_s": 96.4,
+        "run_s": 50.7,
+        "elapsed_s": 147.1,
+        "end_utc": "2026-10-28T18:13:06+00:00",
+        "rc": 0,
+        "killed": null,
+        "load_queued": 53.822265625,
+        "load_admitted": 43.8466796875,
+        "load_end": 39.1943359375,
+        "max_rss": 118702080,
+        "pytest_summary": "1 passed, 3 deselected in 32.02s",
+        "live_owned_after": [],
+        "passed": [
+          "tests/frontend/test_review_r219_fix14_setup.py::test_quiet_setup_rejects_a_clip_650_pt_behind_after_valid_callback"
+        ],
+        "failed": [],
+        "errors": [],
+        "phases": [
+          {
+            "seconds": 17.76,
+            "phase": "call",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_quiet_setup_rejects_a_clip_650_pt_behind_after_valid_callback"
+          },
+          {
+            "seconds": 4.99,
+            "phase": "setup",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_quiet_setup_rejects_a_clip_650_pt_behind_after_valid_callback"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_quiet_setup_rejects_a_clip_650_pt_behind_after_valid_callback"
+          }
+        ],
+        "native": [
+          {
+            "load": 37.44482421875,
+            "input_gap": 650,
+            "returncode": 0,
+            "before_zero": 650,
+            "quiet": 0,
+            "reply": 24,
+            "fixture_clip_writes": [],
+            "barrier": {}
+          }
+        ],
+        "outcomes": [
+          {
+            "barrier": {
+              "at": 12.839486002922058,
+              "landed": {
+                "at": 12.08941102027893,
+                "at_bottom": true,
+                "event": "own_send_landed",
+                "position": {
+                  "content": 25947,
+                  "from_end": 24,
+                  "offset": 25347,
+                  "viewport": 576
+                },
+                "suspended": false
+              },
+              "last_row": "person:1373cc00-5179-494a-a964-ddd250fc3d95",
+              "own_send_last": true,
+              "position": {
+                "content": 25947,
+                "from_end": 0,
+                "offset": 25371,
+                "viewport": 576
+              },
+              "readiness": {
+                "catchup_pending": false,
+                "caught_up": true,
+                "cursor": 362,
+                "last_seq": 362,
+                "position": {
+                  "content": 25947,
+                  "from_end": 0,
+                  "offset": 25371,
+                  "viewport": 576
+                },
+                "reveal_pending": false,
+                "scene": "quiet-regrow-natural"
+              },
+              "resets": 0,
+              "step": "landed",
+              "target_in_model": true,
+              "zero_end_corrected_gaps": [],
+              "zero_end_first_gap": 650
+            },
+            "fixture_clip_writes": [],
+            "fixture_write_count": 0,
+            "outcome": "product recovered legally"
+          }
+        ],
+        "kill_lines": []
+      },
+      {
+        "label": "green1",
+        "mode": "lock",
+        "argv": [
+          "tests/frontend/test_review_r219_fix14_setup.py"
+        ],
+        "queued_utc": "2026-10-28T18:13:33+00:00",
+        "admitted_utc": "2026-10-28T18:18:13+00:00",
+        "admit_line": "hold 18:18:12Z slot A load { 56.36 57.67 64.96 }",
+        "admitted_after_s": 279.0,
+        "run_s": 279.3,
+        "elapsed_s": 558.3,
+        "end_utc": "2026-10-28T18:22:51+00:00",
+        "rc": 0,
+        "killed": null,
+        "load_queued": 44.8046875,
+        "load_admitted": 56.3564453125,
+        "load_end": 41.5,
+        "max_rss": 189546496,
+        "pytest_summary": "4 passed in 257.76s (0:04:17)",
+        "live_owned_after": [],
+        "passed": [
+          "tests/frontend/test_review_r219_fix14_setup.py::test_valid_callback_24_pt_reaches_quiet_zero_and_reply_assertion",
+          "tests/frontend/test_review_r219_fix14_setup.py::test_quiet_setup_rejects_a_clip_650_pt_behind_after_valid_callback",
+          "tests/frontend/test_review_r219_fix14_setup.py::test_extracted_barrier_accepts_valid_24_pt_offset",
+          "tests/frontend/test_review_r219_fix14_setup.py::test_extracted_barrier_rejects_a_distant_650_pt_clip"
+        ],
+        "failed": [],
+        "errors": [],
+        "phases": [
+          {
+            "seconds": 169.08,
+            "phase": "setup",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_extracted_barrier_accepts_valid_24_pt_offset"
+          },
+          {
+            "seconds": 37.53,
+            "phase": "call",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_quiet_setup_rejects_a_clip_650_pt_behind_after_valid_callback"
+          },
+          {
+            "seconds": 23.94,
+            "phase": "call",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_valid_callback_24_pt_reaches_quiet_zero_and_reply_assertion"
+          },
+          {
+            "seconds": 10.72,
+            "phase": "setup",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_valid_callback_24_pt_reaches_quiet_zero_and_reply_assertion"
+          },
+          {
+            "seconds": 0.07,
+            "phase": "teardown",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_valid_callback_24_pt_reaches_quiet_zero_and_reply_assertion"
+          },
+          {
+            "seconds": 0.02,
+            "phase": "setup",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_quiet_setup_rejects_a_clip_650_pt_behind_after_valid_callback"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "setup",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_extracted_barrier_rejects_a_distant_650_pt_clip"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_quiet_setup_rejects_a_clip_650_pt_behind_after_valid_callback"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_extracted_barrier_rejects_a_distant_650_pt_clip"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_extracted_barrier_accepts_valid_24_pt_offset"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_extracted_barrier_rejects_a_distant_650_pt_clip"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_extracted_barrier_accepts_valid_24_pt_offset"
+          }
+        ],
+        "native": [
+          {
+            "load": 62.38134765625,
+            "input_gap": 24,
+            "returncode": 0,
+            "before_zero": 24,
+            "quiet": 0,
+            "reply": 24,
+            "fixture_clip_writes": [
+              {
+                "at": 15.546185970306396,
+                "gap": 24
+              }
+            ],
+            "barrier": {}
+          },
+          {
+            "load": 54.7080078125,
+            "input_gap": 650,
+            "returncode": 70,
+            "before_zero": 650,
+            "quiet": null,
+            "reply": null,
+            "fixture_clip_writes": [],
+            "barrier": {
+              "catchup_pending": false,
+              "caught_up": true,
+              "cursor": 362,
+              "last_seq": 362,
+              "position": {
+                "content": 28066,
+                "from_end": 828,
+                "offset": 26662,
+                "viewport": 576
+              },
+              "reveal_pending": false,
+              "scene": "quiet-regrow-natural",
+              "zero_end_corrected_gaps": [],
+              "zero_end_correction_tolerance": 25,
+              "zero_end_first_gap": 650,
+              "zero_end_gap": 828
+            }
+          }
+        ],
+        "outcomes": [
+          {
+            "barrier": {
+              "catchup_pending": false,
+              "caught_up": true,
+              "cursor": 362,
+              "last_seq": 362,
+              "position": {
+                "content": 28066,
+                "from_end": 828,
+                "offset": 26662,
+                "viewport": 576
+              },
+              "reveal_pending": false,
+              "scene": "quiet-regrow-natural",
+              "zero_end_corrected_gaps": [],
+              "zero_end_correction_tolerance": 25,
+              "zero_end_first_gap": 650,
+              "zero_end_gap": 828
+            },
+            "fixture_clip_writes": [],
+            "fixture_write_count": 0,
+            "outcome": "readiness expired naming the gap"
+          }
+        ],
+        "kill_lines": []
+      },
+      {
+        "label": "green2-fullview-cold",
+        "mode": "lock",
+        "argv": [
+          "tests/frontend/test_review_r219_fix14_setup.py",
+          "-k",
+          "not extracted_barrier"
+        ],
+        "queued_utc": "2026-10-28T18:23:38+00:00",
+        "admitted_utc": null,
+        "admit_line": null,
+        "admitted_after_s": null,
+        "run_s": null,
+        "elapsed_s": 164.2,
+        "end_utc": "2026-10-28T18:26:22+00:00",
+        "rc": -15,
+        "killed": "not admitted",
+        "load_queued": 72.3505859375,
+        "load_admitted": null,
+        "load_end": 26.1376953125,
+        "max_rss": 14073856,
+        "pytest_summary": null,
+        "live_owned_after": [],
+        "passed": [],
+        "failed": [],
+        "errors": [],
+        "phases": [],
+        "native": [],
+        "outcomes": [],
+        "kill_lines": []
+      },
+      {
+        "label": "green2-fullview-cold-b",
+        "mode": "lock",
+        "argv": [
+          "tests/frontend/test_review_r219_fix14_setup.py",
+          "-k",
+          "not extracted_barrier"
+        ],
+        "queued_utc": "2026-10-28T18:26:49+00:00",
+        "admitted_utc": "2026-10-28T18:28:35+00:00",
+        "admit_line": "hold 18:28:30Z slot A load { 65.99 49.87 56.55 }",
+        "admitted_after_s": 101.4,
+        "run_s": 498.8,
+        "elapsed_s": 600.2,
+        "end_utc": "2026-10-28T18:36:49+00:00",
+        "rc": -15,
+        "killed": "hard deadline",
+        "load_queued": 22.30322265625,
+        "load_admitted": 67.751953125,
+        "load_end": 71.8935546875,
+        "max_rss": 852197376,
+        "pytest_summary": null,
+        "live_owned_after": [],
+        "passed": [],
+        "failed": [],
+        "errors": [],
+        "phases": [],
+        "native": [],
+        "outcomes": [],
+        "kill_lines": []
+      },
+      {
+        "label": "build-setup-cold2",
+        "mode": "build",
+        "argv": [
+          "<scratch>/build.py",
+          "setup",
+          "--cold"
+        ],
+        "queued_utc": "2026-10-28T18:38:00+00:00",
+        "admitted_utc": "2026-10-28T18:38:00+00:00",
+        "admit_line": "build load (84.11279296875, 73.8515625, 67.521484375)",
+        "admitted_after_s": null,
+        "run_s": null,
+        "elapsed_s": 559.4,
+        "end_utc": "2026-10-28T18:47:19+00:00",
+        "rc": 143,
+        "killed": "hard deadline",
+        "load_queued": 84.11279296875,
+        "load_admitted": 84.11279296875,
+        "load_end": 63.1904296875,
+        "max_rss": 1234599936,
+        "pytest_summary": null,
+        "live_owned_after": [],
+        "passed": [],
+        "failed": [],
+        "errors": [],
+        "phases": [],
+        "native": [],
+        "outcomes": [],
+        "kill_lines": [],
+        "compile_timeout": true
+      },
+      {
+        "label": "build-setup-cold2b",
+        "mode": "build",
+        "argv": [
+          "<scratch>/build.py",
+          "setup",
+          "--cold"
+        ],
+        "queued_utc": "2026-10-28T18:48:14+00:00",
+        "admitted_utc": "2026-10-28T18:48:14+00:00",
+        "admit_line": "build load (65.5751953125, 58.87353515625, 60.93017578125)",
+        "admitted_after_s": null,
+        "run_s": null,
+        "elapsed_s": 511.5,
+        "end_utc": "2026-10-28T18:56:46+00:00",
+        "rc": 0,
+        "killed": null,
+        "load_queued": 65.5751953125,
+        "load_admitted": 65.5751953125,
+        "load_end": 81.98095703125,
+        "max_rss": 1223901184,
+        "pytest_summary": null,
+        "live_owned_after": [],
+        "passed": [],
+        "failed": [],
+        "errors": [],
+        "phases": [],
+        "native": [],
+        "outcomes": [],
+        "kill_lines": [],
+        "build": {
+          "variant": "setup",
+          "cache_key": "40cb594378205f114d807eae328c8c42aef3d7ce5d4efaa00b96bb6164147c2e",
+          "removed_first": false,
+          "cache_hit": false,
+          "seconds": 494.02,
+          "load_start": 58.51318359375,
+          "load_end": 81.98095703125,
+          "start_utc": "18:48:30Z",
+          "cached_after": true
+        }
+      },
+      {
+        "label": "green2-fullview",
+        "mode": "lock",
+        "argv": [
+          "tests/frontend/test_review_r219_fix14_setup.py",
+          "-k",
+          "not extracted_barrier"
+        ],
+        "queued_utc": "2026-10-28T18:57:06+00:00",
+        "admitted_utc": "2026-10-28T18:57:56+00:00",
+        "admit_line": "hold 18:57:56Z slot A load { 66.86 69.43 64.99 }",
+        "admitted_after_s": 49.4,
+        "run_s": 106.1,
+        "elapsed_s": 155.5,
+        "end_utc": "2026-10-28T18:59:42+00:00",
+        "rc": 0,
+        "killed": null,
+        "load_queued": 83.48193359375,
+        "load_admitted": 65.02490234375,
+        "load_end": 53.72314453125,
+        "max_rss": 115376128,
+        "pytest_summary": "2 passed, 2 deselected in 91.97s (0:01:31)",
+        "live_owned_after": [],
+        "passed": [
+          "tests/frontend/test_review_r219_fix14_setup.py::test_valid_callback_24_pt_reaches_quiet_zero_and_reply_assertion",
+          "tests/frontend/test_review_r219_fix14_setup.py::test_quiet_setup_rejects_a_clip_650_pt_behind_after_valid_callback"
+        ],
+        "failed": [],
+        "errors": [],
+        "phases": [
+          {
+            "seconds": 42.74,
+            "phase": "call",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_valid_callback_24_pt_reaches_quiet_zero_and_reply_assertion"
+          },
+          {
+            "seconds": 27.26,
+            "phase": "call",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_quiet_setup_rejects_a_clip_650_pt_behind_after_valid_callback"
+          },
+          {
+            "seconds": 9.29,
+            "phase": "setup",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_valid_callback_24_pt_reaches_quiet_zero_and_reply_assertion"
+          },
+          {
+            "seconds": 0.07,
+            "phase": "setup",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_quiet_setup_rejects_a_clip_650_pt_behind_after_valid_callback"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_valid_callback_24_pt_reaches_quiet_zero_and_reply_assertion"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_quiet_setup_rejects_a_clip_650_pt_behind_after_valid_callback"
+          }
+        ],
+        "native": [
+          {
+            "load": 53.30517578125,
+            "input_gap": 24,
+            "returncode": 0,
+            "before_zero": 24,
+            "quiet": 0,
+            "reply": 24.5,
+            "fixture_clip_writes": [
+              {
+                "at": 33.85517108440399,
+                "gap": 24
+              }
+            ],
+            "barrier": {}
+          },
+          {
+            "load": 60.7138671875,
+            "input_gap": 650,
+            "returncode": 70,
+            "before_zero": 650,
+            "quiet": null,
+            "reply": null,
+            "fixture_clip_writes": [],
+            "barrier": {
+              "catchup_pending": false,
+              "caught_up": true,
+              "cursor": 362,
+              "last_seq": 362,
+              "position": {
+                "content": 26791,
+                "from_end": 838,
+                "offset": 25377,
+                "viewport": 576
+              },
+              "reveal_pending": false,
+              "scene": "quiet-regrow-natural",
+              "zero_end_corrected_gaps": [],
+              "zero_end_correction_tolerance": 25,
+              "zero_end_first_gap": 650,
+              "zero_end_gap": 838
+            }
+          }
+        ],
+        "outcomes": [
+          {
+            "barrier": {
+              "catchup_pending": false,
+              "caught_up": true,
+              "cursor": 362,
+              "last_seq": 362,
+              "position": {
+                "content": 26791,
+                "from_end": 838,
+                "offset": 25377,
+                "viewport": 576
+              },
+              "reveal_pending": false,
+              "scene": "quiet-regrow-natural",
+              "zero_end_corrected_gaps": [],
+              "zero_end_correction_tolerance": 25,
+              "zero_end_first_gap": 650,
+              "zero_end_gap": 838
+            },
+            "fixture_clip_writes": [],
+            "fixture_write_count": 0,
+            "outcome": "readiness expired naming the gap"
+          }
+        ],
+        "kill_lines": []
+      },
+      {
+        "label": "green2-isolated",
+        "mode": "lock",
+        "argv": [
+          "tests/frontend/test_review_r219_fix14_setup.py",
+          "-k",
+          "extracted_barrier"
+        ],
+        "queued_utc": "2026-10-28T18:59:55+00:00",
+        "admitted_utc": "2026-10-28T19:00:03+00:00",
+        "admit_line": "hold 19:00:01Z slot B load { 68.62 66.46 64.23 }",
+        "admitted_after_s": 6.0,
+        "run_s": 103.4,
+        "elapsed_s": 109.4,
+        "end_utc": "2026-10-28T19:01:44+00:00",
+        "rc": 0,
+        "killed": null,
+        "load_queued": 63.5439453125,
+        "load_admitted": 73.21923828125,
+        "load_end": 62.61767578125,
+        "max_rss": 182501376,
+        "pytest_summary": "2 passed, 2 deselected in 80.60s (0:01:20)",
+        "live_owned_after": [],
+        "passed": [
+          "tests/frontend/test_review_r219_fix14_setup.py::test_extracted_barrier_accepts_valid_24_pt_offset",
+          "tests/frontend/test_review_r219_fix14_setup.py::test_extracted_barrier_rejects_a_distant_650_pt_clip"
+        ],
+        "failed": [],
+        "errors": [],
+        "phases": [
+          {
+            "seconds": 65.47,
+            "phase": "setup",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_extracted_barrier_accepts_valid_24_pt_offset"
+          },
+          {
+            "seconds": 0.18,
+            "phase": "setup",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_extracted_barrier_rejects_a_distant_650_pt_clip"
+          },
+          {
+            "seconds": 0.04,
+            "phase": "teardown",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_extracted_barrier_accepts_valid_24_pt_offset"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_extracted_barrier_rejects_a_distant_650_pt_clip"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_extracted_barrier_accepts_valid_24_pt_offset"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_extracted_barrier_rejects_a_distant_650_pt_clip"
+          }
+        ],
+        "native": [],
+        "outcomes": [],
+        "kill_lines": []
+      },
+      {
+        "label": "build-setup-cold3",
+        "mode": "build",
+        "argv": [
+          "<scratch>/build.py",
+          "setup",
+          "--cold"
+        ],
+        "queued_utc": "2026-10-28T19:02:15+00:00",
+        "admitted_utc": "2026-10-28T19:02:15+00:00",
+        "admit_line": "build load (59.79150390625, 64.67724609375, 63.93505859375)",
+        "admitted_after_s": null,
+        "run_s": null,
+        "elapsed_s": 396.6,
+        "end_utc": "2026-10-28T19:08:52+00:00",
+        "rc": 0,
+        "killed": null,
+        "load_queued": 59.79150390625,
+        "load_admitted": 59.79150390625,
+        "load_end": 100.03955078125,
+        "max_rss": 1187479552,
+        "pytest_summary": null,
+        "live_owned_after": [],
+        "passed": [],
+        "failed": [],
+        "errors": [],
+        "phases": [],
+        "native": [],
+        "outcomes": [],
+        "kill_lines": [],
+        "build": {
+          "variant": "setup",
+          "cache_key": "40cb594378205f114d807eae328c8c42aef3d7ce5d4efaa00b96bb6164147c2e",
+          "removed_first": true,
+          "cache_hit": false,
+          "seconds": 380.4,
+          "load_start": 56.12939453125,
+          "load_end": 100.03955078125,
+          "start_utc": "19:02:31Z",
+          "cached_after": true
+        }
+      },
+      {
+        "label": "green3-fullview",
+        "mode": "lock",
+        "argv": [
+          "tests/frontend/test_review_r219_fix14_setup.py",
+          "-k",
+          "not extracted_barrier"
+        ],
+        "queued_utc": "2026-10-28T19:09:04+00:00",
+        "admitted_utc": "2026-10-28T19:09:53+00:00",
+        "admit_line": "hold 19:09:52Z slot B load { 101.20 84.18 73.00 }",
+        "admitted_after_s": 48.0,
+        "run_s": 76.8,
+        "elapsed_s": 124.8,
+        "end_utc": "2026-10-28T19:11:08+00:00",
+        "rc": 0,
+        "killed": null,
+        "load_queued": 103.77099609375,
+        "load_admitted": 101.201171875,
+        "load_end": 60.8720703125,
+        "max_rss": 116817920,
+        "pytest_summary": "2 passed, 2 deselected in 67.22s (0:01:07)",
+        "live_owned_after": [],
+        "passed": [
+          "tests/frontend/test_review_r219_fix14_setup.py::test_valid_callback_24_pt_reaches_quiet_zero_and_reply_assertion",
+          "tests/frontend/test_review_r219_fix14_setup.py::test_quiet_setup_rejects_a_clip_650_pt_behind_after_valid_callback"
+        ],
+        "failed": [],
+        "errors": [],
+        "phases": [
+          {
+            "seconds": 28.45,
+            "phase": "call",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_valid_callback_24_pt_reaches_quiet_zero_and_reply_assertion"
+          },
+          {
+            "seconds": 21.73,
+            "phase": "call",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_quiet_setup_rejects_a_clip_650_pt_behind_after_valid_callback"
+          },
+          {
+            "seconds": 6.77,
+            "phase": "setup",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_valid_callback_24_pt_reaches_quiet_zero_and_reply_assertion"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "setup",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_quiet_setup_rejects_a_clip_650_pt_behind_after_valid_callback"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_quiet_setup_rejects_a_clip_650_pt_behind_after_valid_callback"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_valid_callback_24_pt_reaches_quiet_zero_and_reply_assertion"
+          }
+        ],
+        "native": [
+          {
+            "load": 96.22802734375,
+            "input_gap": 24,
+            "returncode": 0,
+            "before_zero": 24,
+            "quiet": 0,
+            "reply": 25,
+            "fixture_clip_writes": [
+              {
+                "at": 21.17394196987152,
+                "gap": 24
+              }
+            ],
+            "barrier": {}
+          },
+          {
+            "load": 74.248046875,
+            "input_gap": 650,
+            "returncode": 70,
+            "before_zero": 650,
+            "quiet": null,
+            "reply": null,
+            "fixture_clip_writes": [],
+            "barrier": {
+              "catchup_pending": false,
+              "caught_up": true,
+              "cursor": 362,
+              "last_seq": 362,
+              "position": {
+                "content": 25312,
+                "from_end": 802,
+                "offset": 23934,
+                "viewport": 576
+              },
+              "reveal_pending": false,
+              "scene": "quiet-regrow-natural",
+              "zero_end_corrected_gaps": [],
+              "zero_end_correction_tolerance": 25,
+              "zero_end_first_gap": 650,
+              "zero_end_gap": 802
+            }
+          }
+        ],
+        "outcomes": [
+          {
+            "barrier": {
+              "catchup_pending": false,
+              "caught_up": true,
+              "cursor": 362,
+              "last_seq": 362,
+              "position": {
+                "content": 25312,
+                "from_end": 802,
+                "offset": 23934,
+                "viewport": 576
+              },
+              "reveal_pending": false,
+              "scene": "quiet-regrow-natural",
+              "zero_end_corrected_gaps": [],
+              "zero_end_correction_tolerance": 25,
+              "zero_end_first_gap": 650,
+              "zero_end_gap": 802
+            },
+            "fixture_clip_writes": [],
+            "fixture_write_count": 0,
+            "outcome": "readiness expired naming the gap"
+          }
+        ],
+        "kill_lines": []
+      },
+      {
+        "label": "green3-isolated",
+        "mode": "lock",
+        "argv": [
+          "tests/frontend/test_review_r219_fix14_setup.py",
+          "-k",
+          "extracted_barrier"
+        ],
+        "queued_utc": "2026-10-28T19:11:28+00:00",
+        "admitted_utc": "2026-10-28T19:11:53+00:00",
+        "admit_line": "hold 19:11:52Z slot B load { 55.45 72.77 69.99 }",
+        "admitted_after_s": 23.7,
+        "run_s": 59.0,
+        "elapsed_s": 82.7,
+        "end_utc": "2026-10-28T19:12:51+00:00",
+        "rc": 0,
+        "killed": null,
+        "load_queued": 56.86328125,
+        "load_admitted": 55.44580078125,
+        "load_end": 56.54833984375,
+        "max_rss": 150618112,
+        "pytest_summary": "2 passed, 2 deselected in 49.47s",
+        "live_owned_after": [],
+        "passed": [
+          "tests/frontend/test_review_r219_fix14_setup.py::test_extracted_barrier_accepts_valid_24_pt_offset",
+          "tests/frontend/test_review_r219_fix14_setup.py::test_extracted_barrier_rejects_a_distant_650_pt_clip"
+        ],
+        "failed": [],
+        "errors": [],
+        "phases": [
+          {
+            "seconds": 39.84,
+            "phase": "setup",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_extracted_barrier_accepts_valid_24_pt_offset"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "setup",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_extracted_barrier_rejects_a_distant_650_pt_clip"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_extracted_barrier_rejects_a_distant_650_pt_clip"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_extracted_barrier_rejects_a_distant_650_pt_clip"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_extracted_barrier_accepts_valid_24_pt_offset"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/frontend/test_review_r219_fix14_setup.py::test_extracted_barrier_accepts_valid_24_pt_offset"
+          }
+        ],
+        "native": [],
+        "outcomes": [],
+        "kill_lines": []
+      },
+      {
+        "label": "build-view",
+        "mode": "build",
+        "argv": [
+          "<scratch>/build.py",
+          "view"
+        ],
+        "queued_utc": "2026-10-28T19:13:45+00:00",
+        "admitted_utc": "2026-10-28T19:13:45+00:00",
+        "admit_line": "build load (30.8466796875, 61.27685546875, 65.99658203125)",
+        "admitted_after_s": null,
+        "run_s": null,
+        "elapsed_s": 559.2,
+        "end_utc": "2026-10-28T19:23:04+00:00",
+        "rc": 1,
+        "killed": null,
+        "load_queued": 30.8466796875,
+        "load_admitted": 30.8466796875,
+        "load_end": 86.99169921875,
+        "max_rss": 1211285504,
+        "pytest_summary": null,
+        "live_owned_after": [],
+        "passed": [],
+        "failed": [],
+        "errors": [],
+        "phases": [],
+        "native": [],
+        "outcomes": [],
+        "kill_lines": [],
+        "compile_timeout": true
+      },
+      {
+        "label": "build-view-b",
+        "mode": "build",
+        "argv": [
+          "<scratch>/build.py",
+          "view"
+        ],
+        "queued_utc": "2026-10-28T19:24:57+00:00",
+        "admitted_utc": "2026-10-28T19:24:57+00:00",
+        "admit_line": "build load (66.69921875, 62.4228515625, 60.89599609375)",
+        "admitted_after_s": null,
+        "run_s": null,
+        "elapsed_s": 571.5,
+        "end_utc": "2026-10-28T19:34:29+00:00",
+        "rc": 143,
+        "killed": "hard deadline",
+        "load_queued": 66.69921875,
+        "load_admitted": 66.69921875,
+        "load_end": 135.00439453125,
+        "max_rss": 579682304,
+        "pytest_summary": null,
+        "live_owned_after": [],
+        "passed": [],
+        "failed": [],
+        "errors": [],
+        "phases": [],
+        "native": [],
+        "outcomes": [],
+        "kill_lines": []
+      },
+      {
+        "label": "guards",
+        "mode": "lock",
+        "argv": [
+          "tests/fake/test_state_contract.py",
+          "tests/unit/test_test_module_names.py",
+          "tests/unit/test_invariants_index.py",
+          "tests/unit/test_ci_shard_plugin.py"
+        ],
+        "queued_utc": "2026-10-28T19:35:11+00:00",
+        "admitted_utc": "2026-10-28T19:37:07+00:00",
+        "admit_line": "hold 19:37:05Z slot B load { 112.36 118.83 95.56 }",
+        "admitted_after_s": 114.1,
+        "run_s": 425.3,
+        "elapsed_s": 539.4,
+        "end_utc": "2026-10-28T19:44:11+00:00",
+        "rc": 0,
+        "killed": null,
+        "load_queued": 156.37841796875,
+        "load_admitted": 104.64111328125,
+        "load_end": 118.4765625,
+        "max_rss": 146882560,
+        "pytest_summary": "113 passed in 389.72s (0:06:29)",
+        "live_owned_after": [],
+        "passed": [
+          "tests/fake/test_state_contract.py::test_c6_2_state_submission_deduplicates_and_rejects_digest_conflicts",
+          "tests/fake/test_state_contract.py::test_c6_2_state_concurrent_duplicate_requests_create_one_job",
+          "tests/fake/test_state_contract.py::test_c6_4_a_parent_has_no_child_budget_unless_a_policy_sets_one",
+          "tests/fake/test_state_contract.py::test_c7_3_a_family_cancel_has_one_instant_however_slow_the_clock",
+          "tests/fake/test_state_contract.py::test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches",
+          "tests/fake/test_state_contract.py::test_c15_1_state_terminal_and_notice_roll_back_together",
+          "tests/fake/test_state_contract.py::test_c15_3_state_notice_ack_is_session_scoped_and_show_is_read_only",
+          "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[sandbox-unrestricted-2]",
+          "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[allow_tmp-False-7]",
+          "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[prompt_path-/a-nonexistent-subfleet-test-prompt-2]",
+          "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[out_path-/a-nonexistent-subfleet-test-directory/result-2]",
+          "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[pinned_model-no-such-model-7]",
+          "tests/fake/test_state_contract.py::test_c5_8_state_exclusive_flock_and_reacquisition",
+          "tests/fake/test_state_contract.py::test_c16_1_state_socket_handler_recovers_after_malformed_line",
+          "tests/fake/test_state_contract.py::test_c6_3_state_concurrent_submit_admission_owns_one_slot",
+          "tests/fake/test_state_contract.py::test_c4_2_state_reserved_recovery_releases_and_retries",
+          "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[False]",
+          "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[True]",
+          "tests/fake/test_state_contract.py::test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace",
+          "tests/fake/test_state_contract.py::test_c4_4_state_missing_exit_receipt_never_accepts_success",
+          "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[False]",
+          "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[True]",
+          "tests/fake/test_state_contract.py::test_c4_3_state_acceptance_and_notice_share_one_transaction",
+          "tests/fake/test_state_contract.py::test_c8_2_state_deliverable_is_frozen_during_finalization_replay",
+          "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[prompt]",
+          "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[manifest]",
+          "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[deliverable]",
+          "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[export]",
+          "tests/fake/test_state_contract.py::test_c8_3_state_export_recovery_publishes_after_terminal_commit",
+          "tests/fake/test_state_contract.py::test_c5_6_state_kill_escalation_signals_only_owned_survivors",
+          "tests/fake/test_state_contract.py::test_c5_7_state_quarantine_confirm_dead_requires_empty_and_override_is_audited",
+          "tests/fake/test_state_contract.py::test_c8_1_state_deliverable_and_export_sync_before_and_after_rename",
+          "tests/fake/test_state_contract.py::test_c8_3_state_concurrent_export_workers_publish_once",
+          "tests/fake/test_state_contract.py::test_c8_3_state_stale_failed_export_cannot_overwrite_a_new_owner",
+          "tests/fake/test_state_contract.py::test_c4_5_state_limited_retry_moves_to_next_lane_and_records_clock",
+          "tests/fake/test_state_contract.py::test_c4_5_state_transient_retries_same_lane_once_then_another",
+          "tests/fake/test_state_contract.py::test_c6_4_state_wall_does_not_cancel_a_held_retry",
+          "tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own",
+          "tests/unit/test_invariants_index.py::test_index_is_a_json_array_of_objects",
+          "tests/unit/test_invariants_index.py::test_every_ledger_row_is_adjudicated",
+          "tests/unit/test_invariants_index.py::test_ids_are_unique_and_complete",
+          "tests/unit/test_invariants_index.py::test_rows_are_in_ledger_order",
+          "tests/unit/test_invariants_index.py::test_every_row_has_every_field",
+          "tests/unit/test_invariants_index.py::test_dispositions_are_in_the_allowed_set",
+          "tests/unit/test_invariants_index.py::test_classes_match_the_ledger_vocabulary",
+          "tests/unit/test_invariants_index.py::test_replaced_rows_name_their_replacement",
+          "tests/unit/test_invariants_index.py::test_dropped_rows_give_a_reason",
+          "tests/unit/test_invariants_index.py::test_kept_and_replaced_rows_name_a_clause",
+          "tests/unit/test_invariants_index.py::test_no_row_is_left_unresolved",
+          "tests/unit/test_invariants_index.py::test_every_cited_contract_clause_exists",
+          "tests/unit/test_invariants_index.py::test_every_cited_proposal_is_defined",
+          "tests/unit/test_invariants_index.py::test_no_proposal_is_orphaned",
+          "tests/unit/test_invariants_index.py::test_proposals_and_index_agree_on_which_rows_each_covers",
+          "tests/unit/test_invariants_index.py::test_proposals_are_numbered_from_one_without_gaps",
+          "tests/unit/test_invariants_index.py::test_every_proposal_names_an_owner_and_a_module",
+          "tests/unit/test_invariants_index.py::test_the_proposed_rows_are_the_ninety_two",
+          "tests/unit/test_invariants_index.py::test_dropped_rows_do_not_claim_a_clause",
+          "tests/unit/test_invariants_index.py::test_surviving_rows_name_an_acceptance_owner",
+          "tests/unit/test_invariants_index.py::test_dropped_rows_carry_no_owner_module_or_test",
+          "tests/unit/test_invariants_index.py::test_test_names_are_unique",
+          "tests/unit/test_invariants_index.py::test_mandated_dispositions_hold",
+          "tests/unit/test_invariants_index.py::test_markdown_table_and_json_agree",
+          "tests/unit/test_invariants_index.py::test_ledger_still_has_two_hundred_and_twenty_rows",
+          "tests/unit/test_ci_shard_plugin.py::test_every_file_has_one_shard_whatever_else_exists",
+          "tests/unit/test_ci_shard_plugin.py::test_a_group_keeps_its_files_together",
+          "tests/unit/test_ci_shard_plugin.py::test_the_plan_is_within_list_schedulings_bound",
+          "tests/unit/test_ci_shard_plugin.py::test_an_unmeasured_file_falls_back_to_its_checksum",
+          "tests/unit/test_ci_shard_plugin.py::test_shard_specs_round_trip",
+          "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[0/4]",
+          "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[5/4]",
+          "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[1/0]",
+          "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[4]",
+          "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[1/4/2]",
+          "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[",
+          "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[01/4]",
+          "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[a/b]",
+          "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[1/65]",
+          "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[]",
+          "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data0]",
+          "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data1]",
+          "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data2]",
+          "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data3]",
+          "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data4]",
+          "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data5]",
+          "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data6]",
+          "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data7]",
+          "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data8]",
+          "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data9]",
+          "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data10]",
+          "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data11]",
+          "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data12]",
+          "tests/unit/test_ci_shard_plugin.py::test_the_workflow_matrix_names_every_shard_of_one_count_once",
+          "tests/unit/test_ci_shard_plugin.py::test_the_checked_in_map_fits_the_workflow_limit",
+          "tests/unit/test_ci_shard_plugin.py::test_review_probes_share_a_group_before_the_other_frontend_tests",
+          "tests/unit/test_ci_shard_plugin.py::test_a_narrow_file_prefix_can_precede_its_directory_group",
+          "tests/unit/test_ci_shard_plugin.py::test_real_shards_partition_the_collection[1]",
+          "tests/unit/test_ci_shard_plugin.py::test_real_shards_partition_the_collection[2]",
+          "tests/unit/test_ci_shard_plugin.py::test_real_shards_partition_the_collection[3]",
+          "tests/unit/test_ci_shard_plugin.py::test_real_shards_partition_the_collection[4]",
+          "tests/unit/test_ci_shard_plugin.py::test_real_shards_partition_the_collection[7]",
+          "tests/unit/test_ci_shard_plugin.py::test_a_shard_reports_its_unmeasured_files",
+          "tests/unit/test_ci_shard_plugin.py::test_without_the_option_the_plugin_selects_nothing",
+          "tests/unit/test_ci_shard_plugin.py::test_a_bad_shard_or_map_is_a_usage_error[args0]",
+          "tests/unit/test_ci_shard_plugin.py::test_a_bad_shard_or_map_is_a_usage_error[args1]",
+          "tests/unit/test_ci_shard_plugin.py::test_file_seconds_sum_every_phase_of_a_file",
+          "tests/unit/test_ci_shard_plugin.py::test_a_test_phase_without_a_duration_is_refused",
+          "tests/unit/test_ci_shard_plugin.py::test_merge_takes_the_slowest_report_and_keeps_only_existing_unmeasured_files",
+          "tests/unit/test_ci_shard_plugin.py::test_the_durations_tool_rewrites_only_seconds_and_source",
+          "tests/unit/test_ci_shard_plugin.py::test_a_partial_report_never_replaces_a_files_time[None-None-no",
+          "tests/unit/test_ci_shard_plugin.py::test_a_partial_report_never_replaces_a_files_time[2-None-exit",
+          "tests/unit/test_ci_shard_plugin.py::test_a_partial_report_never_replaces_a_files_time[1-3-1",
+          "tests/unit/test_ci_shard_plugin.py::test_a_whole_session_with_failures_still_counts",
+          "tests/unit/test_ci_shard_plugin.py::test_no_whole_report_is_an_error_and_writes_nothing"
+        ],
+        "failed": [],
+        "errors": [],
+        "phases": [
+          {
+            "seconds": 54.0,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_every_file_has_one_shard_whatever_else_exists"
+          },
+          {
+            "seconds": 25.17,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_a_group_keeps_its_files_together"
+          },
+          {
+            "seconds": 20.42,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace"
+          },
+          {
+            "seconds": 19.6,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_the_plan_is_within_list_schedulings_bound"
+          },
+          {
+            "seconds": 16.36,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_merge_takes_the_slowest_report_and_keeps_only_existing_unmeasured_files"
+          },
+          {
+            "seconds": 11.35,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c6_4_a_parent_has_no_child_budget_unless_a_policy_sets_one"
+          },
+          {
+            "seconds": 8.22,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_real_shards_partition_the_collection[7]"
+          },
+          {
+            "seconds": 6.48,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace"
+          },
+          {
+            "seconds": 6.32,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_real_shards_partition_the_collection[1]"
+          },
+          {
+            "seconds": 6.22,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c6_2_state_submission_deduplicates_and_rejects_digest_conflicts"
+          },
+          {
+            "seconds": 5.49,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c5_6_state_kill_escalation_signals_only_owned_survivors"
+          },
+          {
+            "seconds": 4.7,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c8_3_state_export_recovery_publishes_after_terminal_commit"
+          },
+          {
+            "seconds": 4.47,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[export]"
+          },
+          {
+            "seconds": 4.32,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c6_4_state_wall_does_not_cancel_a_held_retry"
+          },
+          {
+            "seconds": 4.15,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_an_unmeasured_file_falls_back_to_its_checksum"
+          },
+          {
+            "seconds": 3.83,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c4_5_state_limited_retry_moves_to_next_lane_and_records_clock"
+          },
+          {
+            "seconds": 3.82,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches"
+          },
+          {
+            "seconds": 3.69,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c6_4_a_parent_has_no_child_budget_unless_a_policy_sets_one"
+          },
+          {
+            "seconds": 3.63,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c8_2_state_deliverable_is_frozen_during_finalization_replay"
+          },
+          {
+            "seconds": 3.02,
+            "phase": "call",
+            "test": "tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own"
+          },
+          {
+            "seconds": 2.91,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c8_3_state_export_recovery_publishes_after_terminal_commit"
+          },
+          {
+            "seconds": 2.87,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[export]"
+          },
+          {
+            "seconds": 2.75,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c5_6_state_kill_escalation_signals_only_owned_survivors"
+          },
+          {
+            "seconds": 2.73,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_without_the_option_the_plugin_selects_nothing"
+          },
+          {
+            "seconds": 2.48,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[sandbox-unrestricted-2]"
+          },
+          {
+            "seconds": 2.45,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_real_shards_partition_the_collection[4]"
+          },
+          {
+            "seconds": 2.29,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c5_7_state_quarantine_confirm_dead_requires_empty_and_override_is_audited"
+          },
+          {
+            "seconds": 2.2,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c8_2_state_deliverable_is_frozen_during_finalization_replay"
+          },
+          {
+            "seconds": 2.16,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c8_3_state_stale_failed_export_cannot_overwrite_a_new_owner"
+          },
+          {
+            "seconds": 2.15,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches"
+          },
+          {
+            "seconds": 2.1,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_real_shards_partition_the_collection[2]"
+          },
+          {
+            "seconds": 2.05,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[allow_tmp-False-7]"
+          },
+          {
+            "seconds": 2.0,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c16_1_state_socket_handler_recovers_after_malformed_line"
+          },
+          {
+            "seconds": 1.99,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c5_8_state_exclusive_flock_and_reacquisition"
+          },
+          {
+            "seconds": 1.92,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c7_3_a_family_cancel_has_one_instant_however_slow_the_clock"
+          },
+          {
+            "seconds": 1.88,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_a_shard_reports_its_unmeasured_files"
+          },
+          {
+            "seconds": 1.79,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_real_shards_partition_the_collection[3]"
+          },
+          {
+            "seconds": 1.79,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c6_2_state_concurrent_duplicate_requests_create_one_job"
+          },
+          {
+            "seconds": 1.77,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_shard_specs_round_trip"
+          },
+          {
+            "seconds": 1.76,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[False]"
+          },
+          {
+            "seconds": 1.65,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c4_4_state_missing_exit_receipt_never_accepts_success"
+          },
+          {
+            "seconds": 1.62,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c6_3_state_concurrent_submit_admission_owns_one_slot"
+          },
+          {
+            "seconds": 1.59,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[deliverable]"
+          },
+          {
+            "seconds": 1.56,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c7_3_a_family_cancel_has_one_instant_however_slow_the_clock"
+          },
+          {
+            "seconds": 1.55,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c4_2_state_reserved_recovery_releases_and_retries"
+          },
+          {
+            "seconds": 1.53,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[True]"
+          },
+          {
+            "seconds": 1.51,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c15_1_state_terminal_and_notice_roll_back_together"
+          },
+          {
+            "seconds": 1.5,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[True]"
+          },
+          {
+            "seconds": 1.46,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[False]"
+          },
+          {
+            "seconds": 1.42,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c4_5_state_transient_retries_same_lane_once_then_another"
+          },
+          {
+            "seconds": 1.4,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[manifest]"
+          },
+          {
+            "seconds": 1.36,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[prompt]"
+          },
+          {
+            "seconds": 1.33,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c8_3_state_stale_failed_export_cannot_overwrite_a_new_owner"
+          },
+          {
+            "seconds": 1.27,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[out_path-/a-nonexistent-subfleet-test-directory/result-2]"
+          },
+          {
+            "seconds": 1.27,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c4_3_state_acceptance_and_notice_share_one_transaction"
+          },
+          {
+            "seconds": 1.26,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c6_2_state_concurrent_duplicate_requests_create_one_job"
+          },
+          {
+            "seconds": 1.25,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c8_3_state_concurrent_export_workers_publish_once"
+          },
+          {
+            "seconds": 1.18,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c15_3_state_notice_ack_is_session_scoped_and_show_is_read_only"
+          },
+          {
+            "seconds": 1.17,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c8_3_state_stale_failed_export_cannot_overwrite_a_new_owner"
+          },
+          {
+            "seconds": 1.14,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c4_3_state_acceptance_and_notice_share_one_transaction"
+          },
+          {
+            "seconds": 1.11,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c6_3_state_concurrent_submit_admission_owns_one_slot"
+          },
+          {
+            "seconds": 1.1,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c6_4_state_wall_does_not_cancel_a_held_retry"
+          },
+          {
+            "seconds": 1.07,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c4_5_state_transient_retries_same_lane_once_then_another"
+          },
+          {
+            "seconds": 1.06,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c6_4_state_wall_does_not_cancel_a_held_retry"
+          },
+          {
+            "seconds": 1.01,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[export]"
+          },
+          {
+            "seconds": 0.99,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c4_4_state_missing_exit_receipt_never_accepts_success"
+          },
+          {
+            "seconds": 0.99,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c8_1_state_deliverable_and_export_sync_before_and_after_rename"
+          },
+          {
+            "seconds": 0.97,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c15_3_state_notice_ack_is_session_scoped_and_show_is_read_only"
+          },
+          {
+            "seconds": 0.97,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_without_the_option_the_plugin_selects_nothing"
+          },
+          {
+            "seconds": 0.95,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace"
+          },
+          {
+            "seconds": 0.89,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c8_1_state_deliverable_and_export_sync_before_and_after_rename"
+          },
+          {
+            "seconds": 0.87,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c5_7_state_quarantine_confirm_dead_requires_empty_and_override_is_audited"
+          },
+          {
+            "seconds": 0.87,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[prompt_path-/a-nonexistent-subfleet-test-prompt-2]"
+          },
+          {
+            "seconds": 0.85,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c6_2_state_submission_deduplicates_and_rejects_digest_conflicts"
+          },
+          {
+            "seconds": 0.85,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[deliverable]"
+          },
+          {
+            "seconds": 0.84,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[False]"
+          },
+          {
+            "seconds": 0.8,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[True]"
+          },
+          {
+            "seconds": 0.79,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c5_8_state_exclusive_flock_and_reacquisition"
+          },
+          {
+            "seconds": 0.75,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c6_4_a_parent_has_no_child_budget_unless_a_policy_sets_one"
+          },
+          {
+            "seconds": 0.75,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[allow_tmp-False-7]"
+          },
+          {
+            "seconds": 0.72,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[False]"
+          },
+          {
+            "seconds": 0.7,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c8_3_state_export_recovery_publishes_after_terminal_commit"
+          },
+          {
+            "seconds": 0.69,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_real_shards_partition_the_collection[7]"
+          },
+          {
+            "seconds": 0.68,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c5_6_state_kill_escalation_signals_only_owned_survivors"
+          },
+          {
+            "seconds": 0.67,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_a_bad_shard_or_map_is_a_usage_error[args0]"
+          },
+          {
+            "seconds": 0.64,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c4_5_state_limited_retry_moves_to_next_lane_and_records_clock"
+          },
+          {
+            "seconds": 0.63,
+            "phase": "setup",
+            "test": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[pinned_model-no-such-model-7]"
+          },
+          {
+            "seconds": 0.61,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c15_1_state_terminal_and_notice_roll_back_together"
+          },
+          {
+            "seconds": 0.58,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c4_5_state_limited_retry_moves_to_next_lane_and_records_clock"
+          },
+          {
+            "seconds": 0.56,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[True]"
+          },
+          {
+            "seconds": 0.55,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c15_3_state_notice_ack_is_session_scoped_and_show_is_read_only"
+          },
+          {
+            "seconds": 0.55,
+            "phase": "setup",
+            "test": "tests/unit/test_invariants_index.py::test_every_cited_contract_clause_exists"
+          },
+          {
+            "seconds": 0.52,
+            "phase": "setup",
+            "test": "tests/unit/test_invariants_index.py::test_replaced_rows_name_their_replacement"
+          },
+          {
+            "seconds": 0.5,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c4_2_state_reserved_recovery_releases_and_retries"
+          },
+          {
+            "seconds": 0.5,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_a_bad_shard_or_map_is_a_usage_error[args1]"
+          },
+          {
+            "seconds": 0.49,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c16_1_state_socket_handler_recovers_after_malformed_line"
+          },
+          {
+            "seconds": 0.48,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[pinned_model-no-such-model-7]"
+          },
+          {
+            "seconds": 0.46,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[False]"
+          },
+          {
+            "seconds": 0.46,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[allow_tmp-False-7]"
+          },
+          {
+            "seconds": 0.44,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[prompt]"
+          },
+          {
+            "seconds": 0.43,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[True]"
+          },
+          {
+            "seconds": 0.42,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_file_seconds_sum_every_phase_of_a_file"
+          },
+          {
+            "seconds": 0.42,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_a_bad_shard_or_map_is_a_usage_error[args0]"
+          },
+          {
+            "seconds": 0.41,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c8_3_state_concurrent_export_workers_publish_once"
+          },
+          {
+            "seconds": 0.4,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_real_shards_partition_the_collection[2]"
+          },
+          {
+            "seconds": 0.39,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_real_shards_partition_the_collection[4]"
+          },
+          {
+            "seconds": 0.39,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c6_2_state_submission_deduplicates_and_rejects_digest_conflicts"
+          },
+          {
+            "seconds": 0.36,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[prompt]"
+          },
+          {
+            "seconds": 0.35,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c4_4_state_missing_exit_receipt_never_accepts_success"
+          },
+          {
+            "seconds": 0.34,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches"
+          },
+          {
+            "seconds": 0.33,
+            "phase": "setup",
+            "test": "tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own"
+          },
+          {
+            "seconds": 0.32,
+            "phase": "setup",
+            "test": "tests/unit/test_invariants_index.py::test_index_is_a_json_array_of_objects"
+          },
+          {
+            "seconds": 0.31,
+            "phase": "setup",
+            "test": "tests/unit/test_invariants_index.py::test_test_names_are_unique"
+          },
+          {
+            "seconds": 0.3,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c4_5_state_transient_retries_same_lane_once_then_another"
+          },
+          {
+            "seconds": 0.3,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_an_unmeasured_file_falls_back_to_its_checksum"
+          },
+          {
+            "seconds": 0.29,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_a_test_phase_without_a_duration_is_refused"
+          },
+          {
+            "seconds": 0.29,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c6_2_state_concurrent_duplicate_requests_create_one_job"
+          },
+          {
+            "seconds": 0.29,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_a_bad_shard_or_map_is_a_usage_error[args1]"
+          },
+          {
+            "seconds": 0.29,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c4_2_state_reserved_recovery_releases_and_retries"
+          },
+          {
+            "seconds": 0.28,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[1/4/2]"
+          },
+          {
+            "seconds": 0.28,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data4]"
+          },
+          {
+            "seconds": 0.27,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_the_plan_is_within_list_schedulings_bound"
+          },
+          {
+            "seconds": 0.27,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c8_3_state_concurrent_export_workers_publish_once"
+          },
+          {
+            "seconds": 0.27,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c16_1_state_socket_handler_recovers_after_malformed_line"
+          },
+          {
+            "seconds": 0.27,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c6_3_state_concurrent_submit_admission_owns_one_slot"
+          },
+          {
+            "seconds": 0.26,
+            "phase": "call",
+            "test": "tests/unit/test_invariants_index.py::test_kept_and_replaced_rows_name_a_clause"
+          },
+          {
+            "seconds": 0.26,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_the_workflow_matrix_names_every_shard_of_one_count_once"
+          },
+          {
+            "seconds": 0.24,
+            "phase": "setup",
+            "test": "tests/unit/test_invariants_index.py::test_no_row_is_left_unresolved"
+          },
+          {
+            "seconds": 0.24,
+            "phase": "setup",
+            "test": "tests/unit/test_invariants_index.py::test_proposals_are_numbered_from_one_without_gaps"
+          },
+          {
+            "seconds": 0.23,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_a_partial_report_never_replaces_a_files_time[None-None-no"
+          },
+          {
+            "seconds": 0.23,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[sandbox-unrestricted-2]"
+          },
+          {
+            "seconds": 0.22,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_a_group_keeps_its_files_together"
+          },
+          {
+            "seconds": 0.22,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c8_1_state_deliverable_and_export_sync_before_and_after_rename"
+          },
+          {
+            "seconds": 0.22,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[manifest]"
+          },
+          {
+            "seconds": 0.22,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[pinned_model-no-such-model-7]"
+          },
+          {
+            "seconds": 0.2,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c7_2_state_acceptance_and_cancellation_commit_order[True]"
+          },
+          {
+            "seconds": 0.2,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[prompt_path-/a-nonexistent-subfleet-test-prompt-2]"
+          },
+          {
+            "seconds": 0.2,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c4_3_state_acceptance_and_notice_share_one_transaction"
+          },
+          {
+            "seconds": 0.19,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_review_probes_share_a_group_before_the_other_frontend_tests"
+          },
+          {
+            "seconds": 0.18,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[manifest]"
+          },
+          {
+            "seconds": 0.17,
+            "phase": "call",
+            "test": "tests/unit/test_invariants_index.py::test_ledger_still_has_two_hundred_and_twenty_rows"
+          },
+          {
+            "seconds": 0.15,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_a_partial_report_never_replaces_a_files_time[None-None-no"
+          },
+          {
+            "seconds": 0.15,
+            "phase": "call",
+            "test": "tests/unit/test_invariants_index.py::test_every_proposal_names_an_owner_and_a_module"
+          },
+          {
+            "seconds": 0.14,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c7_3_a_family_cancel_has_one_instant_however_slow_the_clock"
+          },
+          {
+            "seconds": 0.13,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c4_2_state_starting_uses_receipt_or_verified_empty_retry[False]"
+          },
+          {
+            "seconds": 0.12,
+            "phase": "setup",
+            "test": "tests/unit/test_invariants_index.py::test_every_ledger_row_is_adjudicated"
+          },
+          {
+            "seconds": 0.12,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c15_1_state_terminal_and_notice_roll_back_together"
+          },
+          {
+            "seconds": 0.11,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[]"
+          },
+          {
+            "seconds": 0.11,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_the_checked_in_map_fits_the_workflow_limit"
+          },
+          {
+            "seconds": 0.11,
+            "phase": "setup",
+            "test": "tests/unit/test_invariants_index.py::test_classes_match_the_ledger_vocabulary"
+          },
+          {
+            "seconds": 0.11,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_the_durations_tool_rewrites_only_seconds_and_source"
+          },
+          {
+            "seconds": 0.11,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_shard_specs_round_trip"
+          },
+          {
+            "seconds": 0.1,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[5/4]"
+          },
+          {
+            "seconds": 0.1,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_the_durations_tool_rewrites_only_seconds_and_source"
+          },
+          {
+            "seconds": 0.1,
+            "phase": "setup",
+            "test": "tests/unit/test_invariants_index.py::test_dropped_rows_give_a_reason"
+          },
+          {
+            "seconds": 0.1,
+            "phase": "setup",
+            "test": "tests/unit/test_invariants_index.py::test_the_proposed_rows_are_the_ninety_two"
+          },
+          {
+            "seconds": 0.09,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_no_whole_report_is_an_error_and_writes_nothing"
+          },
+          {
+            "seconds": 0.08,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_file_seconds_sum_every_phase_of_a_file"
+          },
+          {
+            "seconds": 0.08,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_a_partial_report_never_replaces_a_files_time[1-3-1"
+          },
+          {
+            "seconds": 0.07,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[1/65]"
+          },
+          {
+            "seconds": 0.07,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_real_shards_partition_the_collection[3]"
+          },
+          {
+            "seconds": 0.07,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_a_partial_report_never_replaces_a_files_time[2-None-exit"
+          },
+          {
+            "seconds": 0.07,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c8_2_state_deliverable_is_frozen_during_finalization_replay"
+          },
+          {
+            "seconds": 0.06,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_the_checked_in_map_fits_the_workflow_limit"
+          },
+          {
+            "seconds": 0.06,
+            "phase": "setup",
+            "test": "tests/unit/test_invariants_index.py::test_ids_are_unique_and_complete"
+          },
+          {
+            "seconds": 0.06,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_real_shards_partition_the_collection[1]"
+          },
+          {
+            "seconds": 0.05,
+            "phase": "setup",
+            "test": "tests/unit/test_invariants_index.py::test_dispositions_are_in_the_allowed_set"
+          },
+          {
+            "seconds": 0.05,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c5_7_state_quarantine_confirm_dead_requires_empty_and_override_is_audited"
+          },
+          {
+            "seconds": 0.05,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data7]"
+          },
+          {
+            "seconds": 0.05,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_a_shard_reports_its_unmeasured_files"
+          },
+          {
+            "seconds": 0.05,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_shard_specs_round_trip"
+          },
+          {
+            "seconds": 0.05,
+            "phase": "setup",
+            "test": "tests/unit/test_invariants_index.py::test_mandated_dispositions_hold"
+          },
+          {
+            "seconds": 0.04,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[0/4]"
+          },
+          {
+            "seconds": 0.04,
+            "phase": "teardown",
+            "test": "tests/unit/test_invariants_index.py::test_surviving_rows_name_an_acceptance_owner"
+          },
+          {
+            "seconds": 0.04,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_the_workflow_matrix_names_every_shard_of_one_count_once"
+          },
+          {
+            "seconds": 0.03,
+            "phase": "setup",
+            "test": "tests/unit/test_invariants_index.py::test_dropped_rows_carry_no_owner_module_or_test"
+          },
+          {
+            "seconds": 0.03,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[01/4]"
+          },
+          {
+            "seconds": 0.03,
+            "phase": "setup",
+            "test": "tests/unit/test_invariants_index.py::test_no_proposal_is_orphaned"
+          },
+          {
+            "seconds": 0.03,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[4]"
+          },
+          {
+            "seconds": 0.03,
+            "phase": "setup",
+            "test": "tests/unit/test_invariants_index.py::test_proposals_and_index_agree_on_which_rows_each_covers"
+          },
+          {
+            "seconds": 0.03,
+            "phase": "setup",
+            "test": "tests/unit/test_invariants_index.py::test_every_cited_proposal_is_defined"
+          },
+          {
+            "seconds": 0.03,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_every_file_has_one_shard_whatever_else_exists"
+          },
+          {
+            "seconds": 0.03,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c5_8_state_exclusive_flock_and_reacquisition"
+          },
+          {
+            "seconds": 0.03,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_a_narrow_file_prefix_can_precede_its_directory_group"
+          },
+          {
+            "seconds": 0.03,
+            "phase": "setup",
+            "test": "tests/unit/test_invariants_index.py::test_markdown_table_and_json_agree"
+          },
+          {
+            "seconds": 0.03,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[a/b]"
+          },
+          {
+            "seconds": 0.02,
+            "phase": "call",
+            "test": "tests/unit/test_invariants_index.py::test_markdown_table_and_json_agree"
+          },
+          {
+            "seconds": 0.02,
+            "phase": "teardown",
+            "test": "tests/unit/test_invariants_index.py::test_every_cited_contract_clause_exists"
+          },
+          {
+            "seconds": 0.02,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data6]"
+          },
+          {
+            "seconds": 0.02,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_a_partial_report_never_replaces_a_files_time[2-None-exit"
+          },
+          {
+            "seconds": 0.02,
+            "phase": "setup",
+            "test": "tests/unit/test_invariants_index.py::test_rows_are_in_ledger_order"
+          },
+          {
+            "seconds": 0.02,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data5]"
+          },
+          {
+            "seconds": 0.02,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused["
+          },
+          {
+            "seconds": 0.02,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data8]"
+          },
+          {
+            "seconds": 0.02,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[01/4]"
+          },
+          {
+            "seconds": 0.02,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c20_3_state_disk_full_at_publication_preserves_committed_truth[deliverable]"
+          },
+          {
+            "seconds": 0.01,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_merge_takes_the_slowest_report_and_keeps_only_existing_unmeasured_files"
+          },
+          {
+            "seconds": 0.01,
+            "phase": "setup",
+            "test": "tests/unit/test_invariants_index.py::test_every_row_has_every_field"
+          },
+          {
+            "seconds": 0.01,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[sandbox-unrestricted-2]"
+          },
+          {
+            "seconds": 0.01,
+            "phase": "setup",
+            "test": "tests/unit/test_invariants_index.py::test_dropped_rows_do_not_claim_a_clause"
+          },
+          {
+            "seconds": 0.01,
+            "phase": "teardown",
+            "test": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[out_path-/a-nonexistent-subfleet-test-directory/result-2]"
+          },
+          {
+            "seconds": 0.01,
+            "phase": "setup",
+            "test": "tests/unit/test_invariants_index.py::test_kept_and_replaced_rows_name_a_clause"
+          },
+          {
+            "seconds": 0.01,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_real_shards_partition_the_collection[2]"
+          },
+          {
+            "seconds": 0.01,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data10]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_a_partial_report_never_replaces_a_files_time[1-3-1"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "setup",
+            "test": "tests/unit/test_invariants_index.py::test_ledger_still_has_two_hundred_and_twenty_rows"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data1]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_invariants_index.py::test_mandated_dispositions_hold"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_invariants_index.py::test_rows_are_in_ledger_order"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_a_whole_session_with_failures_still_counts"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_a_whole_session_with_failures_still_counts"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_a_bad_shard_or_map_is_a_usage_error[args1]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_no_whole_report_is_an_error_and_writes_nothing"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data11]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data2]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data9]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "setup",
+            "test": "tests/unit/test_invariants_index.py::test_every_proposal_names_an_owner_and_a_module"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data1]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_review_probes_share_a_group_before_the_other_frontend_tests"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data12]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data3]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data0]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[4]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_invariants_index.py::test_the_proposed_rows_are_the_ninety_two"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "setup",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[1/0]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "setup",
+            "test": "tests/unit/test_invariants_index.py::test_surviving_rows_name_an_acceptance_owner"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_invariants_index.py::test_dropped_rows_carry_no_owner_module_or_test"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_real_shards_partition_the_collection[3]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[0/4]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_no_whole_report_is_an_error_and_writes_nothing"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_invariants_index.py::test_every_cited_proposal_is_defined"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_invariants_index.py::test_ledger_still_has_two_hundred_and_twenty_rows"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_a_test_phase_without_a_duration_is_refused"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[prompt_path-/a-nonexistent-subfleet-test-prompt-2]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_the_durations_tool_rewrites_only_seconds_and_source"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[out_path-/a-nonexistent-subfleet-test-directory/result-2]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_real_shards_partition_the_collection[1]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_invariants_index.py::test_every_row_has_every_field"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_the_checked_in_map_fits_the_workflow_limit"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused["
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_file_seconds_sum_every_phase_of_a_file"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_merge_takes_the_slowest_report_and_keeps_only_existing_unmeasured_files"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_a_group_keeps_its_files_together"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data5]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_invariants_index.py::test_mandated_dispositions_hold"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_invariants_index.py::test_index_is_a_json_array_of_objects"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data4]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_real_shards_partition_the_collection[7]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_a_bad_shard_or_map_is_a_usage_error[args0]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data7]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_invariants_index.py::test_test_names_are_unique"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_invariants_index.py::test_ids_are_unique_and_complete"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_invariants_index.py::test_index_is_a_json_array_of_objects"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_a_partial_report_never_replaces_a_files_time[None-None-no"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_invariants_index.py::test_every_ledger_row_is_adjudicated"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_invariants_index.py::test_no_proposal_is_orphaned"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_invariants_index.py::test_surviving_rows_name_an_acceptance_owner"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_invariants_index.py::test_replaced_rows_name_their_replacement"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_a_shard_reports_its_unmeasured_files"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_a_narrow_file_prefix_can_precede_its_directory_group"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_invariants_index.py::test_dropped_rows_do_not_claim_a_clause"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused["
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_invariants_index.py::test_every_ledger_row_is_adjudicated"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_without_the_option_the_plugin_selects_nothing"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_invariants_index.py::test_ids_are_unique_and_complete"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_a_test_phase_without_a_duration_is_refused"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_invariants_index.py::test_no_proposal_is_orphaned"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_invariants_index.py::test_classes_match_the_ledger_vocabulary"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_an_unmeasured_file_falls_back_to_its_checksum"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_real_shards_partition_the_collection[4]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_invariants_index.py::test_every_proposal_names_an_owner_and_a_module"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data1]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_a_whole_session_with_failures_still_counts"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_every_file_has_one_shard_whatever_else_exists"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_a_partial_report_never_replaces_a_files_time[2-None-exit"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_invariants_index.py::test_rows_are_in_ledger_order"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_the_plan_is_within_list_schedulings_bound"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_invariants_index.py::test_dispositions_are_in_the_allowed_set"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_invariants_index.py::test_dropped_rows_give_a_reason"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[1/4/2]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_invariants_index.py::test_proposals_are_numbered_from_one_without_gaps"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_invariants_index.py::test_test_names_are_unique"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_invariants_index.py::test_dropped_rows_carry_no_owner_module_or_test"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[1/4/2]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_the_workflow_matrix_names_every_shard_of_one_count_once"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_invariants_index.py::test_every_cited_contract_clause_exists"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_invariants_index.py::test_every_cited_proposal_is_defined"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_invariants_index.py::test_classes_match_the_ledger_vocabulary"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_a_partial_report_never_replaces_a_files_time[1-3-1"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data10]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[1/65]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data5]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_invariants_index.py::test_proposals_and_index_agree_on_which_rows_each_covers"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data8]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data6]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_invariants_index.py::test_the_proposed_rows_are_the_ninety_two"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_invariants_index.py::test_proposals_are_numbered_from_one_without_gaps"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data9]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[1/65]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_invariants_index.py::test_kept_and_replaced_rows_name_a_clause"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_invariants_index.py::test_no_row_is_left_unresolved"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[1/0]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_invariants_index.py::test_dispositions_are_in_the_allowed_set"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[a/b]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_invariants_index.py::test_every_row_has_every_field"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data3]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_a_narrow_file_prefix_can_precede_its_directory_group"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_invariants_index.py::test_proposals_and_index_agree_on_which_rows_each_covers"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_review_probes_share_a_group_before_the_other_frontend_tests"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_invariants_index.py::test_markdown_table_and_json_agree"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[01/4]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_invariants_index.py::test_replaced_rows_name_their_replacement"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data10]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data9]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[5/4]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_invariants_index.py::test_dropped_rows_do_not_claim_a_clause"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_invariants_index.py::test_no_row_is_left_unresolved"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data4]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[1/0]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data7]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data6]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_invariants_index.py::test_dropped_rows_give_a_reason"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[4]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data3]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[0/4]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[5/4]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data2]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data12]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data0]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "teardown",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data11]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data0]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data2]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[a/b]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data12]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data8]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_shard_specs_are_refused[]"
+          },
+          {
+            "seconds": 0.0,
+            "phase": "call",
+            "test": "tests/unit/test_ci_shard_plugin.py::test_malformed_maps_are_refused[data11]"
+          }
+        ],
+        "native": [],
+        "outcomes": [],
+        "kill_lines": []
+      },
+      {
+        "label": "build-view-c",
+        "mode": "build",
+        "argv": [
+          "<scratch>/build.py",
+          "view"
+        ],
+        "queued_utc": "2026-10-28T19:45:46+00:00",
+        "admitted_utc": "2026-10-28T19:45:46+00:00",
+        "admit_line": "build load (108.19677734375, 108.9765625, 97.4287109375)",
+        "admitted_after_s": null,
+        "run_s": null,
+        "elapsed_s": 564.4,
+        "end_utc": "2026-10-28T19:55:10+00:00",
+        "rc": 143,
+        "killed": "hard deadline",
+        "load_queued": 108.19677734375,
+        "load_admitted": 108.19677734375,
+        "load_end": 48.95361328125,
+        "max_rss": 676102144,
+        "pytest_summary": null,
+        "live_owned_after": [],
+        "passed": [],
+        "failed": [],
+        "errors": [],
+        "phases": [],
+        "native": [],
+        "outcomes": [],
+        "kill_lines": []
+      },
+      {
+        "label": "build-view-d",
+        "mode": "build",
+        "argv": [
+          "<scratch>/build.py",
+          "view"
+        ],
+        "queued_utc": "2026-10-28T19:56:13+00:00",
+        "admitted_utc": "2026-10-28T19:56:13+00:00",
+        "admit_line": "build load (27.9365234375, 72.060546875, 87.68359375)",
+        "admitted_after_s": null,
+        "run_s": null,
+        "elapsed_s": 578.2,
+        "end_utc": "2026-10-28T20:05:51+00:00",
+        "rc": 1,
+        "killed": "hard deadline",
+        "load_queued": 27.9365234375,
+        "load_admitted": 27.9365234375,
+        "load_end": 115.1083984375,
+        "max_rss": 1221181440,
+        "pytest_summary": null,
+        "live_owned_after": [],
+        "passed": [],
+        "failed": [],
+        "errors": [],
+        "phases": [],
+        "native": [],
+        "outcomes": [],
+        "kill_lines": [],
+        "compile_timeout": true
+      },
+      {
+        "label": "build-view-e",
+        "mode": "build",
+        "argv": [
+          "<scratch>/build.py",
+          "view"
+        ],
+        "queued_utc": "2026-10-28T20:06:57+00:00",
+        "admitted_utc": "2026-10-28T20:06:57+00:00",
+        "admit_line": "build load (173.1298828125, 116.54541015625, 97.6357421875)",
+        "admitted_after_s": null,
+        "run_s": null,
+        "elapsed_s": 566.9,
+        "end_utc": "2026-10-28T20:16:24+00:00",
+        "rc": 143,
+        "killed": "hard deadline",
+        "load_queued": 173.1298828125,
+        "load_admitted": 173.1298828125,
+        "load_end": 125.7080078125,
+        "max_rss": 222019584,
+        "pytest_summary": null,
+        "live_owned_after": [],
+        "passed": [],
+        "failed": [],
+        "errors": [],
+        "phases": [],
+        "native": [],
+        "outcomes": [],
+        "kill_lines": []
+      },
+      {
+        "label": "build-view-f",
+        "mode": "build",
+        "argv": [
+          "<scratch>/build.py",
+          "view"
+        ],
+        "queued_utc": "2026-10-28T20:18:05+00:00",
+        "admitted_utc": "2026-10-28T20:18:05+00:00",
+        "admit_line": "build load (137.7548828125, 146.4697265625, 129.4326171875)",
+        "admitted_after_s": null,
+        "run_s": null,
+        "elapsed_s": 552.9,
+        "end_utc": "2026-10-28T20:27:18+00:00",
+        "rc": 143,
+        "killed": "hard deadline",
+        "load_queued": 137.7548828125,
+        "load_admitted": 137.7548828125,
+        "load_end": 59.53955078125,
+        "max_rss": 740605952,
+        "pytest_summary": null,
+        "live_owned_after": [],
+        "passed": [],
+        "failed": [],
+        "errors": [],
+        "phases": [],
+        "native": [],
+        "outcomes": [],
+        "kill_lines": []
+      },
+      {
+        "label": "build-view-g",
+        "mode": "build",
+        "argv": [
+          "<scratch>/build.py",
+          "view"
+        ],
+        "queued_utc": "2026-10-28T20:27:39+00:00",
+        "admitted_utc": "2026-10-28T20:27:39+00:00",
+        "admit_line": "build load (61.26123046875, 91.767578125, 110.8193359375)",
+        "admitted_after_s": null,
+        "run_s": null,
+        "elapsed_s": 559.4,
+        "end_utc": "2026-10-28T20:36:59+00:00",
+        "rc": 143,
+        "killed": "hard deadline",
+        "load_queued": 61.26123046875,
+        "load_admitted": 61.26123046875,
+        "load_end": 134.57275390625,
+        "max_rss": 986726400,
+        "pytest_summary": null,
+        "live_owned_after": [],
+        "passed": [],
+        "failed": [],
+        "errors": [],
+        "phases": [],
+        "native": [],
+        "outcomes": [],
+        "kill_lines": []
+      },
+      {
+        "label": "build-view-h",
+        "mode": "build",
+        "argv": [
+          "<scratch>/build.py",
+          "view"
+        ],
+        "queued_utc": "2026-10-28T20:37:30+00:00",
+        "admitted_utc": "2026-10-28T20:37:30+00:00",
+        "admit_line": "build load (109.59375, 105.78515625, 105.55712890625)",
+        "admitted_after_s": null,
+        "run_s": null,
+        "elapsed_s": 572.5,
+        "end_utc": "2026-10-28T20:47:02+00:00",
+        "rc": 143,
+        "killed": "hard deadline",
+        "load_queued": 109.59375,
+        "load_admitted": 109.59375,
+        "load_end": 99.6337890625,
+        "max_rss": 648052736,
+        "pytest_summary": null,
+        "live_owned_after": [],
+        "passed": [],
+        "failed": [],
+        "errors": [],
+        "phases": [],
+        "native": [],
+        "outcomes": [],
+        "kill_lines": []
+      },
+      {
+        "label": "build-view-i",
+        "mode": "build",
+        "argv": [
+          "<scratch>/build.py",
+          "view"
+        ],
+        "queued_utc": "2026-10-28T20:47:27+00:00",
+        "admitted_utc": "2026-10-28T20:47:27+00:00",
+        "admit_line": "build load (96.65380859375, 84.34423828125, 95.181640625)",
+        "admitted_after_s": null,
+        "run_s": null,
+        "elapsed_s": 553.2,
+        "end_utc": "2026-10-28T20:56:41+00:00",
+        "rc": 1,
+        "killed": null,
+        "load_queued": 96.65380859375,
+        "load_admitted": 96.65380859375,
+        "load_end": 110.68701171875,
+        "max_rss": 1192345600,
+        "pytest_summary": null,
+        "live_owned_after": [],
+        "passed": [],
+        "failed": [],
+        "errors": [],
+        "phases": [],
+        "native": [],
+        "outcomes": [],
+        "kill_lines": [],
+        "compile_timeout": true
+      },
+      {
+        "label": "build-view-j",
+        "mode": "build",
+        "argv": [
+          "<scratch>/build.py",
+          "view"
+        ],
+        "queued_utc": "2026-10-28T20:57:51+00:00",
+        "admitted_utc": "2026-10-28T20:57:51+00:00",
+        "admit_line": "build load (106.46533203125, 107.04931640625, 105.353515625)",
+        "admitted_after_s": null,
+        "run_s": null,
+        "elapsed_s": 560.8,
+        "end_utc": "2026-10-28T21:07:12+00:00",
+        "rc": 143,
+        "killed": "hard deadline",
+        "load_queued": 106.46533203125,
+        "load_admitted": 106.46533203125,
+        "load_end": 139.4765625,
+        "max_rss": 1000243200,
+        "pytest_summary": null,
+        "live_owned_after": [],
+        "passed": [],
+        "failed": [],
+        "errors": [],
+        "phases": [],
+        "native": [],
+        "outcomes": [],
+        "kill_lines": []
+      }
+    ]
+  }
+}

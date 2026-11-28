@@ -1,0 +1,137 @@
+[
+  {
+    "source": "20261004-221349-desc-reconcile-r2-hard/a1/stream.jsonl",
+    "command": "/bin/zsh -lc 'cat /Users/maxghenis/reviews/descriptor-reconcile-2026-09-27/review-opus.md /Users/maxghenis/reviews/descriptor-reconcile-2026-09-27/review-astra.md'",
+    "script": "cat /Users/maxghenis/reviews/descriptor-reconcile-2026-09-27/review-opus.md /Users/maxghenis/reviews/descriptor-reconcile-2026-09-27/review-astra.md"
+  },
+  {
+    "source": "20261004-221349-desc-reconcile-r2-hard/a1/stream.jsonl",
+    "command": "/bin/zsh -lc 'cat /Users/maxghenis/.agents/skills/gitnexus-pr-review/SKILL.md'",
+    "script": "cat /Users/maxghenis/.agents/skills/gitnexus-pr-review/SKILL.md"
+  },
+  {
+    "source": "20261004-221349-desc-reconcile-r2-hard/a1/stream.jsonl",
+    "command": "/bin/zsh -lc \"git status --short; git rev-parse HEAD; rg --files -g AGENTS.md -g '*descriptor*' -g 'pyproject.toml' -g 'conftest.py'\"",
+    "script": "git status --short; git rev-parse HEAD; rg --files -g AGENTS.md -g '*descriptor*' -g 'pyproject.toml' -g 'conftest.py'"
+  },
+  {
+    "source": "20261004-221349-desc-reconcile-r2-hard/a1/stream.jsonl",
+    "command": "/bin/zsh -c 'git show 02c63203 -- subfleet/daemon.py subfleet/descriptors.py subfleet/conversations/service.py'",
+    "script": "git show 02c63203 -- subfleet/daemon.py subfleet/descriptors.py subfleet/conversations/service.py"
+  },
+  {
+    "source": "20261004-221349-desc-reconcile-r2-hard/a1/stream.jsonl",
+    "command": "/bin/zsh -c 'git show d9b378cc --stat; git diff 3e13ecde..02c63203 --stat; git diff 3e13ecde..02c63203 -- subfleet/conversations/service.py subfleet/descriptors.py'",
+    "script": "git show d9b378cc --stat; git diff 3e13ecde..02c63203 --stat; git diff 3e13ecde..02c63203 -- subfleet/conversations/service.py subfleet/descriptors.py"
+  },
+  {
+    "source": "20261004-221349-desc-reconcile-r2-hard/a1/stream.jsonl",
+    "command": "/bin/zsh -c \"rg --files -g AGENTS.md -g '*descriptor*' -g 'pyproject.toml' -g 'conftest.py'; rg -n 'def (_connection|_end_stream|_forget_connection|_refuse|_decode|_dispatch|_write|_release_partial_init)|_connection_lock|_shut_down|no_thread|sendall|ping_writes|_write_locks' subfleet/daemon.py subfleet/conversations/service.py subfleet/descriptors.py\"",
+    "script": "rg --files -g AGENTS.md -g '*descriptor*' -g 'pyproject.toml' -g 'conftest.py'; rg -n 'def (_connection|_end_stream|_forget_connection|_refuse|_decode|_dispatch|_write|_release_partial_init)|_connection_lock|_shut_down|no_thread|sendall|ping_writes|_write_locks' subfleet/daemon.py subfleet/conversations/service.py subfleet/descriptors.py"
+  },
+  {
+    "source": "20261004-221349-desc-reconcile-r2-hard/a1/stream.jsonl",
+    "command": "/bin/zsh -c 'git diff 3e13ecde..02c63203 -- subfleet/daemon.py'",
+    "script": "git diff 3e13ecde..02c63203 -- subfleet/daemon.py"
+  },
+  {
+    "source": "20261004-221349-desc-reconcile-r2-hard/a1/stream.jsonl",
+    "command": "/bin/zsh -c \"nl -ba subfleet/daemon.py | sed -n '6300,6820p'\"",
+    "script": "nl -ba subfleet/daemon.py | sed -n '6300,6820p'"
+  },
+  {
+    "source": "20261004-221349-desc-reconcile-r2-hard/a1/stream.jsonl",
+    "command": "/bin/zsh -c 'for f in /AGENTS.md /Users/AGENTS.md /Users/maxghenis/AGENTS.md /Users/maxghenis/reviews/AGENTS.md /Users/maxghenis/reviews/descriptor-reconcile-2026-09-27/AGENTS.md; do if [ -f \"$f\" ]; then cat \"$f\"; fi; done'",
+    "script": "for f in /AGENTS.md /Users/AGENTS.md /Users/maxghenis/AGENTS.md /Users/maxghenis/reviews/AGENTS.md /Users/maxghenis/reviews/descriptor-reconcile-2026-09-27/AGENTS.md; do if [ -f \"$f\" ]; then cat \"$f\"; fi; done"
+  },
+  {
+    "source": "20261004-221349-desc-reconcile-r2-hard/a1/stream.jsonl",
+    "command": "/bin/zsh -c \"nl -ba subfleet/descriptors.py | sed -n '1,320p'; nl -ba subfleet/conversations/service.py | sed -n '195,325p'; nl -ba subfleet/conversations/service.py | sed -n '620,775p'\"",
+    "script": "nl -ba subfleet/descriptors.py | sed -n '1,320p'; nl -ba subfleet/conversations/service.py | sed -n '195,325p'; nl -ba subfleet/conversations/service.py | sed -n '620,775p'"
+  },
+  {
+    "source": "20261004-221349-desc-reconcile-r2-hard/a1/stream.jsonl",
+    "command": "/bin/zsh -c \"nl -ba subfleet/daemon.py | sed -n '6590,6810p'; rg -n 'sendall|send\\\\(|send_reply|write_lock' subfleet -g '*.py'; nl -ba subfleet/conversations/service.py | sed -n '210,255p'\"",
+    "script": "nl -ba subfleet/daemon.py | sed -n '6590,6810p'; rg -n 'sendall|send\\(|send_reply|write_lock' subfleet -g '*.py'; nl -ba subfleet/conversations/service.py | sed -n '210,255p'"
+  },
+  {
+    "source": "20261004-221349-desc-reconcile-r2-hard/a1/stream.jsonl",
+    "command": "/bin/zsh -c \"nl -ba tests/unit/test_descriptor_review_fixes.py | sed -n '1,520p'\"",
+    "script": "nl -ba tests/unit/test_descriptor_review_fixes.py | sed -n '1,520p'"
+  },
+  {
+    "source": "20261004-221349-desc-reconcile-r2-hard/a1/stream.jsonl",
+    "command": "/bin/zsh -c \"nl -ba docs/acceptance-contract.md | sed -n '60,88p'; nl -ba docs/acceptance-contract.md | sed -n '260,310p'; git diff b053e3de..3e13ecde -- subfleet/daemon.py subfleet/conversations/service.py\"",
+    "script": "nl -ba docs/acceptance-contract.md | sed -n '60,88p'; nl -ba docs/acceptance-contract.md | sed -n '260,310p'; git diff b053e3de..3e13ecde -- subfleet/daemon.py subfleet/conversations/service.py"
+  },
+  {
+    "source": "20261004-221349-desc-reconcile-r2-hard/a1/stream.jsonl",
+    "command": "/bin/zsh -c 'ls -l .venv/bin/python .venv/bin/python3; python3 --version; git diff 8cb8a7d8..02c63203 --stat; git show d9b378cc --stat --oneline'",
+    "script": "ls -l .venv/bin/python .venv/bin/python3; python3 --version; git diff 8cb8a7d8..02c63203 --stat; git show d9b378cc --stat --oneline"
+  },
+  {
+    "source": "20261004-221349-desc-reconcile-r2-hard/a1/stream.jsonl",
+    "command": "/bin/zsh -c \"nl -ba docs/acceptance-contract.md | sed -n '275,298p'; rg -n 'Review of the descriptor reconciliation|C-15\\\\.8|C-16\\\\.2|C-16\\\\.5|no_thread' docs/acceptance-contract.md tests/unit/test_descriptors_desktop.py; git diff 3e13ecde..02c63203 -- subfleet/conversations/service.py\"",
+    "script": "nl -ba docs/acceptance-contract.md | sed -n '275,298p'; rg -n 'Review of the descriptor reconciliation|C-15\\.8|C-16\\.2|C-16\\.5|no_thread' docs/acceptance-contract.md tests/unit/test_descriptors_desktop.py; git diff 3e13ecde..02c63203 -- subfleet/conversations/service.py"
+  },
+  {
+    "source": "20261004-221349-desc-reconcile-r2-hard/a1/stream.jsonl",
+    "command": "/bin/zsh -c 'git diff 3e13ecde..02c63203 -- subfleet/conversations/service.py; git diff 8cb8a7d8..02c63203 -- subfleet/descriptors.py'",
+    "script": "git diff 3e13ecde..02c63203 -- subfleet/conversations/service.py; git diff 8cb8a7d8..02c63203 -- subfleet/descriptors.py"
+  },
+  {
+    "source": "20261004-221349-desc-reconcile-r2-hard/a1/stream.jsonl",
+    "command": "/bin/zsh -c \"nl -ba docs/acceptance-contract.md | sed -n '287,290p'; rg -n -F 'Review of the descriptor reconciliation' docs/acceptance-contract.md; ls -l .venv/bin/python .venv/bin/python3; python3 --version\"",
+    "script": "nl -ba docs/acceptance-contract.md | sed -n '287,290p'; rg -n -F 'Review of the descriptor reconciliation' docs/acceptance-contract.md; ls -l .venv/bin/python .venv/bin/python3; python3 --version"
+  },
+  {
+    "source": "20261004-221349-desc-reconcile-r2-hard/a1/stream.jsonl",
+    "command": "/bin/zsh -c \"PYTHONDONTWRITEBYTECODE=1 python3 -c 'import ast, subprocess\nfrom pathlib import Path\nfiles=['\\\\''subfleet/daemon.py'\\\\'','\\\\''subfleet/conversations/service.py'\\\\'','\\\\''subfleet/cli.py'\\\\'','\\\\''subfleet/client.py'\\\\'','\\\\''subfleet/hooks.py'\\\\'']\ndef symbols(text):\n    tree=ast.parse(text)\n    result={}\n    def visit(node,prefix='\\\\'''\\\\''):\n        for item in getattr(node,'\\\\''body'\\\\'',[]):\n            if isinstance(item,ast.ClassDef):\n                visit(item,prefix+item.name+'\\\\''.'\\\\'')\n            elif isinstance(item,(ast.FunctionDef,ast.AsyncFunctionDef)):\n                result[prefix+item.name]=ast.dump(item,include_attributes=False)\n    visit(tree)\n    return result\nfor path in files:\n    old=symbols(subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''b053e3de:'\\\\''+path],text=True))\n    release=symbols(subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''3e13ecde:'\\\\''+path],text=True))\n    head=symbols(Path(path).read_text())\n    changed=[k for k in release if release[k]\"'!=old.get(k)]\n    overlap=[k for k in changed if release[k]!=head.get(k)]\n    print(path, '\"'\\\\''release changed/added:'\\\\'',len(changed), '\\\\''preserved:'\\\\'',len(changed)-len(overlap),'\\\\''overlap:'\\\\'',overlap)\n    print('\\\\''  release symbols missing in HEAD:'\\\\'',[k for k in release if k not in head])\nold=subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''b053e3de:docs/acceptance-contract.md'\\\\''],text=True)\nrelease=subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''3e13ecde:docs/acceptance-contract.md'\\\\''],text=True)\nhead=Path('\\\\''docs/acceptance-contract.md'\\\\'').read_text()\ndef clauses(s):\n    return {line.split('\\\\''**'\\\\'')[1]:line for line in s.splitlines() if line.startswith('\\\\''- **C-'\\\\'')}\na,b,c=map(clauses,(old,release,head))\nchanged=[k for k in b if b[k]\"'!=a.get(k)]\nprint('\"'\\\\''contract release changed/added:'\\\\'',len(changed),'\\\\''preserved:'\\\\'',sum(b[k]==c.get(k) for k in changed),'\\\\''overlap:'\\\\'',[k for k in changed if b[k]\"'!=c.get(k)])\nprint('\"'\\\\''contract clauses missing in HEAD:'\\\\'',[k for k in b if k not in c])\n'\"",
+    "script": "PYTHONDONTWRITEBYTECODE=1 python3 -c 'import ast, subprocess\nfrom pathlib import Path\nfiles=['\\''subfleet/daemon.py'\\'','\\''subfleet/conversations/service.py'\\'','\\''subfleet/cli.py'\\'','\\''subfleet/client.py'\\'','\\''subfleet/hooks.py'\\'']\ndef symbols(text):\n    tree=ast.parse(text)\n    result={}\n    def visit(node,prefix='\\'''\\''):\n        for item in getattr(node,'\\''body'\\'',[]):\n            if isinstance(item,ast.ClassDef):\n                visit(item,prefix+item.name+'\\''.'\\'')\n            elif isinstance(item,(ast.FunctionDef,ast.AsyncFunctionDef)):\n                result[prefix+item.name]=ast.dump(item,include_attributes=False)\n    visit(tree)\n    return result\nfor path in files:\n    old=symbols(subprocess.check_output(['\\''git'\\'','\\''show'\\'','\\''b053e3de:'\\''+path],text=True))\n    release=symbols(subprocess.check_output(['\\''git'\\'','\\''show'\\'','\\''3e13ecde:'\\''+path],text=True))\n    head=symbols(Path(path).read_text())\n    changed=[k for k in release if release[k]!=old.get(k)]\n    overlap=[k for k in changed if release[k]!=head.get(k)]\n    print(path, '\\''release changed/added:'\\'',len(changed), '\\''preserved:'\\'',len(changed)-len(overlap),'\\''overlap:'\\'',overlap)\n    print('\\''  release symbols missing in HEAD:'\\'',[k for k in release if k not in head])\nold=subprocess.check_output(['\\''git'\\'','\\''show'\\'','\\''b053e3de:docs/acceptance-contract.md'\\''],text=True)\nrelease=subprocess.check_output(['\\''git'\\'','\\''show'\\'','\\''3e13ecde:docs/acceptance-contract.md'\\''],text=True)\nhead=Path('\\''docs/acceptance-contract.md'\\'').read_text()\ndef clauses(s):\n    return {line.split('\\''**'\\'')[1]:line for line in s.splitlines() if line.startswith('\\''- **C-'\\'')}\na,b,c=map(clauses,(old,release,head))\nchanged=[k for k in b if b[k]!=a.get(k)]\nprint('\\''contract release changed/added:'\\'',len(changed),'\\''preserved:'\\'',sum(b[k]==c.get(k) for k in changed),'\\''overlap:'\\'',[k for k in changed if b[k]!=c.get(k)])\nprint('\\''contract clauses missing in HEAD:'\\'',[k for k in b if k not in c])\n'"
+  },
+  {
+    "source": "20261004-221349-desc-reconcile-r2-hard/a1/stream.jsonl",
+    "command": "/bin/zsh -c \"PYTHONDONTWRITEBYTECODE=1 python3 -c 'import ast, subprocess\nfrom pathlib import Path\nfiles=['\\\\''subfleet/daemon.py'\\\\'','\\\\''subfleet/conversations/service.py'\\\\'','\\\\''subfleet/cli.py'\\\\'','\\\\''subfleet/client.py'\\\\'','\\\\''subfleet/hooks.py'\\\\'']\ndef symbols(text):\n    tree=ast.parse(text)\n    result={}\n    def visit(node,prefix='\\\\'''\\\\''):\n        for item in getattr(node,'\\\\''body'\\\\'',[]):\n            if isinstance(item,ast.ClassDef):\n                visit(item,prefix+item.name+'\\\\''.'\\\\'')\n            elif isinstance(item,(ast.FunctionDef,ast.AsyncFunctionDef)):\n                result[prefix+item.name]=ast.dump(item,include_attributes=False)\n    visit(tree)\n    return result\nfor path in files:\n    old=symbols(subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''b053e3de:'\\\\''+path],text=True))\n    release=symbols(subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''3e13ecde:'\\\\''+path],text=True))\n    head=symbols(Path(path).read_text())\n    changed=[k for k in release if release[k]\"'!=old.get(k)]\n    overlap=[k for k in changed if release[k]!=head.get(k)]\n    print(path, '\"'\\\\''release changed/added:'\\\\'',len(changed), '\\\\''preserved:'\\\\'',len(changed)-len(overlap),'\\\\''overlap:'\\\\'',overlap,flush=True)\n    print('\\\\''  release symbols missing in HEAD:'\\\\'',[k for k in release if k not in head],flush=True)\nold=subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''b053e3de:docs/acceptance-contract.md'\\\\''],text=True)\nrelease=subprocess.check_output(['\\\\''git'\\\\'','\\\\''show'\\\\'','\\\\''3e13ecde:docs/acceptance-contract.md'\\\\''],text=True)\nhead=Path('\\\\''docs/acceptance-contract.md'\\\\'').read_text()\ndef clauses(s):\n    return {line.split('\\\\''**'\\\\'')[1]:line for line in s.splitlines() if line.startswith('\\\\''- **C-'\\\\'')}\na,b,c=map(clauses,(old,release,head))\nchanged=[k for k in b if b[k]\"'!=a.get(k)]\nprint('\"'\\\\''contract release changed/added:'\\\\'',len(changed),'\\\\''preserved:'\\\\'',sum(b[k]==c.get(k) for k in changed),'\\\\''overlap:'\\\\'',[k for k in changed if b[k]\"'!=c.get(k)],flush=True)\nprint('\"'\\\\''contract clauses missing in HEAD:'\\\\'',[k for k in b if k not in c],flush=True)\n'\"",
+    "script": "PYTHONDONTWRITEBYTECODE=1 python3 -c 'import ast, subprocess\nfrom pathlib import Path\nfiles=['\\''subfleet/daemon.py'\\'','\\''subfleet/conversations/service.py'\\'','\\''subfleet/cli.py'\\'','\\''subfleet/client.py'\\'','\\''subfleet/hooks.py'\\'']\ndef symbols(text):\n    tree=ast.parse(text)\n    result={}\n    def visit(node,prefix='\\'''\\''):\n        for item in getattr(node,'\\''body'\\'',[]):\n            if isinstance(item,ast.ClassDef):\n                visit(item,prefix+item.name+'\\''.'\\'')\n            elif isinstance(item,(ast.FunctionDef,ast.AsyncFunctionDef)):\n                result[prefix+item.name]=ast.dump(item,include_attributes=False)\n    visit(tree)\n    return result\nfor path in files:\n    old=symbols(subprocess.check_output(['\\''git'\\'','\\''show'\\'','\\''b053e3de:'\\''+path],text=True))\n    release=symbols(subprocess.check_output(['\\''git'\\'','\\''show'\\'','\\''3e13ecde:'\\''+path],text=True))\n    head=symbols(Path(path).read_text())\n    changed=[k for k in release if release[k]!=old.get(k)]\n    overlap=[k for k in changed if release[k]!=head.get(k)]\n    print(path, '\\''release changed/added:'\\'',len(changed), '\\''preserved:'\\'',len(changed)-len(overlap),'\\''overlap:'\\'',overlap,flush=True)\n    print('\\''  release symbols missing in HEAD:'\\'',[k for k in release if k not in head],flush=True)\nold=subprocess.check_output(['\\''git'\\'','\\''show'\\'','\\''b053e3de:docs/acceptance-contract.md'\\''],text=True)\nrelease=subprocess.check_output(['\\''git'\\'','\\''show'\\'','\\''3e13ecde:docs/acceptance-contract.md'\\''],text=True)\nhead=Path('\\''docs/acceptance-contract.md'\\'').read_text()\ndef clauses(s):\n    return {line.split('\\''**'\\'')[1]:line for line in s.splitlines() if line.startswith('\\''- **C-'\\'')}\na,b,c=map(clauses,(old,release,head))\nchanged=[k for k in b if b[k]!=a.get(k)]\nprint('\\''contract release changed/added:'\\'',len(changed),'\\''preserved:'\\'',sum(b[k]==c.get(k) for k in changed),'\\''overlap:'\\'',[k for k in changed if b[k]!=c.get(k)],flush=True)\nprint('\\''contract clauses missing in HEAD:'\\'',[k for k in b if k not in c],flush=True)\n'"
+  },
+  {
+    "source": "20261004-221349-desc-reconcile-r2-hard/a1/stream.jsonl",
+    "command": "/bin/zsh -c \"nl -ba subfleet/daemon.py | sed -n '490,690p'; git diff 3e13ecde..02c63203 -- subfleet | rg '\"'^diff --git|''^@@'\"'\"",
+    "script": "nl -ba subfleet/daemon.py | sed -n '490,690p'; git diff 3e13ecde..02c63203 -- subfleet | rg '^diff --git|^@@'"
+  },
+  {
+    "source": "20261004-221349-desc-reconcile-r2-hard/a1/stream.jsonl",
+    "command": "/bin/zsh -c 'git diff 3e13ecde..02c63203 -- subfleet/protocol.py subfleet/waits.py; git diff 02c63203''^..02c63203 -- docs/acceptance-contract.md'",
+    "script": "git diff 3e13ecde..02c63203 -- subfleet/protocol.py subfleet/waits.py; git diff 02c63203^..02c63203 -- docs/acceptance-contract.md"
+  },
+  {
+    "source": "20261004-221349-desc-reconcile-r2-hard/a1/stream.jsonl",
+    "command": "/bin/zsh -c \"nl -ba subfleet/daemon.py | sed -n '2448,2565p'; nl -ba subfleet/daemon.py | sed -n '2645,2725p'; nl -ba subfleet/protocol.py | sed -n '280,300p'; nl -ba subfleet/protocol.py | sed -n '368,422p'; nl -ba tests/unit/test_descriptors_desktop.py | sed -n '1,160p'\"",
+    "script": "nl -ba subfleet/daemon.py | sed -n '2448,2565p'; nl -ba subfleet/daemon.py | sed -n '2645,2725p'; nl -ba subfleet/protocol.py | sed -n '280,300p'; nl -ba subfleet/protocol.py | sed -n '368,422p'; nl -ba tests/unit/test_descriptors_desktop.py | sed -n '1,160p'"
+  },
+  {
+    "source": "20261004-221349-desc-reconcile-r2-hard/a1/stream.jsonl",
+    "command": "/bin/zsh -c \"rg -n '\"'^def test_|''^@pytest.mark.parametrize|''^OPS|''^CONVERSATION'\"' tests/unit/test_descriptors_desktop.py; nl -ba tests/unit/test_descriptors_desktop.py | sed -n '28,132p'; nl -ba subfleet/protocol.py | sed -n '390,422p'; rg -n 'def ping_writes|op_conversation_rename|op_message_steer' subfleet/protocol.py subfleet/conversations/service.py\"",
+    "script": "rg -n '^def test_|^@pytest.mark.parametrize|^OPS|^CONVERSATION' tests/unit/test_descriptors_desktop.py; nl -ba tests/unit/test_descriptors_desktop.py | sed -n '28,132p'; nl -ba subfleet/protocol.py | sed -n '390,422p'; rg -n 'def ping_writes|op_conversation_rename|op_message_steer' subfleet/protocol.py subfleet/conversations/service.py"
+  },
+  {
+    "source": "20261004-221349-desc-reconcile-r2-hard/a1/stream.jsonl",
+    "command": "/bin/zsh -c 'GIT_OPTIONAL_LOCKS=0 git -c core.fsmonitor=false status --short; git rev-parse HEAD'",
+    "script": "GIT_OPTIONAL_LOCKS=0 git -c core.fsmonitor=false status --short; git rev-parse HEAD"
+  },
+  {
+    "source": "20261004-221349-desc-reconcile-r2-hard/a1/stream.jsonl",
+    "command": "/bin/zsh -c \"PYTHONDONTWRITEBYTECODE=1 SUBFLEET_HOME=/nonexistent python3 -c 'import ast\nfrom pathlib import Path\nfrom subfleet import protocol, descriptors\nwrites={\\\"conversation.create\\\",\\\"conversation.settings\\\",\\\"conversation.unblock\\\",\\\"conversation.rename\\\",\\\"message.submit\\\",\\\"message.steer\\\",\\\"message.cancel\\\",\\\"turn.interrupt\\\",\\\"message.resolve\\\",\\\"approval.respond\\\",\\\"attachment.add\\\",\\\"catalog.refresh\\\",\\\"conversation.handoff\\\"}\nreads={\\\"capabilities\\\",\\\"models.list\\\",\\\"conversation.list\\\",\\\"conversation.history\\\",\\\"conversation.events\\\",\\\"conversation.watch\\\",\\\"conversation.runs\\\",\\\"message.status\\\",\\\"approval.list\\\",\\\"approval.get\\\",\\\"turn.diff\\\",\\\"conversation.diff\\\"}\nassert reads | writes | {\\\"conversation.open\\\"} == set(protocol.CONVERSATION_OPS)\nassert descriptors.READ_ONLY_CONVERSATION_OPS == reads\nfor op in reads:\n    assert descriptors.read_only(op,{})\nfor op in writes:\n    assert not descriptors.read_only(op,{})\n    assert not descriptors.read_only(op,{\\\"conversation_id\\\":\\\"c\\\",\\\"text\\\":\\\"\\\"})\nfor args in [{},{\\\"text\\\":None},{\\\"text\\\":\\\"\\\"},{\\\"text\\\":\\\"  \\\"},{\\\"text\\\":\\\"notice\\\"},{\\\"text\\\":123}]:\n    assert descriptors.read_only(\\\"ping\\\",args) == (not protocol.ping_writes(args))\nprint(\\\"read-only classification PASS\\\",len(reads)+len(writes)+1,\\\"conversation ops; whitespace and invalid-type ping classification PASS\\\")\ntree=ast.parse(Path(\\\"subfleet/daemon.py\\\").read_text())\nlock_scopes=[]\nsuspect=[]\nfor node in ast.walk(tree):\n    if isinstance(node,ast.With) and any(ast.unparse(item.context_expr)==\\\"self._connection_lock\\\" for item in node.items):\n        calls=[ast.unparse(x.func) for stmt in node.body for x in ast.walk(stmt) if isinstance(x,ast.Call)]\n        lock_scopes.append(node.lineno)\n        if any(\\\"send_reply\\\" in x or x in (\\\"self._respond\\\",\\\"self._answer\\\",\\\"self._start_request\\\",\\\"self._connection\\\",\\\"self._refuse\\\") for x in calls):\n            suspect.append((node.lineno,calls))\nprint(\\\"connection-lock scopes audited:\\\",lock_scopes)\nprint(\\\"write/dispatch calls under connection lock:\\\",suspect)\n'\"",
+    "script": "PYTHONDONTWRITEBYTECODE=1 SUBFLEET_HOME=/nonexistent python3 -c 'import ast\nfrom pathlib import Path\nfrom subfleet import protocol, descriptors\nwrites={\"conversation.create\",\"conversation.settings\",\"conversation.unblock\",\"conversation.rename\",\"message.submit\",\"message.steer\",\"message.cancel\",\"turn.interrupt\",\"message.resolve\",\"approval.respond\",\"attachment.add\",\"catalog.refresh\",\"conversation.handoff\"}\nreads={\"capabilities\",\"models.list\",\"conversation.list\",\"conversation.history\",\"conversation.events\",\"conversation.watch\",\"conversation.runs\",\"message.status\",\"approval.list\",\"approval.get\",\"turn.diff\",\"conversation.diff\"}\nassert reads | writes | {\"conversation.open\"} == set(protocol.CONVERSATION_OPS)\nassert descriptors.READ_ONLY_CONVERSATION_OPS == reads\nfor op in reads:\n    assert descriptors.read_only(op,{})\nfor op in writes:\n    assert not descriptors.read_only(op,{})\n    assert not descriptors.read_only(op,{\"conversation_id\":\"c\",\"text\":\"\"})\nfor args in [{},{\"text\":None},{\"text\":\"\"},{\"text\":\"  \"},{\"text\":\"notice\"},{\"text\":123}]:\n    assert descriptors.read_only(\"ping\",args) == (not protocol.ping_writes(args))\nprint(\"read-only classification PASS\",len(reads)+len(writes)+1,\"conversation ops; whitespace and invalid-type ping classification PASS\")\ntree=ast.parse(Path(\"subfleet/daemon.py\").read_text())\nlock_scopes=[]\nsuspect=[]\nfor node in ast.walk(tree):\n    if isinstance(node,ast.With) and any(ast.unparse(item.context_expr)==\"self._connection_lock\" for item in node.items):\n        calls=[ast.unparse(x.func) for stmt in node.body for x in ast.walk(stmt) if isinstance(x,ast.Call)]\n        lock_scopes.append(node.lineno)\n        if any(\"send_reply\" in x or x in (\"self._respond\",\"self._answer\",\"self._start_request\",\"self._connection\",\"self._refuse\") for x in calls):\n            suspect.append((node.lineno,calls))\nprint(\"connection-lock scopes audited:\",lock_scopes)\nprint(\"write/dispatch calls under connection lock:\",suspect)\n'"
+  },
+  {
+    "source": "20261004-224916-desc-reconcile-r4-hard/a1/stream.jsonl",
+    "command": "/bin/zsh -lc \"env -u PYTHONPATH PYTHONDONTWRITEBYTECODE=1 python3 -B - <<'PY'\nfrom pathlib import Path\nimport ast\np = Path('tests/unit/test_descriptor_review_fixes.py')\nm = ast.parse(p.read_text())\nfor node in m.body:\n    if isinstance(node, ast.FunctionDef) and node.name.startswith('test_'):\n        print(node.lineno, node.name, [a.arg for a in node.args.args])\nPY\"",
+    "script": "env -u PYTHONPATH PYTHONDONTWRITEBYTECODE=1 python3 -B - <<'PY'\nfrom pathlib import Path\nimport ast\np = Path('tests/unit/test_descriptor_review_fixes.py')\nm = ast.parse(p.read_text())\nfor node in m.body:\n    if isinstance(node, ast.FunctionDef) and node.name.startswith('test_'):\n        print(node.lineno, node.name, [a.arg for a in node.args.args])\nPY"
+  },
+  {
+    "source": "20261004-132200-pr127-fix-review/a1/stream.jsonl",
+    "command": "/bin/zsh -lc 'cd build/review/base && /Users/maxghenis/.subfleet/worktrees/20261004-132200-pr127-fix-review/.venv312/bin/python ../run.py 540 /Users/maxghenis/.subfleet/worktrees/20261004-132200-pr127-fix-review/.venv312/bin/python -m pytest -q --tb=short tests/unit/test_claude_conversation_mcp_scope.py tests/unit/test_desktop_ledger.py tests/unit/test_review_pr127_fixes.py --junitxml=../base-ci.xml'",
+    "script": "cd build/review/base && /Users/maxghenis/.subfleet/worktrees/20261004-132200-pr127-fix-review/.venv312/bin/python ../run.py 540 /Users/maxghenis/.subfleet/worktrees/20261004-132200-pr127-fix-review/.venv312/bin/python -m pytest -q --tb=short tests/unit/test_claude_conversation_mcp_scope.py tests/unit/test_desktop_ledger.py tests/unit/test_review_pr127_fixes.py --junitxml=../base-ci.xml"
+  }
+]

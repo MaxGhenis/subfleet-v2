@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 18:16:36Z slot A load 
+....................                                                     [100%]
+20 passed in 41.00s
+{"name": "linked-test_retention_location_cycles", "start": "2026-10-31T18:16:43.715244+00:00", "load": [54.55126953125, 56.07373046875, 55.95556640625], "seconds": 44.81757199999993, "exit": 0}

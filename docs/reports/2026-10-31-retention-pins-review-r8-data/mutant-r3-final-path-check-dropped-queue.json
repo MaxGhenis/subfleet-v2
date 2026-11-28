@@ -1,0 +1,1 @@
+{"label": "mutant-r3-final-path-check-dropped", "queued": "2026-10-31T06:31:02.898465+00:00", "args": ["-p", "tests.conftest", "--confcutdir=/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/docs/reports/2026-10-31-retention-pins-fix-r7-data", "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[symlink-info-running]"], "pid": 54605}

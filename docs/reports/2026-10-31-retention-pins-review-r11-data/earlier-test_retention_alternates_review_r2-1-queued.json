@@ -1,0 +1,24 @@
+{
+  "queued": "2026-10-31T17:03:34.992339+00:00",
+  "args": [
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[#inside-#inside]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\\"-\"]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\157-o]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\303\\251-\\xc3\\xa9]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\\\-\\]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\a-\\x07]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\b-\\x08]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\f-\\x0c]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\n-\\n]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\r-\\r]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\t-\\t]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_extended_git_c_escapes_resolve_the_same_objects[\\v-\\x0b]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_git_quoted_entry_trailing_text_and_crlf[ # comment\\n]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_git_quoted_entry_trailing_text_and_crlf[\\r\\n]",
+    "tests/unit/test_retention_alternates_review_r2.py::test_c8_4_git_quoted_entry_trailing_text_and_crlf[xignored\\n]"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/earlier-test_retention_alternates_review_r2-1",
+  "linked": false,
+  "driver_pid": 70165,
+  "lock_process_group": 70317
+}

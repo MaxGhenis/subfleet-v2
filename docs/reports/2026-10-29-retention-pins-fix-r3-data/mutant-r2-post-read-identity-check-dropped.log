@@ -1,0 +1,109 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 20:17:20Z slot A load 
+START mutant-r2-post-read-identity-check-dropped 2026-10-29T20:17:24.533046+00:00 load=(35.87255859375, 25.35205078125, 18.640625)
+F
+=================================== FAILURES ===================================
+__ test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace] __
+
+world = World(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261029-155527-pr272-...08/sf-fix272r3/cases-81461/test_c8_4_changed_alternates_d0/state'), store=<subfleet.store.Store object at 0x10bcbe120>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b61fbb0>
+change = 'replace'
+
+    @pytest.mark.parametrize("change", ["replace", "rewrite"])
+    def test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads(world, monkeypatch, change):
+        tree = world.job("owner")
+        source = repo(tree / "object-source")
+        commit = git(source, "rev-parse", "HEAD")
+        borrower = world.base / "outside"
+        git(world.base, "init", "--quiet", str(borrower))
+        alternate = borrower / ".git" / "objects" / "info" / "alternates"
+        alternate.write_bytes(b"# first\n# second\n")
+        real = dependencies.open_regular
+        changed = []
+    
+        @contextmanager
+        def opening(path, *args, **kwargs):
+            with real(path, *args, **kwargs) as stream:
+                if str(path) != str(alternate):
+                    yield stream
+                    return
+    
+                class Changing:
+                    def readline(self, size=-1):
+                        line = stream.readline(size)
+                        if not changed:
+                            changed.append(True)
+                            new = os.fsencode(source / ".git" / "objects") + b"\n"
+                            if change == "replace":
+                                replacement = alternate.with_name("replacement")
+                                replacement.write_bytes(new)
+                                replacement.replace(alternate)
+                            else:
+                                alternate.write_bytes(new)
+                        return line
+    
+                    def __getattr__(self, name):
+                        return getattr(stream, name)
+    
+                yield Changing()
+    
+        with monkeypatch.context() as patch:
+            patch.setattr(dependencies, "open_regular", opening)
+            recorded = dependencies.record(str(borrower))
+        assert changed
+        assert git(borrower, "cat-file", "-t", commit) == "commit"
+        reader(world, recorded)
+        result = maintain(world)
+>       assert "owner" not in result["pruned"], (recorded, result)
+E       AssertionError: ({'git': ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/subfleet-attempt-20261029-155527-pr272-fix-r3-a1-e...anged_alternates_d0/outside/.git']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 50678, 'bytes_after': 0, ...})
+E       assert 'owner' not in ['owner']
+
+tests/fake/test_retention_dependency_review_r2.py:82: AssertionError
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 11.47s

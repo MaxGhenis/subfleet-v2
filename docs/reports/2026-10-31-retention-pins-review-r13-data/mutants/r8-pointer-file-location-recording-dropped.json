@@ -1,0 +1,40 @@
+{
+ "name": "r8-pointer-file-location-recording-dropped",
+ "start": "2026-10-31T22:52:38Z",
+ "load": [
+  67.4638671875,
+  68.72509765625,
+  62.0517578125
+ ],
+ "rc": 1,
+ "killers": [
+  "tests/fake/test_retention_dependency_review_r8.py::test_running_job_keeps_tree_containing_required_git_pointer[gitfile]"
+ ],
+ "hashes": [
+  {
+   "original": "3d013f755b9b045e4104c7be192f027125d12991be2c191a3a315e4228c4f728",
+   "mutated": "f1395faf1f7e7c90d64be7c49b7770a77546efb7d553918c4f4d1cfdb521d5f5"
+  },
+  {
+   "original": "f1395faf1f7e7c90d64be7c49b7770a77546efb7d553918c4f4d1cfdb521d5f5",
+   "mutated": "d23ecd9f1b719246373423db9c5a0ed50dffe645f42ffee9e9dd040d7dd95a70"
+  }
+ ],
+ "failed": 1,
+ "other_failures": 0,
+ "killed": true,
+ "assertions": [
+  [
+   "assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)"
+  ]
+ ],
+ "fix_r12_assertions": [
+  [
+   "assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)"
+  ]
+ ],
+ "same_as_fix_r12": true,
+ "failures": [
+  "tests/fake/test_retention_dependency_review_r8.py:44: in test_running_job_keeps_tree_containing_required_git_pointer\n    assert \"owner\" not in result[\"pruned\"] and tree.is_dir(), (recorded, result)\nE   AssertionError: ({'git': ['/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r13/real/mut-r8-pointer-file-location-recor...independent-storage/.git/objects']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 48950, 'bytes_after': 0, ...})\nE   assert ('owner' not in ['owner'])"
+ ]
+}

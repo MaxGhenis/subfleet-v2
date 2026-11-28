@@ -1,0 +1,651 @@
+{
+  "start": "2026-10-28T22:10:24.445681+00:00",
+  "load": [
+    125.9736328125,
+    125.73681640625,
+    113.5859375
+  ],
+  "pid": 77100,
+  "phases": [
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[read-only-tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 2.249654334009392
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[read-only-tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 23.111382084010984
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[read-only-tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.01271150000684429
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[read-only-sub]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.19529541600786615
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[read-only-sub]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.626776334000169
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[read-only-sub]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0018874160014092922
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[read-only-nested]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.013114250003127381
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[read-only-nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.739461042001494
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[read-only-nested]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.01968674999079667
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[worktree-tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.11333287500019651
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[worktree-tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 23.037115917002666
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[worktree-tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0004960419901181012
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[worktree-sub]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.06443745800061151
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[worktree-sub]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 10.669731874993886
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[worktree-sub]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.001051500003086403
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[worktree-nested]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.32557604101020843
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[worktree-nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 9.460228541996912
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[worktree-nested]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0005068750033387914
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_waits_out_a_retirement_and_runs_once_the_fence_goes[read-only-tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.034649708002689295
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_waits_out_a_retirement_and_runs_once_the_fence_goes[read-only-tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 29.429260666991468
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_waits_out_a_retirement_and_runs_once_the_fence_goes[read-only-tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0031582500087097287
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_waits_out_a_retirement_and_runs_once_the_fence_goes[read-only-nested]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.02477116699446924
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_waits_out_a_retirement_and_runs_once_the_fence_goes[read-only-nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 19.320707874998334
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_waits_out_a_retirement_and_runs_once_the_fence_goes[read-only-nested]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0008909169991966337
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_waits_out_a_retirement_and_runs_once_the_fence_goes[worktree-tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.24905250000301749
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_waits_out_a_retirement_and_runs_once_the_fence_goes[worktree-tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 20.026610250002705
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_waits_out_a_retirement_and_runs_once_the_fence_goes[worktree-tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.00257312499161344
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_waits_out_a_retirement_and_runs_once_the_fence_goes[worktree-nested]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.15026862500235438
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_waits_out_a_retirement_and_runs_once_the_fence_goes[worktree-nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 22.999644791998435
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_waits_out_a_retirement_and_runs_once_the_fence_goes[worktree-nested]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.05480037500092294
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_no_git_runs_for_an_in_place_writer_held_on_a_fence_above",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.06860779099224601
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_no_git_runs_for_an_in_place_writer_held_on_a_fence_above",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 12.981235915998695
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_no_git_runs_for_an_in_place_writer_held_on_a_fence_above",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0005166670016478747
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_while_the_fence_is_held_it_is_the_whole_hold_and_the_next_look_finds_the_rest",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.24279499999829568
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_while_the_fence_is_held_it_is_the_whole_hold_and_the_next_look_finds_the_rest",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 9.23204295799951
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_while_the_fence_is_held_it_is_the_whole_hold_and_the_next_look_finds_the_rest",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.39195516701147426
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c6_11_a_worktree_lease_another_job_holds_is_never_called_retentions",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.043537165998714045
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c6_11_a_worktree_lease_another_job_holds_is_never_called_retentions",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 10.112416791991564
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c6_11_a_worktree_lease_another_job_holds_is_never_called_retentions",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0005701670015696436
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_an_in_place_writers_own_folder_after_the_early_look_is_named_once",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.018509790999814868
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_an_in_place_writers_own_folder_after_the_early_look_is_named_once",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 8.570595833007246
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_an_in_place_writers_own_folder_after_the_early_look_is_named_once",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0004591249889926985
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[read-only-tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.03289533300267067
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[read-only-tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 10.196388958996977
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[read-only-tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0004019170009996742
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[read-only-nested]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.33090312499552965
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[read-only-nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 16.31056308299594
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[read-only-nested]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0101889579964336
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[worktree-tree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.2335420829913346
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[worktree-tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 7.226173709001159
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[worktree-tree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.000563915993552655
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[worktree-nested]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.0882888749911217
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[worktree-nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.455052500008605
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[worktree-nested]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.004429583001183346
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[read-only-early]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.0622810409986414
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[read-only-early]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 3.0272515840042615
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[read-only-early]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.00046637500054202974
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[read-only-transaction]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.0808666670054663
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[read-only-transaction]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 6.7728696660051355
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[read-only-transaction]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0006508329970529303
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[worktree-early]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.022793832991737872
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[worktree-early]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 3.156835375004448
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[worktree-early]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.00044291699305176735
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[worktree-transaction]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.0029444589890772477
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[worktree-transaction]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.027328499985742
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[worktree-transaction]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0008027089934330434
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c6_11_a_fenced_job_on_its_clock_never_queues_the_fence[read-only]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.0038838329928694293
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c6_11_a_fenced_job_on_its_clock_never_queues_the_fence[read-only]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 1.9046951659984188
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c6_11_a_fenced_job_on_its_clock_never_queues_the_fence[read-only]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.09874366701114923
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c6_11_a_fenced_job_on_its_clock_never_queues_the_fence[worktree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.0023996249947231263
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c6_11_a_fenced_job_on_its_clock_never_queues_the_fence[worktree]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 2.0110570000106236
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c6_11_a_fenced_job_on_its_clock_never_queues_the_fence[worktree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0005616249982267618
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_stays_fenced_through_the_quarantine[read-only]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.01955650000309106
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_stays_fenced_through_the_quarantine[read-only]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 18.394974583003204
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_stays_fenced_through_the_quarantine[read-only]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0012644169910345227
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_stays_fenced_through_the_quarantine[worktree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.42186554199724924
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_stays_fenced_through_the_quarantine[worktree]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 16.065956791993813
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_stays_fenced_through_the_quarantine[worktree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.0004967499990016222
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_quarantine_landing_right_after_a_legacy_spelling_does_not_lose_the_fence[read-only]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.2743129160080571
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_quarantine_landing_right_after_a_legacy_spelling_does_not_lose_the_fence[read-only]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 6.777978917001747
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_quarantine_landing_right_after_a_legacy_spelling_does_not_lose_the_fence[read-only]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.011195290993782692
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_quarantine_landing_right_after_a_legacy_spelling_does_not_lose_the_fence[worktree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.10896266700001433
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_quarantine_landing_right_after_a_legacy_spelling_does_not_lose_the_fence[worktree]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 9.61730387499847
+    },
+    {
+      "node": "tests/fake/test_detached_retention_fence.py::test_c8_4_a_quarantine_landing_right_after_a_legacy_spelling_does_not_lose_the_fence[worktree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.001292790999286808
+    }
+  ],
+  "hypothesis_profile": "normal",
+  "all_collected": [
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[read-only-tree]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[read-only-sub]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[read-only-nested]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[worktree-tree]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[worktree-sub]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[worktree-nested]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_waits_out_a_retirement_and_runs_once_the_fence_goes[read-only-tree]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_waits_out_a_retirement_and_runs_once_the_fence_goes[read-only-nested]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_waits_out_a_retirement_and_runs_once_the_fence_goes[worktree-tree]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_waits_out_a_retirement_and_runs_once_the_fence_goes[worktree-nested]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_no_git_runs_for_an_in_place_writer_held_on_a_fence_above",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_while_the_fence_is_held_it_is_the_whole_hold_and_the_next_look_finds_the_rest",
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_worktree_lease_another_job_holds_is_never_called_retentions",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_an_in_place_writers_own_folder_after_the_early_look_is_named_once",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[read-only-tree]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[read-only-nested]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[worktree-tree]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[worktree-nested]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[read-only-early]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[read-only-transaction]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[worktree-early]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[worktree-transaction]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_fenced_job_on_its_clock_never_queues_the_fence[read-only]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_fenced_job_on_its_clock_never_queues_the_fence[worktree]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_stays_fenced_through_the_quarantine[read-only]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_stays_fenced_through_the_quarantine[worktree]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_quarantine_landing_right_after_a_legacy_spelling_does_not_lose_the_fence[read-only]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_quarantine_landing_right_after_a_legacy_spelling_does_not_lose_the_fence[worktree]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_the_transaction_reads_a_legacy_jobs_fence_folded_too[read-only]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_the_transaction_reads_a_legacy_jobs_fence_folded_too[worktree]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_workdir_replaced_by_a_symlink_into_a_fenced_tree_is_held_where_it_resolves[recorded]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_workdir_replaced_by_a_symlink_into_a_fenced_tree_is_held_where_it_resolves[legacy]",
+    "tests/fake/test_detached_retention_fence.py::test_retiring_folded_is_retention_on_the_folder_or_above_with_names_folded",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_the_folder_is_recorded_once_at_submit_and_read_for_the_fence[read-only-subdirectory]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_the_folder_is_recorded_once_at_submit_and_read_for_the_fence[read-only-symlink]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_the_folder_is_recorded_once_at_submit_and_read_for_the_fence[read-only-case]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_the_folder_is_recorded_once_at_submit_and_read_for_the_fence[worktree-subdirectory]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_the_folder_is_recorded_once_at_submit_and_read_for_the_fence[worktree-symlink]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_the_folder_is_recorded_once_at_submit_and_read_for_the_fence[worktree-case]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_is_spelt_at_admission[read-only-as-recorded]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_is_spelt_at_admission[read-only-other-case]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_is_spelt_at_admission[worktree-as-recorded]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_is_spelt_at_admission[worktree-other-case]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[read-only-tree-retired2]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[read-only-tree-retired:x]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[read-only-sibling-retired2]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[read-only-sibling-retired:x]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[worktree-tree-retired2]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[worktree-tree-retired:x]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[worktree-sibling-retired2]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_a_sibling_whose_name_extends_the_tree_holds_no_detached_job[worktree-sibling-retired:x]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_5_only_retentions_fence_holds_a_detached_job_that_takes_no_folder_lease[read-only-in-place-writer]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_5_only_retentions_fence_holds_a_detached_job_that_takes_no_folder_lease[read-only-turn-row]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_5_only_retentions_fence_holds_a_detached_job_that_takes_no_folder_lease[read-only-gate-round]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_5_only_retentions_fence_holds_a_detached_job_that_takes_no_folder_lease[read-only-own-folder-writer]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_5_only_retentions_fence_holds_a_detached_job_that_takes_no_folder_lease[worktree-in-place-writer]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_5_only_retentions_fence_holds_a_detached_job_that_takes_no_folder_lease[worktree-turn-row]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_5_only_retentions_fence_holds_a_detached_job_that_takes_no_folder_lease[worktree-gate-round]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_5_only_retentions_fence_holds_a_detached_job_that_takes_no_folder_lease[worktree-own-folder-writer]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_c6_5_detached_reservation_agrees_with_an_oracle_on_any_leases",
+    "tests/fake/test_detached_retention_fence.py::test_interleavings_never_run_a_detached_job_in_a_tree_being_retired",
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_wait_on_retentions_fence_says_retention_is_removing_the_tree[hold0-Held: retention is removing a finished job's worktree that its folder /s/worktrees/j/vendor/lib is in (/s/worktrees/j); it waits until retention lets go of it (C-8.4)]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_wait_on_retentions_fence_says_retention_is_removing_the_tree[hold1-Held: retention is removing a finished job's worktree, its folder (/s/worktrees/j); it waits until retention lets go of it (C-8.4)]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_wait_on_retentions_fence_says_retention_is_removing_the_tree[hold2-Held: retention is removing a finished job's worktree it works in (/s/w/{j}); it waits until retention lets go of it (C-8.4)]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_wait_on_retentions_fence_says_retention_is_removing_the_tree[hold3-(/s/worktrees/j); it waits until retention lets go of it (C-8.4); a lease it needs is also held by another job: out:/r.md]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_16_a_fenced_priority_job_keeps_its_place_across_tiers",
+    "tests/fake/test_detached_retention_fence.py::test_rediscovered_detached_write_target_is_checked_before_workspace",
+    "tests/fake/test_detached_retention_fence.py::test_fenced_unspelled_detached_writer_retains_fence_hold_if_rediscovery_times_out[present]",
+    "tests/fake/test_detached_retention_fence.py::test_fenced_unspelled_detached_writer_retains_fence_hold_if_rediscovery_times_out[quarantined-alias]",
+    "tests/fake/test_detached_retention_fence.py::test_rediscovered_detached_absent_alias_is_fenced_before_workspace",
+    "tests/fake/test_detached_retention_fence.py::test_unfenced_detached_rediscovery_timeout_keeps_workspace_retry_budget",
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-early-recorded]",
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-early-current]",
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-reservation-recorded]",
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[read-only-reservation-current]",
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-early-recorded]",
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-early-current]",
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-reservation-recorded]",
+    "tests/fake/test_detached_retention_fence.py::test_modern_unspellable_source_alias_waits_on_retirement_before_workspace[allocated-writer-reservation-current]",
+    "tests/fake/test_detached_retention_fence.py::test_detached_row_presence_answer_survives_workspace_until_reservation[fence-arrives]",
+    "tests/fake/test_detached_retention_fence.py::test_detached_row_presence_answer_survives_workspace_until_reservation[absent]",
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[stub-early-read-only]",
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[stub-early-allocated-writer]",
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[stub-reservation-read-only]",
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[stub-reservation-allocated-writer]",
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[real-early-read-only]",
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[real-early-allocated-writer]",
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[real-reservation-read-only]",
+    "tests/fake/test_detached_retention_fence.py::test_equal_alias_keeps_both_source_absence_answers[real-reservation-allocated-writer]"
+  ],
+  "collected": [
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[read-only-tree]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[read-only-sub]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[read-only-nested]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[worktree-tree]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[worktree-sub]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_submitted_under_retentions_fence_waits_for_it[worktree-nested]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_waits_out_a_retirement_and_runs_once_the_fence_goes[read-only-tree]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_waits_out_a_retirement_and_runs_once_the_fence_goes[read-only-nested]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_waits_out_a_retirement_and_runs_once_the_fence_goes[worktree-tree]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_detached_job_waits_out_a_retirement_and_runs_once_the_fence_goes[worktree-nested]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_no_git_runs_for_an_in_place_writer_held_on_a_fence_above",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_while_the_fence_is_held_it_is_the_whole_hold_and_the_next_look_finds_the_rest",
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_worktree_lease_another_job_holds_is_never_called_retentions",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_on_an_in_place_writers_own_folder_after_the_early_look_is_named_once",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[read-only-tree]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[read-only-nested]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[worktree-tree]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_fence_taken_after_the_early_look_holds_the_job_in_its_transaction[worktree-nested]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[read-only-early]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[read-only-transaction]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[worktree-early]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_10_a_fence_found_after_the_census_brings_the_next_look_forward_when_it_goes[worktree-transaction]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_fenced_job_on_its_clock_never_queues_the_fence[read-only]",
+    "tests/fake/test_detached_retention_fence.py::test_c6_11_a_fenced_job_on_its_clock_never_queues_the_fence[worktree]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_stays_fenced_through_the_quarantine[read-only]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_job_queued_before_folders_were_recorded_stays_fenced_through_the_quarantine[worktree]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_quarantine_landing_right_after_a_legacy_spelling_does_not_lose_the_fence[read-only]",
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_a_quarantine_landing_right_after_a_legacy_spelling_does_not_lose_the_fence[worktree]"
+  ],
+  "exit": 0,
+  "seconds": 398.631707833003,
+  "maxrss": 125485056,
+  "capped": false,
+  "cap_seconds": null,
+  "lock": "locked",
+  "command": [
+    "tests/fake/test_detached_retention_fence.py",
+    "-k",
+    "(not interleavings and not oracle) and (a_detached_job_submitted_under or a_detached_job_waits_out or no_git_runs_for or while_the_fence_is_held or worktree_lease_another or fence_on_an_in_place_writers_own or fence_taken_after_the_early or a_fence_found_after_the_census or a_fenced_job_on_its_clock or a_job_queued_before_folders_were_recorded_stays or a_quarantine_landing_right_after)"
+  ],
+  "admission_utc": "2026-10-28T22:10:05.455996+00:00",
+  "wall_seconds": 1360.578,
+  "queue_seconds": 939.092
+}

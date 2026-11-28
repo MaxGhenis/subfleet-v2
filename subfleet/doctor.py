@@ -24,6 +24,7 @@ on.
 from __future__ import annotations
 
 import os
+import json
 import sys
 import shutil
 import sqlite3
@@ -31,10 +32,14 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from .client import Client, DaemonError, DaemonUnavailable, LOCK_NAME, SOCKET_NAME
+from .client import (Client, DaemonError, DaemonStopped, DaemonUnavailable,
+                     LOCK_NAME, SOCKET_NAME, is_stopped)
 from .offline import Offline, OfflineUnavailable, SchemaTooNew
 from .policy import DEFAULT_POLICY_PATH, PolicyError, load_policy
 from .protocol import ProtocolError
+from .provider_env import ProviderEnvironment
+from .launch_env import build_environment
+from .home_paths import checked_override
 
 PASS, FAIL, UNKNOWN = "pass", "fail", "unknown"
 #: Something to act on that is not subfleet failing: it prints a fix line and,
@@ -57,18 +62,21 @@ def row(check: str, status: str, detail: str, fix: str) -> dict[str, Any]:
     return {"check": check, "status": status, "detail": detail, "fix": fix}
 
 
-def _run_full(argv: list[str], timeout: float = 20.0) -> tuple[int | None, str]:
+def _run_full(argv: list[str], timeout: float = 20.0, *,
+              env: dict[str, str] | None = None) -> tuple[int | None, str]:
     """(rc, all of stdout+stderr). `rc is None` means it could not be run."""
     try:
-        done = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=timeout,
+                              env=build_environment() if env is None else env)
     except (OSError, subprocess.SubprocessError) as exc:
         return None, f"{exc.__class__.__name__}: {exc}"
     return done.returncode, f"{done.stdout or ''}\n{done.stderr or ''}".strip()
 
 
-def _run(argv: list[str], timeout: float = 20.0) -> tuple[int | None, str]:
+def _run(argv: list[str], timeout: float = 20.0, *,
+         env: dict[str, str] | None = None) -> tuple[int | None, str]:
     """(rc, first line) — the shape the one-line detail columns want."""
-    code, text = _run_full(argv, timeout)
+    code, text = _run_full(argv, timeout, env=build_environment() if env is None else env)
     lines = text.splitlines()
     return code, lines[0] if lines else "(no output)"
 
@@ -113,7 +121,8 @@ def check_compat_table() -> dict[str, Any]:
 
 
 def check_hook_entries(settings: Path | None = None) -> dict[str, Any]:
-    """`~/.claude/settings.json` matches what `daemon install --hooks` writes."""
+    """`~/.claude/settings.json` holds each entry `daemon install --hooks` writes,
+    once and as written, at any position among other tools' entries (C-23.25)."""
     from . import hooks
     report = hooks.installed(settings)
     path = report.get("path")
@@ -128,8 +137,11 @@ def check_hook_entries(settings: Path | None = None) -> dict[str, Any]:
         return row("hook entries in ~/.claude/settings.json", PASS,
                    f"{path}: all native v2 hook entries are present{v1_note}",
                    "`subfleet daemon install --hooks --dry-run` prints the diff")
+    drift = report.get("drift") or {}
+    events = ", ".join(f"{event} ({drift[event]})" if event in drift else event
+                       for event in report["missing_events"])
     return row("hook entries in ~/.claude/settings.json", FAIL,
-               f"{path}: {', '.join(report['missing_events'])} would change{v1_note}",
+               f"{path}: {events} would change{v1_note}",
                "`subfleet daemon install --hooks --dry-run`, then "
                "`subfleet daemon install --hooks`")
 
@@ -186,6 +198,7 @@ def check_pythonpath() -> dict[str, Any]:
     if not entries:
         return row("PYTHONPATH does not shadow subfleet", PASS, "PYTHONPATH is unset",
                    "keep it that way; the runtime is standard library only")
+    entries = [checked_override("PYTHONPATH", item) for item in entries]
     shadows = [item for item in entries
                if (Path(item).expanduser() / "subfleet" / "__init__.py").exists()]
     if not shadows:
@@ -249,8 +262,25 @@ def check_state_root(root: Path) -> dict[str, Any]:
                "C-2.2 lists everything that belongs here")
 
 
+def _quoted(stopped: DaemonStopped) -> str:
+    """A client fix in this file's convention: the command it names, in backticks.
+
+    The client writes its fixes for `fail()`, which prints them bare
+    (subfleet/cli.py); every row here backticks the command it tells the
+    operator to run. `DaemonStopped.command` is that command, and it is a
+    substring of the fix by construction (C-5.13).
+    """
+    return stopped.fix.replace(stopped.command, f"`{stopped.command}`")
+
+
+
 def check_daemon_lock(root: Path) -> dict[str, Any]:
-    """Does `daemon.lock` name a process that is actually alive (C-5.8)?"""
+    """Does `daemon.lock` name a process that is actually alive (C-5.8, C-5.13)?
+
+    Alive is not enough: a holder that is stopped answers nothing, and this row
+    passing while the fleet was frozen is what let `doctor` exit 0 through the
+    2026-09-20 incident.
+    """
     client = Client(root)
     info = client.lock_info()
     socket_present = client.socket_path.exists()
@@ -262,7 +292,7 @@ def check_daemon_lock(root: Path) -> dict[str, Any]:
         return row("daemon.lock names a live process", PASS,
                    "no lock and no socket: no daemon is running",
                    "`subfleet daemon start` when you want one")
-    alive, reason = client.lock_report()
+    pid, alive, reason, state = client.holder_report()
     if alive is False:
         return row("daemon.lock names a live process", FAIL,
                    f"pid {info.get('pid')} is gone: {reason}"
@@ -271,6 +301,10 @@ def check_daemon_lock(root: Path) -> dict[str, Any]:
                       if socket_present else ""),
                    "`subfleet daemon start` — a CLI may start one over a dead "
                    "holder, never over a live one (plan amendment 3)")
+    if alive and is_stopped(state):
+        stopped = DaemonStopped(pid, state, client.socket_path)
+        return row("daemon.lock names a live process", FAIL, str(stopped),
+                   _quoted(stopped))
     if alive is None:
         return row("daemon.lock names a live process", UNKNOWN,
                    f"pid {info.get('pid')}: {reason}",
@@ -313,12 +347,17 @@ def check_queued_pins(root: Path) -> dict[str, Any]:
                "resubmit with `-a <lane id>` (`subfleet lanes list` shows the ids)")
 
 
-def check_provider(binary: str) -> dict[str, Any]:
+def check_provider(binary: str, *, root: Path | None = None) -> dict[str, Any]:
     found = shutil.which(binary)
     if found is None:
         return row(f"{binary} --version", FAIL, f"{binary} is not on PATH",
                    f"install {binary}; no lane of that provider can launch without it")
-    code, text = _run([found, "--version"])
+    policy_path = root / "policy.json" if root is not None else DEFAULT_POLICY_PATH
+    try:
+        policy = load_policy(policy_path if policy_path.exists() else DEFAULT_POLICY_PATH)
+    except PolicyError as exc:
+        return row(f"{binary} --version", FAIL, str(exc), "correct policy.json, then rerun doctor")
+    code, text = _run([found, "--version"], env=ProviderEnvironment(policy).build(binary))
     if code is None:
         return row(f"{binary} --version", UNKNOWN, f"{found}: {text}",
                    f"run `{found} --version` by hand")
@@ -351,8 +390,9 @@ def check_never_rules(settings: Path | None = None) -> dict[str, Any]:
     v2 never writes this entry — it belongs to the guard, not to subfleet — so
     the honest report when the file cannot be read is `unknown`, not a failure.
     """
-    path = (settings if settings is not None
-            else Path("~/.claude/settings.json").expanduser())
+    from .home_paths import home_path
+    path = (settings if settings is not None else Path(home_path(
+        "SUBFLEET_CLAUDE_SETTINGS", lambda: "~/.claude/settings.json", test_only=True)).expanduser())
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
@@ -379,8 +419,8 @@ def check_guard_preflight(root: Path) -> dict[str, Any]:
     check = "codex guard preflight settings"
     try:
         deadline = guard.resolve_timeout()
-    except ValueError as exc:
-        return row(check, FAIL, str(exc), guard._CONFIG_FIX)
+    except ValueError:
+        return row(check, FAIL, f"{guard.TIMEOUT_ENV} is invalid", guard._CONFIG_FIX)
     source = "env" if os.environ.get(guard.TIMEOUT_ENV, "").strip() else "default"
     try:
         directory = guard.cache_dir(root)
@@ -408,12 +448,20 @@ def check_guard_preflight_live(root: Path) -> list[dict[str, Any]]:
     """C-14.2 (``--live``): run the trust preflight for every enabled Codex lane home."""
     from .guard import preflight as guard
     from .offline import Offline, OfflineUnavailable, SchemaTooNew
+    from .provider_env import ProviderEnvironment
     try:
         lanes = Offline(root).lanes()
     except (OfflineUnavailable, SchemaTooNew, OSError, ValueError):
         return [row("codex guard preflight (live)", UNKNOWN,
                     "no readable store yet (the daemon has not run here)",
                     "start the daemon, then rerun subfleet doctor --live")]
+    try:
+        policy_path = root / "policy.json"
+        # As a new daemon does: before policy.json exists, use shipped defaults.
+        policy = load_policy(policy_path if policy_path.exists() else DEFAULT_POLICY_PATH)
+    except PolicyError as exc:
+        return [row("codex guard preflight (live)", FAIL, str(exc), "correct policy.json, then rerun doctor --live")]
+    environment = ProviderEnvironment(policy)
     rows = []
     for lane in lanes:
         if lane.get("provider") != "codex" or not lane.get("enabled", 1):
@@ -425,7 +473,8 @@ def check_guard_preflight_live(root: Path) -> list[dict[str, Any]]:
             continue
         # The same `codex` the adapter resolves on PATH; a pass here writes the
         # marker the daemon reuses (same key: version, home, override, seed files).
-        result = guard.preflight("codex", home=home, workdir=root, state_root=root)
+        result = guard.preflight("codex", home=home, workdir=root, state_root=root,
+                                 env=environment.build("codex"), env_pass=environment.pass_names)
         deadline = f"{result.timeout_s:g}s" if result.timeout_s is not None else "unset"
         detail = (f"{result.kind or 'refused'} in {result.elapsed_s}s (deadline {deadline}"
                   f"{', cached' if result.cached else ''}"
@@ -468,6 +517,94 @@ def check_module(name: str) -> dict[str, Any]:
                "nothing to do while this passes")
 
 
+def check_daemon_environment(root: Path) -> dict[str, Any]:
+    """C-17.8: ask the daemon for extra names, never inspect process values."""
+    check = "daemon environment allowlist"
+    try:
+        status = Client(root, timeout=5).call("daemon.status")
+    except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
+        return row(check, UNKNOWN, "daemon environment names unavailable",
+                   "start the daemon and run `subfleet doctor` again")
+    report = status.get("environment") if isinstance(status, dict) else None
+    if not isinstance(report, dict) or not isinstance(report.get("extra_names"), list):
+        return row(check, UNKNOWN, "daemon does not report environment names (predates C-17.8)",
+                   "restart it on this release when no jobs are running")
+    names = report["extra_names"]
+    from .launch_env import valid_name
+    if any(not isinstance(name, str) for name in names):
+        return row(check, UNKNOWN, "daemon returned malformed environment names",
+                   "restart it on this release when no jobs are running")
+    if names:
+        display = [name if valid_name(name) else json.dumps(name) for name in sorted(set(names))]
+        return row(check, WARN, "outside the default allowlist: " + ", ".join(display),
+                   "review policy env.pass; restart through `subfleet daemon start` or launchd")
+    return row(check, PASS, "all daemon names are allowlisted", "nothing to do while this passes")
+
+
+def held_lane_fix(lane: dict[str, Any]) -> str:
+    """D-ENV2 (review r5, P3-2): the lanes.json edit that repairs a held lane.
+
+    C-1.3's one exception binds a variable in place only from a row for the same
+    lane id, provider and account; the variable is a placeholder for the
+    operator's own, never a value.
+    """
+    edit = {"lane_id": lane.get("lane_id"), "provider": lane.get("provider"),
+            "account_key": lane.get("account_key"), "credential_kind": "env",
+            "credential_ref": "<VARIABLE>"}
+    return (f"in lanes.json, give lane {lane.get('lane_id')} the row {json.dumps(edit)} (edit its row if it "
+            "has one, keeping the other fields), where <VARIABLE> is a daemon variable no launch inherits "
+            "that holds the lane's OAuth token; then restart the daemon when no jobs are running")
+
+
+def check_daemon_lane_credentials(root: Path) -> dict[str, Any]:
+    """C-17.8: the env-kind lanes' variables the daemon holds, on their own row.
+
+    They belong in the daemon, which hands each only to its own lane, so they
+    are listed, not warned about; names only, never values. A held lane, whose
+    variable some launch inherits (C-10.5), warns, naming the lane, its variable
+    and the lanes.json edit that repairs it (review r5, P3-2). That warning names
+    the store's lane ids and accounts, which came from lanes.json, so it is
+    scrubbed as `daemon start` scrubs its note on the same lane (C-25.7; review
+    r1 of #248, P3-2).
+    """
+    check = "daemon lane credential variables"
+    try:
+        status = Client(root, timeout=5).call("daemon.status")
+    except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
+        return row(check, UNKNOWN, "daemon environment names unavailable",
+                   "start the daemon and run `subfleet doctor` again")
+    report = status.get("environment") if isinstance(status, dict) else None
+    names = report.get("lane_credentials") if isinstance(report, dict) else None
+    if not isinstance(names, list):
+        return row(check, UNKNOWN, "daemon does not list lane credential variables (predates C-17.8's row)",
+                   "restart it on this release when no jobs are running")
+    from .launch_env import refused_reference, valid_name
+    if any(not isinstance(name, str) for name in names):
+        return row(check, UNKNOWN, "daemon returned malformed environment names",
+                   "restart it on this release when no jobs are running")
+    lanes = status.get("lanes")
+    # The scheduler's own rule for `credential-refused` (C-11.8), on the daemon's rows.
+    held = [lane for lane in (lanes if isinstance(lanes, list) else ()) if isinstance(lane, dict)
+            and lane.get("credential_kind") == "env" and refused_reference(lane.get("credential_ref"))]
+    display = [name if valid_name(name) else json.dumps(name) for name in sorted(set(names))]
+    listed = ("held by the daemon alone, each for its own lane: " + ", ".join(display) if display
+              else "the daemon holds no env-kind lane variable")
+    if held:
+        from .daemon_log import scrubbed
+        many = len(held) > 1
+        # Each lane's words are scrubbed apart, so no lane's is cut for the others' length.
+        lanes_text = ", ".join(scrubbed(f"{lane.get('lane_id')} (credential-refused={lane['credential_ref']})")
+                               for lane in held)
+        others = ("the other lanes' variables, " + listed if display
+                  else "the daemon holds no other lane's variable")
+        return row(check, WARN, f"lane{'s' * many} {lanes_text} {'are' if many else 'is'} held (C-10.5), so "
+                   f"nothing launches on {'them' if many else 'it'}; {others}",
+                   "; ".join(scrubbed(held_lane_fix(lane)) for lane in held))
+    if not names:
+        return row(check, PASS, listed, "nothing to do")
+    return row(check, PASS, listed, "nothing to do; no launch inherits them")
+
+
 def check_live(root: Path) -> dict[str, Any]:
     """`--live`: one `ping` against the daemon (C-16.2).
 
@@ -477,17 +614,85 @@ def check_live(root: Path) -> dict[str, Any]:
     reads."""
     try:
         result = Client(root, timeout=5).call("ping", {})
+    except DaemonStopped as exc:
+        return row("ping the daemon", FAIL, str(exc), _quoted(exc))
     except DaemonUnavailable as exc:
         return row("ping the daemon", FAIL, str(exc), "`subfleet daemon start`")
     except (DaemonError, ProtocolError, OSError) as exc:
         return row("ping the daemon", FAIL, f"{exc.__class__.__name__}: {exc}",
-                   "`subfleet daemon logs -n 40`")
+                   getattr(exc, "fix", None) or "`subfleet daemon logs -n 40`")
     if not result.get("pong"):
         return row("ping the daemon", FAIL, f"unexpected reply: {result}",
                    "`subfleet daemon logs -n 40`")
     return row("ping the daemon", PASS,
                f"pong from subfleet {result.get('version')}",
                "`subfleet daemon status` for the rest")
+
+
+#: C-16.6: below this the daemon runs short of descriptors under ordinary load.
+OPEN_FILES_MINIMUM = 1024
+#: C-16.6, C-16.7: `--live` fails when this share of the soft limit is open.
+OPEN_FILES_ALARM = .8
+RESTART_CAUTION = ("it unloads and reloads the launchd job, which can restart the daemon: "
+                   "check `subfleet runs --running` first")
+
+
+def check_launchd_limit(plist: Path | None = None) -> dict[str, Any]:
+    """C-16.6: does the launchd plist give the daemon room for descriptors?
+
+    The daemon raises its own soft limit at start, so a plist without
+    `NumberOfFiles` is not a failure, only a missing second line of defence;
+    `--live` reports what the running daemon actually has.
+    """
+    from . import descriptors
+    if plist is None:
+        from .cli import launchd_plist_path    # deferred: doctor does not load the CLI at import
+        plist = launchd_plist_path()
+    check = "launchd open-file limit"
+    if not plist.exists():
+        return row(check, UNKNOWN, f"no launchd job at {plist}; the daemon raises its own limit at start",
+                   "`subfleet daemon install` when launchd should own the daemon")
+    value = descriptors.plist_open_files(plist)
+    if value is None:
+        return row(check, UNKNOWN,
+                   f"{plist} sets no SoftResourceLimits.NumberOfFiles, so launchd starts the "
+                   f"daemon at its default (`launchctl limit maxfiles`) and the daemon must raise it itself",
+                   f"`subfleet daemon install` writes it; {RESTART_CAUTION}")
+    if value < OPEN_FILES_MINIMUM:
+        return row(check, FAIL, f"{plist} sets NumberOfFiles to {value}",
+                   f"`subfleet daemon install` writes {descriptors.launchd_open_files()}; {RESTART_CAUTION}")
+    return row(check, PASS, f"{plist} sets NumberOfFiles to {value}", "nothing to do while this passes")
+
+
+def check_descriptors_live(root: Path) -> dict[str, Any]:
+    """`--live`, C-16.6 and C-16.7: the running daemon's limit, open descriptors and connections."""
+    check = "daemon descriptors"
+    try:
+        status = Client(root, timeout=5).call("daemon.status")
+    except DaemonStopped as exc:
+        return row(check, FAIL, str(exc), _quoted(exc))
+    except DaemonUnavailable as exc:
+        return row(check, FAIL, str(exc), "`subfleet daemon start`")
+    except (DaemonError, ProtocolError, OSError) as exc:
+        return row(check, FAIL, f"{exc.__class__.__name__}: {exc}", "`subfleet daemon logs -n 40`")
+    budget = status.get("descriptors")
+    if not isinstance(budget, dict):
+        return row(check, UNKNOWN, "the daemon does not report descriptors (it predates C-16.6)",
+                   "restart it on this release when no jobs are running (`subfleet runs --running`)")
+    soft, hard, open_now = budget.get("soft_limit"), budget.get("hard_limit"), budget.get("open")
+    detail = (f"{'unknown' if open_now is None else open_now} open of soft limit "
+              f"{soft if soft is not None else 'unlimited'} (hard {hard if hard is not None else 'unlimited'}); "
+              f"{budget.get('connections')} of {budget.get('max_connections')} client connections; "
+              f"refused {budget.get('refused', 0)}, idle closed {budget.get('idle_closed', 0)}, "
+              f"dropped for departed clients {budget.get('abandoned', 0)}, "
+              f"accept failures {budget.get('accept_failures', 0)}")
+    if soft is not None and soft < OPEN_FILES_MINIMUM:
+        return row(check, FAIL, detail + f"; a soft limit under {OPEN_FILES_MINIMUM} runs out under load",
+                   f"`subfleet daemon install` sets NumberOfFiles in the plist; {RESTART_CAUTION}")
+    if soft is not None and (open_now is None or open_now >= OPEN_FILES_ALARM * soft):
+        return row(check, FAIL, detail + " — close to the limit",
+                   "`subfleet daemon logs -n 80` and look for 'client connections' and 'accept failed'")
+    return row(check, PASS, detail, "nothing to do while this passes")
 
 
 def check_mirror(root: Path) -> dict[str, Any]:
@@ -573,12 +778,15 @@ def checks(root: Path, *, live: bool = False,
         check_symlink(),
         check_pythonpath(),
         *(check_path_shadows(binary) for binary in ("subfleet", "claude", "codex")),
-        *(check_provider(binary) for binary in ("claude", "codex")),
+        *(check_provider(binary, root=root) for binary in ("claude", "codex")),
         check_toolchain("uv"),
         check_guard_preflight(root),
         check_state_root(root),
         check_socket_path(root),
         check_daemon_lock(root),
+        check_daemon_environment(root),
+        check_daemon_lane_credentials(root),
+        check_launchd_limit(),
         check_queued_pins(root),
         check_mirror(root),
         check_sidebar_load(root),
@@ -587,6 +795,7 @@ def checks(root: Path, *, live: bool = False,
     ]
     if live:
         rows.append(check_live(root))
+        rows.append(check_descriptors_live(root))
         rows += check_guard_preflight_live(root)
     table = rows
     # C-10.3, C-10.7: the identity checks are rows of this one table. cli imports

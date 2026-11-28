@@ -1,0 +1,49 @@
+{
+  "name": "earlier-test_test_module_names-1",
+  "start": "2026-10-31T17:41:19.723352+00:00",
+  "load": [
+    43.150390625,
+    51.5498046875,
+    52.66943359375
+  ],
+  "pytest_pid": 89182,
+  "failure_root": "/private/tmp/sf-r272r11/failed-keep",
+  "args": [
+    "tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 5.940682249995007,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.30510979200334987,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00026816700119525194,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_test_module_names.py::test_every_test_module_has_a_basename_of_its_own"
+  ],
+  "end": "2026-10-31T17:41:34.189068+00:00",
+  "seconds": 14.465638209003373,
+  "peak_rss_mib": 109.421875,
+  "exit": 0
+}

@@ -1,0 +1,33 @@
+{
+  "name": "test_retention_dependency_properties-1",
+  "start": "2026-10-29T06:24:02.199877+00:00",
+  "load": [
+    13.6904296875,
+    18.70263671875,
+    21.48193359375
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs"
+  ],
+  "phases": {
+    "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "engines": [
+    {
+      "nodeid": "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs",
+      "valid": 100,
+      "invalid": 0,
+      "calls": 100,
+      "settings_max": 100
+    }
+  ],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

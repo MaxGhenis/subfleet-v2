@@ -1,0 +1,181 @@
+{
+  "name": "earlier-test_retention_dependency_review_r3-1",
+  "start": "2026-10-31T16:36:53.704314+00:00",
+  "load": [
+    45.10888671875,
+    56.857421875,
+    81.451171875
+  ],
+  "pytest_pid": 61137,
+  "failure_root": "/private/tmp/sf-r272r11/failed-keep",
+  "args": [
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[exporting]",
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]",
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[exporting-legacy]",
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[exporting-recorded]",
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]",
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-recorded]"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[exporting]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 7.347645000001648,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[exporting]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.4204446250005276,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[exporting]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0025144169994746335,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.4428905000022496,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.7027901659967029,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0010859999965759926,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[exporting-legacy]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5869147080011317,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[exporting-legacy]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.631023791996995,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[exporting-legacy]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.06487120900419541,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[exporting-recorded]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.6724764160026098,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[exporting-recorded]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.6114859579975018,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[exporting-recorded]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0031534590016235597,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.5981530409990228,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.39114374999917345,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00230583299708087,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-recorded]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.8481739589988138,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-recorded]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.22306416699575493,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-recorded]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.1360086249987944,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[exporting]",
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]",
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[exporting-legacy]",
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[exporting-recorded]",
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]",
+    "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-recorded]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-120716-pr272-review-r11/subfleet/dependencies.py",
+  "product_sha256": "78ddda119b3770515a6262282e3e78f861222209514914179051b3625e00e319",
+  "end": "2026-10-31T16:37:26.175264+00:00",
+  "seconds": 32.47014124999987,
+  "peak_rss_mib": 112.84375,
+  "exit": 0
+}

@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T09:11:42.404912+00:00",
+  "args": [
+    "--mutant",
+    "r6-oversized-pointer-treated-as-missing",
+    "tests/fake/test_retention_pointer_failures.py::test_unreadable_common_pointer_keeps_allocated_trees[oversized]"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r9/real-tmp/mutant-r6-oversized-pointer-treated-as-missing",
+  "linked": false,
+  "driver_pid": 28410,
+  "lock_process_group": 28509
+}

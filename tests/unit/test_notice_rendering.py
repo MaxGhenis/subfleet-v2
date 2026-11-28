@@ -71,6 +71,39 @@ def test_c15_1_an_accepted_attempt_on_a_job_that_did_not_succeed_names_no_file()
 
 # --- the PostToolUse fallback (C-15.2 layer 2) ---------------------------------
 
+@pytest.mark.parametrize("capability", ["none", "commands", "writable", None])
+def test_capability_and_publish_evidence_follow_the_fallback_pointer(capability, tmp_path):
+    job = row("cancelled", 130, sandbox="read-only", attempt={
+        "capability": capability, "publish_denied": True,
+        "lane_id": "codex-1", "model_requested": "astra"})
+    expected = f"{JOB}: cancelled; rc=130; deliverable=-; out=-"
+    assert render.notice_header(job, tmp_path) == expected
+    header, pointer, evidence = hooks.job_summary(job, tmp_path).splitlines()
+    assert header == expected
+    assert evidence == render.attempt_shell_text(job)
+    assert evidence.endswith("publish: denied")
+    assert pointer == f"no notice row for this job — subfleet runs show {JOB}"
+
+
+@pytest.mark.parametrize("capability", ["none", "commands", "writable", None])
+def test_notice_preserves_all_existing_lines_before_capability(capability):
+    job = row("cancelled", 130, sandbox="read-only", attempt={
+        "capability": capability, "publish_denied": True,
+        "lane_id": "codex-1", "model_requested": "astra"})
+    existing = ["attempt a2: interrupted", "output kept, not accepted: /result.md",
+                "attempt a1: lane went auth-dead; moved on"]
+    lines = render.notice_text(job, ROOT, "\n".join(existing)).splitlines()
+    assert lines[:-1] == [f"{JOB}: cancelled; rc=130; deliverable=-; out=-", *existing]
+    assert lines[-1] == render.attempt_shell_text(job)
+
+
+def test_notice_listing_uses_only_the_header_of_a_multiline_notice():
+    header = f"{JOB}: cancelled; rc=130; deliverable=-; out=-"
+    text = header + "\nattempt a1: interrupted\nran read-only on codex-1 (astra)"
+    result = cli.format_notices([{"notice_id": 1, "text": text}], resolved=False)
+    assert result.splitlines()[-1].endswith(header)
+    assert "ran read-only" not in result
+
 @pytest.mark.parametrize("job", [
     row("cancelled", 130),
     row("succeeded", 0, accepted_attempt_id=f"{JOB}/a1"),
@@ -167,3 +200,44 @@ def test_c8_3_runs_show_out_prints_an_accepted_jobs_export(daemon, root, capsys)
                                      "out_path": str(export)}})
     assert cli.main(["runs", "show", JOB, "--out"]) == 0
     assert capsys.readouterr().out == "the accepted review\n"
+
+
+@pytest.mark.parametrize("capability", ["none", "commands", "writable", None])
+def test_annotations_keep_the_recorded_capability_last(capability):
+    job = row("succeeded", 0, sandbox="workspace-write", attempt={
+        "capability": capability, "publish_denied": True,
+        "lane_id": "codex-1", "model_requested": "astra"})
+    original = render.notice_text(job, ROOT, "attempt a1: ok")
+    annotated = render.append_notice_detail(original, "push result")
+    annotated = render.append_notice_detail(annotated, "export failed")
+    assert annotated.splitlines() == [*original.splitlines()[:-1], "push result",
+                                       "export failed", original.splitlines()[-1]]
+
+
+def test_annotations_on_legacy_notices_append_without_moving_lines():
+    assert render.append_notice_detail("old header\nold summary", "export failed") == (
+        "old header\nold summary\nexport failed")
+
+
+
+# #221 review r1b, P3-3: design-r2 section 2 asks for a capability line only for
+# `none` and `commands`. Every writable attempt had one, builds included: a build
+# notice ended `ran workspace-write on codex-1 (sol61) with a shell (writable)`.
+@pytest.mark.parametrize("publish_denied,expected", [(True, "publish: denied"), (False, ""), (None, "")])
+def test_writable_attempts_carry_no_capability_sentence(publish_denied, expected):
+    job = row("succeeded", 0, sandbox="workspace-write", attempt={
+        "capability": "writable", "publish_denied": publish_denied,
+        "lane_id": "codex-1", "model_requested": "gpt-6.1-sol"})
+    assert render.attempt_shell_text(job) == expected
+    lines = render.notice_text(job, ROOT, "attempt a1: ok").splitlines()
+    assert lines[1:] == ["attempt a1: ok", *([expected] if expected else [])]
+    assert not any("with a shell" in line or line.startswith("ran ") for line in lines)
+
+
+@pytest.mark.parametrize("capability,words", [
+    ("none", "with no shell: it could not run any command"),
+    ("commands", ": commands ran, but nothing could be written, temp files included, so pytest could not run")])
+def test_restricted_attempts_keep_their_capability_sentence(capability, words):
+    job = row("succeeded", 0, sandbox="read-only", attempt={
+        "capability": capability, "publish_denied": None, "lane_id": "codex-1", "model_requested": "astra"})
+    assert render.attempt_shell_text(job) == "ran read-only on codex-1 (astra)" + (" " if capability == "none" else "") + words

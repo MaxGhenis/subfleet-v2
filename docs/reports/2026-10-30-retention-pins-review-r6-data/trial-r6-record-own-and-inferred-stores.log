@@ -1,0 +1,8 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 19:17:27Z slot B load 
+START trial-r6-record-own-and-inferred-stores 2026-10-30T19:17:28.137237+00:00 load=(34.61083984375, 42.2802734375, 49.11572265625)
+........................................................................ [ 55%]
+.........................................................                [100%]
+129 passed in 370.35s (0:06:10)

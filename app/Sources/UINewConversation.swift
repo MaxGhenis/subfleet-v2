@@ -16,25 +16,41 @@ struct NewConversationDraftView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Spacer(minLength: 20)
-            Text("New conversation").font(.title2.bold())
-            Text("What would you like to work on?").foregroundStyle(.secondary)
+            Text(model.failedDraftKey == nil ? "New conversation" : "Retry saved conversation").readingFont(.title, weight: .regular)
+            Text("What would you like to work on?").foregroundStyle(Theme.text.secondary.color)
             HStack {
                 Menu {
-                    Button("No folder") { model.newDraft.workspace = nil }
+                    Button("Use a new scratch folder", action: model.useNewScratchFolder)
                     ForEach(model.recentWorkspaces(), id: \.self) { path in
                         Button(abbreviatedPath(path)) { model.newDraft.workspace = path }
                     }
                     Divider()
                     Button("Choose folder…", action: chooseFolder)
                 } label: {
-                    Label(model.newDraft.workspace.map { abbreviatedPath($0) } ?? "No folder", systemImage: "folder")
+                    Label(model.newDraft.workspace.map { abbreviatedPath($0) } ?? "New scratch folder", systemImage: "folder")
                         .lineLimit(1)
                 }.help("Folder for the new conversation")
                 Spacer()
-                Picker("Provider", selection: $model.newDraft.provider) {
+                Picker("Provider", selection: Binding(get: { model.newDraft.providerChoice ?? model.newDraft.provider },
+                                                       set: model.selectNewDraftProvider)) {
+                    Text("Auto").tag("auto")
                     Text("Claude").tag("claude")
                     Text("Codex").tag("codex")
-                }.pickerStyle(.segmented).frame(width: 180)
+                }.labelsHidden().pickerStyle(.segmented).frame(width: 225)
+            }
+            if let check = model.newDraft.workspaceCheck, !check.ok {
+                NoticeRow(symbol: "exclamationmark.triangle") {
+                    VStack(alignment: .leading, spacing: Theme.space.step) {
+                        Text(check.reason ?? "This folder cannot be used.")
+                        if let fix = check.fix { Text(fix).foregroundStyle(Theme.text.secondary.color) }
+                        Button("Use a new scratch folder", action: model.useNewScratchFolder)
+                    }
+                }
+            } else if model.newDraft.workspaceCheck == nil {
+                Text("Checking folder…").font(.caption).foregroundStyle(Theme.text.secondary.color)
+            } else if model.newDraft.workspace == nil, let scratch = model.newDraft.scratchWorkspace {
+                Text("Created when you start: \(abbreviatedPath(scratch))")
+                    .font(.caption).foregroundStyle(Theme.text.secondary.color)
             }
             if !model.newDraft.attachments.isEmpty {
                 HStack {
@@ -45,11 +61,12 @@ struct NewConversationDraftView: View {
                             }
                             Button { model.newDraft.attachments.removeAll { $0 == attachment } } label: {
                                 Image(systemName: "xmark.circle.fill")
-                            }.buttonStyle(.borderless).help("Remove this image")
+                            }.buttonStyle(.borderless).help("Remove this image").accessibilityLabel("Remove this image")
                         }
                     }
                 }
             }
+            VStack(alignment: .leading, spacing: Theme.space.inset) {
             ZStack(alignment: .topLeading) {
                 DraftComposerTextView(text: $model.newDraft.text, focusRevision: model.newDraft.focusRevision,
                                       isSubmitting: model.newDraft.isSubmitting,
@@ -57,61 +74,58 @@ struct NewConversationDraftView: View {
                     .frame(minHeight: 130, maxHeight: 230)
                 if model.newDraft.text.isEmpty {
                     Text("Message \(model.newDraft.provider == "codex" ? "Codex" : "Claude")")
-                        .foregroundStyle(.tertiary).padding(10).allowsHitTesting(false)
+                        .foregroundStyle(Theme.text.tertiary.color).padding(10).allowsHitTesting(false)
                 }
             }
-            .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .textBackgroundColor)))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.3)))
             HStack(spacing: 10) {
-                Picker("Model", selection: $model.newDraft.settings.model) {
-                    ForEach(options.models) { choice in Text(choice.label).tag(choice.value) }
-                    if !options.models.contains(where: { $0.value == model.newDraft.settings.model }) {
-                        Text(model.newDraft.settings.model.isEmpty ? "Loading models…" : model.newDraft.settings.model)
-                            .tag(model.newDraft.settings.model)
-                    }
-                }.frame(maxWidth: 210)
-                Picker("Effort", selection: Binding(get: { model.newDraft.settings.effort ?? "" }, set: {
-                    model.newDraft.settings.effort = $0.isEmpty ? nil : $0
-                })) {
-                    Text(options.defaultEffort.map { "Default (\($0.capitalized))" } ?? "Default effort").tag("")
-                    ForEach(options.efforts, id: \.self) { Text($0.capitalized).tag($0) }
-                }.frame(maxWidth: 180)
-                Picker("Permission", selection: $model.newDraft.settings.permission) {
-                    ForEach(options.permissions) { choice in
-                        Text(choice.policy.label).tag(choice.policy.rawValue).disabled(!choice.enabled)
-                    }
-                }.frame(maxWidth: 180)
-            }.labelsHidden().controlSize(.small)
+                ModelEffortControl(provider: model.newDraft.provider, settings: $model.newDraft.settings, options: options)
+                PermissionControl(value: model.newDraft.settings.permission, options: options) { model.newDraft.settings.permission = $0 }
+                Spacer()
+            }.windowFont(.control).controlSize(.small)
+            }
+            .padding(Theme.space.inset * 1.5)
+            .background(RoundedRectangle(cornerRadius: Theme.radius.container).fill(Theme.surface.raised.color))
+            .overlay(RoundedRectangle(cornerRadius: Theme.radius.container).stroke(Theme.line.hairline))
             if PermissionPolicy.widens(from: PermissionPolicy.ask.rawValue, to: model.newDraft.settings.permission) {
                 Toggle("I understand the agent will act without asking", isOn: $model.newDraft.confirmWiden)
                     .font(.callout)
             }
             HStack {
-                Text("Return to send · Shift-Return for a new line").font(.caption).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Return to start · Shift-Return for a new line")
+                }.font(.caption).foregroundStyle(Theme.text.secondary.color)
                 Spacer()
-                Button("Send and stay here") { model.sendNewDraft(stayHere: true) }
+                Button("Start and stay here") { model.sendNewDraft(stayHere: true) }
                     .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(!model.newDraft.canSend)
+                    .disabled(!model.newDraft.canStart)
                 Button { model.sendNewDraft(stayHere: false) } label: {
-                    Label("Send", systemImage: "arrow.up.circle.fill")
-                }.buttonStyle(.borderedProminent).disabled(!model.newDraft.canSend)
+                    Label("Start", systemImage: "arrow.up.circle.fill")
+                }.buttonStyle(.borderedProminent).disabled(!model.newDraft.canStart)
             }
             Spacer(minLength: 20)
         }
-        .padding(28)
-        .frame(maxWidth: 900, maxHeight: .infinity)
+        .readingFont(.body)
+        .foregroundStyle(Theme.text.primary.color)
+        .padding(Theme.space.column)
+        .frame(maxHeight: .infinity)
+        .readingColumn()
         .frame(maxWidth: .infinity)
-        .onAppear { model.reconcileNewDraft() }
+        .background(Theme.surface.conversation.color)
+        .onAppear { model.reconcileNewDraft(); model.validateNewDraftWorkspace(selectDefault: true) }
         .onChange(of: model.newDraft.provider) { _, _ in
-            model.newDraft.settings.model = UserDefaults.standard.string(forKey: "lastModel.\(model.newDraft.provider)") ?? ""
-            model.newDraft.settings.effort = nil
-            model.newDraft.confirmWiden = false
-            model.reconcileNewDraft()
+            model.validateNewDraftWorkspace()
         }
+        .onChange(of: model.newDraft.workspace) { _, _ in model.validateNewDraftWorkspace() }
         .onChange(of: model.newDraft.settings.model) { _, _ in model.reconcileNewDraft() }
-        .onChange(of: model.newDraft.settings.permission) { _, _ in model.newDraft.confirmWiden = false }
+        .onChange(of: model.newDraft.settings.permission) { _, _ in
+            model.newDraft.confirmWiden = false
+            model.validateNewDraftWorkspace()
+        }
         .onChange(of: model.state.models) { _, _ in model.reconcileNewDraft() }
-        .onChange(of: model.state.availability) { _, _ in model.reconcileNewDraft() }
+        .onChange(of: model.state.availability) { _, _ in
+            model.reconcileNewDraft()
+            model.validateNewDraftWorkspace()
+        }
     }
 
     private func chooseFolder() {
@@ -120,7 +134,10 @@ struct NewConversationDraftView: View {
         panel.canChooseFiles = false
         if let folder = model.newDraft.workspace { panel.directoryURL = URL(fileURLWithPath: folder) }
         panel.begin { response in
-            if response == .OK, let folder = panel.url { model.newDraft.workspace = folder.path }
+            if response == .OK, let folder = panel.url {
+                model.newDraft.workspace = folder.path
+                model.validateNewDraftWorkspace()
+            }
         }
     }
 
@@ -168,7 +185,12 @@ private struct DraftComposerTextView: NSViewRepresentable {
         let editor = DraftNSTextView()
         editor.isRichText = false
         editor.allowsUndo = true
-        editor.font = NSFont.preferredFont(forTextStyle: .body)
+        editor.font = ReadingStyle.body.nsFont(scale: context.environment.textScale)
+        editor.drawsBackground = false
+        editor.textColor = Theme.text.primary.nsColor
+        editor.updateFocusRing()
+        editor.insertionPointColor = Theme.accentNS
+        editor.setAccessibilityLabel("New conversation message")
         editor.isAutomaticQuoteSubstitutionEnabled = false
         editor.isAutomaticDashSubstitutionEnabled = false
         editor.textContainerInset = NSSize(width: 6, height: 8)
@@ -185,6 +207,9 @@ private struct DraftComposerTextView: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let editor = scroll.documentView as? DraftNSTextView else { return }
+        editor.font = ReadingStyle.body.nsFont(scale: context.environment.textScale)
+        editor.textColor = Theme.text.primary.nsColor
+        editor.updateFocusRing()
         editor.onSubmit = { submit(false) }
         editor.onStay = { submit(true) }
         editor.onImage = onImage

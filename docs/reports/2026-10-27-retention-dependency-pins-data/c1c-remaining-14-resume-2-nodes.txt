@@ -1,0 +1,1 @@
+tests/unit/test_salvage_unindexable.py::test_the_snapshot_is_what_git_itself_can_index_and_leaves_out_only_what_it_refuses

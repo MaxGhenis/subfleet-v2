@@ -1,0 +1,10 @@
+{
+  "queued": "2026-10-31T07:27:16.895319+00:00",
+  "args": [
+    "--mutant",
+    "r4-initial-objects-revalidation-dropped",
+    "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/real-tmp/mutant-r4-initial-objects-revalidation-dropped",
+  "linked": false
+}

@@ -1,0 +1,14 @@
+{
+  "label": "named-True-own-True-content-b'\\r\\n'",
+  "git_rc": 0,
+  "git_stdout": "own-store blob\n",
+  "git_stderr": "",
+  "recorded": {
+    "git": [
+      "/private/tmp/sf-r272r6/cases-23059/pytest/test_empty_common__r_n_True_Tr0/container/worktrees/slot",
+      "/private/tmp/sf-r272r6/cases-23059/pytest/test_empty_common__r_n_True_Tr0/container",
+      "/private/tmp/sf-r272r6/cases-23059/pytest/test_empty_common__r_n_True_Tr0/container/objects"
+    ]
+  },
+  "actual_storage_covered": false
+}

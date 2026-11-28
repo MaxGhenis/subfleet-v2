@@ -1,0 +1,82 @@
+from pathlib import Path
+import collections, datetime, hashlib, json, shutil, subprocess
+s=Path('/private/tmp/sf-r272r4')
+r=Path('docs/reports/2026-10-29-retention-pins-review-r4-data')
+records=[]
+for p in s.glob('*.json'):
+    try:d=json.loads(p.read_text())
+    except json.JSONDecodeError:continue
+    if isinstance(d,dict) and 'seconds' in d and 'label' in d:records.append(d)
+records.sort(key=lambda d:d['start'])
+labels=set()
+for name in ('ordinary-a.json','ordinary-b.json','remaining-properties.json'):
+    labels.update(label for label,args in json.loads((s/name).read_text()))
+labels.update(('own-marked-final','old-journals'))
+ordinary=[d for d in records if d['label'] in labels]
+latest={};first={}
+for d in ordinary:
+    for t in d['tests']:
+        if t['phase']=='call':
+            latest[t['nodeid']]=(t,d)
+            first.setdefault(t['nodeid'].split('::')[0],d)
+prior=Path('docs/reports/2026-10-29-retention-pins-fix-r3-data')
+prior_labels=set()
+for name in ('ordinary-a.json','ordinary-b.json','followup.json','final-environment.json'):
+    prior_labels.update(label for label,args in json.loads((prior/name).read_text()) if not label.startswith('mutant-'))
+expected={t['nodeid'] for d in json.loads((prior/'ledger.json').read_text()) if d['label'] in prior_labels for t in d['tests'] if t['phase']=='call' and t['nodeid'].startswith('tests/')}
+missing=expected-set(latest)
+failed={n:t['outcome'] for n,(t,d) in latest.items() if t['outcome'] not in ('passed','skipped') or (t['outcome']=='skipped' and not t.get('wasxfail'))}
+assert len(expected)==680 and not missing and not failed, (len(expected),missing,failed)
+assert all(latest[n][0]['outcome']=='passed' for n in expected)
+for n,(t,d) in latest.items():
+    assert d['phases'][n]['setup']=='passed' and d['phases'][n]['teardown']=='passed', n
+assert sum(t['outcome']=='passed' for t,d in latest.values())==733
+assert sum(bool(t.get('wasxfail')) for t,d in latest.values())==5
+assert len(latest)==738
+assert max(d['seconds'] for d in records)<600
+assert max(d['rss'] for d in records)<8*1024**3
+assert all(d['locked'] for d in records)
+mutants=[]
+for d in records:
+    if not d['label'].startswith('mutant-') or 'trial-' in d['label']:continue
+    assert d['exit']==1 and len(d['loaded'])==1
+    assert list(d['phases'].values())==[{'setup':'passed','call':'failed','teardown':'passed'}]
+    l=d['loaded'][0]
+    assert l['original_sha256']==hashlib.sha256(Path(l['module'].replace('.','/')+'.py').read_bytes()).hexdigest()
+    assert 'AssertionError' in (s/(d['label']+'.log')).read_text()
+    mutants.append(d)
+assert len(mutants)==8
+trial=next(d for d in records if d['label']=='mutant-r4-trial-observe-initial-objects-final')
+assert trial['exit']==0 and len(trial['phases'])==6
+assert all(v=={'setup':'passed','call':'passed','teardown':'passed'} for v in trial['phases'].values())
+files=collections.defaultdict(list)
+for n,(t,d) in latest.items():files[n.split('::')[0]].append(t)
+summary=[]
+for file,tests in files.items():
+    d=first[file]
+    summary.append(dict(file=file,passed=sum(t['outcome']=='passed' for t in tests),xfailed=sum(bool(t.get('wasxfail')) for t in tests),start=d['start'],loads=d['loads']))
+for d in records:
+    for suffix in ('.json','.log'):
+        p=s/(d['label']+suffix)
+        if p.exists():shutil.copy2(p,r/p.name)
+for name in ('run_hold.py','run_batch.py','account_r4.py','probes.py','journal_probes.py'):
+    shutil.copy2(s/name,r/(name+'.txt'))
+for name in ('ordinary-a.json','ordinary-b.json','definitions.json','focused-plan.json','r4-followup.json','r4-final-oracles.json','remaining-properties.json'):
+    shutil.copy2(s/name,r/name)
+(r/'ledger.json').write_text(json.dumps(records,indent=2)+'\n')
+(r/'file-summary.json').write_text(json.dumps(summary,indent=2)+'\n')
+(r/'mutant-outcomes.json').write_text(json.dumps(mutants,indent=2)+'\n')
+(r/'requested-nodes.json').write_text(json.dumps(sorted(expected),indent=2)+'\n')
+(r/'merges.json').unlink(missing_ok=True)
+audit=json.loads((r/'source-audit.json').read_text())
+audit['source_sha256']['tests/fake/test_retention_dependency_review_r4.py']=hashlib.sha256(Path('tests/fake/test_retention_dependency_review_r4.py').read_bytes()).hexdigest()
+for file in ('subfleet/dependencies.py','subfleet/retention.py','subfleet/retention_archive.py','subfleet/daemon.py','subfleet/render.py','subfleet/conversations/service.py','tests/fake/test_turn_retention_job_properties.py','tests/fake/test_retention_dependency_review_r3.py'):
+    assert Path(file).read_bytes()==subprocess.check_output(['git','show','HEAD:'+file]),file
+assert subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()==audit['head']
+audit.update(requested_existing_passed=680,ordinary_passed=733,strict_xfailed=5,ordinary_nodes=738,hold_count=len(records),ordinary_holds=len(ordinary),mutants=8,trial_nodes=6,max_seconds=max(d['seconds'] for d in records),max_rss_bytes=max(d['rss'] for d in records),outside_lock=0,oracle_correction='Initial stable-terminal-export expectation was invalid. With complete discovery only output paths remain pinned for a terminal exporter; the corrected exporting-control passes. The four changed-object-alias cases and stable live case remain valid R4-F1 failures.')
+(r/'source-audit.json').write_text(json.dumps(audit,indent=2)+'\n')
+lines=['File\tPassed\tXfailed\tFirst start UTC\tLoad1/5/15']
+for d in summary:lines.append(f"{d['file']}\t{d['passed']}\t{d['xfailed']}\t{d['start']}\t"+'/'.join(f'{v:.2f}' for v in d['loads']))
+(r/'file-summary.tsv').write_text('\n'.join(lines)+'\n')
+print(json.dumps({k:audit[k] for k in ('requested_existing_passed','ordinary_passed','strict_xfailed','hold_count','ordinary_holds','mutants','max_seconds','max_rss_bytes','outside_lock')},indent=2))
+print('\n'.join(lines))

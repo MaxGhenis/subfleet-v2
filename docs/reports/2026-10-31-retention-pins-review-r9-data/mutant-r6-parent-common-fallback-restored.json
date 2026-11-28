@@ -1,0 +1,55 @@
+{
+  "name": "mutant-r6-parent-common-fallback-restored",
+  "start": "2026-10-31T08:35:16.273511+00:00",
+  "load": [
+    32.400390625,
+    27.572265625,
+    28.85595703125
+  ],
+  "args": [
+    "--mutant",
+    "r6-parent-common-fallback-restored",
+    "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-lf]"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-lf]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.13336420899941,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-lf]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.5612150420020043,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-lf]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.04933899999741698,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+      "mutated": "4bc1b40c58ce3ea65138300ef43a643a73eb0d502ebbd3e012c082ce390debb5"
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-lf]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/subfleet/dependencies.py",
+  "product_sha256": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+  "end": "2026-10-31T08:35:29.095360+00:00",
+  "seconds": 12.821460416002083,
+  "peak_rss_mib": 114.71875,
+  "exit": 0
+}

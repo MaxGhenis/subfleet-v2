@@ -7,6 +7,8 @@ import pytest
 
 
 API_KEYS = ("CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY")
+# The Claude lanes' env-kind references: each reaches only its own lane, as its token.
+LANE_REFERENCES = {"E2E_CLAUDE_TOKEN_1", "E2E_CLAUDE_TOKEN_2"}
 
 
 def test_changed_guard_trust_refuses_codex_with_the_fix(e2e):
@@ -65,4 +67,5 @@ def test_provider_environment_isolated_in_each_sandbox(e2e, model, scenario, pro
         else:
             assert "--dangerously-skip-permissions" in report["argv"]
 
+    assert not LANE_REFERENCES & set(report["env_keys"])        # D-ENV1, review r2 P3
     assert Path(report["cwd"]).resolve() == e2e.workdir.resolve()

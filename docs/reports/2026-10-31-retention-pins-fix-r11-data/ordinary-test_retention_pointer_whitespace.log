@@ -1,0 +1,5 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 18:29:38Z slot A load 
+.........                                                                [100%]
+9 passed in 59.45s
+{"name": "ordinary-test_retention_pointer_whitespace", "start": "2026-10-31T18:29:47.534973+00:00", "load": [68.25634765625, 66.134765625, 61.3935546875], "seconds": 64.2480092919941, "exit": 0}

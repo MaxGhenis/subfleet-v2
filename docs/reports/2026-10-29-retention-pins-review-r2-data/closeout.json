@@ -1,0 +1,19 @@
+{
+  "before_cleanup_utc": "2026-10-29T06:51:07.874157+00:00",
+  "reviewed_head": "dd0e4ea8def74285c4aaa581be93a46ca87ca3ba",
+  "scratch": "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2",
+  "largest_observed_scratch_mib": 414,
+  "evidence_mib": 2.2,
+  "owned_tool_sessions_completed": true,
+  "detached_processes_started": false,
+  "all_final_teardowns_passed": true,
+  "workspace_bytecode_or_caches": [],
+  "tracked_source_unchanged": true,
+  "commit_created": false,
+  "staging_error": "Shared Git worktree index.lock: Operation not permitted",
+  "cleanup_exitstatus": 0,
+  "scratch_absent": true,
+  "cleanup_note": "Initial guarded cleanup left a mode-0555 restored fixture directory. Restored owner write permission only inside scratch, repeated the guarded cleanup, and verified absence.",
+  "after_cleanup_utc": "2026-10-29T06:53:03.402213+00:00",
+  "final_head": "dd0e4ea8def74285c4aaa581be93a46ca87ca3ba"
+}

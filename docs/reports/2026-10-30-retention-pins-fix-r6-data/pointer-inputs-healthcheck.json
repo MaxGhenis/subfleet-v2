@@ -1,0 +1,52 @@
+{
+  "label": "pointer-inputs",
+  "start": "2026-10-30T22:15:04.557403+00:00",
+  "loads": [
+    29.974609375,
+    19.310546875,
+    18.55419921875
+  ],
+  "seconds": 24.905479290988296,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 0.00030979199800640345,
+      "properties": []
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads"
+  ],
+  "all_nodes": [
+    "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads"
+  ],
+  "phases": {
+    "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads": {
+      "setup": "passed",
+      "call": "failed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {
+    "tests/unit/test_retention_pointer_inputs.py::test_pointer_inputs_keep_every_store_real_git_reads": {
+      "max_examples": 100,
+      "derandomize": true,
+      "phases": [
+        "Phase.explicit",
+        "Phase.reuse",
+        "Phase.generate",
+        "Phase.target",
+        "Phase.shrink",
+        "Phase.explain"
+      ],
+      "explicit_examples": 15
+    }
+  },
+  "loaded": [],
+  "rss": 119635968
+}

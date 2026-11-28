@@ -1,0 +1,123 @@
+{
+  "label": "retention_archive-8",
+  "start": "2026-10-29T20:21:43.948580+00:00",
+  "loads": [
+    21.16259765625,
+    22.88330078125,
+    19.33349609375
+  ],
+  "seconds": 22.24100820800004,
+  "exit": 0,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[turn-keep-days]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.0180738750000273
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[explicit]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.42441862499981653
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[resume-fence]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.6057569160002458
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_job_still_to_run_inside_the_tree_keeps_it[queued]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.6452869580002698
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_job_still_to_run_inside_the_tree_keeps_it[running]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.9698060000000623
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_a_crash_between_the_two_quarantine_renames_moves_the_rest",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.0712071670000114
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_salvage_is_bundled_and_its_ref_kept",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.813527708000038
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_salvage_a_network_remote_already_holds_retires[with-registration]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.7589359589997002
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[turn-keep-days]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[explicit]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[resume-fence]",
+    "tests/unit/test_retention_archive.py::test_a_job_still_to_run_inside_the_tree_keeps_it[queued]",
+    "tests/unit/test_retention_archive.py::test_a_job_still_to_run_inside_the_tree_keeps_it[running]",
+    "tests/unit/test_retention_archive.py::test_a_crash_between_the_two_quarantine_renames_moves_the_rest",
+    "tests/unit/test_retention_archive.py::test_salvage_is_bundled_and_its_ref_kept",
+    "tests/unit/test_retention_archive.py::test_salvage_a_network_remote_already_holds_retires[with-registration]"
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[turn-keep-days]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[explicit]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[resume-fence]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_job_still_to_run_inside_the_tree_keeps_it[queued]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_job_still_to_run_inside_the_tree_keeps_it[running]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_a_crash_between_the_two_quarantine_renames_moves_the_rest": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_salvage_is_bundled_and_its_ref_kept": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_salvage_a_network_remote_already_holds_retires[with-registration]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 126582784
+}

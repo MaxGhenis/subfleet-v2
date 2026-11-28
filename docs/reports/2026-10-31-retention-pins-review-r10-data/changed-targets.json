@@ -1,0 +1,117 @@
+{
+  "name": "changed-targets",
+  "start": "2026-10-31T10:48:12.901014+00:00",
+  "load": [
+    37.52978515625,
+    38.63623046875,
+    37.52734375
+  ],
+  "args": [
+    "review-r10-data/edge_probes.py",
+    "-k",
+    "test_scan_change_between_walk_and_spelling_is_incomplete"
+  ],
+  "phases": [
+    {
+      "node": "review-r10-data/edge_probes.py::test_scan_change_between_walk_and_spelling_is_incomplete[entry]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0037990000018908177,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_scan_change_between_walk_and_spelling_is_incomplete[entry]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.11031937499865307,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_scan_change_between_walk_and_spelling_is_incomplete[entry]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0009937920003721956,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_scan_change_between_walk_and_spelling_is_incomplete[target]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.005045834001066396,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_scan_change_between_walk_and_spelling_is_incomplete[target]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.07435849999819766,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_scan_change_between_walk_and_spelling_is_incomplete[target]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0002623750006023329,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_scan_change_between_walk_and_spelling_is_incomplete[missing-target]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0009730419988045469,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_scan_change_between_walk_and_spelling_is_incomplete[missing-target]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0848230000010517,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_scan_change_between_walk_and_spelling_is_incomplete[missing-target]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0034958340002049226,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "review-r10-data/edge_probes.py::test_scan_change_between_walk_and_spelling_is_incomplete[entry]",
+      "key": "walk-change",
+      "value": "{\"git\": [\"/private/tmp/sf-r272r10/real-tmp/changed-targets/pytest-of-maxghenis/pytest-0/test_scan_change_between_walk_0/checkout/.git\", \"/private/tmp/sf-r272r10/real-tmp/changed-targets/pytest-of-maxghenis/pytest-0/test_scan_change_between_walk_0/checkout/.git/objects\", \"/private/tmp/sf-r272r10/real-tmp/changed-targets/pytest-of-maxghenis/pytest-0/test_scan_change_between_walk_0/first\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r10/real-tmp/changed-targets/pytest-of-maxghenis/pytest-0/test_scan_change_between_walk_0/checkout/.git/unused\", \"reason\": \"repository alias changed or vanished during discovery\"}]}"
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_scan_change_between_walk_and_spelling_is_incomplete[target]",
+      "key": "walk-change",
+      "value": "{\"git\": [\"/private/tmp/sf-r272r10/real-tmp/changed-targets/pytest-of-maxghenis/pytest-0/test_scan_change_between_walk_1/checkout/.git\", \"/private/tmp/sf-r272r10/real-tmp/changed-targets/pytest-of-maxghenis/pytest-0/test_scan_change_between_walk_1/checkout/.git/objects\", \"/private/tmp/sf-r272r10/real-tmp/changed-targets/pytest-of-maxghenis/pytest-0/test_scan_change_between_walk_1/replacement\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r10/real-tmp/changed-targets/pytest-of-maxghenis/pytest-0/test_scan_change_between_walk_1/checkout/.git/unused\", \"reason\": \"repository alias changed or vanished during discovery\"}]}"
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_scan_change_between_walk_and_spelling_is_incomplete[missing-target]",
+      "key": "walk-change",
+      "value": "{\"git\": [\"/private/tmp/sf-r272r10/real-tmp/changed-targets/pytest-of-maxghenis/pytest-0/test_scan_change_between_walk_2/checkout/.git\", \"/private/tmp/sf-r272r10/real-tmp/changed-targets/pytest-of-maxghenis/pytest-0/test_scan_change_between_walk_2/checkout/.git/objects\", \"/private/tmp/sf-r272r10/real-tmp/changed-targets/pytest-of-maxghenis/pytest-0/test_scan_change_between_walk_2/replacement\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r10/real-tmp/changed-targets/pytest-of-maxghenis/pytest-0/test_scan_change_between_walk_2/checkout/.git/unused\", \"reason\": \"repository alias changed or vanished during discovery\"}]}"
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "review-r10-data/edge_probes.py::test_scan_change_between_walk_and_spelling_is_incomplete[entry]",
+    "review-r10-data/edge_probes.py::test_scan_change_between_walk_and_spelling_is_incomplete[target]",
+    "review-r10-data/edge_probes.py::test_scan_change_between_walk_and_spelling_is_incomplete[missing-target]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-063315-pr272-review-r10/subfleet/dependencies.py",
+  "product_sha256": "8b39d2f38cf73c92909ae6e241311cdc2cd32ed70295ee2cd240af39f4cb9920",
+  "end": "2026-10-31T10:48:17.619515+00:00",
+  "seconds": 4.718239249999897,
+  "peak_rss_mib": 73.234375,
+  "exit": 0
+}

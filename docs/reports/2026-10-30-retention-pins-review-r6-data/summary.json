@@ -1,0 +1,696 @@
+{
+  "head": "beabed1f7796f8576e39cdbd0245c4bef209b0b6",
+  "job_start_utc": "2026-10-30T18:47:51Z",
+  "first_hold": "2026-10-30T18:49:21.578246+00:00",
+  "holds": 87,
+  "locked_holds": 86,
+  "max_seconds": 576.5825760829903,
+  "max_rss_MiB": 136.75,
+  "ordinary_passes": 769,
+  "ordinary_xfails": 5,
+  "files": [
+    {
+      "file": "tests/fake/test_retention_dependency_review_r5.py",
+      "passed": 60,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T18:49:21.578246+00:00",
+      "loads": [
+        45.37353515625,
+        49.4619140625,
+        50.357421875
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/unit/test_retention_pointer_whitespace.py",
+      "passed": 9,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T18:51:52.995108+00:00",
+      "loads": [
+        36.41650390625,
+        45.22021484375,
+        48.55322265625
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/fake/test_retention_dependency_review_r4.py",
+      "passed": 53,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T18:52:34.921548+00:00",
+      "loads": [
+        39.6162109375,
+        44.85498046875,
+        48.24609375
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/fake/test_retention_dependency_review_r3.py",
+      "passed": 6,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T18:54:47.289391+00:00",
+      "loads": [
+        71.9033203125,
+        52.48681640625,
+        50.6025390625
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/fake/test_retention_dependency_review_r6.py",
+      "passed": 11,
+      "xfailed": 5,
+      "failed": [],
+      "first_start": "2026-10-30T18:56:43.927197+00:00",
+      "loads": [
+        79.5908203125,
+        62.4541015625,
+        54.85693359375
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/unit/test_retention_dependency_aliases.py",
+      "passed": 10,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T19:04:51.560026+00:00",
+      "loads": [
+        68.24853515625,
+        66.1474609375,
+        59.16845703125
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/fake/test_retention_recovery_census.py",
+      "passed": 2,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T19:05:05.964697+00:00",
+      "loads": [
+        62.6875,
+        65.0400390625,
+        58.89599609375
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "probes.py",
+      "passed": 2,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T19:05:17.776518+00:00",
+      "loads": [
+        59.59619140625,
+        64.28466796875,
+        58.69873046875
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/fake/test_turn_retention_cwd.py",
+      "passed": 6,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T19:07:56.795223+00:00",
+      "loads": [
+        45.642578125,
+        55.9990234375,
+        56.22705078125
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/fake/test_turn_retention_cwd_properties.py",
+      "passed": 1,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T19:08:34.376211+00:00",
+      "loads": [
+        44.81884765625,
+        54.73193359375,
+        55.75927734375
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "pointer_matrix.py",
+      "passed": 55,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T19:15:58.550130+00:00",
+      "loads": [
+        39.4033203125,
+        45.2568359375,
+        50.81689453125
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "readers_probe.py",
+      "passed": 8,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T19:16:44.478857+00:00",
+      "loads": [
+        38.353515625,
+        44.03515625,
+        50.07275390625
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "journal_probes.py",
+      "passed": 3,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T19:17:11.861583+00:00",
+      "loads": [
+        36.2568359375,
+        42.966796875,
+        49.474609375
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/fake/test_turn_retention_job_directory.py",
+      "passed": 2,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T19:39:28.176799+00:00",
+      "loads": [
+        35.2529296875,
+        46.96533203125,
+        49.044921875
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/fake/test_turn_retention_job_properties.py",
+      "passed": 1,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T19:46:31.703447+00:00",
+      "loads": [
+        54.0791015625,
+        48.2568359375,
+        48.1875
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/fake/test_turn_retention_quarantine.py",
+      "passed": 10,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T19:47:49.808625+00:00",
+      "loads": [
+        35.78125,
+        43.94580078125,
+        46.5537109375
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/fake/test_retention_dependency_review_r2.py",
+      "passed": 21,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T19:48:43.989654+00:00",
+      "loads": [
+        38.8505859375,
+        43.2158203125,
+        46.10302734375
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/fake/test_retention_dependency_review_r1.py",
+      "passed": 18,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T19:50:00.941344+00:00",
+      "loads": [
+        50.15625,
+        45.73779296875,
+        46.802734375
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/unit/test_retention_alternates_review_r2.py",
+      "passed": 15,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T19:50:03.548326+00:00",
+      "loads": [
+        50.15625,
+        45.73779296875,
+        46.802734375
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/fake/test_retention_dependency_incomplete.py",
+      "passed": 19,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T19:50:39.948567+00:00",
+      "loads": [
+        53.4345703125,
+        47.06982421875,
+        47.24609375
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/unit/test_retention_alternates.py",
+      "passed": 23,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T19:50:44.033881+00:00",
+      "loads": [
+        51.9580078125,
+        46.869140625,
+        47.17431640625
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/unit/test_retention_job_dependencies.py",
+      "passed": 12,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T19:53:11.080464+00:00",
+      "loads": [
+        90.2216796875,
+        57.5927734375,
+        51.056640625
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/fake/test_retention_dependency_spelling.py",
+      "passed": 16,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T19:53:31.422892+00:00",
+      "loads": [
+        86.7138671875,
+        58.97705078125,
+        51.70849609375
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/fake/test_retention_dependencies.py",
+      "passed": 30,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T19:53:58.648515+00:00",
+      "loads": [
+        69.26806640625,
+        57.00927734375,
+        51.203125
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/unit/test_retention_dependency_units.py",
+      "passed": 19,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T19:54:18.125459+00:00",
+      "loads": [
+        62.9130859375,
+        56.33251953125,
+        51.09375
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/unit/test_retention_folded_pin.py",
+      "passed": 38,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T19:55:44.100313+00:00",
+      "loads": [
+        53.5078125,
+        54.82763671875,
+        51.00146484375
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/unit/test_retention_dependency_properties.py",
+      "passed": 4,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T19:55:44.100608+00:00",
+      "loads": [
+        53.5078125,
+        54.82763671875,
+        51.00146484375
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/unit/test_retention_shared_folders.py",
+      "passed": 62,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T20:01:17.355795+00:00",
+      "loads": [
+        45.20654296875,
+        50.92919921875,
+        50.564453125
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/unit/test_retention_archive.py",
+      "passed": 108,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T20:08:39.790710+00:00",
+      "loads": [
+        52.662109375,
+        51.98828125,
+        51.2666015625
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/unit/test_retention_archive_properties.py",
+      "passed": 2,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T20:13:44.018811+00:00",
+      "loads": [
+        49.2099609375,
+        51.6923828125,
+        51.427734375
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/unit/test_retention_nested_leases.py",
+      "passed": 27,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T20:15:20.422354+00:00",
+      "loads": [
+        48.63330078125,
+        51.73193359375,
+        51.525390625
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/unit/test_retention_salvage_properties.py",
+      "passed": 2,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T20:16:24.051067+00:00",
+      "loads": [
+        41.4990234375,
+        49.21923828125,
+        50.6044921875
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/unit/test_retention_sweep_race.py",
+      "passed": 13,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T20:20:45.854556+00:00",
+      "loads": [
+        55.8525390625,
+        47.5068359375,
+        48.96875
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/unit/test_retention_81_notes.py",
+      "passed": 38,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T20:33:51.761816+00:00",
+      "loads": [
+        44.580078125,
+        34.32568359375,
+        39.1533203125
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/fake/test_state_contract.py",
+      "passed": 37,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T21:12:14.970868+00:00",
+      "loads": [
+        41.5615234375,
+        45.611328125,
+        44.40478515625
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/unit/test_test_module_names.py",
+      "passed": 1,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T21:12:14.970868+00:00",
+      "loads": [
+        41.5615234375,
+        45.611328125,
+        44.40478515625
+      ],
+      "uncompleted": []
+    },
+    {
+      "file": "tests/unit/test_invariants_index.py",
+      "passed": 25,
+      "xfailed": 0,
+      "failed": [],
+      "first_start": "2026-10-30T21:12:14.970868+00:00",
+      "loads": [
+        41.5615234375,
+        45.611328125,
+        44.40478515625
+      ],
+      "uncompleted": []
+    }
+  ],
+  "mutants": [
+    {
+      "name": "r2-post-read-identity-check-dropped",
+      "killed": true,
+      "tests": [
+        "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_changed_alternates_do_not_retire_the_tree_git_now_reads[replace]"
+      ],
+      "start": "2026-10-30T19:05:49.595707+00:00",
+      "loads": [
+        50.8681640625,
+        61.7216796875,
+        57.962890625
+      ]
+    },
+    {
+      "name": "r2-terminal-legacy-incomplete-dropped",
+      "killed": true,
+      "tests": [
+        "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]"
+      ],
+      "start": "2026-10-30T19:06:09.350241+00:00",
+      "loads": [
+        54.4560546875,
+        61.849609375,
+        58.09619140625
+      ]
+    },
+    {
+      "name": "r3-post-traversal-alias-check-dropped",
+      "killed": true,
+      "tests": [
+        "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]"
+      ],
+      "start": "2026-10-30T19:06:24.250983+00:00",
+      "loads": [
+        49.94287109375,
+        60.4853515625,
+        57.67431640625
+      ]
+    },
+    {
+      "name": "r3-census-moved-after-recovery",
+      "killed": true,
+      "tests": [
+        "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]"
+      ],
+      "start": "2026-10-30T19:31:12.933891+00:00",
+      "loads": [
+        71.06884765625,
+        56.08642578125,
+        50.7724609375
+      ]
+    },
+    {
+      "name": "r3-write-metadata-check-dropped",
+      "killed": true,
+      "tests": [
+        "probes.py::test_changes[same-size-running]"
+      ],
+      "start": "2026-10-30T19:31:29.668559+00:00",
+      "loads": [
+        74.39892578125,
+        57.47412109375,
+        51.35498046875
+      ]
+    },
+    {
+      "name": "r3-final-path-check-dropped",
+      "killed": true,
+      "tests": [
+        "probes.py::test_changes[symlink-info-running]"
+      ],
+      "start": "2026-10-30T19:31:42.767058+00:00",
+      "loads": [
+        63.3525390625,
+        55.8779296875,
+        50.89306640625
+      ]
+    },
+    {
+      "name": "r3-terminal-census-live-only",
+      "killed": true,
+      "tests": [
+        "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[already-exporting]"
+      ],
+      "start": "2026-10-30T19:31:55.209341+00:00",
+      "loads": [
+        58.7216796875,
+        55.21484375,
+        50.74267578125
+      ]
+    },
+    {
+      "name": "r4-initial-objects-revalidation-dropped",
+      "killed": true,
+      "tests": [
+        "tests/fake/test_retention_dependency_review_r4.py::test_objects_parent_swap_keeps_every_allocated_tree[same-inode-live]"
+      ],
+      "start": "2026-10-30T19:34:42.442774+00:00",
+      "loads": [
+        52.541015625,
+        52.72216796875,
+        50.3916015625
+      ]
+    },
+    {
+      "name": "r4-initial-objects-recording-dropped",
+      "killed": true,
+      "tests": [
+        "tests/fake/test_retention_dependency_review_r4.py::test_stable_objects_alias_keeps_the_tree_git_reads[live]"
+      ],
+      "start": "2026-10-30T19:35:14.910508+00:00",
+      "loads": [
+        58.1123046875,
+        54.33056640625,
+        51.072265625
+      ]
+    },
+    {
+      "name": "r6-pointer-read-failure-evidence-dropped",
+      "killed": true,
+      "tests": [
+        "tests/fake/test_retention_dependency_review_r6.py::test_crlf_padded_pointer_keeps_the_storage_real_git_reads[padded-gitfile]"
+      ],
+      "start": "2026-10-30T19:40:17.695390+00:00",
+      "loads": [
+        34.015625,
+        44.556640625,
+        48.01611328125
+      ]
+    },
+    {
+      "name": "r5-commondir-whitespace-stripping-restored",
+      "killed": true,
+      "tests": [
+        "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-commondir-trailing]"
+      ],
+      "start": "2026-10-30T19:44:57.880499+00:00",
+      "loads": [
+        44.5830078125,
+        44.02197265625,
+        46.79443359375
+      ]
+    },
+    {
+      "name": "r5-gitfile-whitespace-stripping-restored",
+      "killed": true,
+      "tests": [
+        "tests/fake/test_retention_dependency_review_r5.py::test_pointer_path_whitespace_keeps_the_storage_git_reads[live-gitfile-leading]"
+      ],
+      "start": "2026-10-30T19:45:20.253357+00:00",
+      "loads": [
+        51.53662109375,
+        45.69189453125,
+        47.314453125
+      ]
+    },
+    {
+      "name": "r5-gitfile-colon-without-space-accepted",
+      "killed": true,
+      "tests": [
+        "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-no-space]"
+      ],
+      "start": "2026-10-30T19:45:49.550778+00:00",
+      "loads": [
+        57.38916015625,
+        47.53173828125,
+        47.93017578125
+      ]
+    },
+    {
+      "name": "r6-empty-common-initial-objects-not-recorded",
+      "killed": true,
+      "tests": [
+        "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-lf]"
+      ],
+      "start": "2026-10-30T19:46:01.541715+00:00",
+      "loads": [
+        58.36572265625,
+        48.224609375,
+        48.16943359375
+      ]
+    },
+    {
+      "name": "r6-parent-common-fallback-restored",
+      "killed": true,
+      "tests": [
+        "tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[named-live-lf]"
+      ],
+      "start": "2026-10-30T20:22:11.800069+00:00",
+      "loads": [
+        51.69384765625,
+        49.87744140625,
+        49.84716796875
+      ]
+    }
+  ],
+  "expected_required_nodes": 690,
+  "completed_required_nodes": 690,
+  "missing_requested_nodes": [],
+  "unexpected_requested_nodes": [],
+  "remaining_original_selections": []
+}

@@ -4,7 +4,8 @@ against (`tests/unit/test_scheduler_split.py`); nothing else uses it.
 
 It changes only where the contract does, and then in its own words, never by
 calling the code under test: null caps (C-26.9, then C-6.4 on 2026-09-27), the
-load band and the desktop lane's place (C-11.3, C-10.3), each written here again
+load band and the desktop lane's place (C-11.3, C-10.3), then common weekly
+expiry routing and reserve preferences (2026-10-03), each written here again
 so the differential test compares two implementations."""
 
 from __future__ import annotations
@@ -20,6 +21,47 @@ from subfleet.policy import PolicyError, resolve_model
 from subfleet.scheduler import (ACTIVE_ATTEMPTS, RouteError, _earliest_reset, _future_closure,
                                 _higher_model_scopes, _identities, _iso, _row, _time,
                                 _unmeasured_reserve_reason, reserve_verdict, resolve_lane)
+
+
+def reference_weekly_details(rows, now, ttl, admission):
+    """C-11.3's ranking evidence, written independently of `ranking_usage`.
+
+    Admission below still uses its original fresh readings. A renewed window
+    makes the ranking uncertain; it does not fabricate a refreshed measurement
+    or introduce any admission refusal.
+    """
+    newest = {}
+    for row in rows:
+        if row.get("label") in ("provider", "stale-provider") and row.get("utilization") is not None:
+            pair = row["scope"], row["window"]
+            if pair not in newest or _time(newest[pair]["observed_at"]) < _time(row["observed_at"]):
+                newest[pair] = row
+    renewed = any(_time(row["resets_at"]) <= now or _time(row["resets_at"]) <= _time(row["observed_at"])
+                  for row in newest.values() if row.get("resets_at")
+                  and 0 <= (now - _time(row["observed_at"])).total_seconds() <= ttl)
+    current = [row for row in newest.values()
+               if not renewed and fresh_provider(row, now=now, reading_ttl_s=ttl)]
+    weekly_rows = [row for row in current if row["window"] == "seven_day"]
+    weekly_rows.sort(key=lambda row: (1 - row["utilization"],
+                                     _iso(_time(row["resets_at"])) if row.get("resets_at") else "9999",
+                                     row["scope"]))
+    binding = weekly_rows[0] if weekly_rows else None
+    weekly_room = 1 - binding["utilization"] if binding else None
+    primary_room = min([1 - row["utilization"] for row in current if row["window"] == "five_hour"],
+                       default=None)
+    low_weekly = binding is not None and binding["utilization"] > 1 - admission.get("weekly_reserve", .02)
+    low_primary = any(row["utilization"] > 1 - admission.get("five_hour_reserve", .10)
+                      for row in current if row["window"] == "five_hour")
+    classes = {(False, False): "clear", (False, True): "five-hour",
+               (True, False): "weekly", (True, True): "weekly+five-hour"}
+    recent = [row for row in newest.values() if 0 <= (now - _time(row["observed_at"])).total_seconds() <= ttl]
+    oldest = min((_time(row["observed_at"]) for row in (current or recent or list(newest.values()))), default=None)
+    return {"measured": bool(current), "weekly_headroom": weekly_room, "five_hour_headroom": primary_room,
+            "seven_day_reset": _iso(_time(binding["resets_at"])) if binding and binding.get("resets_at") else None,
+            "weekly_scope": binding["scope"] if binding else None,
+            "weekly_reserve": low_weekly, "five_hour_reserve": low_primary,
+            "reserve_class": classes[low_weekly, low_primary] if current else "unmeasured",
+            "reading_observed_at": _iso(oldest) if oldest else None, "reading_renewed": renewed}
 
 
 def reference_parent_blocks(policy: Mapping[str, Any], view: Mapping[str, Any], job: dict[str, Any]) -> list[str]:
@@ -146,14 +188,12 @@ def reference_evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: 
             lane_readings = [row for row in scoped_readings if row["lane_id"] == identity]
             measured_readings = [row for row in lane_readings
                                  if fresh_provider(row, now=now, reading_ttl_s=caps["reading_ttl_s"])]
-            measured = bool(measured_readings)
             headroom = min((1 - row["utilization"] for row in measured_readings), default=None)
-            resets = [_time(row["resets_at"]) for row in measured_readings
-                      if row["window"] == "seven_day" and row.get("resets_at")]
-            detail = {"measured": measured, "headroom": headroom,
-                      "in_flight": in_flight.get(identity, 0),
-                      "seven_day_reset": _iso(min(resets)) if resets else None,
-                      "status": "eligible" if measured else "eligible but unmeasured"}
+            weekly = reference_weekly_details(lane_readings, now, caps["reading_ttl_s"],
+                                              policy.get("admission") or {})
+            detail = {**weekly, "ranking_measured": weekly["measured"], "measured": bool(measured_readings),
+                      "headroom": headroom, "in_flight": in_flight.get(identity, 0)}
+            detail["status"] = "eligible" if detail["measured"] else "eligible but unmeasured"
             if model["provider"] == "claude":
                 detail["stranded_scopes"] = sorted({row["scope"] for row in closures
                     if row["lane_id"] == identity and row["scope"] in higher_scopes
@@ -243,16 +283,13 @@ def reference_evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: 
             return (last, *base_comparator(identity, row))
 
         def base_comparator(identity: str, row: dict) -> tuple:
-            # C-11.3: lanes fill in bands of `spread` attempts, then as before.
+            # C-11.3: retain load bands and Claude's stranded term, then the
+            # common weekly rule. C-11.7's admission reserve is still enforced
+            # above, but its slack no longer ranks candidates.
             band = 0 if spread is None else row["in_flight"] // int(spread)
-            if model["provider"] == "codex":
-                return (band, not row["measured"], row["seven_day_reset"] or "9999", identity)
-            reserve = row.get("reserve") or {}
-            stranded = bool(row.get("stranded_scopes"))
-            if reserve.get("slack") is not None:
-                # C-11.7: non-reserved work lands where the reserved bucket is most spent.
-                return (band, not stranded, not row["measured"], -reserve["slack"], row["in_flight"], identity)
-            return (band, not stranded, not row["measured"], -(row["headroom"] or 0), row["in_flight"], identity)
+            prefix = (band, not bool(row.get("stranded_scopes"))) if model["provider"] == "claude" else (band,)
+            return (*prefix, not row["ranking_measured"], row["weekly_reserve"], row["five_hour_reserve"],
+                    row["seven_day_reset"] or "9999", -(row["weekly_headroom"] or 0), row["in_flight"], identity)
 
         candidates.sort(key=comparator)
         if candidates:
@@ -280,5 +317,3 @@ def reference_evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: 
     digest = job.get("policy_hash") or policy.get("_policy_hash", "")
     return Decision(tuple(row["model"] for row in evaluations), tuple(evaluations),
                     chosen_lane, chosen_model, "; ".join(messages), digest)
-
-

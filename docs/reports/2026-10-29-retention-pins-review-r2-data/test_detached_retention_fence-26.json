@@ -1,0 +1,44 @@
+{
+  "name": "test_detached_retention_fence-26",
+  "start": "2026-10-29T06:45:35.808608+00:00",
+  "load": [
+    16.11083984375,
+    19.5048828125,
+    21.595703125
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/fake/test_detached_retention_fence.py::test_unfenced_detached_rediscovery_timeout_keeps_workspace_retry_budget"
+  ],
+  "phases": {
+    "tests/fake/test_detached_retention_fence.py::test_unfenced_detached_rediscovery_timeout_keeps_workspace_retry_budget": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/fake/test_detached_retention_fence.py::test_unfenced_detached_rediscovery_timeout_keeps_workspace_retry_budget": {
+      "setup": {
+        "duration": 0.030987999998615123,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.5997432910080533,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0004965830012224615,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

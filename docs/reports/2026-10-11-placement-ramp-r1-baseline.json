@@ -1,0 +1,43 @@
+{
+  "source_restored": {
+    "subfleet/daemon.py": true,
+    "subfleet/ramp.py": true
+  },
+  "runs": [
+    {
+      "tests": [
+        "tests/fake/test_admission_ramp.py::test_rollback_next_pass_counts_future_completed_reservation",
+        "tests/fake/test_admission_ramp.py::test_rollback_real_restart_counts_future_durable_reservation",
+        "tests/fake/test_admission_ramp.py::test_rollback_during_workspace_rechecks_committed_budget_without_leases",
+        "tests/unit/test_placement_ramp.py::test_rollback_census_keeps_history_that_expired_at_pass_entry"
+      ],
+      "command": [
+        "/usr/bin/lockf",
+        "-k",
+        "/private/tmp/claude-501/subfleet-suites.lock",
+        "uv",
+        "run",
+        "pytest",
+        "-q",
+        "tests/fake/test_admission_ramp.py::test_rollback_next_pass_counts_future_completed_reservation",
+        "tests/fake/test_admission_ramp.py::test_rollback_real_restart_counts_future_durable_reservation",
+        "tests/fake/test_admission_ramp.py::test_rollback_during_workspace_rechecks_committed_budget_without_leases",
+        "tests/unit/test_placement_ramp.py::test_rollback_census_keeps_history_that_expired_at_pass_entry",
+        "--tb=short"
+      ],
+      "exit_code": 1,
+      "summary": "4 failed in 28.42s",
+      "failed": [
+        "tests/fake/test_admission_ramp.py::test_rollback_next_pass_counts_future_completed_reservation",
+        "tests/fake/test_admission_ramp.py::test_rollback_real_restart_counts_future_durable_reservation",
+        "tests/fake/test_admission_ramp.py::test_rollback_during_workspace_rechecks_committed_budget_without_leases",
+        "tests/unit/test_placement_ramp.py::test_rollback_census_keeps_history_that_expired_at_pass_entry"
+      ],
+      "wall_seconds_including_lock_wait": 209.39,
+      "output": "FFFF                                                                     [100%]\n=================================== FAILURES ===================================\n_________ test_rollback_next_pass_counts_future_completed_reservation __________\ntests/fake/test_admission_ramp.py:226: in test_rollback_next_pass_counts_future_completed_reservation\n    assert [row[\"job_id\"] for row in placed(service)] == [first]\nE   AssertionError: assert ['20261011-06...065007-astra'] == ['20261011-065006-astra']\nE     \nE     Left contains one more item: '20261011-065007-astra'\nE     Use -v to get more diff\n------------------------------ Captured log setup ------------------------------\nINFO     subfleet.daemon.4316795498128:daemon.py:741 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s\n_________ test_rollback_real_restart_counts_future_durable_reservation _________\ntests/fake/test_admission_ramp.py:252: in test_rollback_real_restart_counts_future_durable_reservation\n    assert [row[\"job_id\"] for row in placed(restarted)] == [first]\nE   AssertionError: assert ['20261011-06...5008-astra-1'] == ['20261011-065008-astra']\nE     \nE     Left contains one more item: '20261011-065008-astra-1'\nE     Use -v to get more diff\n------------------------------ Captured log setup ------------------------------\nINFO     subfleet.daemon.4316834042768:daemon.py:741 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s\n------------------------------ Captured log call -------------------------------\nINFO     subfleet.daemon.4316834045072:daemon.py:741 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s\n___ test_rollback_during_workspace_rechecks_committed_budget_without_leases ____\ntests/fake/test_admission_ramp.py:285: in test_rollback_during_workspace_rechecks_committed_budget_without_leases\n    assert [row[\"job_id\"] for row in placed(service)] == [first]\nE   AssertionError: assert ['20261011-06...5009-astra-1'] == ['20261011-065009-astra']\nE     \nE     Left contains one more item: '20261011-065009-astra-1'\nE     Use -v to get more diff\n------------------------------ Captured log setup ------------------------------\nINFO     subfleet.daemon.4316834041616:daemon.py:741 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s\n________ test_rollback_census_keeps_history_that_expired_at_pass_entry _________\ntests/unit/test_placement_ramp.py:147: in test_rollback_census_keeps_history_that_expired_at_pass_entry\n    assert hold is not None\nE   assert None is not None\n=========================== short test summary info ============================\nFAILED tests/fake/test_admission_ramp.py::test_rollback_next_pass_counts_future_completed_reservation\nFAILED tests/fake/test_admission_ramp.py::test_rollback_real_restart_counts_future_durable_reservation\nFAILED tests/fake/test_admission_ramp.py::test_rollback_during_workspace_rechecks_committed_budget_without_leases\nFAILED tests/unit/test_placement_ramp.py::test_rollback_census_keeps_history_that_expired_at_pass_entry\n4 failed in 28.42s\n",
+      "tmpdir_removed": true,
+      "case": "base-regressions",
+      "base": "cacdb35aad7c4b1de0f5fb6bcddb114af772ba33"
+    }
+  ]
+}

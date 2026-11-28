@@ -24,6 +24,7 @@ import logging
 import os
 from pathlib import Path
 import socket
+import struct
 import tempfile
 import threading
 import time
@@ -35,9 +36,9 @@ import uuid
 from subfleet import protocol
 from subfleet.conversations.claude_turn import ClaudeTurn
 from subfleet.conversations.codex_turn import CodexTurn
-from subfleet.conversations.peers import Verdict, peer_pid
+from subfleet.conversations.peers import AuditToken, Verdict, peer_token
 from subfleet.conversations.service import ConversationService
-from subfleet.conversations.turn import APPROVAL_NEEDED, RUNNING, TurnSpec
+from subfleet.conversations.turn import RUNNING, TurnSpec
 from subfleet.daemon import busy_answer
 
 REPO = Path(__file__).resolve().parents[2]
@@ -63,25 +64,33 @@ class ServiceHarness:
         self.workspace = self.root / "work"
         self.workspace.mkdir(exist_ok=True)
         policy = json.loads((REPO / "subfleet/default_policy.json").read_text())
-        self.daemon = SimpleNamespace(root=self.root, policy=policy, store=_MainStore(), _notify=lambda: None,
+        self.cancels = []
+        self.peer = AuditToken(struct.pack("=8I", 0, 0, 0, 0, 0, os.getpid(), 0, 1))
+        self.daemon = SimpleNamespace(_request_cancel=self.request_cancel, root=self.root, policy=policy,
+                                      store=_MainStore(), _notify=lambda: None,
                                       requests=ThreadPoolExecutor(4), log=logging.getLogger("frontend-harness"))
         self.service = ConversationService(self.daemon)
         # Person-only operations are the peer check's (C-25.6), exercised live elsewhere.
-        self.service._person = lambda peer, what: Verdict(True, "frontend harness", peer)
+        self.service._person = lambda peer, what: Verdict(
+            True, "frontend harness", peer.pid if peer else None)
         self.store = self.service.store
 
     def close(self) -> None:
         self.service.close()
         self.daemon.requests.shutdown(wait=False)
 
+    def request_cancel(self, job_id, data, **options):
+        self.cancels.append((job_id, data, options))
+        return True
+
     def call(self, op: str, **args) -> dict:
-        return self.service.handle(op, args, os.getpid())
+        return self.service.handle(op, args, self.peer)
 
     def response_line(self, op: str, args: dict, request_id: str = "fixture") -> bytes:
         """The exact line the daemon writes for a request, errors included."""
         left, right = socket.socketpair()
         try:
-            self.service.respond(left, threading.Lock(), protocol.Request(op=op, args=args, id=request_id), os.getpid())
+            self.service.respond(left, threading.Lock(), protocol.Request(op=op, args=args, id=request_id), self.peer)
             with right.makefile("rb") as reader:
                 return reader.readline()
         finally:
@@ -129,34 +138,49 @@ class Attempt:
             self.offset += len(line) + 1
 
     def respond(self, request_id: str, decision: str, message: str | None = None, answers: dict | None = None) -> None:
+        """A person's answer as `approval.respond` makes it: recorded in the store, then
+        handed to the driver."""
+        row = self.store.one("SELECT approval_id FROM approvals WHERE attempt_id=? AND provider_request_id=? "
+                             "AND state='pending'", (self.attempt_id, request_id))
+        if row:
+            self.store.answer_approval(row["approval_id"], {"decision": decision, "message": message,
+                                                            "answers": answers})
         if isinstance(self.driver, ClaudeTurn):
             step = self.driver.respond(request_id, decision, message, answers=answers)
         else:
             step = self.driver.respond(request_id, decision, message)
         self._apply(step)
 
+    def eof(self) -> None:
+        """The provider's stdout ended (its process exited), as the runner applies it."""
+        self._apply(self.driver.eof(self.offset))
+
     def _apply(self, step) -> None:
-        """runner.TurnRunner._apply, without the relay."""
+        """runner.TurnRunner._apply and `_flush`, without the relay, then the settlement
+        `ConversationService._on_outcome` makes when the turn has an outcome."""
         batch = [("command" if e.source.startswith("cmd:") else "stdout", e.source, 0, e.kind, e.data)
                  for e in step.events]
-        if batch:
+        if step.approvals:
+            # C-27.1: the approvals, the batch announcing them and approval-needed in one
+            # commit. No driver step carries both an approval and `accepted`.
+            self.store.add_approvals(
+                message_id=self.mid, conversation_id=self.cid, attempt_id=self.attempt_id,
+                approvals=[{"provider_request_id": a.provider_request_id, "kind": a.kind, "request": a.request,
+                            "display": a.summary, "options": a.options} for a in step.approvals],
+                events=batch, stdout_offset=self.offset, stdin_seq=self.stdin_seq, expect=("running", "starting"))
+        if (batch and not step.approvals) or step.resolved:
+            # C-27.3: a withdrawal commits with its `approval.resolved` and the batch.
             self.store.append_events(conversation_id=self.cid, message_id=self.mid, attempt_id=self.attempt_id,
-                                     events=batch, stdout_offset=self.offset, stdin_seq=self.stdin_seq)
+                                     events=[] if step.approvals else batch, stdout_offset=self.offset,
+                                     stdin_seq=self.stdin_seq, resolved=step.resolved,
+                                     resume=self.driver.outcome is None)
         self.stdin_seq += len(step.frames)
         for event in step.events:
             if event.kind == "accepted":
                 self.store.set_state(self.mid, RUNNING, expect=("queued", "waiting", "starting"))
-        for approval in step.approvals:
-            self.store.add_approval(message_id=self.mid, conversation_id=self.cid, attempt_id=self.attempt_id,
-                                    provider_request_id=approval.provider_request_id, kind=approval.kind,
-                                    request=approval.request, display=approval.summary, options=approval.options)
-            self.store.set_state(self.mid, APPROVAL_NEEDED, expect=("running", "starting"))
-        if step.resolved:
-            self.store.withdraw_approvals(attempt_id=self.attempt_id, provider_request_ids=list(step.resolved))
-            if not self.store.approvals(message_id=self.mid) and self.driver.outcome is None:
-                self.store.set_state(self.mid, RUNNING, expect=("approval-needed",))
         if step.outcome is not None:
             state = step.outcome.state
+            self.store.withdraw_approvals(attempt_id=self.attempt_id)
             self.store.set_state(self.mid, state, reason=step.outcome.reason,
                                  expect=("running", "approval-needed", "starting", "waiting", "queued"),
                                  served={"lane_id": "claude-1", "model": step.outcome.served_model})
@@ -242,7 +266,9 @@ class JournalRelay:
     def __init__(self, adir: Path):
         self.path = adir / "stdin.jsonl"
 
-    def send(self, seq, op, *, line=None, tag=None, sig=None):
+    def send(self, seq, op, *, line=None, tag=None, sig=None, before_send=None):
+        if before_send is not None:
+            before_send()
         from subfleet.relay import Ack, frame_sha256
         with self.path.open("a") as stream:
             stream.write(json.dumps({"kind": "intent", "seq": seq, "op": op, "tag": tag,
@@ -397,7 +423,7 @@ class ServiceServer:
 
     def _connection(self, conn: socket.socket) -> None:
         lock = threading.Lock()
-        peer = peer_pid(conn)
+        peer = peer_token(conn)
         try:
             with conn.makefile("rb") as reader:
                 line = reader.readline(1024 * 1024 + 1)

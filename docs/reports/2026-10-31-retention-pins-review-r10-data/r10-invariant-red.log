@@ -1,0 +1,34 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 10:53:48Z slot B load 
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_ test_returned_cycle_target_obeys_the_claimed_spelling_invariant[self-suffix] _
+tests/fake/test_retention_dependency_review_r10.py:75: in test_returned_cycle_target_obeys_the_claimed_spelling_invariant
+    assert_location_spelling(checkout, recorded.get('git', []))
+tests/unit/test_retention_location_spelling.py:64: in assert_location_spelling
+    assert os.path.join(folders.canonical(os.path.dirname(place)), os.path.basename(place)) == place, place
+E   AssertionError: /private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe0/loop/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail/tail
+E   assert '/private/tmp...ail/tail/tail' == '/private/tmp...ail/tail/tail'
+E     
+E     Skipping 425 identical leading characters in diff, use -v to show
+E     - l/tail/tail
+E     + l/tail/tail/tail
+E     ?            +++++
+_ test_returned_cycle_target_obeys_the_claimed_spelling_invariant[two-link-suffix] _
+tests/fake/test_retention_dependency_review_r10.py:75: in test_returned_cycle_target_obeys_the_claimed_spelling_invariant
+    assert_location_spelling(checkout, recorded.get('git', []))
+tests/unit/test_retention_location_spelling.py:64: in assert_location_spelling
+    assert os.path.join(folders.canonical(os.path.dirname(place)), os.path.basename(place)) == place, place
+E   AssertionError: /private/tmp/sf-r272r10/real-tmp/r10-invariant-red/pytest-of-maxghenis/pytest-0/test_returned_cycle_target_obe1/other/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail/extra/tail
+E   assert '/private/tmp...il/extra/tail' == '/private/tmp...il/extra/tail'
+E     
+E     Skipping 463 identical leading characters in diff, use -v to show
+E     - /extra/tail
+E     + /extra/tail/extra/tail
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r10.py::test_returned_cycle_target_obeys_the_claimed_spelling_invariant[self-suffix]
+FAILED tests/fake/test_retention_dependency_review_r10.py::test_returned_cycle_target_obeys_the_claimed_spelling_invariant[two-link-suffix]
+2 failed, 10 deselected in 10.85s
+{"name": "r10-invariant-red", "start": "2026-10-31T10:53:50.309358+00:00", "load": [41.50732421875, 40.8173828125, 38.83740234375], "seconds": 12.552162500000122, "exit": 1}

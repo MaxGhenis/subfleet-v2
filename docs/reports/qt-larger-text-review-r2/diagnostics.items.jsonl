@@ -1,0 +1,3 @@
+{"nodeid": "docs/reports/qt-larger-text-review-r2/diagnostics.py::test_six_release_sensitive_mutant_runs_failed_for_measured_behavior", "when": "setup", "outcome": "passed", "duration": 3.917860790999839, "longrepr": null}
+{"nodeid": "docs/reports/qt-larger-text-review-r2/diagnostics.py::test_six_release_sensitive_mutant_runs_failed_for_measured_behavior", "when": "call", "outcome": "passed", "duration": 0.49810375000015483, "longrepr": null}
+{"nodeid": "docs/reports/qt-larger-text-review-r2/diagnostics.py::test_six_release_sensitive_mutant_runs_failed_for_measured_behavior", "when": "teardown", "outcome": "passed", "duration": 0.0002392089991190005, "longrepr": null}

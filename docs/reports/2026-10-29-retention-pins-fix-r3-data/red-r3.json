@@ -1,0 +1,56 @@
+{
+  "label": "red-r3",
+  "start": "2026-10-29T20:06:43.733827+00:00",
+  "loads": [
+    17.34912109375,
+    16.66064453125,
+    12.17578125
+  ],
+  "seconds": 21.77345316700007,
+  "exit": 1,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[live]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 3.1376622499999485
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_git_parent_symlink_swap_during_discovery_keeps_allocated_tree[exporting]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 2.405832665999924
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-legacy]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 1.6537847919998967
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[live-recorded]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.6481659589999254
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[exporting-legacy]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 2.2500534580001386
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_review_r3.py::test_c8_4_recovery_discovers_incomplete_before_quarantine[exporting-recorded]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.4631832499999291
+    }
+  ],
+  "rss": 115965952
+}

@@ -1,0 +1,1031 @@
+{
+  "baseline_commit": "75972d4a9506132ac066c2e7474d5a1b9ac20f10",
+  "head_ref": "refs/heads/fix/pr124-first-use-review",
+  "required_totals": {
+    "passed": 537,
+    "failed_preexisting_sandbox": 4,
+    "skipped_sandbox": 1,
+    "collected": 542
+  },
+  "baseline_regressions": [
+    {
+      "name": "baseline-daemon",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 8.93,
+      "tail": [
+        "FAILED tests/unit/test_pr124_fixes.py::test_no_folder_check_and_create_agree_without_check_writes[]",
+        "FAILED tests/unit/test_pr124_fixes.py::test_no_folder_check_and_create_agree_without_check_writes[None]",
+        "FAILED tests/unit/test_pr124_fixes.py::test_missing_provider_check_and_create_use_claude",
+        "FAILED tests/unit/test_pr124_fixes.py::test_default_codex_policy_routes_hard_to_sol_and_retires_astra",
+        "FAILED tests/unit/test_pr124_fixes.py::test_codex_default_follows_custom_hard_tier_instead_of_a_model_alias",
+        "FAILED tests/unit/test_pr124_fixes.py::test_retired_astra_is_never_a_default_even_in_an_old_custom_policy",
+        "FAILED tests/unit/test_pr124_fixes.py::test_future_activity_cannot_pin_an_older_conversation",
+        "7 failed in 3.10s"
+      ],
+      "failed_nodes": [
+        "tests/unit/test_pr124_fixes.py::test_no_folder_check_and_create_agree_without_check_writes[]",
+        "tests/unit/test_pr124_fixes.py::test_no_folder_check_and_create_agree_without_check_writes[None]",
+        "tests/unit/test_pr124_fixes.py::test_missing_provider_check_and_create_use_claude",
+        "tests/unit/test_pr124_fixes.py::test_default_codex_policy_routes_hard_to_sol_and_retires_astra",
+        "tests/unit/test_pr124_fixes.py::test_codex_default_follows_custom_hard_tier_instead_of_a_model_alias",
+        "tests/unit/test_pr124_fixes.py::test_retired_astra_is_never_a_default_even_in_an_old_custom_policy",
+        "tests/unit/test_pr124_fixes.py::test_future_activity_cannot_pin_an_older_conversation"
+      ],
+      "assertion_failures_only": true
+    },
+    {
+      "name": "baseline-final-ui",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 273.65,
+      "tail": [
+        "FAILED tests/frontend/test_pr124_fixes_ui.py::test_remembered_astra_cannot_override_the_daemon_hard_default",
+        "FAILED tests/frontend/test_pr124_fixes_ui.py::test_older_daemon_skips_optional_check_at_open_and_start",
+        "FAILED tests/frontend/test_pr124_fixes_ui.py::test_unanswered_check_keeps_folder_and_rechecks_on_reconcile",
+        "FAILED tests/frontend/test_pr124_fixes_ui.py::test_last_successful_retry_clears_only_its_notice",
+        "FAILED tests/frontend/test_pr124_fixes_ui.py::test_a_send_does_not_wait_for_folder_git_checks",
+        "FAILED tests/frontend/test_pr124_fixes_ui.py::test_relaunch_after_journaling_never_offers_the_same_words_again",
+        "FAILED tests/frontend/test_pr124_fixes_ui.py::test_create_already_acknowledged_after_a_crash_receives_its_original_message",
+        "11 failed, 4 passed in 260.60s (0:04:20)"
+      ],
+      "failed_nodes": [
+        "tests/frontend/test_pr124_fixes_ui.py::test_retry_preserves_composer_and_original_message_identity",
+        "tests/frontend/test_pr124_fixes_ui.py::test_switching_retries_and_relaunch_preserve_the_composer",
+        "tests/frontend/test_pr124_fixes_ui.py::test_auto_requires_a_ready_codex_lane[0-0-claude]",
+        "tests/frontend/test_pr124_fixes_ui.py::test_auto_requires_a_ready_codex_lane[0-3-codex]",
+        "tests/frontend/test_pr124_fixes_ui.py::test_remembered_astra_cannot_override_the_daemon_hard_default",
+        "tests/frontend/test_pr124_fixes_ui.py::test_older_daemon_skips_optional_check_at_open_and_start",
+        "tests/frontend/test_pr124_fixes_ui.py::test_unanswered_check_keeps_folder_and_rechecks_on_reconcile",
+        "tests/frontend/test_pr124_fixes_ui.py::test_last_successful_retry_clears_only_its_notice",
+        "tests/frontend/test_pr124_fixes_ui.py::test_a_send_does_not_wait_for_folder_git_checks",
+        "tests/frontend/test_pr124_fixes_ui.py::test_relaunch_after_journaling_never_offers_the_same_words_again",
+        "tests/frontend/test_pr124_fixes_ui.py::test_create_already_acknowledged_after_a_crash_receives_its_original_message"
+      ],
+      "assertion_failures_only": true
+    },
+    {
+      "name": "baseline-property-final",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 117.48,
+      "tail": [
+        "tests/frontend/test_pr124_recovery_properties.py:113: AssertionError",
+        "----------------------------- Captured stdout call -----------------------------",
+        "RECOVERY_HISTORY [[\"retry\", 1, null], [\"open\", 0, null], [\"send-composer\", 0, null], [\"relaunch\", 0, null]]",
+        "RECOVERY_HISTORY [[\"retry\", 1, \"conversation.create\"], [\"relaunch\", 0, null], [\"retry\", 1, \"message.submit\"], [\"crash\", 0, null], [\"relaunch\", 0, null]]",
+        "RECOVERY_HISTORY [[\"discard\", 0, null], [\"retry\", 1, \"message.submit\"], [\"relaunch\", 0, null]]",
+        "=========================== short test summary info ============================",
+        "FAILED tests/frontend/test_pr124_recovery_properties.py::test_every_written_message_is_sent_once_or_remains_visibly_unsent",
+        "1 failed in 113.63s (0:01:53)"
+      ],
+      "failed_nodes": [
+        "tests/frontend/test_pr124_recovery_properties.py::test_every_written_message_is_sent_once_or_remains_visibly_unsent"
+      ],
+      "assertion_failures_only": true
+    }
+  ],
+  "baseline_platform_failures": {
+    "name": "baseline-platform",
+    "exit_code": 1,
+    "timeout": false,
+    "seconds": 176.48,
+    "tail": [
+      "",
+      "subfleet/procs.py:93: InspectionError",
+      "=========================== short test summary info ============================",
+      "FAILED tests/unit/test_conversation_service.py::test_a_request_that_reaches_its_text_after_the_service_closed_writes_nothing",
+      "FAILED tests/unit/test_conversation_catalog_lifecycle.py::test_closing_the_daemon_stops_its_catalog_run_and_the_removed_root_stays_gone",
+      "FAILED tests/unit/test_status_json.py::test_c18_1_the_daemon_hands_the_timer_its_probe_records",
+      "FAILED tests/unit/test_status_json.py::test_c18_1_a_commit_inside_the_snapshot_after_its_rows_is_not_published",
+      "4 failed in 117.08s (0:01:57)"
+    ],
+    "failed_nodes": [
+      "tests/unit/test_conversation_service.py::test_a_request_that_reaches_its_text_after_the_service_closed_writes_nothing",
+      "tests/unit/test_conversation_catalog_lifecycle.py::test_closing_the_daemon_stops_its_catalog_run_and_the_removed_root_stays_gone",
+      "tests/unit/test_status_json.py::test_c18_1_the_daemon_hands_the_timer_its_probe_records",
+      "tests/unit/test_status_json.py::test_c18_1_a_commit_inside_the_snapshot_after_its_rows_is_not_published"
+    ],
+    "assertion_failures_only": true
+  },
+  "mutations": [
+    {
+      "name": "mutation-auto",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 18.92,
+      "tail": [
+        "E         ",
+        "E         - claude",
+        "E         + codex",
+        "",
+        "tests/frontend/test_pr124_fixes_ui.py:79: AssertionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/frontend/test_pr124_fixes_ui.py::test_auto_requires_a_ready_codex_lane[0-0-claude]",
+        "1 failed in 9.77s"
+      ],
+      "failed_nodes": [
+        "tests/frontend/test_pr124_fixes_ui.py::test_auto_requires_a_ready_codex_lane[0-0-claude]"
+      ],
+      "assertion_failures_only": true
+    },
+    {
+      "name": "mutation-capability",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 15.73,
+      "tail": [
+        "        shots = run(review_probe, tmp_path, data)",
+        ">       assert shots[2][\"can_start\"] is True",
+        "E       assert False is True",
+        "",
+        "tests/frontend/test_pr124_fixes_ui.py:101: AssertionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/frontend/test_pr124_fixes_ui.py::test_older_daemon_skips_optional_check_at_open_and_start",
+        "1 failed in 9.08s"
+      ],
+      "failed_nodes": [
+        "tests/frontend/test_pr124_fixes_ui.py::test_older_daemon_skips_optional_check_at_open_and_start"
+      ],
+      "assertion_failures_only": true
+    },
+    {
+      "name": "mutation-crash-clear",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 13.16,
+      "tail": [
+        ">       assert all(shot[\"text\"] == \"\" for shot in shots)",
+        "E       assert False",
+        "E        +  where False = all(<generator object test_relaunch_after_journaling_never_offers_the_same_words_again.<locals>.<genexpr> at 0x5b08ee569e0>)",
+        "",
+        "tests/frontend/test_pr124_fixes_ui.py:171: AssertionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/frontend/test_pr124_fixes_ui.py::test_relaunch_after_journaling_never_offers_the_same_words_again",
+        "1 failed in 5.69s"
+      ],
+      "failed_nodes": [
+        "tests/frontend/test_pr124_fixes_ui.py::test_relaunch_after_journaling_never_offers_the_same_words_again"
+      ],
+      "assertion_failures_only": true
+    },
+    {
+      "name": "mutation-empty-folder",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 12.21,
+      "tail": [
+        "E         At index 0 diff: False != True",
+        "E         Use -v to get more diff",
+        "",
+        "tests/unit/test_pr124_fixes.py:19: AssertionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/unit/test_pr124_fixes.py::test_no_folder_check_and_create_agree_without_check_writes[]",
+        "FAILED tests/unit/test_pr124_fixes.py::test_no_folder_check_and_create_agree_without_check_writes[None]",
+        "2 failed in 6.91s"
+      ],
+      "failed_nodes": [
+        "tests/unit/test_pr124_fixes.py::test_no_folder_check_and_create_agree_without_check_writes[]",
+        "tests/unit/test_pr124_fixes.py::test_no_folder_check_and_create_agree_without_check_writes[None]"
+      ],
+      "assertion_failures_only": true
+    },
+    {
+      "name": "mutation-footer",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 32.61,
+      "tail": [
+        "E       AssertionError: assert ([] == []",
+        "E         ",
+        "E         Use -v to get more diff and 'A conversation could not start. Review its saved draft.' is None)",
+        "",
+        "tests/frontend/test_pr124_fixes_ui.py:138: AssertionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/frontend/test_pr124_fixes_ui.py::test_last_successful_retry_clears_only_its_notice",
+        "1 failed in 19.12s"
+      ],
+      "failed_nodes": [
+        "tests/frontend/test_pr124_fixes_ui.py::test_last_successful_retry_clears_only_its_notice"
+      ],
+      "assertion_failures_only": true
+    },
+    {
+      "name": "mutation-future-activity",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 30.97,
+      "tail": [
+        "E         ",
+        "E         At index 0 diff: 'cv-1791111625671-d625952eb6ba' != 'cv-1791111625674-bc57ca1fb243'",
+        "E         Use -v to get more diff",
+        "",
+        "tests/unit/test_pr124_fixes.py:66: AssertionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/unit/test_pr124_fixes.py::test_future_activity_cannot_pin_an_older_conversation",
+        "1 failed in 14.77s"
+      ],
+      "failed_nodes": [
+        "tests/unit/test_pr124_fixes.py::test_future_activity_cannot_pin_an_older_conversation"
+      ],
+      "assertion_failures_only": true
+    },
+    {
+      "name": "mutation-hard-tier",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 14.96,
+      "tail": [
+        "E         Differing items:",
+        "E         {'codex': 'gpt-6.1-sol'} != {'codex': 'custom-codex-hard'}",
+        "E         Use -v to get more diff",
+        "",
+        "tests/unit/test_pr124_fixes.py:47: AssertionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/unit/test_pr124_fixes.py::test_codex_default_follows_custom_hard_tier_instead_of_a_model_alias",
+        "1 failed in 10.10s"
+      ],
+      "failed_nodes": [
+        "tests/unit/test_pr124_fixes.py::test_codex_default_follows_custom_hard_tier_instead_of_a_model_alias"
+      ],
+      "assertion_failures_only": true
+    },
+    {
+      "name": "mutation-missing-provider",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 37.67,
+      "tail": [
+        "E         ",
+        "E         At index 0 diff: True != False",
+        "E         Use -v to get more diff",
+        "",
+        "tests/unit/test_pr124_fixes.py:26: AssertionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/unit/test_pr124_fixes.py::test_missing_provider_check_and_create_use_claude",
+        "1 failed in 16.53s"
+      ],
+      "failed_nodes": [
+        "tests/unit/test_pr124_fixes.py::test_missing_provider_check_and_create_use_claude"
+      ],
+      "assertion_failures_only": true
+    },
+    {
+      "name": "mutation-policy",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 21.59,
+      "tail": [
+        "E         Extra items in the right set:",
+        "E         'gpt-6.1-sol'",
+        "E         Use -v to get more diff",
+        "",
+        "tests/unit/test_pr124_fixes.py:33: AssertionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/unit/test_pr124_fixes.py::test_default_codex_policy_routes_hard_to_sol_and_retires_astra",
+        "1 failed in 14.65s"
+      ],
+      "failed_nodes": [
+        "tests/unit/test_pr124_fixes.py::test_default_codex_policy_routes_hard_to_sol_and_retires_astra"
+      ],
+      "assertion_failures_only": true
+    },
+    {
+      "name": "mutation-queue",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 42.9,
+      "tail": [
+        "        shot = run(review_probe, tmp_path, data)[-1]",
+        ">       assert 0 <= shot[\"send_wait_ms\"] < 1000",
+        "E       assert 2007.275938987732 < 1000",
+        "",
+        "tests/frontend/test_pr124_fixes_ui.py:147: AssertionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/frontend/test_pr124_fixes_ui.py::test_a_send_does_not_wait_for_folder_git_checks",
+        "1 failed in 22.09s"
+      ],
+      "failed_nodes": [
+        "tests/frontend/test_pr124_fixes_ui.py::test_a_send_does_not_wait_for_folder_git_checks"
+      ],
+      "assertion_failures_only": true
+    },
+    {
+      "name": "mutation-resolved-create",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 19.52,
+      "tail": [
+        "E         ",
+        "E         - cv-1791112247833-c1f8a6126723",
+        "E         + draft:app-second)",
+        "",
+        "tests/frontend/test_pr124_fixes_ui.py:194: AssertionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/frontend/test_pr124_fixes_ui.py::test_create_already_acknowledged_after_a_crash_receives_its_original_message",
+        "1 failed in 11.45s"
+      ],
+      "failed_nodes": [
+        "tests/frontend/test_pr124_fixes_ui.py::test_create_already_acknowledged_after_a_crash_receives_its_original_message"
+      ],
+      "assertion_failures_only": true
+    },
+    {
+      "name": "mutation-retired-default",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 11.69,
+      "tail": [
+        "E         Differing items:",
+        "E         {'codex': 'gpt-6-astra'} != {'codex': 'custom-current'}",
+        "E         Use -v to get more diff",
+        "",
+        "tests/unit/test_pr124_fixes.py:53: AssertionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/unit/test_pr124_fixes.py::test_retired_astra_is_never_a_default_even_in_an_old_custom_policy",
+        "1 failed in 5.41s"
+      ],
+      "failed_nodes": [
+        "tests/unit/test_pr124_fixes.py::test_retired_astra_is_never_a_default_even_in_an_old_custom_policy"
+      ],
+      "assertion_failures_only": true
+    },
+    {
+      "name": "mutation-retired-memory",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 13.35,
+      "tail": [
+        "E         ",
+        "E         - gpt-6.1-sol",
+        "E         + gpt-6-astra",
+        "",
+        "tests/frontend/test_pr124_fixes_ui.py:91: AssertionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/frontend/test_pr124_fixes_ui.py::test_remembered_astra_cannot_override_the_daemon_hard_default",
+        "1 failed in 5.20s"
+      ],
+      "failed_nodes": [
+        "tests/frontend/test_pr124_fixes_ui.py::test_remembered_astra_cannot_override_the_daemon_hard_default"
+      ],
+      "assertion_failures_only": true
+    },
+    {
+      "name": "mutation-retry-restore",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 39.2,
+      "tail": [
+        "E         ",
+        "E         - my unsent idea",
+        "E         + im in the subfleet app now instead of claude code - can we resume stuff that was running)",
+        "",
+        "tests/frontend/test_pr124_fixes_ui.py:50: AssertionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/frontend/test_pr124_fixes_ui.py::test_retry_preserves_composer_and_original_message_identity",
+        "1 failed in 27.81s"
+      ],
+      "failed_nodes": [
+        "tests/frontend/test_pr124_fixes_ui.py::test_retry_preserves_composer_and_original_message_identity"
+      ],
+      "assertion_failures_only": true
+    },
+    {
+      "name": "mutation-retry-storage",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 32.24,
+      "tail": [
+        "E         ",
+        "E         - my unsent idea",
+        "E         + im in the subfleet app now instead of claude code - can we resume stuff that was running",
+        "",
+        "tests/frontend/test_pr124_fixes_ui.py:48: AssertionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/frontend/test_pr124_fixes_ui.py::test_retry_preserves_composer_and_original_message_identity",
+        "1 failed in 21.75s"
+      ],
+      "failed_nodes": [
+        "tests/frontend/test_pr124_fixes_ui.py::test_retry_preserves_composer_and_original_message_identity"
+      ],
+      "assertion_failures_only": true
+    },
+    {
+      "name": "mutation-start-guard",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 14.11,
+      "tail": [
+        "E        +  where True = exists()",
+        "E        +    where exists = (PosixPath('/private/tmp/pr124-kjredbgd/test_start_rechecks_a_folder_a0/app') / 'support/outbox.json').exists",
+        "E        +      where PosixPath('/private/tmp/pr124-kjredbgd/test_start_rechecks_a_folder_a0/app') = Path('/private/tmp/pr124-kjredbgd/test_start_rechecks_a_folder_a0/app')",
+        "",
+        "tests/frontend/test_pr124_fixes_ui.py:156: AssertionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/frontend/test_pr124_fixes_ui.py::test_start_rechecks_a_folder_and_journals_nothing_if_it_changed",
+        "1 failed in 6.00s"
+      ],
+      "failed_nodes": [
+        "tests/frontend/test_pr124_fixes_ui.py::test_start_rechecks_a_folder_and_journals_nothing_if_it_changed"
+      ],
+      "assertion_failures_only": true
+    },
+    {
+      "name": "mutation-transient",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 18.09,
+      "tail": [
+        "E       AssertionError: assert None == '/private/tmp/pr124-rpok_jxe/test_unanswered_check_keeps_fo0/daemon/work'",
+        "E        +  where '/private/tmp/pr124-rpok_jxe/test_unanswered_check_keeps_fo0/daemon/work' = str(PosixPath('/private/tmp/pr124-rpok_jxe/test_unanswered_check_keeps_fo0/daemon/work'))",
+        "E        +    where PosixPath('/private/tmp/pr124-rpok_jxe/test_unanswered_check_keeps_fo0/daemon/work') = <tests.frontend.daemon_harness.ServiceHarness object at 0x4f60df4b410>.workspace",
+        "",
+        "tests/frontend/test_pr124_fixes_ui.py:112: AssertionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/frontend/test_pr124_fixes_ui.py::test_unanswered_check_keeps_folder_and_rechecks_on_reconcile",
+        "1 failed in 10.09s"
+      ],
+      "failed_nodes": [
+        "tests/frontend/test_pr124_fixes_ui.py::test_unanswered_check_keeps_folder_and_rechecks_on_reconcile"
+      ],
+      "assertion_failures_only": true
+    },
+    {
+      "name": "mutation-retry-property-final",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 133.01,
+      "tail": [
+        "tests/frontend/test_pr124_recovery_properties.py:113: AssertionError",
+        "----------------------------- Captured stdout call -----------------------------",
+        "RECOVERY_HISTORY [[\"retry\", 1, null], [\"open\", 0, null], [\"send-composer\", 0, null], [\"relaunch\", 0, null]]",
+        "RECOVERY_HISTORY [[\"retry\", 1, \"conversation.create\"], [\"relaunch\", 0, null], [\"retry\", 1, \"message.submit\"], [\"crash\", 0, null], [\"relaunch\", 0, null]]",
+        "RECOVERY_HISTORY [[\"discard\", 0, null], [\"retry\", 1, \"message.submit\"], [\"relaunch\", 0, null]]",
+        "=========================== short test summary info ============================",
+        "FAILED tests/frontend/test_pr124_recovery_properties.py::test_every_written_message_is_sent_once_or_remains_visibly_unsent",
+        "1 failed in 114.72s (0:01:54)"
+      ],
+      "failed_nodes": [
+        "tests/frontend/test_pr124_recovery_properties.py::test_every_written_message_is_sent_once_or_remains_visibly_unsent"
+      ],
+      "assertion_failures_only": true
+    }
+  ],
+  "required_daemon_suites": [
+    {
+      "name": "suite-conversation-service",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 350.13,
+      "tail": [
+        "        if not value:",
+        ">           raise InspectionError(\"macOS boot identity is unavailable\")",
+        "E           subfleet.procs.InspectionError: macOS boot identity is unavailable",
+        "",
+        "subfleet/procs.py:93: InspectionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/unit/test_conversation_service.py::test_a_request_that_reaches_its_text_after_the_service_closed_writes_nothing",
+        "1 failed, 91 passed in 337.86s (0:05:37)"
+      ],
+      "failed_nodes": [
+        "tests/unit/test_conversation_service.py::test_a_request_that_reaches_its_text_after_the_service_closed_writes_nothing"
+      ],
+      "assertion_failures_only": true
+    },
+    {
+      "name": "suite-catalog",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 98.08,
+      "tail": [
+        ".............                                                            [100%]",
+        "13 passed in 56.31s"
+      ],
+      "failed_nodes": [],
+      "assertion_failures_only": false
+    },
+    {
+      "name": "suite-catalog-lifecycle",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 328.91,
+      "tail": [
+        "                if err_filename is not None:",
+        ">                   raise child_exception_type(errno_num, err_msg, err_filename)",
+        "E                   PermissionError: [Errno 1] Operation not permitted: '/bin/ps'",
+        "",
+        "../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1990: PermissionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/unit/test_conversation_catalog_lifecycle.py::test_closing_the_daemon_stops_its_catalog_run_and_the_removed_root_stays_gone",
+        "1 failed, 20 passed in 285.00s (0:04:45)"
+      ],
+      "failed_nodes": [
+        "tests/unit/test_conversation_catalog_lifecycle.py::test_closing_the_daemon_stops_its_catalog_run_and_the_removed_root_stays_gone"
+      ],
+      "assertion_failures_only": true
+    },
+    {
+      "name": "suite-status-json",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 149.31,
+      "tail": [
+        ">           raise InspectionError(\"macOS boot identity is unavailable\")",
+        "E           subfleet.procs.InspectionError: macOS boot identity is unavailable",
+        "",
+        "subfleet/procs.py:93: InspectionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/unit/test_status_json.py::test_c18_1_the_daemon_hands_the_timer_its_probe_records",
+        "FAILED tests/unit/test_status_json.py::test_c18_1_a_commit_inside_the_snapshot_after_its_rows_is_not_published",
+        "2 failed, 54 passed in 124.44s (0:02:04)"
+      ],
+      "failed_nodes": [
+        "tests/unit/test_status_json.py::test_c18_1_the_daemon_hands_the_timer_its_probe_records",
+        "tests/unit/test_status_json.py::test_c18_1_a_commit_inside_the_snapshot_after_its_rows_is_not_published"
+      ],
+      "assertion_failures_only": true
+    },
+    {
+      "name": "suite-app-cutover-daemon",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 421.4,
+      "tail": [
+        "....................                                                     [100%]",
+        "20 passed in 386.77s (0:06:26)"
+      ],
+      "failed_nodes": [],
+      "assertion_failures_only": false
+    }
+  ],
+  "frontend": {
+    "collected": 340,
+    "passed": 339,
+    "skipped": 1,
+    "slices": [
+      {
+        "name": "suite-frontend-01",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 306.68,
+        "tail": [
+          "..........                                                               [100%]",
+          "10 passed in 278.17s (0:04:38)"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      },
+      {
+        "name": "suite-frontend-02",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 190.77,
+        "tail": [
+          ".                                                                        [100%]",
+          "1 passed in 178.63s (0:02:58)"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      },
+      {
+        "name": "suite-frontend-03",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 367.49,
+        "tail": [
+          "......                                                                   [100%]",
+          "6 passed in 352.92s (0:05:52)"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      },
+      {
+        "name": "suite-frontend-04",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 26.24,
+        "tail": [
+          ".............                                                            [100%]",
+          "13 passed in 13.81s"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      },
+      {
+        "name": "suite-frontend-05",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 21.51,
+        "tail": [
+          "..........                                                               [100%]",
+          "10 passed in 12.40s"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      },
+      {
+        "name": "suite-frontend-06",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 455.18,
+        "tail": [
+          "........................................                                 [100%]",
+          "40 passed in 443.60s (0:07:23)"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      },
+      {
+        "name": "suite-frontend-07",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 63.02,
+        "tail": [
+          "..................                                                       [100%]",
+          "18 passed in 51.36s"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      },
+      {
+        "name": "suite-frontend-08",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 71.18,
+        "tail": [
+          "....                                                                     [100%]",
+          "4 passed in 50.07s"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      },
+      {
+        "name": "suite-frontend-09",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 234.35,
+        "tail": [
+          ".......                                                                  [100%]",
+          "7 passed in 226.40s (0:03:46)"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      },
+      {
+        "name": "suite-frontend-10",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 14.91,
+        "tail": [
+          "s                                                                        [100%]",
+          "1 skipped in 5.11s"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      },
+      {
+        "name": "suite-frontend-11",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 14.67,
+        "tail": [
+          ".                                                                        [100%]",
+          "1 passed in 7.32s"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      },
+      {
+        "name": "suite-frontend-12",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 42.29,
+        "tail": [
+          "..........................................                               [100%]",
+          "42 passed in 33.70s"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      },
+      {
+        "name": "suite-frontend-13",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 43.03,
+        "tail": [
+          ".............                                                            [100%]",
+          "13 passed in 33.09s"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      },
+      {
+        "name": "suite-frontend-14",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 28.28,
+        "tail": [
+          ".........                                                                [100%]",
+          "9 passed in 20.82s"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      },
+      {
+        "name": "suite-frontend-15",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 24.15,
+        "tail": [
+          "..........                                                               [100%]",
+          "10 passed in 12.66s"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      },
+      {
+        "name": "suite-frontend-16",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 351.46,
+        "tail": [
+          "....................                                                     [100%]",
+          "20 passed in 340.84s (0:05:40)"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      },
+      {
+        "name": "suite-frontend-17",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 106.24,
+        "tail": [
+          "...........................................                              [100%]",
+          "43 passed in 96.10s (0:01:36)"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      },
+      {
+        "name": "suite-frontend-18",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 95.09,
+        "tail": [
+          ".                                                                        [100%]",
+          "1 passed in 85.24s (0:01:25)"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      },
+      {
+        "name": "suite-frontend-19",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 65.1,
+        "tail": [
+          ".                                                                        [100%]",
+          "1 passed in 53.57s"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      },
+      {
+        "name": "suite-frontend-20",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 34.42,
+        "tail": [
+          "..........                                                               [100%]",
+          "10 passed in 20.90s"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      },
+      {
+        "name": "suite-frontend-21",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 59.53,
+        "tail": [
+          ".......                                                                  [100%]",
+          "7 passed in 52.19s"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      },
+      {
+        "name": "suite-frontend-22",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 38.34,
+        "tail": [
+          "..................                                                       [100%]",
+          "18 passed in 23.73s"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      },
+      {
+        "name": "suite-frontend-23",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 9.88,
+        "tail": [
+          ".                                                                        [100%]",
+          "1 passed in 4.92s"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      },
+      {
+        "name": "suite-frontend-24",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 193.3,
+        "tail": [
+          "........                                                                 [100%]",
+          "8 passed in 191.41s (0:03:11)"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      },
+      {
+        "name": "suite-frontend-25",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 84.15,
+        "tail": [
+          "...............                                                          [100%]",
+          "15 passed in 75.89s (0:01:15)"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      },
+      {
+        "name": "suite-frontend-26",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 99.4,
+        "tail": [
+          ".                                                                        [100%]",
+          "1 passed in 96.20s (0:01:36)"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      },
+      {
+        "name": "suite-frontend-27",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 364.61,
+        "tail": [
+          ".....                                                                    [100%]",
+          "5 passed in 356.52s (0:05:56)"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      },
+      {
+        "name": "suite-frontend-28",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 121.11,
+        "tail": [
+          ".........................                                                [100%]",
+          "25 passed in 107.50s (0:01:47)"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      }
+    ]
+  },
+  "app_protocol": {
+    "included_in_frontend": true,
+    "passed": 9,
+    "slice": "suite-frontend-14"
+  },
+  "policy_support": {
+    "name": "fixed-daemon-policy",
+    "exit_code": 0,
+    "timeout": false,
+    "seconds": 18.06,
+    "tail": [
+      "........................................................................ [ 39%]",
+      "........................................................................ [ 79%]",
+      "......................................                                   [100%]",
+      "182 passed in 16.32s"
+    ],
+    "failed_nodes": [],
+    "assertion_failures_only": false
+  },
+  "recovery_histories": {
+    "generated_passing": 40,
+    "explicit": 12,
+    "seeds": [
+      124,
+      125,
+      126,
+      127
+    ],
+    "runs": [
+      {
+        "name": "suite-frontend-26",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 99.4,
+        "tail": [
+          ".                                                                        [100%]",
+          "1 passed in 96.20s (0:01:36)"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      },
+      {
+        "name": "recovery-property-seed125",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 42.39,
+        "tail": [
+          "  - during generate phase (24.30 seconds):",
+          "    - Typical runtimes: ~ 1184-4261 ms, of which ~ 0-1 ms in data generation",
+          "    - 10 passing, 0 failing, and 0 invalid test cases",
+          "",
+          "  - Stopped because settings.max_examples=10",
+          "",
+          "",
+          "1 passed in 36.93s"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      },
+      {
+        "name": "recovery-property-seed126",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 54.03,
+        "tail": [
+          "  - during generate phase (35.03 seconds):",
+          "    - Typical runtimes: ~ 1-8760 ms, of which ~ 0-3 ms in data generation",
+          "    - 10 passing, 0 failing, and 1 invalid test cases",
+          "",
+          "  - Stopped because settings.max_examples=10",
+          "",
+          "",
+          "1 passed in 45.70s"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      },
+      {
+        "name": "recovery-property-seed127",
+        "exit_code": 0,
+        "timeout": false,
+        "seconds": 44.66,
+        "tail": [
+          "  - during generate phase (26.89 seconds):",
+          "    - Typical runtimes: ~ 861-5271 ms, of which ~ 0-2 ms in data generation",
+          "    - 10 passing, 0 failing, and 0 invalid test cases",
+          "",
+          "  - Stopped because settings.max_examples=10",
+          "",
+          "",
+          "1 passed in 41.87s"
+        ],
+        "failed_nodes": [],
+        "assertion_failures_only": false
+      }
+    ]
+  },
+  "app_build": {
+    "name": "app-build",
+    "exit_code": 0,
+    "timeout": false,
+    "seconds": 264.83,
+    "tail": [
+      " 861 |     let client: DaemonCalling",
+      " 862 |     let outbox: Outbox",
+      "",
+      "[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>",
+      "ld: warning: search path '/Users/maxghenis/.subfleet/worktrees/20261004-060226-pr124-fix-review/build/pr124-evidence/lib/swift/macosx' not found",
+      "/Users/maxghenis/.subfleet/worktrees/20261004-060226-pr124-fix-review/build/pr124-evidence/product/.subfleet-build.z3EvzL/Subfleet.app/Contents/Info.plist: OK",
+      "/Users/maxghenis/.subfleet/worktrees/20261004-060226-pr124-fix-review/build/pr124-evidence/product/.subfleet-build.z3EvzL/Subfleet.app: replacing existing signature",
+      "Built: /Users/maxghenis/.subfleet/worktrees/20261004-060226-pr124-fix-review/build/pr124-evidence/product/Subfleet.app (org.maxghenis.subfleet)"
+    ],
+    "failed_nodes": [],
+    "assertion_failures_only": false
+  },
+  "app_artifact_checks": {
+    "codesign_verify_deep_strict_exit_code": 0,
+    "bundle_id": "org.maxghenis.subfleet",
+    "linked_libraries": "System frameworks and system/Swift libraries only",
+    "installed_or_launched": false
+  },
+  "process_audit": {
+    "compiler_started": 604,
+    "compiler_finished": 604,
+    "compiler_unfinished": {},
+    "unclosed_child_records": []
+  }
+}

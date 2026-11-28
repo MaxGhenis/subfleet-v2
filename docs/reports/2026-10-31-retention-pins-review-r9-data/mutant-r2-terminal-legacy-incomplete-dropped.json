@@ -1,0 +1,55 @@
+{
+  "name": "mutant-r2-terminal-legacy-incomplete-dropped",
+  "start": "2026-10-31T09:08:13.467622+00:00",
+  "load": [
+    36.322265625,
+    49.5224609375,
+    50.3720703125
+  ],
+  "args": [
+    "--mutant",
+    "r2-terminal-legacy-incomplete-dropped",
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 2.79076433299997,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.09373458400295931,
+      "failure": "tests/fake/test_retention_dependency_review_r2.py:151: in test_c8_4_legacy_incomplete_census_survives_terminal_export\n    assert \"borrower\" in places.incomplete\nE   AssertionError: assert 'borrower' in {}\nE    +  where {} = {'borrower': {'/outside/result'}}.incomplete"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.20702829199944972,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "mutation_hashes": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+      "mutated": "66070dde8519ffad3b067cf3b1327929067d4a92a5fdb5cf35df278c3756c5e2"
+    }
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependency_review_r2.py::test_c8_4_legacy_incomplete_census_survives_terminal_export[database]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/subfleet/dependencies.py",
+  "product_sha256": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+  "end": "2026-10-31T09:08:23.478579+00:00",
+  "seconds": 10.010685042001569,
+  "peak_rss_mib": 111.734375,
+  "exit": 1
+}

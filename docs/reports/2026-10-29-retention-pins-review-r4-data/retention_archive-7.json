@@ -1,0 +1,124 @@
+{
+  "label": "retention_archive-7",
+  "start": "2026-10-30T02:56:27.315091+00:00",
+  "loads": [
+    27.28076171875,
+    25.29931640625,
+    25.744140625
+  ],
+  "seconds": 18.850622791000205,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[unread-notice]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.6395585419995768
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[parent]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.7374454159980814
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[job-lease]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.5419570420017408
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[attempt-lease]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.608873750003113
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[worktree-lease]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.5183988329990825
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[salvage-unresolvable]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.7983597919992462
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[gate-evidence]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.4556360839997069
+    },
+    {
+      "nodeid": "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[conversation]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.5165701660007471
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[unread-notice]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[parent]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[job-lease]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[attempt-lease]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[worktree-lease]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[salvage-unresolvable]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[gate-evidence]",
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[conversation]"
+  ],
+  "phases": {
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[unread-notice]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[parent]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[job-lease]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[attempt-lease]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[worktree-lease]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[salvage-unresolvable]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[gate-evidence]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_archive.py::test_every_pin_keeps_its_job[conversation]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 125648896
+}

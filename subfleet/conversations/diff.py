@@ -4,10 +4,17 @@ A writable turn whose workspace is a git checkout with a commit is bracketed
 by two snapshots of the working tree, each a tree object written through a
 temporary index by the C-6.8 snapshot (`salvage.working_tree`): the start one
 is the attempt's `baseline_tree`, taken at admission for every writable job;
-the end one is taken at finalization, while the turn's `worktree:` lease is
-still held, so no other writer's work lands between the turn and it. Neither
-writes a ref, and neither touches HEAD, the real index, or a file in the
-checkout. The objects are unreferenced, so git may prune them once they are
+the end one is taken at finalization, while the turn still holds its folder.
+Conversations share a folder (C-24.5), so another conversation's turn may
+write between the two; the conversation store records which did
+(`ConversationStore._note_overlaps`) and the diff ops say so (`shared`). A
+detached writer holds its folder alone (C-6.5), so none writes there from the
+turn's reservation to its end. The start snapshot is taken before that: admission
+takes it, then reserves. A detached writer that held the folder after the
+snapshot began and let it go before the reservation can leave edits in the
+turn's diff that `shared` does not name (review P3-1 of 5e9f2fbd, a known
+limit). Neither snapshot writes a ref, and neither touches HEAD, the real
+index, or a file in the checkout. The objects are unreferenced, so git may prune them once they are
 older than its prune window (`gc.pruneExpire`, two weeks by default); a diff
 whose objects are gone says so.
 
@@ -39,7 +46,8 @@ import threading
 from pathlib import Path
 
 from ..salvage import (
-    SalvageError, _git, _git_env, git_head, git_timeout_s, git_toplevel, path_text, snapshot_tree, transient_os_error,
+    SalvageError, _git, _git_env, git_head, git_timeout_s, git_toplevel, os_error_text, path_text, snapshot_tree,
+    transient_os_error,
 )
 from ..sessions.handoff import scrub_secrets
 
@@ -420,7 +428,8 @@ def _bounded(workdir: str | Path, args: tuple[str, ...], limit: int,
                                        stdout=subprocess.PIPE, stderr=errors,
                                        env={**_git_env(None), "GIT_OPTIONAL_LOCKS": "0"})
         except OSError as exc:
-            raise SalvageError(f"git {verb} could not run: {exc}", transient=transient_os_error(exc)) from exc
+            raise SalvageError(f"git {verb} could not run: {exc}", transient=transient_os_error(exc),
+                               public=f"git {verb} could not run: {os_error_text(exc)}") from exc
 
         def expire():
             expired.set()
@@ -443,7 +452,8 @@ def _bounded(workdir: str | Path, args: tuple[str, ...], limit: int,
         if not cut and process.returncode:
             errors.seek(0)
             message = errors.read(2000).decode("utf-8", errors="replace").strip()
-            raise SalvageError(f"git {verb} failed: {message or f'exit {process.returncode}'}")
+            raise SalvageError(f"git {verb} failed: {message or f'exit {process.returncode}'}",
+                               public=f"git {verb} failed (exit {process.returncode})")
     return data[:limit], cut
 
 

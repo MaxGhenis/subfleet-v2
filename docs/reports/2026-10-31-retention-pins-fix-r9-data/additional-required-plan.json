@@ -1,0 +1,9 @@
+[
+  [
+    "dependency-records-plain",
+    [
+      "tests/unit/test_retention_dependency_units.py",
+      "tests/fake/test_retention_dependencies.py"
+    ]
+  ]
+]

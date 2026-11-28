@@ -1,0 +1,205 @@
+{
+  "name": "edges-final",
+  "start": "2026-10-31T10:41:51.139449+00:00",
+  "load": [
+    37.84326171875,
+    38.2197265625,
+    36.59619140625
+  ],
+  "args": [
+    "review-r10-data/edge_probes.py"
+  ],
+  "phases": [
+    {
+      "node": "review-r10-data/edge_probes.py::test_scan_canonicalization_on_quiet_stop[dangling]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.007954459000757197,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_scan_canonicalization_on_quiet_stop[dangling]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.14534304099652218,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_scan_canonicalization_on_quiet_stop[dangling]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00038683300226693973,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_scan_canonicalization_on_quiet_stop[loop]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0009295829986513127,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_scan_canonicalization_on_quiet_stop[loop]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.12796879099914804,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_scan_canonicalization_on_quiet_stop[loop]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003293750014563557,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_scan_canonicalization_on_quiet_stop[64-hops]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.001213291998283239,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_scan_canonicalization_on_quiet_stop[64-hops]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.3092245840016403,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_scan_canonicalization_on_quiet_stop[64-hops]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0002329579983779695,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_scan_change_between_walk_and_spelling_is_incomplete",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0008675419994688127,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_scan_change_between_walk_and_spelling_is_incomplete",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.04790812500141328,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_scan_change_between_walk_and_spelling_is_incomplete",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003092920014751144,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_canonical_never_runs_inside_retention_transaction",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.30643212500217487,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_canonical_never_runs_inside_retention_transaction",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.0354925419997016,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_canonical_never_runs_inside_retention_transaction",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.001805374999094056,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_unused_parent_oversized_alternate_remains_listed_difference",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.31590608400074416,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_unused_parent_oversized_alternate_remains_listed_difference",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.18083445899901562,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_unused_parent_oversized_alternate_remains_listed_difference",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0017050829992513172,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [
+    {
+      "node": "review-r10-data/edge_probes.py::test_scan_canonicalization_on_quiet_stop[dangling]",
+      "key": "quiet-stop",
+      "value": "{\"kind\": \"dangling\", \"places\": [\"/private/tmp/sf-r272r10/real-tmp/edges-final/pytest-of-maxghenis/pytest-0/test_scan_canonicalization_on_0/checkout/.git\", \"/private/tmp/sf-r272r10/real-tmp/edges-final/pytest-of-maxghenis/pytest-0/test_scan_canonicalization_on_0/checkout/.git/objects\", \"/private/tmp/sf-r272r10/real-tmp/edges-final/pytest-of-maxghenis/pytest-0/test_scan_canonicalization_on_0/absent/child\"], \"incomplete\": [], \"walked\": \"/private/tmp/sf-r272r10/real-tmp/edges-final/pytest-of-maxghenis/pytest-0/test_scan_canonicalization_on_0/absent/child\", \"spelled\": \"/private/tmp/sf-r272r10/real-tmp/edges-final/pytest-of-maxghenis/pytest-0/test_scan_canonicalization_on_0/absent/child\", \"links\": 1, \"entries\": [\"/private/tmp/sf-r272r10/real-tmp/edges-final/pytest-of-maxghenis/pytest-0/test_scan_canonicalization_on_0/absent/child\"]}"
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_scan_canonicalization_on_quiet_stop[loop]",
+      "key": "quiet-stop",
+      "value": "{\"kind\": \"loop\", \"places\": [\"/private/tmp/sf-r272r10/real-tmp/edges-final/pytest-of-maxghenis/pytest-0/test_scan_canonicalization_on_1/checkout/.git\", \"/private/tmp/sf-r272r10/real-tmp/edges-final/pytest-of-maxghenis/pytest-0/test_scan_canonicalization_on_1/checkout/.git/objects\"], \"incomplete\": [], \"walked\": \"/private/tmp/sf-r272r10/real-tmp/edges-final/pytest-of-maxghenis/pytest-0/test_scan_canonicalization_on_1/checkout/.git/unused\", \"spelled\": \"/private/tmp/sf-r272r10/real-tmp/edges-final/pytest-of-maxghenis/pytest-0/test_scan_canonicalization_on_1/checkout/.git/unused\", \"links\": 64, \"entries\": [\"/private/tmp/sf-r272r10/real-tmp/edges-final/pytest-of-maxghenis/pytest-0/test_scan_canonicalization_on_1/checkout/.git/unused\"]}"
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_scan_canonicalization_on_quiet_stop[64-hops]",
+      "key": "quiet-stop",
+      "value": "{\"kind\": \"64-hops\", \"places\": [\"/private/tmp/sf-r272r10/real-tmp/edges-final/pytest-of-maxghenis/pytest-0/test_scan_canonicalization_on_2/checkout/.git\", \"/private/tmp/sf-r272r10/real-tmp/edges-final/pytest-of-maxghenis/pytest-0/test_scan_canonicalization_on_2/checkout/.git/objects\", \"/private/tmp/sf-r272r10/real-tmp/edges-final/pytest-of-maxghenis/pytest-0/test_scan_canonicalization_on_2/destination\"], \"incomplete\": [], \"walked\": \"/private/tmp/sf-r272r10/real-tmp/edges-final/pytest-of-maxghenis/pytest-0/test_scan_canonicalization_on_2/hop63\", \"spelled\": \"/private/tmp/sf-r272r10/real-tmp/edges-final/pytest-of-maxghenis/pytest-0/test_scan_canonicalization_on_2/destination\", \"links\": 64, \"entries\": [\"/private/tmp/sf-r272r10/real-tmp/edges-final/pytest-of-maxghenis/pytest-0/test_scan_canonicalization_on_2/destination\"]}"
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_scan_change_between_walk_and_spelling_is_incomplete",
+      "key": "walk-change",
+      "value": "{\"git\": [\"/private/tmp/sf-r272r10/real-tmp/edges-final/pytest-of-maxghenis/pytest-0/test_scan_change_between_walk_0/checkout/.git\", \"/private/tmp/sf-r272r10/real-tmp/edges-final/pytest-of-maxghenis/pytest-0/test_scan_change_between_walk_0/checkout/.git/objects\", \"/private/tmp/sf-r272r10/real-tmp/edges-final/pytest-of-maxghenis/pytest-0/test_scan_change_between_walk_0/first\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r10/real-tmp/edges-final/pytest-of-maxghenis/pytest-0/test_scan_change_between_walk_0/checkout/.git/unused\", \"reason\": \"repository alias changed or vanished during discovery\"}]}"
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_canonical_never_runs_inside_retention_transaction",
+      "key": "canonical-outside-transactions",
+      "value": "{\"calls\": 7, \"result\": {\"pruned\": [\"owner\"], \"errors\": [], \"bytes_before\": 20058, \"bytes_after\": 0, \"deferred\": {}, \"in_flight\": [], \"reclaimed\": [\"owner\"], \"conflicts\": [], \"progressed\": true, \"holder_scan_failed\": false, \"tmpdir_left\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"archived_bytes\": 20819, \"added_bytes\": 9457, \"pools\": {\"detached\": {\"jobs_before\": 2, \"bytes_before\": 20058, \"unmeasured\": 0, \"unknown_size\": 0, \"max_jobs\": 0, \"max_bytes\": 0, \"jobs_after\": 1, \"bytes_after\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"archived_bytes\": 20819, \"added_bytes\": 9457}, \"turn\": {\"jobs_before\": 0, \"bytes_before\": 0, \"unmeasured\": 0, \"unknown_size\": 0, \"max_jobs\": 2000, \"max_bytes\": 4294967296, \"jobs_after\": 0, \"bytes_after\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"archived_bytes\": 0, \"added_bytes\": 0}}, \"protected\": [\"borrower\"], \"jobs_after\": 1, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\"}}}"
+    },
+    {
+      "node": "review-r10-data/edge_probes.py::test_unused_parent_oversized_alternate_remains_listed_difference",
+      "key": "D-R7-1",
+      "value": "{\"recorded\": {\"git\": [\"/private/tmp/sf-r272r10/real-tmp/edges-final/pytest-of-maxghenis/pytest-0/test_unused_parent_oversized_a0/container/worktrees/slot\", \"/private/tmp/sf-r272r10/real-tmp/edges-final/pytest-of-maxghenis/pytest-0/test_unused_parent_oversized_a0/container\", \"/private/tmp/sf-r272r10/real-tmp/edges-final/pytest-of-maxghenis/pytest-0/test_unused_parent_oversized_a0/container/objects\", \"/private/tmp/sf-r272r10/real-tmp/edges-final/pytest-of-maxghenis/pytest-0/test_unused_parent_oversized_a0/container/worktrees/slot/objects\"], \"incomplete\": [{\"file\": \"/private/tmp/sf-r272r10/real-tmp/edges-final/pytest-of-maxghenis/pytest-0/test_unused_parent_oversized_a0/container/objects/info/alternates\", \"reason\": \"line exceeds 1048576 bytes\"}]}, \"result\": {\"pruned\": [], \"errors\": [], \"bytes_before\": 20058, \"bytes_after\": 20058, \"deferred\": {}, \"in_flight\": [], \"reclaimed\": [], \"conflicts\": [], \"progressed\": true, \"holder_scan_failed\": false, \"tmpdir_left\": [], \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"archived_bytes\": 0, \"added_bytes\": 0, \"pools\": {\"detached\": {\"jobs_before\": 2, \"bytes_before\": 20058, \"unmeasured\": 0, \"unknown_size\": 0, \"max_jobs\": 0, \"max_bytes\": 0, \"jobs_after\": 2, \"bytes_after\": 20058, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"archived_bytes\": 0, \"added_bytes\": 0}, \"turn\": {\"jobs_before\": 0, \"bytes_before\": 0, \"unmeasured\": 0, \"unknown_size\": 0, \"max_jobs\": 2000, \"max_bytes\": 4294967296, \"jobs_after\": 0, \"bytes_after\": 0, \"freed_bytes\": 0, \"freed_disk_bytes\": 0, \"archived_bytes\": 0, \"added_bytes\": 0}}, \"protected\": [\"borrower\", \"owner\"], \"jobs_after\": 2, \"more\": false, \"pin_reasons\": {\"borrower\": \"active\", \"owner\": \"dependency-incomplete: borrower: /private/tmp/sf-r272r10/real-tmp/edges-final/pytest-of-maxghenis/pytest-0/test_unused_parent_oversized_a0/container/objects/info/alternates (line exceeds 1048576 bytes)\"}}}"
+    }
+  ],
+  "locked": true,
+  "collected": [
+    "review-r10-data/edge_probes.py::test_scan_canonicalization_on_quiet_stop[dangling]",
+    "review-r10-data/edge_probes.py::test_scan_canonicalization_on_quiet_stop[loop]",
+    "review-r10-data/edge_probes.py::test_scan_canonicalization_on_quiet_stop[64-hops]",
+    "review-r10-data/edge_probes.py::test_scan_change_between_walk_and_spelling_is_incomplete",
+    "review-r10-data/edge_probes.py::test_canonical_never_runs_inside_retention_transaction",
+    "review-r10-data/edge_probes.py::test_unused_parent_oversized_alternate_remains_listed_difference"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-063315-pr272-review-r10/subfleet/dependencies.py",
+  "product_sha256": "8b39d2f38cf73c92909ae6e241311cdc2cd32ed70295ee2cd240af39f4cb9920",
+  "end": "2026-10-31T10:41:58.707185+00:00",
+  "seconds": 7.567446291999659,
+  "peak_rss_mib": 74.65625,
+  "exit": 0
+}

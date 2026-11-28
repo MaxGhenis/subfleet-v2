@@ -1,0 +1,524 @@
+{
+  "total": 115,
+  "generated": 100,
+  "named_readable_gitfile_counts": {
+    "target": 2,
+    "absent": 2,
+    "crlf": 1
+  },
+  "named_readable_gitfiles": [
+    {
+      "git_path": "/private/tmp/sf-fix272r7/hold-pointer-original/tmppbdj90nl/owner/.git/objects",
+      "git_path_rc": 0,
+      "incomplete": true,
+      "input": {
+        "common": "target",
+        "layout": "gitfile",
+        "named": true,
+        "own": "alternate",
+        "pad_file": "commondir",
+        "padding": "over",
+        "prefix": "present",
+        "target": "spaces"
+      },
+      "outcome": "reads-owner",
+      "pointer_bytes": [
+        12,
+        65542
+      ],
+      "read_rc": 0
+    },
+    {
+      "git_path": "/private/tmp/sf-fix272r7/hold-pointer-original/tmpxk7t349h/owner/.git/objects",
+      "git_path_rc": 0,
+      "incomplete": false,
+      "input": {
+        "common": "target",
+        "layout": "gitfile",
+        "named": true,
+        "own": "symlink",
+        "pad_file": "gitfile",
+        "padding": "under",
+        "prefix": "present",
+        "target": "padded"
+      },
+      "outcome": "reads-owner",
+      "pointer_bytes": [
+        65298,
+        11
+      ],
+      "read_rc": 0
+    },
+    {
+      "git_path": "/private/tmp/sf-fix272r7/hold-pointer-original/tmpw0aqembe/container/worktrees/slot/objects",
+      "git_path_rc": 0,
+      "incomplete": false,
+      "input": {
+        "common": "absent",
+        "layout": "gitfile",
+        "named": true,
+        "own": "symlink",
+        "pad_file": "commondir",
+        "padding": "over",
+        "prefix": "present",
+        "target": "padded"
+      },
+      "outcome": "reads-owner",
+      "pointer_bytes": [
+        19
+      ],
+      "read_rc": 0
+    },
+    {
+      "git_path": "/private/tmp/sf-fix272r7/hold-pointer-original/tmp_ohrte_i/container/worktrees/slot/objects",
+      "git_path_rc": 0,
+      "incomplete": false,
+      "input": {
+        "common": "absent",
+        "layout": "gitfile",
+        "named": true,
+        "own": "alternate",
+        "pad_file": "gitfile",
+        "padding": "short",
+        "prefix": "present",
+        "target": "normal"
+      },
+      "outcome": "reads-owner",
+      "pointer_bytes": [
+        18
+      ],
+      "read_rc": 0
+    },
+    {
+      "git_path": "/private/tmp/sf-fix272r7/hold-pointer-original/tmplvbklo6z/container/worktrees/slot/objects",
+      "git_path_rc": 0,
+      "incomplete": true,
+      "input": {
+        "common": "crlf",
+        "layout": "gitfile",
+        "named": true,
+        "own": "symlink",
+        "pad_file": "gitfile",
+        "padding": "over",
+        "prefix": "present",
+        "target": "padded"
+      },
+      "outcome": "reads-owner",
+      "pointer_bytes": [
+        65556,
+        2
+      ],
+      "read_rc": 0
+    }
+  ],
+  "readable_named_location_counts_including_directory_dotgit": {
+    "absent": 5,
+    "target": 10,
+    "lf": 3,
+    "crlf": 2
+  },
+  "readable_named_locations_including_directory_dotgit": [
+    {
+      "git_path": ".git/objects",
+      "git_path_rc": 0,
+      "incomplete": false,
+      "input": {
+        "common": "absent",
+        "layout": "directory",
+        "named": true,
+        "own": "symlink",
+        "pad_file": "gitfile",
+        "padding": "under",
+        "prefix": "absent",
+        "target": "padded"
+      },
+      "outcome": "reads-owner",
+      "pointer_bytes": [],
+      "read_rc": 0
+    },
+    {
+      "git_path": "/private/tmp/sf-fix272r7/hold-pointer-original/tmppbdj90nl/owner/.git/objects",
+      "git_path_rc": 0,
+      "incomplete": true,
+      "input": {
+        "common": "target",
+        "layout": "gitfile",
+        "named": true,
+        "own": "alternate",
+        "pad_file": "commondir",
+        "padding": "over",
+        "prefix": "present",
+        "target": "spaces"
+      },
+      "outcome": "reads-owner",
+      "pointer_bytes": [
+        12,
+        65542
+      ],
+      "read_rc": 0
+    },
+    {
+      "git_path": "/private/tmp/sf-fix272r7/hold-pointer-original/tmph36pwwrw/owner/.git/objects",
+      "git_path_rc": 0,
+      "incomplete": false,
+      "input": {
+        "common": "target",
+        "layout": "directory",
+        "named": true,
+        "own": "absent",
+        "pad_file": "commondir",
+        "padding": "short",
+        "prefix": "present",
+        "target": "normal"
+      },
+      "outcome": "reads-owner",
+      "pointer_bytes": [
+        11
+      ],
+      "read_rc": 0
+    },
+    {
+      "git_path": "/private/tmp/sf-fix272r7/hold-pointer-original/tmpvmden3lu/owner/.git/objects",
+      "git_path_rc": 0,
+      "incomplete": true,
+      "input": {
+        "common": "target",
+        "layout": "directory",
+        "named": true,
+        "own": "alternate",
+        "pad_file": "commondir",
+        "padding": "over",
+        "prefix": "misspelled",
+        "target": "padded"
+      },
+      "outcome": "reads-owner",
+      "pointer_bytes": [
+        65549
+      ],
+      "read_rc": 0
+    },
+    {
+      "git_path": "/private/tmp/sf-fix272r7/hold-pointer-original/tmpwazwzxnz/container/worktrees/slot/objects",
+      "git_path_rc": 0,
+      "incomplete": false,
+      "input": {
+        "common": "lf",
+        "layout": "directory",
+        "named": true,
+        "own": "alternate",
+        "pad_file": "gitfile",
+        "padding": "short",
+        "prefix": "misspelled",
+        "target": "normal"
+      },
+      "outcome": "reads-owner",
+      "pointer_bytes": [
+        1
+      ],
+      "read_rc": 0
+    },
+    {
+      "git_path": "/private/tmp/sf-fix272r7/hold-pointer-original/tmpzcdha8xn/owner/.git/objects",
+      "git_path_rc": 0,
+      "incomplete": false,
+      "input": {
+        "common": "target",
+        "layout": "directory",
+        "named": true,
+        "own": "absent",
+        "pad_file": "gitfile",
+        "padding": "under",
+        "prefix": "misspelled",
+        "target": "normal"
+      },
+      "outcome": "reads-owner",
+      "pointer_bytes": [
+        9
+      ],
+      "read_rc": 0
+    },
+    {
+      "git_path": "/private/tmp/sf-fix272r7/hold-pointer-original/tmpmjnfkbev/owner/.git/objects",
+      "git_path_rc": 0,
+      "incomplete": false,
+      "input": {
+        "common": "target",
+        "layout": "directory",
+        "named": true,
+        "own": "alternate",
+        "pad_file": "gitfile",
+        "padding": "under",
+        "prefix": "colon-only",
+        "target": "padded"
+      },
+      "outcome": "reads-owner",
+      "pointer_bytes": [
+        11
+      ],
+      "read_rc": 0
+    },
+    {
+      "git_path": "/private/tmp/sf-fix272r7/hold-pointer-original/tmpxk7t349h/owner/.git/objects",
+      "git_path_rc": 0,
+      "incomplete": false,
+      "input": {
+        "common": "target",
+        "layout": "gitfile",
+        "named": true,
+        "own": "symlink",
+        "pad_file": "gitfile",
+        "padding": "under",
+        "prefix": "present",
+        "target": "padded"
+      },
+      "outcome": "reads-owner",
+      "pointer_bytes": [
+        65298,
+        11
+      ],
+      "read_rc": 0
+    },
+    {
+      "git_path": "/private/tmp/sf-fix272r7/hold-pointer-original/tmpw0aqembe/container/worktrees/slot/objects",
+      "git_path_rc": 0,
+      "incomplete": false,
+      "input": {
+        "common": "absent",
+        "layout": "gitfile",
+        "named": true,
+        "own": "symlink",
+        "pad_file": "commondir",
+        "padding": "over",
+        "prefix": "present",
+        "target": "padded"
+      },
+      "outcome": "reads-owner",
+      "pointer_bytes": [
+        19
+      ],
+      "read_rc": 0
+    },
+    {
+      "git_path": "/private/tmp/sf-fix272r7/hold-pointer-original/tmpucxqtf_y/container/worktrees/slot/objects",
+      "git_path_rc": 0,
+      "incomplete": false,
+      "input": {
+        "common": "target",
+        "layout": "directory",
+        "named": true,
+        "own": "symlink",
+        "pad_file": "gitfile",
+        "padding": "over",
+        "prefix": "misspelled",
+        "target": "blank"
+      },
+      "outcome": "reads-owner",
+      "pointer_bytes": [
+        1
+      ],
+      "read_rc": 0
+    },
+    {
+      "git_path": "/private/tmp/sf-fix272r7/hold-pointer-original/tmpoiqoqvmg/owner/.git/objects",
+      "git_path_rc": 0,
+      "incomplete": false,
+      "input": {
+        "common": "target",
+        "layout": "directory",
+        "named": true,
+        "own": "alternate",
+        "pad_file": "commondir",
+        "padding": "short",
+        "prefix": "colon-only",
+        "target": "normal"
+      },
+      "outcome": "reads-owner",
+      "pointer_bytes": [
+        11
+      ],
+      "read_rc": 0
+    },
+    {
+      "git_path": "/private/tmp/sf-fix272r7/hold-pointer-original/tmpyx7zetn1/container/worktrees/slot/objects",
+      "git_path_rc": 0,
+      "incomplete": false,
+      "input": {
+        "common": "crlf",
+        "layout": "directory",
+        "named": true,
+        "own": "symlink",
+        "pad_file": "gitfile",
+        "padding": "short",
+        "prefix": "misspelled",
+        "target": "normal"
+      },
+      "outcome": "reads-owner",
+      "pointer_bytes": [
+        2
+      ],
+      "read_rc": 0
+    },
+    {
+      "git_path": ".git/objects",
+      "git_path_rc": 0,
+      "incomplete": false,
+      "input": {
+        "common": "absent",
+        "layout": "directory",
+        "named": true,
+        "own": "symlink",
+        "pad_file": "gitfile",
+        "padding": "short",
+        "prefix": "absent",
+        "target": "normal"
+      },
+      "outcome": "reads-owner",
+      "pointer_bytes": [],
+      "read_rc": 0
+    },
+    {
+      "git_path": "/private/tmp/sf-fix272r7/hold-pointer-original/tmp_ohrte_i/container/worktrees/slot/objects",
+      "git_path_rc": 0,
+      "incomplete": false,
+      "input": {
+        "common": "absent",
+        "layout": "gitfile",
+        "named": true,
+        "own": "alternate",
+        "pad_file": "gitfile",
+        "padding": "short",
+        "prefix": "present",
+        "target": "normal"
+      },
+      "outcome": "reads-owner",
+      "pointer_bytes": [
+        18
+      ],
+      "read_rc": 0
+    },
+    {
+      "git_path": "/private/tmp/sf-fix272r7/hold-pointer-original/tmpfax3mz2g/container/worktrees/slot/objects",
+      "git_path_rc": 0,
+      "incomplete": true,
+      "input": {
+        "common": "lf",
+        "layout": "directory",
+        "named": true,
+        "own": "alternate",
+        "pad_file": "commondir",
+        "padding": "over",
+        "prefix": "present",
+        "target": "spaces"
+      },
+      "outcome": "reads-owner",
+      "pointer_bytes": [
+        65539
+      ],
+      "read_rc": 0
+    },
+    {
+      "git_path": "/private/tmp/sf-fix272r7/hold-pointer-original/tmplvbklo6z/container/worktrees/slot/objects",
+      "git_path_rc": 0,
+      "incomplete": true,
+      "input": {
+        "common": "crlf",
+        "layout": "gitfile",
+        "named": true,
+        "own": "symlink",
+        "pad_file": "gitfile",
+        "padding": "over",
+        "prefix": "present",
+        "target": "padded"
+      },
+      "outcome": "reads-owner",
+      "pointer_bytes": [
+        65556,
+        2
+      ],
+      "read_rc": 0
+    },
+    {
+      "git_path": "/private/tmp/sf-fix272r7/hold-pointer-original/tmpqmd524ew/container/worktrees/slot/objects",
+      "git_path_rc": 0,
+      "incomplete": true,
+      "input": {
+        "common": "lf",
+        "layout": "directory",
+        "named": true,
+        "own": "alternate",
+        "pad_file": "commondir",
+        "padding": "over",
+        "prefix": "present",
+        "target": "normal"
+      },
+      "outcome": "reads-owner",
+      "pointer_bytes": [
+        65539
+      ],
+      "read_rc": 0
+    },
+    {
+      "git_path": "/private/tmp/sf-fix272r7/hold-pointer-original/tmp_3fpn9fo/owner/.git/objects",
+      "git_path_rc": 0,
+      "incomplete": false,
+      "input": {
+        "common": "target",
+        "layout": "directory",
+        "named": true,
+        "own": "alternate",
+        "pad_file": "commondir",
+        "padding": "under",
+        "prefix": "absent",
+        "target": "spaces"
+      },
+      "outcome": "reads-owner",
+      "pointer_bytes": [
+        65284
+      ],
+      "read_rc": 0
+    },
+    {
+      "git_path": ".git/objects",
+      "git_path_rc": 0,
+      "incomplete": false,
+      "input": {
+        "common": "absent",
+        "layout": "directory",
+        "named": true,
+        "own": "symlink",
+        "pad_file": "commondir",
+        "padding": "over",
+        "prefix": "misspelled",
+        "target": "padded"
+      },
+      "outcome": "reads-owner",
+      "pointer_bytes": [],
+      "read_rc": 0
+    },
+    {
+      "git_path": "/private/tmp/sf-fix272r7/hold-pointer-original/tmpm60mhla8/container/worktrees/slot/objects",
+      "git_path_rc": 0,
+      "incomplete": false,
+      "input": {
+        "common": "target",
+        "layout": "directory",
+        "named": true,
+        "own": "symlink",
+        "pad_file": "gitfile",
+        "padding": "short",
+        "prefix": "absent",
+        "target": "blank"
+      },
+      "outcome": "reads-owner",
+      "pointer_bytes": [
+        1
+      ],
+      "read_rc": 0
+    }
+  ],
+  "critical_counts": {
+    "absent": 2,
+    "lf": 0,
+    "crlf": 1
+  }
+}

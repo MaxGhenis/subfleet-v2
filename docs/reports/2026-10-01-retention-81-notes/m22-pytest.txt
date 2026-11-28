@@ -1,0 +1,30 @@
+F
+=================================== FAILURES ===================================
+_ test_a_broken_present_workdir_recovers_its_jobs_registration_and_bundle[private-head] _
+
+world = World(base=PosixPath('/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-m22-chec...st-of-maxghenis/pytest-0/test_a_broken_present_workdir_0/state'), store=<subfleet.store.Store object at 0x301c80d5b90>)
+salvage = False
+
+    @pytest.mark.parametrize("salvage", [False, True], ids=["private-head", "with-salvage"])
+    def test_a_broken_present_workdir_recovers_its_jobs_registration_and_bundle(world, salvage):
+        """A linked workdir whose own admin was removed is still a directory.
+        Its dangling gitfile identifies the source of the gone job's private HEAD,
+        which must be anchored and bundled before its rows or registration retire.
+        """
+        from subfleet.retention_survey import survey
+        w = world
+        tree, lane, private = _lane_job(w, "job-broken-lane", salvage=salvage, broken_lane=True)
+        assert lane.is_dir() and (lane / ".git").is_file() and rgit.common_dir(lane) is None
+        report = survey(w.root, holders=False, sample_throughput=False, budgets={"detached": (0, 0), "turn": (0, 0)})
+        assert report["would_retire"]["jobs"] == 1 and report["kept"]["jobs_by_reason"] == {}, report
+        result = run(w)
+        assert result["pruned"] == ["job-broken-lane"], result
+>       assert _in_bundle(w, "job-broken-lane", private)
+E       AssertionError: assert False
+E        +  where False = _in_bundle(World(base=PosixPath('/Users/maxghenis/.subfleet/worktrees/20261001-112555-retention-81-notes-cont/.retention-m22-chec...st-of-maxghenis/pytest-0/test_a_broken_present_workdir_0/state'), store=<subfleet.store.Store object at 0x301c80d5b90>), 'job-broken-lane', 'a07b048b10568c740652dbd62337388aaf336548')
+
+tests/unit/test_retention_81_notes.py:712: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_81_notes.py::test_a_broken_present_workdir_recovers_its_jobs_registration_and_bundle[private-head]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 61.17s (0:01:01)

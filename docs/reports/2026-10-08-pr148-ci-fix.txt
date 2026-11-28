@@ -1,0 +1,161 @@
+PR #148 CI fix — 2026-10-08
+
+Starting head: 31fd6c5e08952870bf207f297d1594931852b745.
+Release comparison: origin/release/217 at
+581b07b01f1e590a640da35e4eb79b1de14e3c41 (verified with GitHub's ref API).
+CI evidence: https://github.com/MaxGhenis/subfleet-v2/actions/runs/37566080004
+Read using gh run view 37566080004 --repo MaxGhenis/subfleet-v2 --log-failed.
+
+Per-test classification and evidence
+
+Test | Classification / cause | Change | Passing/comparison evidence
+tests/fake/test_admission_liveness.py::test_c6_9_a_lease_freed_mid_pass_goes_to_the_detached_job_that_waited_for_it[future] | Regression in the assertion: the PR deliberately canonicalizes output comparison keys; insensitive APFS folds the Darwin T directory to t | tests/fake/test_admission_liveness.py:770 expects folders.identity(out); C-6.11, docs/acceptance-contract.md:212, specifies the same | Original assertion failed locally; unchanged release assertion passed; corrected case passes on both final Python runs
+tests/fake/test_admission_liveness.py::test_c6_9_a_lease_freed_mid_pass_goes_to_the_detached_job_that_waited_for_it[due] | Same deliberate key-contract change | Same change | Same before/base/final evidence
+tests/fake/test_admission_visibility.py::test_c6_11_a_pass_that_does_not_look_keeps_the_whole_hold | Regression in the assertion: raw key expected in lease hold and why text after canonical comparison was introduced | tests/fake/test_admission_visibility.py:398 uses folders.identity(path); C-6.11 specifies canonical hold/queue keys | Original assertion failed locally; unchanged release assertion passed; corrected case passes on both final Python runs
+tests/unit/test_legacy_hold.py::test_conversation_open_binds_one_spelling_of_a_session | Production regression: _open_native requires transaction(), absent from the established FakeJobStore read interface | subfleet/conversations/service.py:520 guards query()/one() with transaction() when available | AttributeError reproduced locally; unchanged test passes on release and both final Python runs
+tests/unit/test_legacy_hold.py::test_a_held_session_opened_after_the_pass_is_bound_held | Same production API regression | Same production fix | Same before/base/final evidence
+tests/unit/test_legacy_hold.py::test_while_every_session_is_held_any_session_opened_is_held | Same production API regression | Same production fix | Same before/base/final evidence
+tests/e2e/test_stop_bound.py::test_c5_8a_a_worker_that_never_returns_cannot_keep_the_lock | D-2 timing flake: CI Python 3.12 exited -14 (SIGALRM), instead of the asserted faulthandler exit 1 | No change: kernel backstop must remain effective when dump setup or writing stalls | Full file on release and both final Python runs: observer cases pass, named e2e case skips because sandbox boot/process inspection is unavailable. Real watch_stop normal/delayed primitive reproduction gives 1/-14 on BOTH release and fixed head; details below
+
+Test changes and preserved guarantees
+
+Only the three canonical-key assertions changed. The raw legacy lease fixtures,
+FIFO scheduling assertions, future/due clocks, whole-hold equality and why text
+remain exercised. Production output keys already follow the PR's intentional
+C-6.5 behavior. C-6.11 now states that behavior, including legacy raw guards and
+unchanged display spelling of job.out_path.
+Independent unchanged coverage remains in test_c26_9_turns_waiting_on_one_lease_
+take_it_oldest_first (tests/fake/test_admission_liveness.py:796), last-look reason
+retention (tests/fake/test_admission_visibility.py:403), failed-pass atomicity
+(:457), and stored display spelling (tests/fake/test_canonical_identity.py:170).
+No legacy-hold or stop-bound assertions were changed, loosened or newly skipped.
+
+The production fix keeps native ownership checks for adapters with query()/one()
+and keeps the real Store writer transaction across ownership checks AND binding.
+Store routes those reads to its writer connection under C-3.7. Four new cases at
+tests/fake/test_canonical_identity_fix2.py:277 exercise new/existing bindings,
+with/without transaction(), real legacy uppercase leases, code-7 refusal,
+release, and writer-lock ownership during reads and binding. Existing PR tests
+still cover reservation/preparation windows and live quarantined attempt leases.
+
+D-2 proof and remaining limit
+
+The e2e file, STOP_DUMP_MARGIN_S, watch_stop and stop_request are unchanged from
+release (the two functions' AST source segments are byte-identical). In each
+checkout, a foreground-owned Python 3.12 child called the actual watch_stop with
+a 5-second grace. Normal dump setup exits 1. Wrapping dump_traceback_later with a
+3.3-second delay before calling the real function makes the independent kernel
+timer fire at 8 seconds, before the dump's now-delayed deadline at 8.3 seconds.
+
+checkout | normal exit / recorded PID | delayed exit / recorded PID
+release/217 | 1 / 78853 | -14 / 83587
+fixed head | 1 / 87874 | -14 / 91801
+
+Every child was waited for and reaped. This proves the same timing-dependent
+exit-status mechanism on the release branch; it does not claim to reproduce
+daemon adoption end to end in this sandbox. The unchanged release unit test
+test_c5_8a_a_blocked_faulthandler_dump_cannot_keep_the_process_alive also passed
+and explicitly checks -SIGALRM. The watchdog documents that a slow or blocked
+dump may be cut short by SIGALRM. Moving/delaying that fallback would weaken
+the existing stop bound; reliably guaranteeing exit 1 requires a broader change.
+D-2 is reported without weakening its test or production backstop.
+
+Environment and execution
+
+Local macOS 26.6.2, Python 3.12.14 and 3.14.7; CI macOS 15.7.9 arm64,
+Python 3.12.10 and 3.14.7. uv sync --locked --group dev was used per interpreter:
+pytest 9.1.1 and Hypothesis 6.168.1, matching the CI lock. Local /bin/ps execution
+is denied with PermissionError; sysctl kern.bootsessionuuid is also denied.
+GitHub's runners permit that inspection. This accounts for the six additional
+legacy-hold environment failures and the existing e2e skip, not the six original
+deterministic CI failures. hdiutil reports Device not configured for the existing
+HFS+, case-sensitive HFS+ and ExFAT image cases (three existing skips per Python).
+
+All pytest runs were sequential, one targeted file/process at a time, without
+-n. TMPDIR was a fresh pr148-ci.* directory under getconf DARWIN_USER_TEMP_DIR,
+with no path component named tmp. The existing privacy audit plugin redirected
+Path.home to a temporary home, prohibited live .subfleet/.claude/.codex access
+and blocked network connections. Release tests used an unchanged second worktree
+inside this workspace and a copy of that plugin outside the base checkout.
+No sub-agent, background process, push or caller-checkout write was used.
+Only owned test child PIDs were signalled, and temporary roots were removed.
+
+An initial exploratory liveness run used unpinned Hypothesis 6.168.5 and was
+interrupted after recording the requested two assertion failures. An initial
+e2e process was interrupted after reporting two passes/one skip. Neither is
+counted as completed validation; locked-dependency final runs replace them.
+
+Final targeted test counts (completed runs only)
+
+File/selection | Python 3.12 | Python 3.14
+tests/unit/test_legacy_hold.py | 50 passed / 6 failed / 0 skipped | 50 passed / 6 failed / 0 skipped
+tests/fake/test_admission_visibility.py | 38 passed / 0 failed / 0 skipped | 38 passed / 0 failed / 0 skipped
+tests/e2e/test_stop_bound.py | 2 passed / 0 failed / 1 skipped | 2 passed / 0 failed / 1 skipped
+tests/unit/test_resource_identity.py | 10 passed / 0 failed / 0 skipped | 10 passed / 0 failed / 0 skipped
+tests/fake/test_canonical_identity.py | 24 passed / 0 failed / 0 skipped | 24 passed / 0 failed / 0 skipped
+tests/fake/test_canonical_identity_fix2.py | 21 passed / 0 failed / 0 skipped | 21 passed / 0 failed / 0 skipped
+tests/unit/test_filesystem_identity_agreement.py | 6 passed / 0 failed / 3 skipped | 6 passed / 0 failed / 3 skipped
+tests/unit/test_folders.py | 6 passed / 0 failed / 0 skipped | 6 passed / 0 failed / 0 skipped
+tests/unit/test_conversation_store.py::test_a_native_id_matches_in_any_spelling_of_a_uuid_and_an_opaque_one_exactly | 1 passed / 0 failed / 0 skipped | 1 passed / 0 failed / 0 skipped
+tests/fake/test_admission_liveness.py | 32 passed / 0 failed / 0 skipped | 32 passed / 0 failed / 0 skipped
+
+Total per Python: 190 passed, 6 environment failures, 4 environment skips.
+Combined: 380 passed, 12 environment failures, 8 environment skips; no errors.
+The six original deterministic CI cases passed in each interpreter.
+
+Additional local environment failures (each reproduced on the unchanged release
+worktree under both Pythons, at /bin/ps in the test setup helper):
+- test_a_live_claude_process_outside_subfleet_is_a_dispatch_wait[False]
+- test_a_live_claude_process_outside_subfleet_is_a_dispatch_wait[True]
+- test_a_live_claude_process_that_takes_the_session_after_its_job_is_made_is_a_launch_wait[same-False]
+- test_a_live_claude_process_that_takes_the_session_after_its_job_is_made_is_a_launch_wait[same-True]
+- test_a_live_claude_process_that_takes_the_session_after_its_job_is_made_is_a_launch_wait[upper-stored-False]
+- test_a_live_claude_process_that_takes_the_session_after_its_job_is_made_is_a_launch_wait[lower-stored-False]
+All six are in tests/unit/test_legacy_hold.py; no assertion or setup was changed.
+Release comparison used that file with -k live_claude_process:
+Python 312: 6 failed, 50 deselected in 4.36s
+Python 314: 6 failed, 50 deselected in 4.09s
+
+Other release checks, Python 3.12: original six deterministic CI cases 6 passed;
+stop-bound file 2 passed / 1 environment skip; blocked-dump watchdog case 1 passed.
+Thus the release checks total 9 passed / 1 skipped, plus the 12 expected sandbox
+setup failures above. Deterministic reproduction on the initial PR head recorded
+all six named CI regressions before their corrections.
+
+Existing mutation check: tools/check_identity_mutations.py, Python 3.12,
+11/11 KILLED (pytest exit 1 required; no import/collection crashes counted).
+- drop casefold
+- drop canonical normalization
+- raw native lease key
+- remove reservation recheck
+- drop OSError fallback
+- drop superseded-export release
+- drop per-pass memo
+- drop public-open lease check
+- drop canonical caseless rule
+- drop default-ignorable equivalence
+- drop dotless-i equivalence
+
+Commands: per interpreter, run each target/selection in the count table separately
+with python -B -m pytest -q -rs -p no:cacheprovider -p ci_privacy --junitxml FILE.
+ci_privacy is an exact copy of tests/canonical_identity_privacy.py, located at
+workspace/.ci-fix so its workspace exception points at this assigned checkout.
+TMPDIR and HYPOTHESIS_STORAGE_DIRECTORY point into the fresh Darwin user temp
+root; PYTHONPATH points first at the checkout under test. Mutation command:
+python -B tools/check_identity_mutations.py (same TMPDIR, bytecode disabled).
+The mutation runner also creates and removes its own fresh Darwin temp root.
+Source restoration and git diff --check passed. Only targeted files were tested;
+this report does not claim a green unrestricted full suite or an end-to-end
+shutdown/adoption pass where process inspection is prohibited.
+
+Commits and handoff
+
+07e68b88b644614aa6b6c502fe843cea27d849c1: canonical hold-key assertions/contract.
+09e2eac35981d6ccaa9c7ea1ad8c565d74a397be: production native-open guard + four cases.
+This report is a third coherent commit, with the requested co-author trailer.
+Shared git metadata is read-only. Commits are on fix/canonical-identity in
+.git-local; no shared branch was rewritten and nothing was pushed.
+Verified bundle: docs/reports/2026-10-08-pr148-ci-fix.bundle.
+Advertised head: refs/heads/fix/canonical-identity (the final report commit).
+Required prerequisite: 31fd6c5e08952870bf207f297d1594931852b745.
+The bundle's exact head SHA is also returned in the final handoff message.

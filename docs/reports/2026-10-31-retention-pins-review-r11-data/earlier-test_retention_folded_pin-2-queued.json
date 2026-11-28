@@ -1,0 +1,27 @@
+{
+  "queued": "2026-10-31T17:23:03.637071+00:00",
+  "args": [
+    "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[READER]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[TURN]",
+    "tests/unit/test_retention_folded_pin.py::test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree[writer]",
+    "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[before]",
+    "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[dotless-i]",
+    "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[extends]",
+    "tests/unit/test_retention_folded_pin.py::test_a_name_that_only_looks_like_the_tree_keeps_nothing[prefix]",
+    "tests/unit/test_retention_folded_pin.py::test_a_turn_typed_with_letters_the_volume_folds_while_its_tree_is_away_keeps_it[READER]",
+    "tests/unit/test_retention_folded_pin.py::test_a_turn_typed_with_letters_the_volume_folds_while_its_tree_is_away_keeps_it[TURN]",
+    "tests/unit/test_retention_folded_pin.py::test_a_turn_whose_directory_names_the_tree_through_the_firmlink_keeps_it",
+    "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[cancelled]",
+    "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[failed]",
+    "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[lost]",
+    "tests/unit/test_retention_folded_pin.py::test_an_ended_job_keeps_no_tree_its_folder_is_in[succeeded]",
+    "tests/unit/test_retention_folded_pin.py::test_dependency_hold_names_every_place_the_canonical_caseless_query_blocks",
+    "tests/unit/test_retention_folded_pin.py::test_on_the_volume_the_pin_keeps_a_tree_exactly_when_the_fence_holds_the_job",
+    "tests/unit/test_retention_folded_pin.py::test_the_pin_keeps_a_tree_exactly_when_the_folded_fence_holds_the_job",
+    "tests/unit/test_retention_folded_pin.py::test_what_submit_records_beside_the_row_is_read_whatever_its_shape"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/earlier-test_retention_folded_pin-2",
+  "linked": false,
+  "driver_pid": 54174,
+  "lock_process_group": 54488
+}

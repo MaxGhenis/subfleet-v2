@@ -1,0 +1,16 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 06:44:48Z slot A load 
+ADMITTED 2026-10-29T06:44:48.642744+00:00 LOAD (15.37109375, 20.22412109375, 21.97314453125)
+.                                                                        [100%]OBSERVATION {"engines": [{"nodeid": "tests/fake/test_detached_retention_fence.py::test_retiring_folded_is_retention_on_the_folder_or_above_with_names_folded", "valid": 300, "invalid": 0, "calls": 339, "settings_max": 300}], "explicit": {"tests/fake/test_detached_retention_fence.py::test_retiring_folded_is_retention_on_the_folder_or_above_with_names_folded": 4}, "mutant": null, "loaded": []}
+
+=============================== warnings summary ===============================
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; _hypothesis_globals
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+../../../../../private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345
+  /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-r272r2/venv/lib/python3.14/site-packages/_pytest/config/__init__.py:1345: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; hypothesis
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 passed, 2 warnings in 3.27s

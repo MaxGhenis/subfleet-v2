@@ -1,0 +1,11 @@
+{
+  "queued": "2026-10-31T16:47:56.974810+00:00",
+  "args": [
+    "tests/fake/test_retention_parent_hint.py::test_inferred_parent_objects_keeps_its_resolved_storage",
+    "tests/fake/test_retention_parent_hint.py::test_unused_parent_oversized_alternates_still_globally_pins"
+  ],
+  "tmpdir": "/private/tmp/sf-r272r11/real-tmp/earlier-test_retention_parent_hint-1",
+  "linked": false,
+  "driver_pid": 97507,
+  "lock_process_group": 97611
+}

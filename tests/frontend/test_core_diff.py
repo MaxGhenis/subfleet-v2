@@ -83,9 +83,17 @@ def test_c26_14_diff_results_decode_without_losing_a_field(core_probe, tmp_path,
     harness.store.record_trees(attempt_id="j-1/a1", message_id=mid, conversation_id=cid,
                                workspace=str(harness.workspace), writable=True, started_at="2026-09-25T10:00:00Z",
                                head_after=head, end_tree=tree, ended=True)
+    # C-26.14: another conversation's turn in the same folder, still running, met this one.
+    beside = harness.create(title="Beside")["conversation_id"]
+    beside_mid = harness.submit(beside, "also here")["message_id"]
+    harness.store.record_trees(attempt_id="j-2/a1", message_id=beside_mid, conversation_id=beside,
+                               workspace=str(harness.workspace), writable=True, started_at="2026-09-25T10:00:01Z",
+                               head_before=head, start_tree=tree)
     ended = harness.call("turn.diff", message_id=mid)
     assert ended["to"]["live"] is False and ended["from"]["message_id"] == mid
+    assert [(s["title"], s["message_ids"], s["to"]) for s in ended["shared"]] == [("Beside", [beside_mid], None)]
     whole = harness.call("conversation.diff", conversation_id=cid)
+    assert [s["conversation_id"] for s in whole["shared"]] == [beside]
     one = harness.call("turn.diff", message_id=mid, path="keep.txt")
     other = harness.create()["conversation_id"]
     waiting = harness.submit(other, "not started")["message_id"]
@@ -178,3 +186,95 @@ def test_the_parser_reads_lines_that_look_like_headers_inside_a_hunk(core_probe,
 def write_text(path: Path, text: str) -> Path:
     path.write_text(text)
     return path
+
+
+def test_c26_14_the_pane_says_who_else_wrote_in_the_folder(core_probe, tmp_path, harness):
+    """I4 in the app: a turn's diff whose folder another conversation's turn wrote in
+    meanwhile is labelled with that conversation's title (and whether it still runs);
+    the whole conversation's diff says since when; a diff no other turn met, or from a
+    daemon without the field, says nothing of the kind."""
+    cid, mid = turn(harness)
+    change_everything(harness.workspace)
+    head, tree = turn_diff.snapshot(harness.workspace)
+    harness.store.record_trees(attempt_id="j-1/a1", message_id=mid, conversation_id=cid,
+                               workspace=str(harness.workspace), writable=True, started_at="2026-09-25T10:00:00Z",
+                               head_after=head, end_tree=tree, ended=True)
+    alone = harness.call("turn.diff", message_id=mid)
+    assert alone["shared"] == []
+    words = lambda result: run_probe(core_probe, "diff-words", write_json(tmp_path / "r.json", result))  # noqa: E731
+    assert words(alone)["shared"] is None
+    del alone["shared"]
+    assert words(alone)["shared"] is None                       # an older daemon's answer
+    for n, title in enumerate(("Scratch", None)):
+        other = harness.create(title=title)["conversation_id"]
+        other_mid = harness.submit(other, "beside")["message_id"]
+        harness.store.record_trees(attempt_id=f"j-{n + 2}/a1", message_id=other_mid, conversation_id=other,
+                                   workspace=str(harness.workspace), writable=True,
+                                   started_at="2026-09-25T10:00:01Z", head_before=head, start_tree=tree,
+                                   ended=n == 1)
+    shared = harness.call("turn.diff", message_id=mid)
+    # The second conversation was created without a title; its first message names it (conversation
+    # titles, C-24), so it reads as “beside”. A conversation with no title at all is the 60-character
+    # case below.
+    assert words(shared)["shared"] == ("This folder was also changed by “Scratch” (still running) and "
+                                       "“beside” during this turn; the diff may include their edits.")
+    whole = harness.call("conversation.diff", conversation_id=cid)
+    assert words(whole)["shared"].endswith("since this conversation's first turn began; the diff may include "
+                                           "their edits.")
+
+
+def test_c26_14_empty_diffs_still_disclose_other_conversations(core_probe, tmp_path, harness):
+    """P3: overlapping writes can leave no net changes. The empty pane still names
+    the other conversation for a turn and a whole conversation, and keeps notices
+    about nested repositories the comparison could not show."""
+    cid, mid = turn(harness)
+    head, tree = turn_diff.snapshot(harness.workspace)
+    beside = harness.create(title="Scratch")["conversation_id"]
+    beside_mid = harness.submit(beside, "beside")["message_id"]
+    harness.store.record_trees(attempt_id="j-2/a1", message_id=beside_mid, conversation_id=beside,
+                               workspace=str(harness.workspace), writable=True, started_at="2026-09-25T10:00:01Z",
+                               head_before=head, start_tree=tree)
+    harness.store.record_trees(attempt_id="j-1/a1", message_id=mid, conversation_id=cid,
+                               workspace=str(harness.workspace), writable=True, started_at="2026-09-25T10:00:00Z",
+                               head_after=head, end_tree=tree, ended=True)
+    for op, params, when in [("turn.diff", {"message_id": mid}, "during this turn"),
+                             ("conversation.diff", {"conversation_id": cid},
+                              "since this conversation's first turn began")]:
+        result = harness.call(op, **params)
+        assert result["available"] and result["files"] == [] and result["diff"] == ""
+        assert [entry["conversation_id"] for entry in result["shared"]] == [beside]
+        words = run_probe(core_probe, "diff-words", write_json(tmp_path / "empty.json", result))
+        assert words["empty"] == ("No changes. This folder was also changed by “Scratch” (still running) "
+                                   f"{when}; the diff may include its edits.")
+        legacy = {key: value for key, value in result.items() if key != "shared"}
+        assert run_probe(core_probe, "diff-words", write_json(tmp_path / "legacy.json", legacy))["empty"] == "No changes."
+        skipped = {**result, "to": {**result["to"], "skipped": ["scratch/empty/"]}}
+        notice = run_probe(core_probe, "diff-words", write_json(tmp_path / "skipped.json", skipped))["empty"]
+        assert notice.startswith("No changes to show. This folder was also changed by “Scratch”")
+        assert notice.endswith("1 nested repository with no commit is not shown: scratch/empty/.")
+        unavailable = {**result, "available": False, "reason": "snapshot-pruned"}
+        words = run_probe(core_probe, "diff-words", write_json(tmp_path / "unavailable.json", unavailable))
+        assert words["unavailable"] == ("The repository no longer holds this snapshot, so the changes cannot "
+                                            "be shown. This folder was also changed by “Scratch” (still running) "
+                                            f"{when}; the diff may include its edits.")
+
+
+def test_c26_14_the_pane_quotes_a_long_title_cut_to_one_short_line(core_probe, tmp_path):
+    """Review of 5e9f2fbd (P3-7): a conversation's title is whatever a person or a native
+    session gave it, so the note above a diff quotes at most 60 characters of it, on one
+    line, with an ellipsis where it was cut; a title of 60 is quoted whole, and a blank
+    one reads as untitled."""
+    long = "Refactor the admission path " * 20
+    sixty = "x" * 60
+    result = {"available": True, "conversation_id": "cv-1", "message_id": "m-1", "files": [],
+              "files_truncated": False, "stats": {"files": 0, "additions": 0, "deletions": 0, "complete": True},
+              "diff": "", "truncated": False, "scrubbed": 0,
+              "shared": [{"conversation_id": f"cv-{n}", "title": title, "message_ids": [f"m-{n}"],
+                          "from": "2026-09-29T12:00:00.000Z", "to": "2026-09-29T12:01:00.000Z"}
+                         for n, title in enumerate((long, "two\nlines", sixty, " \n "), start=2)]}
+    words = run_probe(core_probe, "diff-words", write_json(tmp_path / "r.json", result))["shared"]
+    cut = long[:59]
+    assert words == (f"This folder was also changed by “{cut}…”, “two lines”, "
+                     f"“{sixty}” and an untitled conversation during this turn; the diff may include "
+                     "their edits.")
+    assert len(words) < 300

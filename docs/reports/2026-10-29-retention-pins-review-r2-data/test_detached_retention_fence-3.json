@@ -1,0 +1,44 @@
+{
+  "name": "test_detached_retention_fence-3",
+  "start": "2026-10-29T06:47:26.119456+00:00",
+  "load": [
+    15.5380859375,
+    19.11767578125,
+    21.2578125
+  ],
+  "exitstatus": 0,
+  "cwd": "/Users/maxghenis/.subfleet/worktrees/20261029-022053-pr272-review-r2",
+  "collected": [
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_no_git_runs_for_an_in_place_writer_held_on_a_fence_above"
+  ],
+  "phases": {
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_no_git_runs_for_an_in_place_writer_held_on_a_fence_above": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "details": {
+    "tests/fake/test_detached_retention_fence.py::test_c8_4_no_git_runs_for_an_in_place_writer_held_on_a_fence_above": {
+      "setup": {
+        "duration": 0.02273412499926053,
+        "wasxfail": null,
+        "properties": []
+      },
+      "call": {
+        "duration": 0.6522332079912303,
+        "wasxfail": null,
+        "properties": []
+      },
+      "teardown": {
+        "duration": 0.0002508750039851293,
+        "wasxfail": null,
+        "properties": []
+      }
+    }
+  },
+  "engines": [],
+  "explicit": {},
+  "mutant": null,
+  "loaded": []
+}

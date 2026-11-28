@@ -1,0 +1,10 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 07:37:11Z slot B load 
+........................................................................ [ 80%]
+.................                                                        [100%]
+89 passed in 94.21s (0:01:34)
+{"name": "admission-git-holds", "start": "2026-10-31T07:37:12.811898+00:00", "load": [32.501953125, 30.654296875, 31.986328125], "seconds": 95.00898737500029, "exit": 0}

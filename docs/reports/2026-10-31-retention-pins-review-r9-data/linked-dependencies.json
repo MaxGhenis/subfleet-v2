@@ -1,0 +1,684 @@
+{
+  "name": "linked-dependencies",
+  "start": "2026-10-31T08:34:58.659869+00:00",
+  "load": [
+    28.35791015625,
+    26.5380859375,
+    28.5322265625
+  ],
+  "args": [
+    "tests/fake/test_retention_dependencies.py"
+  ],
+  "phases": [
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[early]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.13106779200097662,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[early]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.3047284580025007,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[early]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.005040333002398256,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[transaction]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.006254665997403208,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[transaction]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.915198959002737,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[transaction]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0009084579978662077,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[review-root]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0030690420026076026,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[review-root]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 5.765725833000033,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[review-root]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005141670008015353,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[case]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.06942191699999967,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[case]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.008871750000253,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[case]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005808749992866069,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.004726499999378575,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 7.056499750000512,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000620333001279505,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[output]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.08668612499968731,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[output]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 9.532795875002193,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[output]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.003889167001034366,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[review-root-read-only]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.09264616700238548,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[review-root-read-only]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.402805999998236,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[review-root-read-only]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.00047558400183334015,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-read-only]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002863666999473935,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-read-only]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.3933785830013221,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-read-only]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005178749997867271,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-worktree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0070872500000405125,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-worktree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.2150058339975658,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-worktree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000670166002237238,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-in-place]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.005702041999029461,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-in-place]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.1235069169997587,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-in-place]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005338749979273416,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[output-read-only]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.005456999999296386,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[output-read-only]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.104844541001512,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[output-read-only]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005323750010575168,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[review-root-read-only]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.016297750000376254,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[review-root-read-only]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.3659003329994448,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[review-root-read-only]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0011552079995453823,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-read-only]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.006849707999208476,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-read-only]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.0002141250006389,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-read-only]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006344169996737037,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-worktree]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002845666000212077,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-worktree]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.6663055829994846,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-worktree]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005084580006951,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-in-place]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.004283291000319878,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-in-place]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.853354083999875,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-in-place]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004769160004798323,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[output-read-only]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.009068624996871222,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[output-read-only]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.8442982909982675,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[output-read-only]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003467089991318062,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_an_in_place_writers_own_folder_that_its_output_is_in_is_named_once",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.004927166999550536,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_an_in_place_writers_own_folder_that_its_output_is_in_is_named_once",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 1.4327907080005389,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_an_in_place_writers_own_folder_that_its_output_is_in_is_named_once",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.000537749998329673,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[review-root]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.03757087499980116,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[review-root]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.632748083000479,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[review-root]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005612919994746335,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[linked]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.005781707997812191,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[linked]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 4.412702582998463,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[linked]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004705840001406614,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[output]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.005480457999510691,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[output]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.305019292001816,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[output]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006281249989115167,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_pending_export_keeps_the_tree_and_a_written_one_goes_into_the_archive",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.004741291999380337,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_pending_export_keeps_the_tree_and_a_written_one_goes_into_the_archive",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 3.2868191249981464,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_pending_export_keeps_the_tree_and_a_written_one_goes_into_the_archive",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003681660018628463,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[linked]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0030755420011701062,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[linked]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 5.932682750000822,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[linked]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0004211249979562126,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[case]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0027589159981289413,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[case]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 6.030580415997974,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[case]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0007723749986325856,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_legacy_job_submitted_under_the_fence_waits_on_its_git_storage",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.02060524999978952,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_legacy_job_submitted_under_the_fence_waits_on_its_git_storage",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.563326750001579,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_legacy_job_submitted_under_the_fence_waits_on_its_git_storage",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006422500009648502,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[TURN]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.02924683399760397,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[TURN]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.7862592919991584,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[TURN]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005613329994957894,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[READER]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.04084399999919697,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[READER]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 2.295883666000009,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[READER]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0008285419971798547,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j/vendor/lib-that its review root (-D) /s/worktrees/j/vendor/lib is in]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.009381957999721635,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j/vendor/lib-that its review root (-D) /s/worktrees/j/vendor/lib is in]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.008170375000190688,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j/vendor/lib-that its review root (-D) /s/worktrees/j/vendor/lib is in]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0006311670003924519,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[output-/s/worktrees/j/out.md-that its output path (-o) /s/worktrees/j/out.md is in]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.0023656660014239606,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[output-/s/worktrees/j/out.md-that its output path (-o) /s/worktrees/j/out.md is in]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.0002529580015107058,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[output-/s/worktrees/j/out.md-that its output path (-o) /s/worktrees/j/out.md is in]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0005152920020918828,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[git-storage-/s/worktrees/j/lib/.git-that its git storage /s/worktrees/j/lib/.git is in]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.01441220799824805,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[git-storage-/s/worktrees/j/lib/.git-that its git storage /s/worktrees/j/lib/.git is in]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00037466700086952187,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[git-storage-/s/worktrees/j/lib/.git-that its git storage /s/worktrees/j/lib/.git is in]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003008329986187164,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j-, its review root (-D)]",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.002344041997275781,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j-, its review root (-D)]",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 0.00019895899822586216,
+      "failure": null
+    },
+    {
+      "node": "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j-, its review root (-D)]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.04211987500093528,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[early]",
+    "tests/fake/test_retention_dependencies.py::test_c6_11_unicode_dependency_hold_names_its_place[transaction]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[review-root]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[case]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[output]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[review-root-read-only]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-read-only]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-worktree]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[linked-in-place]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_submitted_under_the_fence_waits_while_a_place_it_needs_is_retired[output-read-only]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[review-root-read-only]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-read-only]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-worktree]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[linked-in-place]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_a_needed_place_taken_after_the_early_look_holds_the_job_in_its_transaction[output-read-only]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_fence_on_an_in_place_writers_own_folder_that_its_output_is_in_is_named_once",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[review-root]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[linked]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[output]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_pending_export_keeps_the_tree_and_a_written_one_goes_into_the_archive",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[linked]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[case]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_legacy_job_submitted_under_the_fence_waits_on_its_git_storage",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[TURN]",
+    "tests/fake/test_retention_dependencies.py::test_c8_4_a_turn_in_a_checkout_whose_repository_is_in_the_tree_waits_for_the_fence[READER]",
+    "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j/vendor/lib-that its review root (-D) /s/worktrees/j/vendor/lib is in]",
+    "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[output-/s/worktrees/j/out.md-that its output path (-o) /s/worktrees/j/out.md is in]",
+    "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[git-storage-/s/worktrees/j/lib/.git-that its git storage /s/worktrees/j/lib/.git is in]",
+    "tests/fake/test_retention_dependencies.py::test_c6_11_why_names_the_place_a_job_needs_in_the_tree_being_retired[review-root-/s/worktrees/j-, its review root (-D)]"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-043007-pr272-review-r9/subfleet/dependencies.py",
+  "product_sha256": "189dce3472061dd6b75b470a9013a65e862aee8bd1c7e079fed8c64208979cf7",
+  "end": "2026-10-31T08:36:29.351836+00:00",
+  "seconds": 90.70239929099989,
+  "peak_rss_mib": 126.296875,
+  "exit": 0
+}

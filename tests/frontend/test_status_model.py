@@ -214,14 +214,15 @@ def test_c29_6_frontend_decodes_the_conversation_window_and_kind_additions(probe
 
 
 def test_auto_provider_follows_the_lanes_ready_now(probe, tmp_path):
-    """A new conversation's Auto choice: the provider with more lanes admission
-    could place work on now, from the daemon's own status.json; Claude on a tie."""
+    """Auto prefers any ready Claude lane, or Claude when readiness is unknown."""
     payload = build_status({"lanes": [lane("codex"), lane("claude")], "offline": False}, now=NOW)
     payload["claude"]["lanes"] = {"dispatchable_now": 1}
     payload["codex"]["fleet"]["dispatchable_now"] = 1
     tie = project(probe, tmp_path, payload)
     assert tie["dispatchable"] == {"claude": 1, "codex": 1} and tie["auto_provider"] == "claude"
     payload["codex"]["fleet"]["dispatchable_now"] = 4
+    assert project(probe, tmp_path, payload)["auto_provider"] == "claude"
+    payload["claude"]["lanes"]["dispatchable_now"] = 0
     assert project(probe, tmp_path, payload)["auto_provider"] == "codex"
     del payload["claude"]["lanes"]
     payload["codex"]["fleet"]["dispatchable_now"] = 0
@@ -238,6 +239,28 @@ def test_c18_1_frontend_reads_a_lane_a_probe_holds_as_unavailable(probe, tmp_pat
         assert row["status"] == "Unavailable" and row["tone"] == "neutral"
         assert "Not dispatchable" in row["detail"]
         assert row["percentage"] == 25 and row["weekly_percentage"] == 60
+
+
+def closure(provider, reason, source_event):
+    return {"lane_id": f"{provider}-1", "scope": "account", "until_at": (NOW + timedelta(hours=5)).isoformat(),
+            "reason": reason, "clock_source": "reported", "source_event": source_event}
+
+
+def test_d_status_src1_frontend_says_held_for_a_hold_and_limited_for_a_limit(probe, tmp_path):
+    """D-STATUS-SRC1, C-18.1 an operator hold reads "Held" in a neutral tone, distinct from a provider
+    limit's "Limited"; a held lane is never read, so its usage goes stale, and it still reads "Held"."""
+    def rows(reason, source, label="provider"):
+        return [lane(provider, label=label, closures=[closure(provider, reason, source)])
+                for provider in ("codex", "claude")]
+    held = display(probe, tmp_path, rows("operator-hold", "operator: codex-open: disk brake"))
+    limited = display(probe, tmp_path, rows("provider-limit", "wham"))
+    stale = display(probe, tmp_path, rows("operator-hold", "operator", label="stale-provider"))
+    for provider in ("codex", "claude"):
+        assert (held[provider][0]["status"], held[provider][0]["tone"]) == ("Held", "neutral")
+        assert "Not dispatchable" in held[provider][0]["detail"]
+        assert (limited[provider][0]["status"], limited[provider][0]["tone"]) == ("Limited", "warning")
+        assert (stale[provider][0]["status"], stale[provider][0]["tone"]) == ("Held", "neutral")
+        assert "Usage stale" in stale[provider][0]["detail"]
 
 
 ALERTS = [

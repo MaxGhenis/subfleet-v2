@@ -1,0 +1,1006 @@
+{
+  "review_head": "b11f766b7709353de8d8d12db0ba965f710738ea",
+  "pr_base": "f832e6b812bb94ed59318344992d53437010649c",
+  "required_totals": {
+    "passed": 730,
+    "failed": 4,
+    "skipped": 1,
+    "errors": 0
+  },
+  "daemon_slices": [
+    {
+      "name": "suite-conversation-service",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 126.77,
+      "counts": {
+        "passed": 91,
+        "failed": 1,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "        if not value:",
+        ">           raise InspectionError(\"macOS boot identity is unavailable\")",
+        "E           subfleet.procs.InspectionError: macOS boot identity is unavailable",
+        "",
+        "subfleet/procs.py:93: InspectionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/unit/test_conversation_service.py::test_a_request_that_reaches_its_text_after_the_service_closed_writes_nothing",
+        "1 failed, 91 passed in 125.12s (0:02:05)"
+      ]
+    },
+    {
+      "name": "suite-catalog",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 4.82,
+      "counts": {
+        "passed": 13,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        ".............                                                            [100%]",
+        "13 passed in 3.59s"
+      ]
+    },
+    {
+      "name": "suite-catalog-lifecycle",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 19.12,
+      "counts": {
+        "passed": 20,
+        "failed": 1,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "                if err_filename is not None:",
+        ">                   raise child_exception_type(errno_num, err_msg, err_filename)",
+        "E                   PermissionError: [Errno 1] Operation not permitted: '/bin/ps'",
+        "",
+        "../../../.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1990: PermissionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/unit/test_conversation_catalog_lifecycle.py::test_closing_the_daemon_stops_its_catalog_run_and_the_removed_root_stays_gone",
+        "1 failed, 20 passed in 18.09s"
+      ]
+    },
+    {
+      "name": "suite-status-json",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 9.49,
+      "counts": {
+        "passed": 54,
+        "failed": 2,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        ">           raise InspectionError(\"macOS boot identity is unavailable\")",
+        "E           subfleet.procs.InspectionError: macOS boot identity is unavailable",
+        "",
+        "subfleet/procs.py:93: InspectionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/unit/test_status_json.py::test_c18_1_the_daemon_hands_the_timer_its_probe_records",
+        "FAILED tests/unit/test_status_json.py::test_c18_1_a_commit_inside_the_snapshot_after_its_rows_is_not_published",
+        "2 failed, 54 passed in 8.39s"
+      ]
+    },
+    {
+      "name": "suite-app-cutover-daemon",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 31.95,
+      "counts": {
+        "passed": 22,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "......................                                                   [100%]",
+        "22 passed in 27.11s"
+      ]
+    },
+    {
+      "name": "r2-suite-policy",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 11.13,
+      "counts": {
+        "passed": 168,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "........................................................................ [ 42%]",
+        "........................................................................ [ 85%]",
+        "........................                                                 [100%]",
+        "168 passed in 4.25s"
+      ]
+    }
+  ],
+  "frontend_slices": [
+    {
+      "name": "suite-frontend-01",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 105.1,
+      "counts": {
+        "passed": 12,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "............                                                             [100%]",
+        "12 passed in 97.94s (0:01:37)"
+      ]
+    },
+    {
+      "name": "suite-frontend-02",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 72.11,
+      "counts": {
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        ".                                                                        [100%]",
+        "1 passed in 60.54s (0:01:00)"
+      ]
+    },
+    {
+      "name": "suite-frontend-03",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 197.15,
+      "counts": {
+        "passed": 6,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "......                                                                   [100%]",
+        "6 passed in 189.03s (0:03:09)"
+      ]
+    },
+    {
+      "name": "suite-frontend-04",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 9.09,
+      "counts": {
+        "passed": 13,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        ".............                                                            [100%]",
+        "13 passed in 1.51s"
+      ]
+    },
+    {
+      "name": "suite-frontend-05",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 1.6,
+      "counts": {
+        "passed": 10,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "..........                                                               [100%]",
+        "10 passed in 0.65s"
+      ]
+    },
+    {
+      "name": "suite-frontend-06",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 166.04,
+      "counts": {
+        "passed": 40,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "........................................                                 [100%]",
+        "40 passed in 164.66s (0:02:44)"
+      ]
+    },
+    {
+      "name": "suite-frontend-07",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 43.44,
+      "counts": {
+        "passed": 18,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "..................                                                       [100%]",
+        "18 passed in 35.37s"
+      ]
+    },
+    {
+      "name": "suite-frontend-08",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 52.35,
+      "counts": {
+        "passed": 4,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "....                                                                     [100%]",
+        "4 passed in 43.44s"
+      ]
+    },
+    {
+      "name": "suite-frontend-09",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 181.98,
+      "counts": {
+        "passed": 7,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        ".......                                                                  [100%]",
+        "7 passed in 173.01s (0:02:53)"
+      ]
+    },
+    {
+      "name": "suite-frontend-10",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 126.33,
+      "counts": {
+        "passed": 0,
+        "failed": 0,
+        "skipped": 1,
+        "errors": 0
+      },
+      "tail": [
+        "s                                                                        [100%]",
+        "1 skipped in 35.04s"
+      ]
+    },
+    {
+      "name": "suite-frontend-11",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 35.19,
+      "counts": {
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        ".                                                                        [100%]",
+        "1 passed in 9.47s"
+      ]
+    },
+    {
+      "name": "suite-frontend-12",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 39.48,
+      "counts": {
+        "passed": 42,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "..........................................                               [100%]",
+        "42 passed in 33.37s"
+      ]
+    },
+    {
+      "name": "suite-frontend-13",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 134.58,
+      "counts": {
+        "passed": 13,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        ".............                                                            [100%]",
+        "13 passed in 104.55s (0:01:44)"
+      ]
+    },
+    {
+      "name": "suite-frontend-14",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 107.99,
+      "counts": {
+        "passed": 9,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        ".........                                                                [100%]",
+        "9 passed in 81.46s (0:01:21)"
+      ]
+    },
+    {
+      "name": "suite-frontend-15",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 12.89,
+      "counts": {
+        "passed": 10,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "..........                                                               [100%]",
+        "10 passed in 3.48s"
+      ]
+    },
+    {
+      "name": "suite-frontend-16",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 126.07,
+      "counts": {
+        "passed": 20,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "....................                                                     [100%]",
+        "20 passed in 122.77s (0:02:02)"
+      ]
+    },
+    {
+      "name": "suite-frontend-17",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 126.3,
+      "counts": {
+        "passed": 43,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "...........................................                              [100%]",
+        "43 passed in 120.18s (0:02:00)"
+      ]
+    },
+    {
+      "name": "suite-frontend-18",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 408.89,
+      "counts": {
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        ".                                                                        [100%]",
+        "1 passed in 392.30s (0:06:32)"
+      ]
+    },
+    {
+      "name": "suite-frontend-19",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 23.05,
+      "counts": {
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        ".                                                                        [100%]",
+        "1 passed in 16.47s"
+      ]
+    },
+    {
+      "name": "suite-frontend-20",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 83.91,
+      "counts": {
+        "passed": 10,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "..........                                                               [100%]",
+        "10 passed in 73.66s (0:01:13)"
+      ]
+    },
+    {
+      "name": "suite-frontend-21",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 36.82,
+      "counts": {
+        "passed": 7,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        ".......                                                                  [100%]",
+        "7 passed in 24.22s"
+      ]
+    },
+    {
+      "name": "suite-frontend-22",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 58.45,
+      "counts": {
+        "passed": 18,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "..................                                                       [100%]",
+        "18 passed in 55.08s"
+      ]
+    },
+    {
+      "name": "suite-frontend-23",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 23.06,
+      "counts": {
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        ".                                                                        [100%]",
+        "1 passed in 12.39s"
+      ]
+    },
+    {
+      "name": "suite-frontend-24",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 156.13,
+      "counts": {
+        "passed": 8,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "........                                                                 [100%]",
+        "8 passed in 151.33s (0:02:31)"
+      ]
+    },
+    {
+      "name": "suite-frontend-25",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 125.44,
+      "counts": {
+        "passed": 17,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        ".................                                                        [100%]",
+        "17 passed in 109.26s (0:01:49)"
+      ]
+    },
+    {
+      "name": "suite-frontend-26",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 63.93,
+      "counts": {
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        ".                                                                        [100%]",
+        "1 passed in 46.86s"
+      ]
+    },
+    {
+      "name": "suite-frontend-27",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 217.66,
+      "counts": {
+        "passed": 19,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "...................                                                      [100%]",
+        "19 passed in 199.32s (0:03:19)"
+      ]
+    },
+    {
+      "name": "suite-frontend-28",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 145.49,
+      "counts": {
+        "passed": 5,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        ".....                                                                    [100%]",
+        "5 passed in 94.50s (0:01:34)"
+      ]
+    },
+    {
+      "name": "suite-frontend-29",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 326.07,
+      "counts": {
+        "passed": 25,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        ".........................                                                [100%]",
+        "25 passed in 276.12s (0:04:36)"
+      ]
+    }
+  ],
+  "baseline": [
+    {
+      "name": "r2-baseline-unit",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 11.21,
+      "counts": {
+        "passed": 2,
+        "failed": 4,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "",
+        "tests/unit/test_pr124_review_r2_fixes.py:39: AssertionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/unit/test_pr124_review_r2_fixes.py::test_active_astra_only_catalog_publishes_fallback[False]",
+        "FAILED tests/unit/test_pr124_review_r2_fixes.py::test_active_astra_only_catalog_publishes_fallback[True]",
+        "FAILED tests/unit/test_pr124_review_r2_fixes.py::test_design_describes_the_shipped_policy_without_claiming_astra_retired",
+        "FAILED tests/unit/test_pr124_review_r2_fixes.py::test_pr_report_does_not_claim_the_reverted_policy_is_still_shipped",
+        "4 failed, 2 passed in 3.98s"
+      ]
+    },
+    {
+      "name": "r2-baseline-ui",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 108.02,
+      "counts": {
+        "passed": 0,
+        "failed": 19,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "FAILED tests/frontend/test_pr124_review_r2_fixes_ui.py::test_start_rejects_stale_acceptance_after_losing_readiness[busy]",
+        "FAILED tests/frontend/test_pr124_review_r2_fixes_ui.py::test_start_rejects_stale_acceptance_after_losing_readiness[incompatible]",
+        "FAILED tests/frontend/test_pr124_review_r2_fixes_ui.py::test_start_rejects_stale_acceptance_after_losing_readiness[refused]",
+        "FAILED tests/frontend/test_pr124_review_r2_fixes_ui.py::test_unready_initial_default_waits_and_rechecks_recent_folders",
+        "FAILED tests/frontend/test_pr124_review_r2_fixes_ui.py::test_saved_model_survives_opening_before_catalog_load[claude-claude-sonnet-5]",
+        "FAILED tests/frontend/test_pr124_review_r2_fixes_ui.py::test_saved_model_survives_opening_before_catalog_load[codex-gpt-5.6-terra]",
+        "FAILED tests/frontend/test_pr124_review_r2_fixes_ui.py::test_scratch_start_resets_its_composer_when_retry_opens_during_check",
+        "19 failed in 104.45s (0:01:44)"
+      ]
+    }
+  ],
+  "focused": [
+    {
+      "name": "r2-focused-unit",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 8.87,
+      "counts": {
+        "passed": 15,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "...............                                                          [100%]",
+        "15 passed in 6.56s"
+      ]
+    },
+    {
+      "name": "r2-focused-ui",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 141.9,
+      "counts": {
+        "passed": 36,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "....................................                                     [100%]",
+        "36 passed in 139.96s (0:02:19)"
+      ]
+    }
+  ],
+  "mutations": [
+    {
+      "name": "r2-mutation-astra-literal",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 7.6,
+      "counts": {
+        "passed": 0,
+        "failed": 2,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "E         {'codex': 'gpt-6-astra'}",
+        "E         Use -v to get more diff",
+        "",
+        "tests/unit/test_pr124_review_r2_fixes.py:19: AssertionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/unit/test_pr124_review_r2_fixes.py::test_active_astra_only_catalog_publishes_fallback[False]",
+        "FAILED tests/unit/test_pr124_review_r2_fixes.py::test_active_astra_only_catalog_publishes_fallback[True]",
+        "2 failed in 4.55s"
+      ]
+    },
+    {
+      "name": "r2-mutation-design-stale",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 3.69,
+      "counts": {
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "        design = (ROOT / \"docs/desktop/design.md\").read_text()",
+        ">       assert \"(shipped policy: `gpt-6-astra`)\" in design",
+        "E       AssertionError: assert '(shipped policy: `gpt-6-astra`)' in '# Desktop workspace: design\\n\\nRevision 3, 2026-09-24 (revision 2 earlier that day). Binding clauses are\\nC-24 to C-3... conversation.\\n- Codex-app threads in `~/.codex` continue by labelled handoff unless the\\n  relocation test passes.\\n'",
+        "",
+        "tests/unit/test_pr124_review_r2_fixes.py:33: AssertionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/unit/test_pr124_review_r2_fixes.py::test_design_describes_the_shipped_policy_without_claiming_astra_retired",
+        "1 failed in 1.80s"
+      ]
+    },
+    {
+      "name": "r2-mutation-ignore-retired",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 3.91,
+      "counts": {
+        "passed": 0,
+        "failed": 2,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "E         {'codex': 'gpt-6-astra'}",
+        "E         Use -v to get more diff)",
+        "",
+        "tests/unit/test_pr124_review_r2_fixes.py:28: AssertionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/unit/test_pr124_review_r2_fixes.py::test_policy_retirement_excludes_astra_from_fallback[astra]",
+        "FAILED tests/unit/test_pr124_review_r2_fixes.py::test_policy_retirement_excludes_astra_from_fallback[gpt-6-astra]",
+        "2 failed in 2.20s"
+      ]
+    },
+    {
+      "name": "r2-mutation-preview-unready",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 57.0,
+      "counts": {
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "        shots = run(review_probe, tmp_path, data)",
+        ">       assert not shots[2][\"can_start\"]",
+        "E       assert not True",
+        "",
+        "tests/frontend/test_pr124_review_r2_fixes_ui.py:26: AssertionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/frontend/test_pr124_review_r2_fixes_ui.py::test_unready_daemon_disables_start_with_reason[False-down]",
+        "1 failed in 55.43s"
+      ]
+    },
+    {
+      "name": "r2-mutation-report-stale",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 3.0,
+      "counts": {
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "E         ?     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^...",
+        "E         ",
+        "E         ...Full output truncated (68 lines hidden), use '-vv' to show",
+        "",
+        "tests/unit/test_pr124_review_r2_fixes.py:39: AssertionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/unit/test_pr124_review_r2_fixes.py::test_pr_report_does_not_claim_the_reverted_policy_is_still_shipped",
+        "1 failed in 1.12s"
+      ]
+    },
+    {
+      "name": "r2-mutation-saved-model",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 20.56,
+      "counts": {
+        "passed": 0,
+        "failed": 2,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "E       assert False",
+        "E        +  where False = all(<generator object test_saved_model_survives_opening_before_catalog_load.<locals>.<genexpr> at 0x22e270255c0>)",
+        "",
+        "tests/frontend/test_pr124_review_r2_fixes_ui.py:73: AssertionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/frontend/test_pr124_review_r2_fixes_ui.py::test_saved_model_survives_opening_before_catalog_load[claude-claude-sonnet-5]",
+        "FAILED tests/frontend/test_pr124_review_r2_fixes_ui.py::test_saved_model_survives_opening_before_catalog_load[codex-gpt-5.6-terra]",
+        "2 failed in 11.49s"
+      ]
+    },
+    {
+      "name": "r2-mutation-scratch-owner",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 22.2,
+      "counts": {
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "        assert shots[4][\"recovering\"] == \"app-second\" and shots[4][\"workspace\"] == \"/refused/home\"",
+        ">       assert shots[5][\"text\"] == \"\" and shots[5][\"scratch_workspace\"] != first_scratch",
+        "E       AssertionError: assert ('' == '' and '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-cy4s6r7l/test_scratch_start_resets_its_0/app/support/scratch/2026-10-04-0190e7' != '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-cy4s6r7l/test_scratch_start_resets_its_0/app/support/scratch/2026-10-04-0190e7')",
+        "",
+        "tests/frontend/test_pr124_review_r2_fixes_ui.py:86: AssertionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/frontend/test_pr124_review_r2_fixes_ui.py::test_scratch_start_resets_its_composer_when_retry_opens_during_check",
+        "1 failed in 14.68s"
+      ]
+    },
+    {
+      "name": "r2-mutation-start-unready",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 14.37,
+      "counts": {
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "E        +  where True = exists()",
+        "E        +    where exists = (PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-17fomini/test_start_rejects_stale_accep0/app') / 'support/outbox.json').exists",
+        "E        +      where PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-17fomini/test_start_rejects_stale_accep0/app') = Path('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/pr124-17fomini/test_start_rejects_stale_accep0/app')",
+        "",
+        "tests/frontend/test_pr124_review_r2_fixes_ui.py:40: AssertionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/frontend/test_pr124_review_r2_fixes_ui.py::test_start_rejects_stale_acceptance_after_losing_readiness[down]",
+        "1 failed in 7.76s"
+      ]
+    }
+  ],
+  "base_failures": [
+    {
+      "name": "r2-base-failure-0",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 4.18,
+      "counts": {
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "        if not value:",
+        ">           raise InspectionError(\"macOS boot identity is unavailable\")",
+        "E           subfleet.procs.InspectionError: macOS boot identity is unavailable",
+        "",
+        "subfleet/procs.py:93: InspectionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/unit/test_conversation_service.py::test_a_request_that_reaches_its_text_after_the_service_closed_writes_nothing",
+        "1 failed in 2.72s"
+      ]
+    },
+    {
+      "name": "r2-base-failure-1",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 3.46,
+      "counts": {
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "                if err_filename is not None:",
+        ">                   raise child_exception_type(errno_num, err_msg, err_filename)",
+        "E                   PermissionError: [Errno 1] Operation not permitted: '/bin/ps'",
+        "",
+        "/Users/maxghenis/.local/share/uv/python/cpython-3.14.7+freethreaded-macos-aarch64-none/lib/python3.14t/subprocess.py:1990: PermissionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/unit/test_conversation_catalog_lifecycle.py::test_closing_the_daemon_stops_its_catalog_run_and_the_removed_root_stays_gone",
+        "1 failed in 2.11s"
+      ]
+    },
+    {
+      "name": "r2-base-failure-2",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 1.63,
+      "counts": {
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "        if not value:",
+        ">           raise InspectionError(\"macOS boot identity is unavailable\")",
+        "E           subfleet.procs.InspectionError: macOS boot identity is unavailable",
+        "",
+        "subfleet/procs.py:93: InspectionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/unit/test_status_json.py::test_c18_1_the_daemon_hands_the_timer_its_probe_records",
+        "1 failed in 0.85s"
+      ]
+    },
+    {
+      "name": "r2-base-failure-3",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 1.57,
+      "counts": {
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0,
+        "errors": 0
+      },
+      "tail": [
+        "        if not value:",
+        ">           raise InspectionError(\"macOS boot identity is unavailable\")",
+        "E           subfleet.procs.InspectionError: macOS boot identity is unavailable",
+        "",
+        "subfleet/procs.py:93: InspectionError",
+        "=========================== short test summary info ============================",
+        "FAILED tests/unit/test_status_json.py::test_c18_1_a_commit_inside_the_snapshot_after_its_rows_is_not_published",
+        "1 failed in 0.76s"
+      ]
+    }
+  ],
+  "recovery_seed9001": {
+    "name": "r2-property-seed9001",
+    "exit_code": 0,
+    "timeout": false,
+    "seconds": 147.79,
+    "counts": {
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0
+    },
+    "tail": [
+      "  - during generate phase (110.30 seconds):",
+      "    - Typical runtimes: ~ 0-21995 ms, of which ~ 0-111 ms in data generation",
+      "    - 10 passing, 0 failing, and 1 invalid test cases",
+      "",
+      "  - Stopped because settings.max_examples=10",
+      "",
+      "",
+      "1 passed in 126.04s (0:02:06)"
+    ],
+    "passing_histories": 13
+  },
+  "app_build": {
+    "name": "r2-app-build",
+    "exit_code": 0,
+    "timeout": false,
+    "seconds": 149.73,
+    "counts": {
+      "passed": 0,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0
+    },
+    "tail": [
+      " 861 |     let client: DaemonCalling",
+      " 862 |     let outbox: Outbox",
+      "",
+      "[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>",
+      "ld: warning: search path '/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr124-fix-review/build/pr124-evidence/lib/swift/macosx' not found",
+      "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr124-fix-review/build/pr124-evidence/review-r2-product/.subfleet-build.QdcgEF/Subfleet.app/Contents/Info.plist: OK",
+      "/Users/maxghenis/.subfleet/worktrees/20261004-132201-pr124-fix-review/build/pr124-evidence/review-r2-product/.subfleet-build.QdcgEF/Subfleet.app: replacing existing signature",
+      "Built: /Users/maxghenis/.subfleet/worktrees/20261004-132201-pr124-fix-review/build/pr124-evidence/review-r2-product/Subfleet.app (org.maxghenis.subfleet)"
+    ],
+    "codesign_verified": true,
+    "system_libraries_only": true
+  },
+  "child_audit": {
+    "compiler": {
+      "counts": {
+        "started": 379,
+        "finished": 379
+      },
+      "unfinished": {}
+    },
+    "test_children": {
+      "counts": {
+        "started": 3209,
+        "finished": 3209
+      },
+      "unfinished": {}
+    }
+  },
+  "unchanged_policy_sha256": "1009b325db4066ea95370293c98c6166e8bd0c7990230fa106e13be00f4c134e"
+}

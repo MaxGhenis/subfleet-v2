@@ -1,0 +1,1 @@
+[["r5-pointer-red", ["tests/fake/test_retention_dependency_review_r5.py", "-k", "pointer_path_whitespace", "--runxfail"]]]

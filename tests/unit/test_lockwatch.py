@@ -27,6 +27,13 @@ from subfleet.lockwatch import LockWatch, WatchedLock
 from subfleet.store import Store
 
 
+@pytest.fixture(autouse=True)
+def fixture_process_identity(monkeypatch):
+    """Lock and stack-dump wiring uses identities owned by this unit fixture."""
+    monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "lockwatch-fixture-boot")
+    monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "lockwatch-fixture-start")
+
+
 class Clock:
     def __init__(self):
         self.now = 1000.0
@@ -218,6 +225,25 @@ def test_a_stopped_watch_detaches_from_its_locks():
     watch.stop()
     assert lock.watch is None
     watch.stop()                                     # twice is harmless
+
+
+@pytest.mark.parametrize("elapsed", [0, 0.5, 2, 20])
+def test_stop_joins_only_until_the_first_stop_deadline(elapsed):
+    from types import SimpleNamespace
+    from subfleet.lockwatch import STOP_JOIN_S
+
+    lock, watch, lines = watched()
+    now = [1000.0]
+    joins = []
+    watch.clock = lambda: now[0]
+    watch._thread = SimpleNamespace(join=lambda timeout: joins.append(timeout))
+    watch.begin_stop()
+    assert watch._stop.is_set() and lock.watch is watch
+    now[0] += elapsed
+    watch.begin_stop()
+    watch.stop()
+    assert joins == [max(0, STOP_JOIN_S - elapsed)]
+    assert lock.watch is None
 
 
 def test_the_watch_thread_samples_on_its_own():

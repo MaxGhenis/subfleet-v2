@@ -36,7 +36,10 @@ def send(store, cid, state=None, after=None):
     store.submit_message(conversation_id=cid, message_id=message_id, after_message_id=after, text="hi",
                          attachments=[], settings=SETTINGS)
     if state:
-        assert store.set_state(message_id, state)
+        # I3 (C-24.4): a waiting message always says why.
+        assert store.set_state(message_id, state,
+                               reason="admission: sent to the daemon, which has not placed it yet"
+                               if state == "waiting" else None)
     return message_id
 
 

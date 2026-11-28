@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T06:51:01.767928+00:00",
+  "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+  "args": [
+    "-p",
+    "tests.conftest",
+    "docs/reports/qt-larger-text-review-r2/diagnostics.py",
+    "-s",
+    "-k",
+    "six_release_sensitive"
+  ]
+}

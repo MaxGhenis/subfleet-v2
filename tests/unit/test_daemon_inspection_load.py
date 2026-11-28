@@ -28,6 +28,7 @@ from subfleet import daemon as daemon_module
 from subfleet import procs, protocol
 from subfleet.contracts import Credential, Lane, LaneOwner
 from subfleet.daemon import Daemon
+from tests.fake_kernel import FakeKernel
 
 JOB = "20260924-114650-load-probe"
 ATTEMPT = JOB + "/a1"
@@ -83,18 +84,40 @@ class FakePs:
         raise AssertionError(argv)
 
     def environment_dumps(self):
-        return [argv for argv in self.calls if "-axEww" in argv]
+        # Since D-CEN1 a census reads environments in this process (`procs.kernel`),
+        # not with `ps -axEww`: both count.
+        return [argv for argv in self.calls if "-axEww" in argv] + procs.kernel.scans()
 
     def tables(self):
         return [argv for argv in self.calls if argv == TABLE]
 
 
+@pytest.fixture(autouse=True)
+def kernel(monkeypatch):
+    """C-5.5's in-process reads (D-CEN1) for this fake process table, recorded."""
+    fake = FakeKernel()
+    monkeypatch.setattr(procs, "kernel", fake)
+    return fake
+
+
 @pytest.fixture
 def daemon(tmp_path, monkeypatch):
-    core = Daemon(tmp_path / "state", inspect_interval_s=30)
-    # The constructor recorded this machine's real boot identity; the attempt
-    # below belongs to the fake one, so each test starts with nothing cached.
+    # This suite models a synthetic process table. Construction must not read
+    # the host before each test installs that table's reader. Restore the real
+    # identity functions immediately afterwards, so every behavior below is
+    # still exercised through the reader the test supplies.
+    with monkeypatch.context() as startup:
+        startup.setattr(procs, "boot_id", lambda: BOOT)
+        startup.setattr(procs, "proc_start", lambda pid: STARTED)
+        # The modeled table has no daemon row and cannot authorize disclaiming.
+        # Keep its one startup read outside the steady-state inspection budget.
+        startup.setattr(procs, "guardian_disclaim_allowed", lambda: False)
+        core = Daemon(tmp_path / "state", inspect_interval_s=30)
     procs.forget_boot_id()      # C-5.12's cache; conftest also clears it per test
+    def refuse_signal(*args, **kwargs):
+        pytest.fail("inspection-only fixtures must not signal a process")
+    monkeypatch.setattr(procs, "signal_group", refuse_signal)
+    monkeypatch.setattr(procs, "signal_process", refuse_signal)
     home = tmp_path / "home"
     core.store.put_lane(Lane("codex-1", "codex", "codex:test", Credential("codex", str(home), "home"),
                              str(home), LaneOwner.V2, False))
@@ -104,7 +127,7 @@ def daemon(tmp_path, monkeypatch):
     core.store.add_attempt(attempt_id=ATTEMPT, job_id=JOB, seq=1, lane_id="codex-1",
                            model_requested="astra", state="running", guardian_pid=GUARDIAN,
                            child_pid=CHILD, pgid=PGID, boot_id=BOOT, proc_start=STARTED,
-                           started_at="2026-09-24T11:46:51Z", evidence_json="{}")
+                           started_at=daemon_module.utcnow(), evidence_json="{}")
     yield core
     core.close()
 
@@ -396,7 +419,7 @@ def test_paced_inspection_still_reads_the_receipt_every_tick(daemon, monkeypatch
     adir = daemon_module.attempt_dir(daemon.root, JOB, 1)
     adir.mkdir(parents=True, exist_ok=True)
     (adir / "exit.json").write_text(json.dumps({"rc": 0, "signal": None, "child_pid": CHILD,
-                                                "finished_at": "2026-09-24T11:50:00Z"}))
+                                                "finished_at": daemon_module.utcnow()}))
     daemon._process_attempt(ATTEMPT)
     assert daemon.store.get_attempt(ATTEMPT)["state"] == "finalizing"
 

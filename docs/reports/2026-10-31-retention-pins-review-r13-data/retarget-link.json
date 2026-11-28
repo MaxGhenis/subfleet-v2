@@ -1,0 +1,34 @@
+{
+ "475f63278": {
+  "changed_at": "<base>/admin",
+  "changed_path": "<base>/loop",
+  "read_after": 128,
+  "read_before": 0,
+  "recorded": {
+   "git": [
+    "<base>/admin",
+    "<base>/admin/objects"
+   ]
+  },
+  "stat_at_filter": 0
+ },
+ "head": {
+  "changed_at": "<base>/admin",
+  "changed_path": "<base>/loop",
+  "read_after": 128,
+  "read_before": 0,
+  "recorded": {
+   "git": [
+    "<base>/admin",
+    "<base>/admin/objects"
+   ],
+   "incomplete": [
+    {
+     "file": "<base>/loop",
+     "reason": "repository alias changed or vanished during discovery"
+    }
+   ]
+  },
+  "stat_at_filter": 0
+ }
+}

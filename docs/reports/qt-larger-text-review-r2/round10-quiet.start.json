@@ -1,0 +1,17 @@
+{
+  "name": "round10-quiet",
+  "start": "2026-10-31T06:40:33.018567+00:00",
+  "load": [
+    33.8037109375,
+    35.82470703125,
+    35.0341796875
+  ],
+  "root": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr284-review-r2",
+  "args": [
+    "tests/frontend/test_review_r219_fix8_mutations.py",
+    "-k",
+    "test_round10_mutation_fails_its_named_regression and quiet_landing_ends_following",
+    "-s"
+  ],
+  "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+}

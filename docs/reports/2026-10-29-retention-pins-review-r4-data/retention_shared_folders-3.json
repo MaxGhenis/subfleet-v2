@@ -1,0 +1,150 @@
+{
+  "label": "retention_shared_folders-3",
+  "start": "2026-10-30T03:07:05.771647+00:00",
+  "loads": [
+    29.671875,
+    23.94287109375,
+    24.4326171875
+  ],
+  "seconds": 18.567902667000453,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-nested]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.84817108399875
+    },
+    {
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-tree]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.2346961250004824
+    },
+    {
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-subdirectory]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.7666254169998865
+    },
+    {
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-external]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.1036239579989342
+    },
+    {
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_names_the_fence_whatever_else_holds_it",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.387503915997513
+    },
+    {
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[TURN]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.2550100420012313
+    },
+    {
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[READER]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.2317557920032414
+    },
+    {
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_a_fence_let_go_after_the_look_read_it_starts_the_turn_on_that_pass",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.1313744590006536
+    },
+    {
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_a_fence_taken_after_the_look_read_none_is_the_transactions_to_hold",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.1101011669998115
+    },
+    {
+      "nodeid": "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_holds_no_later_turn_back_and_keeps_its_slot_as_its_transaction_did",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 1.7021932089992333
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-nested]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-tree]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-subdirectory]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-external]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_names_the_fence_whatever_else_holds_it",
+    "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[TURN]",
+    "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[READER]",
+    "tests/unit/test_retention_shared_folders.py::test_a_fence_let_go_after_the_look_read_it_starts_the_turn_on_that_pass",
+    "tests/unit/test_retention_shared_folders.py::test_a_fence_taken_after_the_look_read_none_is_the_transactions_to_hold",
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_holds_no_later_turn_back_and_keeps_its_slot_as_its_transaction_did"
+  ],
+  "phases": {
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-nested]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-tree]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-subdirectory]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it[READER-external]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_names_the_fence_whatever_else_holds_it": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[TURN]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_the_look_before_the_workspace_reads_the_folder_the_transaction_records[READER]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_fence_let_go_after_the_look_read_it_starts_the_turn_on_that_pass": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_fence_taken_after_the_look_read_none_is_the_transactions_to_hold": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/unit/test_retention_shared_folders.py::test_a_fenced_turn_holds_no_later_turn_back_and_keeps_its_slot_as_its_transaction_did": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "loaded": [],
+  "rss": 121847808
+}

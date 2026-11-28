@@ -1,0 +1,12 @@
+{
+  "queued": "2026-10-31T07:17:58.525209+00:00",
+  "args": [
+    "tests/unit/test_retention_alternates.py",
+    "tests/unit/test_retention_dependency_aliases.py",
+    "tests/unit/test_retention_job_dependencies.py",
+    "tests/unit/test_retention_folded_pin.py",
+    "tests/unit/test_retention_shared_folders.py"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/real-tmp/dependencies-unit",
+  "linked": false
+}

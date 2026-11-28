@@ -1,0 +1,15 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 08:41:52Z slot B load 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_ test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-lf] _
+tests/fake/test_retention_dependency_review_r6.py:45: in test_empty_common_target_keeps_the_own_store_git_reads
+    assert "owner" not in result["pruned"] and tree.is_dir(), (recorded, result)
+E   AssertionError: ({'git': ['/private/tmp/sf-r272r9/real-tmp/mutant-double-r6-empty-common-initial-objects-not-recorded/pytest-of-maxghe...ommon_target_keeps0/outside/.git']}, {'pruned': ['owner'], 'errors': [], 'bytes_before': 49095, 'bytes_after': 0, ...})
+E   assert ('owner' not in ['owner'])
+=========================== short test summary info ============================
+FAILED tests/fake/test_retention_dependency_review_r6.py::test_empty_common_target_keeps_the_own_store_git_reads[directory-live-control-lf]
+1 failed in 8.38s
+{"name": "mutant-double-r6-empty-common-initial-objects-not-recorded", "start": "2026-10-31T08:41:53.611659+00:00", "load": [32.384765625, 32.46923828125, 30.98388671875], "seconds": 11.367644541998743, "exit": 1}

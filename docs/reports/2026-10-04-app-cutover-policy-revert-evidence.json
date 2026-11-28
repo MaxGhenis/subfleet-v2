@@ -1,0 +1,484 @@
+{
+  "prerequisite": "c464ba8b30c41fe488bb59904afbccc9e3365b25",
+  "implementation_commit": "aac3a93abf14a6368abb2d3666c63d9ccb9ea298",
+  "live_policy": {
+    "read_only": true,
+    "sha256": "e45811332a43802dab1c51692e6384b14f8fa221ce6fca542a4df1a846f979af",
+    "codex_hard_routes": {
+      "lookup": {
+        "short": "sol61",
+        "id": "gpt-6.1-sol"
+      },
+      "research": {
+        "short": "sol61",
+        "id": "gpt-6.1-sol"
+      },
+      "review": {
+        "short": "sol61",
+        "id": "gpt-6.1-sol"
+      },
+      "build": {
+        "short": "sol61",
+        "id": "gpt-6.1-sol"
+      },
+      "sweep": {
+        "short": "sol61",
+        "id": "gpt-6.1-sol"
+      }
+    },
+    "astra_defined": true
+  },
+  "restored_files": [
+    {
+      "path": "subfleet/default_policy.json",
+      "reference": "f832e6b8",
+      "sha256": "1009b325db4066ea95370293c98c6166e8bd0c7990230fa106e13be00f4c134e",
+      "byte_identical": true
+    },
+    {
+      "path": "tests/unit/test_policy.py",
+      "reference": "f832e6b8",
+      "sha256": "4a0e403c2d6d244214d23741f2d4c1b1a15cc36579c53a9887c37f6fc7f41421",
+      "byte_identical": true
+    },
+    {
+      "path": "tests/unit/test_policy_support.py",
+      "reference": "f832e6b8",
+      "sha256": "9f854a8c823f5bd1f2f2382d57c3a00529127aa56a23f982ba44c35ffbffab5c",
+      "byte_identical": true
+    },
+    {
+      "path": "tests/frontend/test_core_store.py",
+      "reference": "f832e6b8",
+      "sha256": "a9baf592d197668535c0354af28ba7593327b950c3d22d8b65e5e443493293f6",
+      "byte_identical": true
+    },
+    {
+      "path": "tests/frontend/test_core_draft.py",
+      "reference": "f832e6b8",
+      "sha256": "47e8bb06b6864aa6d2b51b54b3941f5dec2e7e5eeccc33f9b8264ddb2ce26887",
+      "byte_identical": true
+    }
+  ],
+  "test_suites": [
+    {
+      "suite": "status-json",
+      "passed": 54,
+      "failed": 2,
+      "skipped": 0
+    },
+    {
+      "suite": "policy and policy-support",
+      "passed": 162,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "app-cutover-daemon",
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "published-default/review daemon regressions",
+      "passed": 9,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "frontend including app-protocol",
+      "passed": 343,
+      "skipped": 1,
+      "failed": 0
+    },
+    {
+      "suite": "explicit app-protocol rerun",
+      "passed": 9,
+      "failed": 0,
+      "skipped": 0,
+      "duplicate_of_frontend": true
+    }
+  ],
+  "verification_runs": {
+    "policy-revert-daemon": {
+      "name": "policy-revert-daemon",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 75.2,
+      "counts": {
+        "passed": 238,
+        "failed": 2,
+        "skipped": 0
+      }
+    },
+    "policy-revert-ui": {
+      "name": "policy-revert-ui",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 83.75,
+      "counts": {
+        "passed": 17,
+        "failed": 0,
+        "skipped": 0
+      }
+    },
+    "policy-revert-app-protocol": {
+      "name": "policy-revert-app-protocol",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 18.74,
+      "counts": {
+        "passed": 9,
+        "failed": 0,
+        "skipped": 0
+      }
+    },
+    "policy-revert-status-baseline": {
+      "name": "policy-revert-status-baseline",
+      "exit_code": 1,
+      "timeout": false,
+      "seconds": 15.22,
+      "counts": {
+        "passed": 0,
+        "failed": 2,
+        "skipped": 0
+      }
+    }
+  },
+  "frontend_summary": {
+    "collected": 344,
+    "counts": {
+      "passed": 343,
+      "skipped": 1,
+      "failed": 0
+    },
+    "slices": 28,
+    "seconds": 1610.76,
+    "min_seconds": 7.64,
+    "max_seconds": 199.75
+  },
+  "frontend_slices": [
+    {
+      "name": "suite-frontend-01",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 142.58,
+      "tail": [
+        "............                                                             [100%]",
+        "12 passed in 136.89s (0:02:16)"
+      ]
+    },
+    {
+      "name": "suite-frontend-02",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 93.95,
+      "tail": [
+        ".                                                                        [100%]",
+        "1 passed in 89.55s (0:01:29)"
+      ]
+    },
+    {
+      "name": "suite-frontend-03",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 199.75,
+      "tail": [
+        "......                                                                   [100%]",
+        "6 passed in 193.94s (0:03:13)"
+      ]
+    },
+    {
+      "name": "suite-frontend-04",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 15.71,
+      "tail": [
+        ".............                                                            [100%]",
+        "13 passed in 7.23s"
+      ]
+    },
+    {
+      "name": "suite-frontend-05",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 21.23,
+      "tail": [
+        "..........                                                               [100%]",
+        "10 passed in 9.22s"
+      ]
+    },
+    {
+      "name": "suite-frontend-06",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 186.02,
+      "tail": [
+        "........................................                                 [100%]",
+        "40 passed in 179.26s (0:02:59)"
+      ]
+    },
+    {
+      "name": "suite-frontend-07",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 29.26,
+      "tail": [
+        "..................                                                       [100%]",
+        "18 passed in 25.04s"
+      ]
+    },
+    {
+      "name": "suite-frontend-08",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 32.55,
+      "tail": [
+        "....                                                                     [100%]",
+        "4 passed in 18.74s"
+      ]
+    },
+    {
+      "name": "suite-frontend-09",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 94.2,
+      "tail": [
+        ".......                                                                  [100%]",
+        "7 passed in 88.56s (0:01:28)"
+      ]
+    },
+    {
+      "name": "suite-frontend-10",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 20.3,
+      "tail": [
+        "s                                                                        [100%]",
+        "1 skipped in 6.13s"
+      ]
+    },
+    {
+      "name": "suite-frontend-11",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 8.22,
+      "tail": [
+        ".                                                                        [100%]",
+        "1 passed in 3.65s"
+      ]
+    },
+    {
+      "name": "suite-frontend-12",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 16.51,
+      "tail": [
+        "..........................................                               [100%]",
+        "42 passed in 13.52s"
+      ]
+    },
+    {
+      "name": "suite-frontend-13",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 8.2,
+      "tail": [
+        ".............                                                            [100%]",
+        "13 passed in 4.64s"
+      ]
+    },
+    {
+      "name": "suite-frontend-14",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 10.0,
+      "tail": [
+        ".........                                                                [100%]",
+        "9 passed in 5.61s"
+      ]
+    },
+    {
+      "name": "suite-frontend-15",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 7.64,
+      "tail": [
+        "..........                                                               [100%]",
+        "10 passed in 3.10s"
+      ]
+    },
+    {
+      "name": "suite-frontend-16",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 104.33,
+      "tail": [
+        "....................                                                     [100%]",
+        "20 passed in 96.51s (0:01:36)"
+      ]
+    },
+    {
+      "name": "suite-frontend-17",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 31.72,
+      "tail": [
+        "...........................................                              [100%]",
+        "43 passed in 26.64s"
+      ]
+    },
+    {
+      "name": "suite-frontend-18",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 63.74,
+      "tail": [
+        ".                                                                        [100%]",
+        "1 passed in 56.36s"
+      ]
+    },
+    {
+      "name": "suite-frontend-19",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 25.6,
+      "tail": [
+        ".                                                                        [100%]",
+        "1 passed in 19.48s"
+      ]
+    },
+    {
+      "name": "suite-frontend-20",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 15.49,
+      "tail": [
+        "..........                                                               [100%]",
+        "10 passed in 8.43s"
+      ]
+    },
+    {
+      "name": "suite-frontend-21",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 31.06,
+      "tail": [
+        ".......                                                                  [100%]",
+        "7 passed in 24.81s"
+      ]
+    },
+    {
+      "name": "suite-frontend-22",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 21.97,
+      "tail": [
+        "..................                                                       [100%]",
+        "18 passed in 13.29s"
+      ]
+    },
+    {
+      "name": "suite-frontend-23",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 14.36,
+      "tail": [
+        ".                                                                        [100%]",
+        "1 passed in 6.49s"
+      ]
+    },
+    {
+      "name": "suite-frontend-24",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 184.69,
+      "tail": [
+        "........                                                                 [100%]",
+        "8 passed in 178.50s (0:02:58)"
+      ]
+    },
+    {
+      "name": "suite-frontend-25",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 20.95,
+      "tail": [
+        ".................                                                        [100%]",
+        "17 passed in 16.76s"
+      ]
+    },
+    {
+      "name": "suite-frontend-26",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 56.78,
+      "tail": [
+        ".                                                                        [100%]",
+        "1 passed in 51.04s"
+      ]
+    },
+    {
+      "name": "suite-frontend-27",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 107.3,
+      "tail": [
+        ".....                                                                    [100%]",
+        "5 passed in 104.82s (0:01:44)"
+      ]
+    },
+    {
+      "name": "suite-frontend-28",
+      "exit_code": 0,
+      "timeout": false,
+      "seconds": 46.65,
+      "tail": [
+        ".........................                                                [100%]",
+        "25 passed in 43.84s"
+      ]
+    }
+  ],
+  "limits": {
+    "test_slice_seconds": 580,
+    "app_build_seconds": 900
+  },
+  "app_build": {
+    "name": "policy-revert-app-build",
+    "exit_code": 0,
+    "timeout": false,
+    "seconds": 580.38,
+    "tail": [
+      " 861 |     let client: DaemonCalling",
+      " 862 |     let outbox: Outbox",
+      "",
+      "[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>",
+      "ld: warning: search path '/Users/maxghenis/.subfleet/worktrees/20261004-091250-pr124-policy-revert/build/pr124-evidence/lib/swift/macosx' not found",
+      "/Users/maxghenis/.subfleet/worktrees/20261004-091250-pr124-policy-revert/build/pr124-evidence/policy-revert-product/.subfleet-build.ll0b6l/Subfleet.app/Contents/Info.plist: OK",
+      "/Users/maxghenis/.subfleet/worktrees/20261004-091250-pr124-policy-revert/build/pr124-evidence/policy-revert-product/.subfleet-build.ll0b6l/Subfleet.app: replacing existing signature",
+      "Built: /Users/maxghenis/.subfleet/worktrees/20261004-091250-pr124-policy-revert/build/pr124-evidence/policy-revert-product/Subfleet.app (org.maxghenis.subfleet)"
+    ]
+  },
+  "app_artifact": {
+    "path": "build/pr124-evidence/policy-revert-product/Subfleet.app",
+    "bundle_id": "org.maxghenis.subfleet",
+    "codesign_verify_deep_strict": true,
+    "linked_libraries_are_system_frameworks_or_system_swift": true,
+    "installed": false,
+    "launched": false
+  },
+  "process_audit": {
+    "compiler_starts": 283,
+    "compiler_completions": 283,
+    "unfinished_compilers": [],
+    "recorded_test_child_starts": 2907,
+    "recorded_test_child_completions": 2907,
+    "unfinished_recorded_test_children": [],
+    "all_foreground_commands_awaited": true
+  },
+  "bundle": {
+    "path": "docs/reports/2026-10-04-app-cutover-policy-revert.bundle",
+    "head_ref": "refs/heads/fix/app-cutover-policy-revert",
+    "prerequisite": "c464ba8b30c41fe488bb59904afbccc9e3365b25"
+  }
+}

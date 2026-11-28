@@ -1,0 +1,46 @@
+{
+  "name": "red-sibling-target",
+  "start": "2026-10-31T07:28:07.122882+00:00",
+  "load": [
+    36.23095703125,
+    34.9443359375,
+    34.3046875
+  ],
+  "args": [
+    "tests/unit/test_retention_locations.py::test_scanned_storage_target_beside_checkout_is_still_recorded"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_locations.py::test_scanned_storage_target_beside_checkout_is_still_recorded",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 1.9389952499986975,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_scanned_storage_target_beside_checkout_is_still_recorded",
+      "phase": "call",
+      "outcome": "failed",
+      "duration": 0.10131858400200144,
+      "failure": "tests/unit/test_retention_locations.py:166: in test_scanned_storage_target_beside_checkout_is_still_recorded\n    assert str(owner) in recorded[\"git\"], recorded\nE   AssertionError: {'git': ['/private/tmp/sf-fix272r8/real-tmp/red-sibling-target/pytest-of-maxghenis/pytest-0/test_scanned_storage_targe...272r8/real-tmp/red-sibling-target/pytest-of-maxghenis/pytest-0/test_scanned_storage_target_be0/checkout/.git/objects']}\nE   assert '/private/tmp/sf-fix272r8/real-tmp/red-sibling-target/pytest-of-maxghenis/pytest-0/test_scanned_storage_target_be0/owner' in ['/private/tmp/sf-fix272r8/real-tmp/red-sibling-target/pytest-of-maxghenis/pytest-0/test_scanned_storage_target_be0/ch...x272r8/real-tmp/red-sibling-target/pytest-of-maxghenis/pytest-0/test_scanned_storage_target_be0/checkout/.git/objects']\nE    +  where '/private/tmp/sf-fix272r8/real-tmp/red-sibling-target/pytest-of-maxghenis/pytest-0/test_scanned_storage_target_be0/owner' = str(PosixPath('/private/tmp/sf-fix272r8/real-tmp/red-sibling-target/pytest-of-maxghenis/pytest-0/test_scanned_storage_target_be0/owner'))"
+    },
+    {
+      "node": "tests/unit/test_retention_locations.py::test_scanned_storage_target_beside_checkout_is_still_recorded",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.013465416999679292,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_locations.py::test_scanned_storage_target_beside_checkout_is_still_recorded"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-030606-pr272-fix-r8/subfleet/dependencies.py",
+  "product_sha256": "f2b48c18e30515e5eea8ccaee91ea68cd16ac73e73334ef39dc4b5e32a877262",
+  "end": "2026-10-31T07:28:12.821306+00:00",
+  "seconds": 5.698242667000159,
+  "peak_rss_mib": 112.546875,
+  "exit": 1
+}

@@ -1,0 +1,13 @@
+{
+  "queued": "2026-10-31T07:26:53.844780+00:00",
+  "args": [
+    "--mutant",
+    "r3-final-path-check-dropped",
+    "-p",
+    "tests.conftest",
+    "--confcutdir=docs/reports/2026-10-31-retention-pins-fix-r7-data",
+    "docs/reports/2026-10-31-retention-pins-fix-r7-data/probes.py::test_changes[symlink-info-running]"
+  ],
+  "tmpdir": "/private/tmp/sf-fix272r8/real-tmp/mutant-r3-final-path-check-dropped",
+  "linked": false
+}

@@ -1,0 +1,308 @@
+{
+  "label": "test_retention_dependency_incomplete",
+  "start": "2026-10-30T22:30:07.042929+00:00",
+  "loads": [
+    53.8642578125,
+    31.5107421875,
+    24.89111328125
+  ],
+  "seconds": 246.3120549590094,
+  "exit": 0,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-overlong]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 13.127342208012124,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-quote]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 11.175968374998774,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-unreadable]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 12.071959749999223,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-partial]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 9.492243542001233,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-fifo]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 16.683038167000632,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-overlong]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 9.613963916999637,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-quote]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.9741482910030754,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-unreadable]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 4.092986375006149,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-partial]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.4857180830003927,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-fifo]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 14.170364667006652,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-overlong]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 21.484272834000876,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-quote]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 18.666237583005568,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-unreadable]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 24.071975208004005,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-partial]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 30.003662584000267,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-fifo]",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 12.291083791002166,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_alternates_still_admit",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 2.8805210829887073,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_missing_alternates_are_complete_but_dangling_link_is_not",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.00908954199985601,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_recheck_uses_database_only",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 3.5841034579934785,
+      "properties": []
+    },
+    {
+      "nodeid": "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_disappearance_during_read_is_incomplete",
+      "phase": "call",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.08086137499776669,
+      "properties": []
+    }
+  ],
+  "nodes": [
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-overlong]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-quote]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-unreadable]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-partial]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-fifo]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-overlong]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-quote]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-unreadable]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-partial]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-fifo]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-overlong]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-quote]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-unreadable]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-partial]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-fifo]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_alternates_still_admit",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_missing_alternates_are_complete_but_dangling_link_is_not",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_recheck_uses_database_only",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_disappearance_during_read_is_incomplete"
+  ],
+  "all_nodes": [
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-overlong]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-quote]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-unreadable]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-partial]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-fifo]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-overlong]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-quote]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-unreadable]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-partial]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-fifo]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-overlong]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-quote]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-unreadable]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-partial]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-fifo]",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_alternates_still_admit",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_missing_alternates_are_complete_but_dangling_link_is_not",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_recheck_uses_database_only",
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_disappearance_during_read_is_incomplete"
+  ],
+  "phases": {
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-overlong]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-quote]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-unreadable]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-partial]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[recorded-fifo]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-overlong]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-quote]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-unreadable]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-partial]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[legacy-fifo]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-overlong]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-quote]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-unreadable]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-partial]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_discovery_keeps_every_allocated_tree[exporting-fifo]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_alternates_still_admit": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_missing_alternates_are_complete_but_dangling_link_is_not": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_incomplete_recheck_uses_database_only": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_retention_dependency_incomplete.py::test_c8_4_disappearance_during_read_is_incomplete": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "property_settings": {},
+  "loaded": [],
+  "rss": 123076608
+}

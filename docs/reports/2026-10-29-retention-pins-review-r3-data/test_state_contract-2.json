@@ -1,0 +1,77 @@
+{
+  "name": "test_state_contract-2",
+  "start": "2026-10-29T14:42:12.921280+00:00",
+  "load": [
+    20.42041015625,
+    29.08984375,
+    33.58544921875
+  ],
+  "phases": {
+    "tests/fake/test_state_contract.py::test_c15_3_state_notice_ack_is_session_scoped_and_show_is_read_only": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[sandbox-unrestricted-2]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[allow_tmp-False-7]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[prompt_path-/a-nonexistent-subfleet-test-prompt-2]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[out_path-/a-nonexistent-subfleet-test-directory/result-2]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[pinned_model-no-such-model-7]": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c5_8_state_exclusive_flock_and_reacquisition": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c16_1_state_socket_handler_recovers_after_malformed_line": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c6_3_state_concurrent_submit_admission_owns_one_slot": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    },
+    "tests/fake/test_state_contract.py::test_c4_2_state_reserved_recovery_releases_and_retries": {
+      "setup": "passed",
+      "call": "passed",
+      "teardown": "passed"
+    }
+  },
+  "nodes": [
+    "tests/fake/test_state_contract.py::test_c15_3_state_notice_ack_is_session_scoped_and_show_is_read_only",
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[sandbox-unrestricted-2]",
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[allow_tmp-False-7]",
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[prompt_path-/a-nonexistent-subfleet-test-prompt-2]",
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[out_path-/a-nonexistent-subfleet-test-directory/result-2]",
+    "tests/fake/test_state_contract.py::test_c6_1_state_validation_rejects_before_job_rows[pinned_model-no-such-model-7]",
+    "tests/fake/test_state_contract.py::test_c5_8_state_exclusive_flock_and_reacquisition",
+    "tests/fake/test_state_contract.py::test_c16_1_state_socket_handler_recovers_after_malformed_line",
+    "tests/fake/test_state_contract.py::test_c6_3_state_concurrent_submit_admission_owns_one_slot",
+    "tests/fake/test_state_contract.py::test_c4_2_state_reserved_recovery_releases_and_retries"
+  ],
+  "loaded": [],
+  "rc": 0,
+  "seconds": 5.646589124997263,
+  "rss": 117473280
+}

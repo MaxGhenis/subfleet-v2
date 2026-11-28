@@ -1,0 +1,60 @@
+{
+  "label": "mutant-r5-gitfile-colon-without-space-accepted",
+  "start": "2026-10-31T06:34:51.146867+00:00",
+  "loads": [
+    38.2939453125,
+    35.97314453125,
+    34.58203125
+  ],
+  "seconds": 15.434309083000699,
+  "exit": 1,
+  "locked": true,
+  "tests": [
+    {
+      "nodeid": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-no-space]",
+      "phase": "setup",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 6.980456875000527,
+      "properties": [],
+      "failure": null
+    },
+    {
+      "nodeid": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-no-space]",
+      "phase": "call",
+      "outcome": "failed",
+      "wasxfail": null,
+      "duration": 0.07609504100037157,
+      "properties": [],
+      "failure": "tmp_path = PosixPath('/private/tmp/sf-r272r8/cases-54052/pytest/test_pointer_syntax_and_whites0')\nlayout = 'gitfile', name = 'metadata', ending = b'\\n', prefix = b'gitdir:'\naccepted = False\n\n    @pytest.mark.parametrize(\"layout,name,ending,prefix,accepted\", [\n        (\"gitfile\", \" metadata \", b\"\\n\", b\"gitdir: \", True),\n        (\"gitfile\", \"metadata\", b\"\\n\", b\"gitdir:\", False),\n        (\"gitfile\", \"\", b\"\\n\", b\"gitdir: \", False),\n        (\"gitfile\", \" metadata \", b\"\\r\\n\", b\"gitdir: \", True),\n        (\"commondir\", \" metadata \", b\"\\n\", b\"\", True),\n        (\"commondir\", \"   \", b\"\\n\", b\"\", True),\n        (\"commondir\", \"\", b\"\\n\", b\"\", False),\n        (\"commondir\", \" metadata \", b\"\\r\\n\", b\"\", True),\n    ], ids=[\"gitfile-spaces\", \"gitfile-no-space\", \"gitfile-empty\", \"gitfile-crlf\",\n            \"commondir-spaces\", \"commondir-only-spaces\", \"commondir-empty\", \"commondir-crlf\"])\n    def test_pointer_syntax_and_whitespace_match_real_git(tmp_path, layout, name, ending, prefix, accepted):\n        owner, checkout, resolved = pointer_repository(tmp_path, layout, name, ending=ending, prefix=prefix)\n        assert (resolved.returncode == 0) == accepted, resolved.stderr\n        recorded = dependencies.record(str(checkout))\n        if accepted:\n            assert resolved.stdout == b\"pointer-only blob\\n\"\n            assert folders.canonical(owner / \"objects\") in recorded[\"git\"]\n            assert not recorded.get(\"incomplete\"), recorded\n        elif layout == \"gitfile\":\n            # Rejected gitfiles name no usable Git storage, including no syntactic\n            # target from the colon-only spelling. This also kills a lax prefix.\n>           assert not recorded.get(\"git\"), recorded\nE           AssertionError: {'git': ['/private/tmp/sf-r272r8/cases-54052/pytest/test_pointer_syntax_and_whites0/owner.git', '/private/tmp/sf-r272r8/cases-54052/pytest/test_pointer_syntax_and_whites0/owner.git/objects']}\nE           assert not ['/private/tmp/sf-r272r8/cases-54052/pytest/test_pointer_syntax_and_whites0/owner.git', '/private/tmp/sf-r272r8/cases-54052/pytest/test_pointer_syntax_and_whites0/owner.git/objects']\nE            +  where ['/private/tmp/sf-r272r8/cases-54052/pytest/test_pointer_syntax_and_whites0/owner.git', '/private/tmp/sf-r272r8/cases-54052/pytest/test_pointer_syntax_and_whites0/owner.git/objects'] = <built-in method get of dict object at 0x1085981c0>('git')\nE            +    where <built-in method get of dict object at 0x1085981c0> = {'git': ['/private/tmp/sf-r272r8/cases-54052/pytest/test_pointer_syntax_and_whites0/owner.git', '/private/tmp/sf-r272r8/cases-54052/pytest/test_pointer_syntax_and_whites0/owner.git/objects']}.get\n\ntests/unit/test_retention_pointer_whitespace.py:72: AssertionError"
+    },
+    {
+      "nodeid": "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-no-space]",
+      "phase": "teardown",
+      "outcome": "passed",
+      "wasxfail": null,
+      "duration": 0.0005308750005497131,
+      "properties": [],
+      "failure": null
+    }
+  ],
+  "nodes": [
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-no-space]"
+  ],
+  "all_nodes": [
+    "tests/unit/test_retention_pointer_whitespace.py::test_pointer_syntax_and_whitespace_match_real_git[gitfile-no-space]"
+  ],
+  "property_settings": {},
+  "loaded": [
+    {
+      "module": "subfleet.dependencies",
+      "original": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d",
+      "mutated": "a0958b627697b2b7f34be6540c8efbaa14f4ddffba9ed558162e33f18de95098"
+    }
+  ],
+  "dependency_source": {
+    "file": "/Users/maxghenis/.subfleet/worktrees/20261031-011831-pr272-review-r8/subfleet/dependencies.py",
+    "sha256": "3ac12402768fd0136c33006b95bd75ac42b0eab2c4de79e29ec359cc045b4d5d"
+  },
+  "rss": 117063680
+}

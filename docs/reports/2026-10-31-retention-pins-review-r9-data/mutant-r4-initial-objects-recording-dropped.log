@@ -1,0 +1,7 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 08:34:48Z slot B load 
+.                                                                        [100%]
+1 passed in 4.27s
+{"name": "mutant-r4-initial-objects-recording-dropped", "start": "2026-10-31T08:34:50.014663+00:00", "load": [28.9306640625, 26.5625, 28.56298828125], "seconds": 5.230628124998475, "exit": 0}

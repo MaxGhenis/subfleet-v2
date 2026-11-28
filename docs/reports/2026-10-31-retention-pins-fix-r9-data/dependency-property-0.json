@@ -1,0 +1,51 @@
+{
+  "name": "dependency-property-0",
+  "start": "2026-10-31T10:13:09.415466+00:00",
+  "load": [
+    34.8994140625,
+    34.33837890625,
+    34.8212890625
+  ],
+  "args": [
+    "tests/unit/test_retention_dependency_properties.py",
+    "-k",
+    "selection_never"
+  ],
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs",
+      "phase": "setup",
+      "outcome": "passed",
+      "duration": 0.10372308300065924,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs",
+      "phase": "call",
+      "outcome": "passed",
+      "duration": 37.75206350000008,
+      "wasxfail": null,
+      "failure": null
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs",
+      "phase": "teardown",
+      "outcome": "passed",
+      "duration": 0.0003490839990263339,
+      "wasxfail": null,
+      "failure": null
+    }
+  ],
+  "observations": [],
+  "locked": true,
+  "collected": [
+    "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs"
+  ],
+  "product_file": "/Users/maxghenis/.subfleet/worktrees/20261031-055640-pr272-fix-r9/subfleet/dependencies.py",
+  "product_sha256": "d4d8dcb9d4cf11e75318b49837393308d5a589cb7959f7ce13e0d4faa1adf512",
+  "end": "2026-10-31T10:13:54.447190+00:00",
+  "seconds": 45.03111708299912,
+  "peak_rss_mib": 124.5625,
+  "exit": 0
+}
