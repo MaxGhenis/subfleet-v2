@@ -1,0 +1,62 @@
+F
+=================================== FAILURES ===================================
+__________ test_property_job_effort_pins_settings_and_preserves_argv ___________
+  + Exception Group Traceback (most recent call last):
+  |   File "/Users/maxghenis/.subfleet/worktrees/20261111-122612-eff-build-r1s/tests/unit/test_effort_env.py", line 114, in test_property_job_effort_pins_settings_and_preserves_argv
+  |     @example(case=dict(path="job", sandbox="workspace-write", task="review", isolated=False,
+  |                    ^^^^^^^^^^^
+  |   File "/private/tmp/sf-eff-b1/venv/lib/python3.14t/site-packages/hypothesis/core.py", line 2215, in wrapped_test
+  |     _raise_to_user(errors, state.settings, [], " in explicit examples")
+  |     ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |   File "/private/tmp/sf-eff-b1/venv/lib/python3.14t/site-packages/hypothesis/core.py", line 1691, in _raise_to_user
+  |     raise the_error_hypothesis_found
+  | ExceptionGroup: Hypothesis found 2 distinct failures in explicit examples. (2 sub-exceptions)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261111-122612-eff-build-r1s/tests/unit/test_effort_env.py", line 142, in test_property_job_effort_pins_settings_and_preserves_argv
+    |     _assert_effort_and_differential(case, lsc.normalize(launch.argv, scratch))
+    |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261111-122612-eff-build-r1s/tests/unit/test_effort_env.py", line 85, in _assert_effort_and_differential
+    |     assert without_pin == baseline  # every other setting, env key and flag
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    | AssertionError: assert ['claude', '-...000d031', ...] == ['claude', '-...000d031', ...]
+    |   
+    |   At index 20 diff: '{"env":{},"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"<scratch>/attempt/publish-bin/review-publish-hook","timeout":30}]}]}}' != '{"env":{"CLAUDE_CODE_RETRY_WATCHDOG":"0"},"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"<scratch>/attempt/publish-bin/review-publish-hook","timeout":30}]}]}}'
+    |   Use -v to get more diff
+    | Failing explicit example: test_property_job_effort_pins_settings_and_preserves_argv(
+    |     tmp_path=PosixPath('/private/tmp/sf-eff-b1/mutant-7-lose-watchdog/test_property_job_effort_pins_0'),
+    |     case={'path': 'job',
+    |      'sandbox': 'workspace-write',
+    |      'task': 'review',
+    |      'isolated': False,
+    |      'effort': 'high',
+    |      'tmp': True,
+    |      'mcp': True},
+    | )
+    +---------------- 2 ----------------
+    | Traceback (most recent call last):
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261111-122612-eff-build-r1s/tests/unit/test_effort_env.py", line 142, in test_property_job_effort_pins_settings_and_preserves_argv
+    |     _assert_effort_and_differential(case, lsc.normalize(launch.argv, scratch))
+    |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Users/maxghenis/.subfleet/worktrees/20261111-122612-eff-build-r1s/tests/unit/test_effort_env.py", line 78, in _assert_effort_and_differential
+    |     assert argv == baseline  # including the exact settings JSON bytes
+    |     ^^^^^^^^^^^^^^^^^^^^^^^
+    | AssertionError: assert ['claude', '-...000d031', ...] == ['claude', '-...000d031', ...]
+    |   
+    |   At index 26 diff: '{"env":{}}' != '{"env":{"CLAUDE_CODE_RETRY_WATCHDOG":"0"}}'
+    |   Use -v to get more diff
+    | Failing explicit example: test_property_job_effort_pins_settings_and_preserves_argv(
+    |     tmp_path=PosixPath('/private/tmp/sf-eff-b1/mutant-7-lose-watchdog/test_property_job_effort_pins_0'),
+    |     case={'path': 'job',
+    |      'sandbox': 'read-only',
+    |      'task': 'review',
+    |      'isolated': True,
+    |      'effort': None,
+    |      'tmp': False,
+    |      'mcp': False},
+    | )
+    +------------------------------------
+=========================== short test summary info ============================
+FAILED tests/unit/test_effort_env.py::test_property_job_effort_pins_settings_and_preserves_argv
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 4.38s

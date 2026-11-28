@@ -137,6 +137,7 @@ def _values(name):
 details_strategy = st.fixed_dictionaries({}, optional={
     **{name: _values(name) for name in sorted(refusals.value_names())},
     refusals.BY_POLICY: st.sampled_from((True, False, 1, "yes", None)),
+    "resume_pin": st.sampled_from((True, False, 1, "yes", None)),
     "other": st.text(max_size=10),
 })
 reasons = st.one_of(st.sampled_from(sorted(refusals.HANDLER_MESSAGES)), st.text(max_size=30),
@@ -163,6 +164,8 @@ def expected(reason, details) -> tuple[str, str | None]:
             "config": "correct the guard preflight configuration, then rerun subfleet doctor",
             "version": "install the supported Codex version, then rerun subfleet doctor",
         }[kind]
+    if reason == "unknown-pinned-model" and details.get("resume_pin") is True:
+        fix = RESUME_MODEL_FIX
     if details.get(refusals.BY_POLICY) is True:
         task = details.get("task") if refusals.checked("task", details.get("task")) else "these"
         message, fix = f"{message} ({task} jobs write by policy)", (fix + "; or " if fix else "") + "pass -s read-only"
@@ -175,6 +178,8 @@ def expected(reason, details) -> tuple[str, str | None]:
 @example(reason="policy-workdir", details={"repository": "this directory is not a git repository", "task": "build"},
          prose="", kind=AdapterError)
 @example(reason="other-writer", details={"job_id": "20261013-014534-astra", refusals.BY_POLICY: True, "task": None},
+         prose="", kind=AdapterError)
+@example(reason="unknown-pinned-model", details={"model": "claude-haiku-4-5-20251001", "resume_pin": True},
          prose="", kind=AdapterError)
 @settings(max_examples=400, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 def test_a_refusal_reads_its_most_specific_checked_form_and_never_its_exception(reason, details, prose, kind):
@@ -257,6 +262,23 @@ def test_unknown_model_refusal_names_only_a_checked_model(model):
     assert response["error"] == {
         "code": 7, "message": f"unknown pinned model{named}",
         "fix": "pin a model from the live policy",
+    }
+
+
+#: C-12.4, C-25.7 (review r3 of #310, P3): a resume runs on its source attempt's model,
+#: which its caller cannot change, so a resume refused for that model asks for a fresh job.
+RESUME_MODEL_FIX = "submit a fresh job: a resume always runs on its source's model"
+
+
+@pytest.mark.parametrize("marker", (True, False, 1, "yes", None))
+@pytest.mark.parametrize("model", ("claude-haiku-4-5-20251001", SENTINEL))
+def test_a_resume_refused_for_its_source_model_asks_for_a_fresh_job(model, marker):
+    error = AdapterError(SENTINEL, code=7, fix=SENTINEL, reason="unknown-pinned-model",
+                         details={"model": model, "resume_pin": marker})
+    response = wire_reply(op="submit", error=error)
+    assert response["error"] == {
+        "code": 7, "message": "unknown pinned model" + (f" {model}" if model != SENTINEL else ""),
+        "fix": RESUME_MODEL_FIX if marker is True else "pin a model from the live policy",
     }
 
 
