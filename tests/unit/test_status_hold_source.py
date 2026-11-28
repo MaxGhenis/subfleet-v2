@@ -34,8 +34,9 @@ Invariants, for every input (Hypothesis), beside the examples:
   spliced in (a URL password among the shapes, a letter outside ASCII just
   before it among the prefixes) is refused with the store unchanged, or
   accepted only when the scrubber leaves every surface it reaches alone; an
-  ordinary note is always accepted. Outside I5, pinned as it stands: a URL
-  password just after a digit, which no scrubber mode masks (D-SCR-URL1).
+  ordinary note is always accepted. A URL password just after a digit, which
+  no scrubber mode masked until fix r1 of #308 widened the head's URL rule
+  (D-SCR-URL1), is now masked in every mode and refused.
 
 A hold's stored `source_event` reads strictly (review r2 of #263): exactly
 `operator`, or exactly `operator: <note>` with a note the rule accepts as it
@@ -1276,12 +1277,14 @@ JOINED = st.one_of(CREDENTIALS, st.builds(lambda word, joiner, credential: (word
                                           st.sampled_from("-_"), CREDENTIALS))
 PRINTABLE = st.text(st.characters(codec="utf-8", categories=("L", "N", "P", "S", "Zs")).filter(str.isprintable),
                     max_size=30)
-#: Review r2 of #263, P3-1: a letter outside ASCII just before the credential, where the
-#: URL rule's leading `\b` finds no boundary and JSON writes a `\uXXXX` escape.
+#: Review r2 of #263, P3-1: a letter outside ASCII just before the credential, where
+#: release/217's URL rule's leading `\b` finds no boundary (the head's, since fix r1
+#: of #308, has none) and JSON writes a `\uXXXX` escape.
 NON_ASCII = st.sampled_from(["", "ü", "é", "中"])
 SPLICED = st.builds(lambda head, letter, joined, tail: (head + letter + joined[0] + tail, joined[1]),
                     PRINTABLE, NON_ASCII, JOINED, PRINTABLE)
-#: Review r2 of #263, P3-1, as executed: each refused only because its JSON form is read.
+#: Review r2 of #263, P3-1, as executed: each refused, as written and in its JSON form;
+#: before fix r1 of #308 only the JSON form held a password the scrubber masked.
 URL_SECRET = "SECRET7dummy0123456789abcdef"
 URL_NOTES = [f"{letter}https://u:{URL_SECRET}@host" for letter in ("ü", "é", "中")]
 
@@ -1380,14 +1383,15 @@ def test_i5_the_plain_alphabet_can_spell_a_credential_shape_and_that_is_refused(
 #
 # Every credential below is a dummy made up for these tests (`SECRET7…`).
 
-# P3-1: a URL password just after a letter outside ASCII. The raw note passes the
-# scrubber (its URL rule opens with `\b`, and there is no boundary between `ü` and
-# `h`); the JSON form `status --json` and `status.json` carry (`ühttps://…`)
-# does not. `hold_note` reads both.
+# P3-1: a URL password just after a letter outside ASCII. Release/217's URL rule
+# opens with `\b`, and there is no boundary between `ü` and `h`, so it passes the
+# raw note and masks only the JSON form `status --json` and `status.json` carry
+# (`\u00fchttps://…`). Since fix r1 of #308 the head's URL rule needs no boundary,
+# so the scrubber masks both forms. `hold_note` reads both.
 
 @pytest.mark.parametrize("note", URL_NOTES)
 def test_r2_p3_1_a_url_password_after_a_non_ascii_letter_is_refused(core, note):
-    assert not holds_credential(note) and holds_credential(json.dumps(note)[1:-1])     # why the JSON form is read
+    assert holds_credential(note) and holds_credential(json.dumps(note)[1:-1])     # both forms (fix r1 of #308)
     with pytest.raises(ValueError) as rule:
         contracts.hold_note(note)
     assert str(rule.value) == CREDENTIAL_RULE
@@ -1407,18 +1411,22 @@ def test_r2_p3_1_lanes_hold_refuses_it_before_asking_the_daemon(daemon, capsys, 
     assert server.ops() == []
 
 
-def test_d_scr_url1_a_url_password_after_a_digit_is_accepted_today():
-    """D-SCR-URL1, outside #263, pinned as it stands: no scrubber mode masks a URL
-    password just after a digit, raw or as JSON writes it (the URL rule's `\\b`
-    finds no boundary, and its scheme must open with a letter). The hold rule reads
-    the scrubber, so it accepts this note. When D-SCR-URL1 changes the URL rule,
-    this note is refused and this test is to be turned round."""
+def test_d_scr_url1_a_url_password_after_a_digit_is_refused():
+    """D-SCR-URL1, closed by fix r1 of #308: the head's URL rule (C-23.14) reads a
+    scheme that may open with a digit and needs no word boundary before it, so every
+    scrubber mode masks a URL password just after a digit, raw and as JSON writes
+    it. The hold rule reads the scrubber, so it refuses this note, naming the rule
+    and not the note. Release/217's rule (a leading `\\b`, a scheme that opens with
+    a letter) masks neither form, and with it alone the hold accepted the note."""
     note = f"1https://u:{URL_SECRET}@host"
     for text in (note, json.dumps(note)[1:-1]):
         for whole in (False, True):
-            assert scrub_secrets(text, strip_reminders=True, whole=whole) == (text, 0)
-        assert not holds_credential(text)
-    assert contracts.hold_note(note) == note
+            clean, count = scrub_secrets(text, strip_reminders=True, whole=whole)
+            assert count >= 1 and URL_SECRET not in clean
+        assert holds_credential(text)
+    with pytest.raises(ValueError) as rule:
+        contracts.hold_note(note)
+    assert str(rule.value) == CREDENTIAL_RULE
 
 
 # P3-2, P3-5: notes no writer here accepts, stored outside `lanes hold`: a credential,
