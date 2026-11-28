@@ -57,6 +57,10 @@ TASKS_IF_NOTE_PREFIX_V2_CAPABILITY = "tasks.if_note_prefix.v2"
 #: sends a sandbox target only to a daemon that lists this.
 TASKS_SANDBOX_CAPABILITY = "tasks.sandbox.v1"
 
+#: C-6.21/22: `submit` retains caller family, review subject and review round.
+#: Older daemons ignore these fields, so callers discover support before sending them.
+REVIEW_SUBJECT_CAPABILITY = "review.subject.v1"
+
 OPS = (
     "submit", "list", "show", "wait", "kill", "lanes", "readings", "why",
     "notice.pending", "notice.ack", "notice.mark", "notice.list", "notice.withdraw", "ping", "daemon.status",
@@ -211,6 +215,11 @@ class SubmitArgs:
     # `default` request starts the provider unclamped only at a launch where the job is
     # `priority` (C-6.16); the daemon decides at each launch, and `why` says which.
     provider_qos: str | None = None
+    # C-6.21–22: caller identity and the review request. Automatic rounds are
+    # assigned only by the daemon's insertion transaction.
+    caller_family: str | None = None
+    review_subject: str | None = None
+    review_round: int | None = None
 
 
 @dataclass
@@ -624,10 +633,14 @@ def refuse(req_id: str, error: BaseException, *, reason: str = "invalid-args") -
     code = getattr(error, "code", Exit.INVALID_INPUT)
     if type(code) not in (int, Exit) or code not in tuple(Exit):
         code = Exit.INVALID_INPUT
-    # `details` is not a generic reflection channel. Only this reason's checked
-    # hold can cross it; exception prose and every other detail remain excluded.
+    # `details` is not a generic reflection channel. Only a checked hold can
+    # cross it. The review cap carries its fixed public reason without details;
+    # exception prose and every other detail remain excluded.
     from .refusals import task_hold_condition_details
-    condition = getattr(error, "reason", None) == "task-hold-condition"
+    error_reason = getattr(error, "reason", None)
+    condition = error_reason == "task-hold-condition"
     hold_details = task_hold_condition_details(getattr(error, "details", None)) if condition else None
-    return fail(req_id, code, message, fix,
-                reason="task-hold-condition" if condition else None, details=hold_details)
+    public_reason = "task-hold-condition" if condition else None
+    if type(error_reason) is str and error_reason == "review-round-limit":
+        public_reason = "review-round-limit"
+    return fail(req_id, code, message, fix, reason=public_reason, details=hold_details)

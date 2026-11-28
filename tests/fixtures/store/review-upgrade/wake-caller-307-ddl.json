@@ -1,0 +1,16 @@
+{
+  "commit": "02ae7d1eda99bbfc7a44bc85b98218cc3a960219",
+  "migration": [
+    "ALTER TABLE notices ADD COLUMN wake_state TEXT CHECK (wake_state IS NULL OR wake_state IN ('claimed','delivered','undeliverable','stale'))",
+    "ALTER TABLE notices ADD COLUMN wake_attempts INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE notices ADD COLUMN wake_next_at REAL",
+    "ALTER TABLE notices ADD COLUMN wake_at REAL",
+    "ALTER TABLE notices ADD COLUMN wake_reason TEXT",
+    "CREATE TABLE IF NOT EXISTS caller_wake_sessions (session_id TEXT PRIMARY KEY, active_at REAL NOT NULL DEFAULT 0, source TEXT, wake_streak INTEGER NOT NULL DEFAULT 0, last_wake_at REAL)"
+  ],
+  "schema": {
+    "notices": "CREATE TABLE notices (\n  notice_id INTEGER PRIMARY KEY,\n  job_id TEXT REFERENCES jobs(job_id),\n  session_id TEXT,\n  text TEXT NOT NULL,\n  state TEXT NOT NULL CHECK (state IN ('pending','offered','acknowledged','surfaced')),\n  transport TEXT,\n  created_at TEXT NOT NULL,\n  offered_at TEXT,\n  acknowledged_at TEXT,\n  wake_state TEXT CHECK (wake_state IS NULL OR wake_state IN ('claimed','delivered','undeliverable','stale')),\n  wake_attempts INTEGER NOT NULL DEFAULT 0,\n  wake_next_at REAL,\n  wake_at REAL,\n  wake_reason TEXT\n)",
+    "caller_wake_sessions": "CREATE TABLE caller_wake_sessions (\n  session_id TEXT PRIMARY KEY,\n  active_at REAL NOT NULL DEFAULT 0,\n  source TEXT,\n  wake_streak INTEGER NOT NULL DEFAULT 0,\n  last_wake_at REAL\n)",
+    "notices_caller_wake": "CREATE INDEX notices_caller_wake ON notices(created_at, notice_id)\n  WHERE job_id IS NOT NULL AND state='pending' AND wake_state IS NULL"
+  }
+}

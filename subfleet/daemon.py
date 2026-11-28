@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 
 from . import __version__
 from . import capacity, dependencies, descriptors, disk, folders, host_push, ids, lanes_transfer, machine, procs, protocol, ramp, render, route_check, scheduler
-from . import daemon_log, refusals, resource_leases, task_holds
+from . import daemon_log, refusals, resource_leases, review_subject, task_holds
 from .actions import demand_verdict
 from . import attempt_tmp, worktree_add
 from .attempt_tmp import AttemptTemp, env_value, probe_tmpdir_rows
@@ -3129,6 +3129,18 @@ class Daemon:
         # `turn` is the dispatcher's own block (C-26.1); nothing else passes it.
         if (args.kind == "turn") != (turn is not None):
             raise AdapterError("a turn job needs its conversation's turn block", code=7, reason="turn-block")
+        if args.caller_family is not None and (type(args.caller_family) is not str or
+                                               args.caller_family not in ("claude", "codex")):
+            raise protocol.ProtocolError(refusals.HANDLER_MESSAGES["caller-family"][0], reason="caller-family")
+        if ((args.review_subject is not None or args.review_round is not None) and args.task != "review"
+                or args.review_round is not None and args.review_subject is None):
+            raise protocol.ProtocolError(refusals.HANDLER_MESSAGES["review-fields"][0], reason="review-fields")
+        if args.review_round is not None and (type(args.review_round) is not int or args.review_round < 1):
+            raise protocol.ProtocolError(refusals.HANDLER_MESSAGES["review-round"][0], reason="review-round")
+        if args.review_subject is not None:
+            args = dataclasses.replace(args, review_subject=review_subject.normalize_subject(args.review_subject))
+            if args.review_round is not None and args.review_round > 4:
+                review_subject.refuse_limit(args.review_subject)
         if args.push_branch is not None and (args.task == "review" or args.kind == "gate-review"):
             raise AdapterError("reviews cannot publish", code=7, fix="omit --push-branch", reason="review-publish")
         if args.push_branch is not None and args.kind != "dispatch":
@@ -3178,6 +3190,10 @@ class Daemon:
             # An empty task or tier is none: `evaluate` would reject '' on every
             # pass of a job submit had accepted (C-6.12).
             args = dataclasses.replace(args, task=args.task or None, tier=args.tier or None)
+            # A resume takes its source's task, regardless of what its request
+            # claimed above. Review metadata must match that effective task.
+            if args.review_subject is not None and args.task != "review":
+                raise protocol.ProtocolError(refusals.HANDLER_MESSAGES["review-fields"][0], reason="review-fields")
             from_policy = args.sandbox == protocol.POLICY_SANDBOX
             try:
                 ids.request_id(args.request_id)
@@ -3391,7 +3407,7 @@ class Daemon:
                     round_lease=args.round_lease, resume=resume,
                     unmeasured_reserve_reason=reason, mcp_servers=mcp_servers,
                     push_branch=args.push_branch, push_remote=push_remote, needs_shell=needs_shell,
-                    provider_qos=args.provider_qos)
+                    provider_qos=args.provider_qos, review_subject=args.review_subject, review_round=args.review_round)
                 if turn is not None:
                     # C-6.2 for turns: the message digest, not HEAD or the policy
                     # hash, so a restart can always re-bind the job (review IR-1).
@@ -3596,15 +3612,26 @@ class Daemon:
                          **({"batch": batch} if batch else {}),
                          **({"mcp": mcp_found["sources"]} if mcp_servers else {}),
                          **({"uncommitted": manifest["uncommitted"]} if "uncommitted" in manifest else {})}
-            with self.store.transaction("job.submitted", job_id=job_id, data=submitted or None) as tx:
-                # Recheck the parent in the same transaction as insertion so a
-                # concurrent parent cancellation cannot leave an uncancelled child.
-                if turn is None:
-                    self._validate_conflicts(values, cleared, write_target, output_claim)
-                columns = ",".join(values)
-                tx.execute(f"INSERT INTO jobs ({columns}) VALUES ({','.join('?' for _ in values)})", tuple(values.values()))
-                if retire_fence is not None:
-                    tx.execute("DELETE FROM leases WHERE lease_key=? AND holder=?", retire_fence)
+            try:
+                with self.store.transaction("job.submitted", job_id=job_id, data=submitted or None) as tx:
+                    # Recheck the parent in the same transaction as insertion so a
+                    # concurrent parent cancellation cannot leave an uncancelled child.
+                    if turn is None:
+                        self._validate_conflicts(values, cleared, write_target, output_claim)
+                    if args.review_subject is not None:
+                        values["review_round"] = review_subject.assign_round(tx, args.review_subject, args.review_round)
+                    columns = ",".join(values)
+                    tx.execute(f"INSERT INTO jobs ({columns}) VALUES ({','.join('?' for _ in values)})", tuple(values.values()))
+                    if retire_fence is not None:
+                        tx.execute("DELETE FROM leases WHERE lease_key=? AND holder=?", retire_fence)
+            except protocol.ProtocolError as exc:
+                if exc.reason in ("review-round-limit", "review-round-held"):
+                    # Allocation is serialized after artifact preparation (C-3.3).
+                    # A refused round owns no job: leave no directory that could
+                    # block the next submission from using this generated id.
+                    assert jobdir.parent == self.root / "jobs" and not jobdir.is_symlink()
+                    shutil.rmtree(jobdir)
+                raise
             self._notify()
             return {"job_id": job_id, "request_id": args.request_id, "created": True,
                     **self._where_it_writes(job_id, sandbox.value)}
@@ -3796,6 +3823,10 @@ class Daemon:
         if preamble is None:
             # A source submitted before the manifest said: its prepared prompt did.
             preamble = (self.root / "jobs" / source["job_id"] / "prompt.prepared.md").is_file()
+        # Validate the source's effective task before inheriting its fields;
+        # otherwise a forged review request could silently shed invalid fields.
+        if source["task"] != "review" and (args.review_subject is not None or args.review_round is not None):
+            raise protocol.ProtocolError(refusals.HANDLER_MESSAGES["review-fields"][0], reason="review-fields")
         # C-12.4: model IDs can have several policy aliases with different
         # efforts (including none), so the source attempt's recorded alias is
         # kept while it still names an entry at the attempt's provider model ID.
@@ -3810,6 +3841,7 @@ class Daemon:
             sandbox=source["sandbox"], in_place=source["sandbox"] == "workspace-write",
             pinned_lane=attempt["lane_id"], pinned_model=pinned_model,
             task=source["task"], tier=source["tier"], allow_desktop=bool(source["allow_desktop"]),
+            review_subject=source.get("review_subject"), review_round=source.get("review_round"),
             exclusions=json.loads(source["exclusions"] or "[]"),
             needs_shell=(args.needs_shell if args.needs_shell is not None else bool(source.get("needs_shell"))),
             independent=True, allow_tmp=True, no_preamble=not preamble, mcp_servers=list(recorded))
@@ -4112,6 +4144,11 @@ class Daemon:
                 raise AdapterError(f"session {session} has a live writable job ({holder}) and a revive is a second instance of it",
                                    fix=f"wait for {holder}, or kill it before reviving or dispatching", reason="revive-writer",
                                    details={"job_id": holder})
+            # A Codex thread has a session id but no Claude writer-process
+            # identity. Keep target, revive and policy-cap checks; only the
+            # process comparison belongs to callers that supply that identity.
+            if job.get("caller_family") == "codex":
+                continue
             theirs = recorded[holder].get("caller_instance")
             if instance is not None and theirs == instance:
                 continue

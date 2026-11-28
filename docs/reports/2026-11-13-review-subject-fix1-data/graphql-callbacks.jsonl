@@ -1,0 +1,12 @@
+{"nodeid": "tests/unit/test_review_r5_repro.py::test_ready_refusal_survives_hold_rearm_and_ready_to_accept_restart[blocked]", "operation": "exact fixture alias replacement activated", "external_commands_executed": 0}
+{"nodeid": "tests/unit/test_review_r5_repro.py::test_ready_refusal_survives_hold_rearm_and_ready_to_accept_restart[blocked]", "operation": "synthetic read-only GraphQL callback", "external_commands_executed": 0}
+{"nodeid": "tests/unit/test_review_r5_repro.py::test_ready_refusal_survives_hold_rearm_and_ready_to_accept_restart[throttle]", "operation": "exact fixture alias replacement activated", "external_commands_executed": 0}
+{"nodeid": "tests/unit/test_review_r5_repro.py::test_ready_refusal_survives_hold_rearm_and_ready_to_accept_restart[throttle]", "operation": "synthetic read-only GraphQL callback", "external_commands_executed": 0}
+{"nodeid": "tests/unit/test_review_r5_repro.py::test_ready_refusal_survives_hold_rearm_and_ready_to_accept_restart[legacy]", "operation": "exact fixture alias replacement activated", "external_commands_executed": 0}
+{"nodeid": "tests/unit/test_review_r5_repro.py::test_ready_refusal_survives_hold_rearm_and_ready_to_accept_restart[legacy]", "operation": "synthetic read-only GraphQL callback", "external_commands_executed": 0}
+{"nodeid": "tests/unit/test_review_r5_repro.py::test_ready_refusal_survives_hold_rearm_and_ready_to_accept_restart[archived]", "operation": "exact fixture alias replacement activated", "external_commands_executed": 0}
+{"nodeid": "tests/unit/test_review_r5_repro.py::test_ready_refusal_survives_hold_rearm_and_ready_to_accept_restart[archived]", "operation": "synthetic read-only GraphQL callback", "external_commands_executed": 0}
+{"nodeid": "tests/unit/test_review_r5_repro.py::test_ready_refusal_acceptance_is_atomic_across_restart[inside-claim]", "operation": "exact fixture alias replacement activated", "external_commands_executed": 0}
+{"nodeid": "tests/unit/test_review_r5_repro.py::test_ready_refusal_acceptance_is_atomic_across_restart[inside-claim]", "operation": "synthetic read-only GraphQL callback", "external_commands_executed": 0}
+{"nodeid": "tests/unit/test_review_r5_repro.py::test_ready_refusal_acceptance_is_atomic_across_restart[after-commit]", "operation": "exact fixture alias replacement activated", "external_commands_executed": 0}
+{"nodeid": "tests/unit/test_review_r5_repro.py::test_ready_refusal_acceptance_is_atomic_across_restart[after-commit]", "operation": "synthetic read-only GraphQL callback", "external_commands_executed": 0}

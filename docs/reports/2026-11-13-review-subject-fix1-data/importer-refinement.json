@@ -1,0 +1,28 @@
+{
+  "frontend": {
+    "include": [
+      "tests/frontend/test_core_client.py",
+      "tests/frontend/test_core_live_steer.py",
+      "tests/frontend/test_core_outbox.py",
+      "tests/frontend/test_core_protocol.py",
+      "tests/frontend/test_core_steer.py",
+      "tests/frontend/test_core_suggestions.py",
+      "tests/frontend/test_disk_ruling.py"
+    ],
+    "reason": "Real ConversationService over temporary stores, raw sockets or ServiceServer; the harness replaces _person and feeds scripted provider frames. Steering uses a JournalRelay without a guardian socket or provider process. All subprocess launches are fixture Swift probes. Static executable check for /usr/bin/xcrun passed; SDK/compiler success remains to be tested.",
+    "scratch_patch": "/private/tmp/sf-a2-fix1/frontend-scratch-patch.py.txt",
+    "scratch_patch_purpose": "Keep frontend compiled-probe cache and Swift module cache under sf-a2-fix1; leave repository helpers unchanged."
+  },
+  "e2e/test_conversations.py": {
+    "recommendation": "exclude whole file under the live-process restriction",
+    "reason": "Providers and HOME are synthetic, but person-only operations deliberately retain the real peers.judge/process_chain. process_chain executes /bin/ps -axo pid=,ppid=,tty= then /bin/ps -Ewwp for the real peer and each ancestor, including pre-existing parent processes. Fake providers do not isolate this host ancestry access. Real daemon containment likewise enumerates host processes."
+  },
+  "fake/test_gate_end_to_end.py": {
+    "recommendation": "include",
+    "reason": "Every submitted gate is gate plan; no on-agreement merge, gh invocation or git push appears. The in-process cases assert actions is empty. Its process-backed cases start the synthetic gate peer and an isolated fake daemon. Importing core from test_gate_admission does not execute a publication action."
+  },
+  "unit/test_gate_admission.py": {
+    "recommendation": "include",
+    "reason": "The core fixture builds an uninitialized Daemon with temporary Store and stubs the launch boundary; adapter isolation inspectors are synthetic. No gh merge or git push appears anywhere in the file. Its earlier category-based exclusion was too broad."
+  }
+}

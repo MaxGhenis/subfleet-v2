@@ -1,0 +1,3 @@
+{"reason": "external executable outside strict allowlist", "at": 122228.416925791, "frames": []}
+{"reason": "external executable outside strict allowlist", "at": 122228.436311875, "frames": []}
+{"reason": "opaque process wrapper", "at": 122229.767431583, "frames": [{"file": "unit/test_prune_217.py", "line": 115, "function": "test_partition_unfinished_jobs_readers_and_backup_restore"}, {"file": "unit/test_prune_217.py", "line": 115, "function": "test_partition_unfinished_jobs_readers_and_backup_restore"}, {"file": "unit/test_prune_217.py", "line": 170, "function": "test_partition_unfinished_jobs_readers_and_backup_restore"}]}
