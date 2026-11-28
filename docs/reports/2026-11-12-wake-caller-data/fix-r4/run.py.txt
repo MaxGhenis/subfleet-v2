@@ -1,0 +1,58 @@
+"""Round 4 test runner: fresh basetemp per run, scratch-local state, logged."""
+from datetime import datetime, timezone
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+scratch = Path(__file__).resolve().parent
+assert 'sf-wcall-fix4' in str(scratch)
+workspace = Path(os.environ.get('R4_TREE', '/Users/maxghenis/.subfleet/worktrees/20261117-083630-wcall-fix-r4'))
+name, *selection = sys.argv[1:]
+assert name and '/' not in name
+basetemp = scratch / ('pytest-' + name)
+assert not basetemp.exists(), 'each run needs a new basetemp'
+environment = os.environ.copy()
+for key in ('SUBFLEET_HOME', 'SUBFLEET_ROOT', 'SUBFLEET_JOB', 'SUBFLEET_ATTEMPT',
+            'CLAUDE_CODE_SESSION_ID', 'PYTHONPATH'):
+    environment.pop(key, None)
+environment.update(TMPDIR=str(scratch), UV_CACHE_DIR=str(scratch.parent / 'uv-cache'),
+                   UV_PROJECT_ENVIRONMENT=str(scratch / 'venv'),
+                   HYPOTHESIS_STORAGE_DIRECTORY=str(scratch / 'hypothesis'),
+                   PYTHONDONTWRITEBYTECODE='1',
+                   PYTHONPATH=str(scratch / 'plugins') + os.pathsep + str(workspace),
+                   GIT_CONFIG_GLOBAL='/dev/null', GIT_CONFIG_NOSYSTEM='1')
+repeat = os.environ.get('R4_REPEAT') == '1'
+direct = os.environ.get('R4_DIRECT') == '1'   # the venv's own interpreter, one process
+command = ([str(scratch / 'venv' / 'bin' / 'python'), '-m', 'pytest', '-p', 'r4_isolation', '-p', 'no:cacheprovider',
+            '--timeout=300', '--basetemp=' + str(basetemp), *selection]) if direct else None
+command = command or ['uv', 'run', '--no-sync', '--with', 'pytest-xdist>=3.6',
+           *(['--with', 'pytest-repeat>=0.9'] if repeat else []),
+           'pytest', '-p', 'r4_isolation', '-p', 'no:cacheprovider', '-n', os.environ.get('R4_N', '4'),
+           '--timeout=300', '--basetemp=' + str(basetemp), *selection]
+logs = scratch / 'logs'
+logs.mkdir(exist_ok=True)
+start = datetime.now(timezone.utc).isoformat()
+load_start = os.getloadavg()[0]
+capped = False
+with (logs / (name + '.log')).open('w') as stream:
+    process = subprocess.Popen(command, cwd=workspace, env=environment, stdout=stream, stderr=subprocess.STDOUT)
+    try:
+        process.wait(timeout=float(os.environ.get('R4_CAP', '540')))
+    except subprocess.TimeoutExpired:
+        capped = True
+        process.terminate()   # uv forwards SIGTERM to pytest
+        try:
+            process.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+    result = process
+record = dict(name=name, tree=str(workspace), command=command, exit_code=result.returncode, capped=capped, start=start,
+              end=datetime.now(timezone.utc).isoformat(), load=[round(load_start, 1), round(os.getloadavg()[0], 1)])
+with (logs / 'runs.jsonl').open('a') as stream:
+    stream.write(json.dumps(record) + '\n')
+print(json.dumps(record))
+print('\n'.join((logs / (name + '.log')).read_text().splitlines()[-15:]))
+sys.exit(result.returncode)

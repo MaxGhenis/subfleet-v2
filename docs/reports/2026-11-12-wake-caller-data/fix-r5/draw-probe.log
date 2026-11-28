@@ -1,0 +1,38 @@
+Timeout (0:00:12)!
+Thread 0x0000000205d09300 (most recent call first):
+  File "<frozen importlib._bootstrap>", line 491 in _call_with_frames_removed
+  File "<frozen importlib._bootstrap_external>", line 810 in source_to_code
+  File "<frozen importlib._bootstrap_external>", line 881 in get_code
+  File "<frozen importlib._bootstrap_external>", line 747 in exec_module
+  File "<frozen importlib._bootstrap>", line 857 in _load_unlocked
+  File "<frozen importlib._bootstrap>", line 1249 in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 1353 in _find_and_load
+  File "/Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5/.venv/lib/python3.15/site-packages/_pytest/_code/code.py", line 46 in <module>
+  File "<frozen importlib._bootstrap>", line 491 in _call_with_frames_removed
+  File "<frozen importlib._bootstrap_external>", line 751 in exec_module
+  File "<frozen importlib._bootstrap>", line 857 in _load_unlocked
+  File "<frozen importlib._bootstrap>", line 1249 in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 1353 in _find_and_load
+  File "/Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5/.venv/lib/python3.15/site-packages/_pytest/_code/__init__.py", line 5 in <module>
+  File "<frozen importlib._bootstrap>", line 491 in _call_with_frames_removed
+  File "<frozen importlib._bootstrap_external>", line 751 in exec_module
+  File "<frozen importlib._bootstrap>", line 857 in _load_unlocked
+  File "<frozen importlib._bootstrap>", line 1249 in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 1353 in _find_and_load
+  File "/Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5/.venv/lib/python3.15/site-packages/pytest/__init__.py", line 8 in <module>
+  File "<frozen importlib._bootstrap>", line 491 in _call_with_frames_removed
+  File "<frozen importlib._bootstrap_external>", line 751 in exec_module
+  File "<frozen importlib._bootstrap>", line 857 in _load_unlocked
+  File "<frozen importlib._bootstrap>", line 1249 in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 1353 in _find_and_load
+  File "/Users/maxghenis/.subfleet/worktrees/20261125-221914-wcall-fix-r5/tests/unit/test_live_store_guard_st3.py", line 35 in <module>
+  File "<frozen importlib._bootstrap>", line 491 in _call_with_frames_removed
+  File "<frozen importlib._bootstrap_external>", line 751 in exec_module
+  File "<frozen importlib._bootstrap>", line 857 in _load_unlocked
+  File "<frozen importlib._bootstrap>", line 1249 in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 1353 in _find_and_load
+  File "<frozen importlib._bootstrap>", line 491 in _call_with_frames_removed
+  File "<frozen importlib._bootstrap>", line 1417 in _handle_fromlist
+  File "<string>", line 8 in <module>
+probe timeout=35 s
+elapsed=35.04 s

@@ -244,12 +244,12 @@ def test_a_tree_moved_away_during_its_registration_lookup_and_back_keeps_its_job
         finally:
             in_begin.clear()
 
-    def lookup(tree):
+    def lookup(tree, **kwargs):
         if not in_begin or Path(tree) != wt or sweep.log:
-            return real_lookup(tree)
+            return real_lookup(tree, **kwargs)
         assert sweep.away(), "the sweep could not move the tree away"
         try:
-            return real_lookup(tree)
+            return real_lookup(tree, **kwargs)
         finally:
             if back == "after-the-lookup":
                 assert sweep.back()
@@ -311,12 +311,12 @@ def test_a_tree_moved_away_as_it_is_moved_in_keeps_its_job(world, monkeypatch):
         finally:
             in_begin.clear()
 
-    def lookup(tree):
+    def lookup(tree, **kwargs):
         if not in_begin or Path(tree) != wt or sweep.log:
-            return real_lookup(tree)
+            return real_lookup(tree, **kwargs)
         sweep.away()
         try:
-            return real_lookup(tree)
+            return real_lookup(tree, **kwargs)
         finally:
             sweep.back()
 
@@ -588,12 +588,12 @@ def test_a_committed_legacy_lookup_race_preserves_its_unbundled_registration_and
         finally:
             in_begin.clear()
 
-    def lookup(tree):
+    def lookup(tree, **kwargs):
         if not in_begin or Path(tree) != wt or sweep.log:
-            return real_lookup(tree)
+            return real_lookup(tree, **kwargs)
         assert sweep.away()
         try:
-            return real_lookup(tree)
+            return real_lookup(tree, **kwargs)
         finally:
             assert sweep.back()
 
@@ -717,10 +717,10 @@ class Schedule:
                     schedule.at(schedule.identity_phase + "-away-check")
             return real_away(worktree)
 
-        def gitfile_admin(tree):
+        def gitfile_admin(tree, **kwargs):
             if schedule.in_begin and Path(tree) == schedule.tree:
                 schedule.at("lookup")
-            return real_lookup(tree)
+            return real_lookup(tree, **kwargs)
 
         def read_regular(path, *args, **kwargs):
             if schedule.in_begin and Path(path) == schedule.admin / "gitdir":
