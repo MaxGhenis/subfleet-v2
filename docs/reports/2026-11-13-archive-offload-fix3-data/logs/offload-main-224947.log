@@ -1,0 +1,27 @@
+label offload-main start 22:49:47 bound 585s basetemp /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T//sf-ao-fix3/bt/pytest-offload-main-224947
+uptime-start: 23:49  up 4 days, 11:10, 1 user, load averages: 19.58 41.73 48.53
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   3996G     14G    102G    12%    487k  996M    0%   /
+args: -n 4 -rfEs --durations=6 tests/unit/test_retention_offload.py
+============================= test session starts ==============================
+platform darwin -- Python 3.15.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/maxghenis/.subfleet/worktrees/20261125-232725-ao-fix-r3
+configfile: pyproject.toml
+plugins: xdist-3.8.0, timeout-2.4.0, hypothesis-6.168.1
+timeout: 1200.0s
+timeout method: signal
+timeout func_only: False
+created: 4/4 workers
+4 workers [43 items]
+
+...........................................                              [100%]
+============================= slowest 6 durations ==============================
+32.40s call     tests/unit/test_retention_offload.py::test_a_crash_at_any_offload_step_then_a_rerun_ends_the_same
+21.14s call     tests/unit/test_retention_offload.py::test_a_crash_at_any_recall_step_then_a_rerun_ends_the_same
+9.83s call     tests/unit/test_retention_offload.py::test_every_step_keeps_one_good_copy
+8.78s call     tests/unit/test_retention_offload.py::test_dry_run_writes_nothing
+2.06s call     tests/unit/test_retention_offload.py::test_offload_then_recall_gives_back_the_archive
+1.52s call     tests/unit/test_retention_offload.py::test_every_external_file_and_folder_is_flushed
+============================= 43 passed in 56.24s ==============================
+rc=0 end 22:50:44
+uptime-end: 23:50  up 4 days, 11:11, 1 user, load averages: 22.42 38.38 46.81

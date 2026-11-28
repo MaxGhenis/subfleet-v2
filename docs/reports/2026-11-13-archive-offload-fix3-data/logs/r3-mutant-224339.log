@@ -1,0 +1,100 @@
+label r3-mutant start 22:43:40 bound 585s basetemp /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T//sf-ao-fix3/bt/pytest-r3-mutant-224339
+uptime-start: 23:43  up 4 days, 11:04, 1 user, load averages: 61.37 49.70 51.88
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   3996G     14G    103G    12%    487k  1.0G    0%   /
+args: -n 2 -rA tests/unit/test_retention_offload_r2.py::test_a_damaged_ownership_marker_fails_naming_the_file tests/unit/test_retention_offload_r3.py::test_an_offloaded_recall_with_the_volume_gone_changes_nothing
+============================= test session starts ==============================
+platform darwin -- Python 3.15.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/maxghenis/.subfleet/worktrees/20261125-232725-ao-fix-r3
+configfile: pyproject.toml
+plugins: xdist-3.8.0, timeout-2.4.0, hypothesis-6.168.1
+timeout: 1200.0s
+timeout method: signal
+timeout func_only: False
+created: 2/2 workers
+2 workers [2 items]
+
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+________ test_an_offloaded_recall_with_the_volume_gone_changes_nothing _________
+[gw1] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmp44DqHh/bin/python
+
+archives = <tests.unit.test_retention_offload.Archives object at 0x109be3cb0>
+env = Env(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ao-fix3/bt/pytest-r3-mutant-224339/pop...th_0/env-z3t_7kku/vol-a'), fstype='apfs', local=True, owners=True, readonly=False, free=1000000000000, encrypted=True))
+volumes = <tests.unit.test_retention_offload.Volumes object at 0x10a9ed6a0>
+
+    def test_an_offloaded_recall_with_the_volume_gone_changes_nothing(archives, env, volumes):
+        name = install(archives.build(RICH), env)
+        assert outcomes(offload(env)) == {name: "offloaded"}
+        assert not (env.archive(name) / "files").exists()
+>       _unchanged_failure(env, name, volumes, why="offloaded")
+
+tests/unit/test_retention_offload_r3.py:121: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+env = Env(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ao-fix3/bt/pytest-r3-mutant-224339/pop...th_0/env-z3t_7kku/vol-a'), fstype='apfs', local=True, owners=True, readonly=False, free=1000000000000, encrypted=True))
+name = 'job-1'
+volumes = <tests.unit.test_retention_offload.Volumes object at 0x10a9ed6a0>
+why = 'offloaded'
+
+    def _unchanged_failure(env, name: str, volumes, *, why: str) -> None:
+        outside = _outside(env, name)
+        internal_before, external_before = tree_state(env.archive(name)), tree_state(outside)
+        files_before = (env.archive(name) / "files").exists()
+        stub_before = rof.stub_path(env.root, name).read_bytes()
+        volumes.unmount(EXT_UUID)
+        for drop in (False, True):
+            report = rof.recall(env.root, name, drop_external=drop)
+            assert outcomes(report) == {name: "failed"}, (why, report)
+            assert NOT_MOUNTED in report["results"][0]["error"], why
+>           assert tree_state(env.archive(name)) == internal_before, why
+E           AssertionError: offloaded
+E           assert {'files': ('d...6527414), ...} == {'manifest.js...641116192821)}
+E             
+E             Omitting 4 identical items, use -vv to show
+E             Left contains 1 more item:
+E             {'files': ('d', 448, None, None)}
+E             Use -v to get more diff
+
+tests/unit/test_retention_offload_r3.py:111: AssertionError
+____________ test_a_damaged_ownership_marker_fails_naming_the_file _____________
+[gw0] darwin -- Python 3.15.2 /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/uv-cache/builds-v0/.tmp44DqHh/bin/python
+
+archives = <tests.unit.test_retention_offload.Archives object at 0x108037cb0>
+env = Env(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-ao-fix3/bt/pytest-r3-mutant-224339/pop...rke0/env-0kd984wl/vol-a'), fstype='apfs', local=True, owners=True, readonly=False, free=1000000000000, encrypted=True))
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10883fbb0>
+capsys = <_pytest.capture.CaptureFixture object at 0x108dc17f0>
+
+    def test_a_damaged_ownership_marker_fails_naming_the_file(archives, env, monkeypatch, capsys):
+        from subfleet import cli
+        name = install(archives.build(RICH), env)
+        assert outcomes(offload(env)) == {name: "offloaded"}
+        outside = _outside(env, name)
+        (outside / rof.OWNER).write_text("{not json")
+        internal_before, external_before = tree_state(env.archive(name)), tree_state(outside)
+    
+        with pytest.raises(rof.Failed, match=r"\.owner\.json"):
+            rarch.check_archive(env.root, name)
+        report = rof.recall(env.root, name, drop_external=True)
+        assert outcomes(report) == {name: "failed"} and rof.OWNER in report["results"][0]["error"]
+        monkeypatch.setenv("SUBFLEET_HOME", str(env.root))
+        assert cli.main(["retention", "restore", name, "--check", "--json"]) == 1
+        assert cli.main(["retention", "recall", name]) == 1
+        output = capsys.readouterr()
+        assert rof.OWNER in output.out + output.err
+        assert tree_state(outside) == external_before
+>       assert tree_state(env.archive(name)) == internal_before
+E       AssertionError: assert {'files': ('d...4691976), ...} == {'manifest.js...641215161720)}
+E         
+E         Omitting 4 identical items, use -vv to show
+E         Left contains 1 more item:
+E         {'files': ('d', 448, None, None)}
+E         Use -v to get more diff
+
+tests/unit/test_retention_offload_r2.py:391: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_retention_offload_r3.py::test_an_offloaded_recall_with_the_volume_gone_changes_nothing
+FAILED tests/unit/test_retention_offload_r2.py::test_a_damaged_ownership_marker_fails_naming_the_file
+============================== 2 failed in 22.52s ==============================
+rc=1 end 22:44:07
+uptime-end: 23:44  up 4 days, 11:04, 1 user, load averages: 56.34 49.64 51.78
