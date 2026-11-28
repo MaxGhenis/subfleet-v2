@@ -5,12 +5,15 @@ totals marked cumulative are visible but never charged to their attempt.
 For every accepted usage record, 0 <= cache_read <= prompt and cache_write <=
 prompt; sums equal the per-attempt rows, and share is in [0, 1] or null. Share
 is taken over the attempts that report both prompt and cache_read.
-No backfill writes an evidence row, an artifact or any other store record.
+Backfill reads attempt files within the attempt's own state directory and
+writes no store records. Reports cover retained attempts and disclose
+retirements since the window start.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 from datetime import UTC, datetime, timedelta
@@ -143,7 +146,16 @@ def _backfill(attempt: dict, root: Path, artifacts: list[dict], *, deadline: flo
     `_OutOfTime` once `deadline` passes, while reading, while building the record,
     and between files."""
     from .usage import parse_usage
-    adir = root / "jobs" / attempt["job_id"] / f"a{attempt['seq']}"
+    relative = Path("jobs") / attempt["job_id"] / f"a{attempt['seq']}"
+    adir = root / relative
+    try:
+        resolved_root = root.resolve()
+        resolved_adir = Path(os.path.realpath(adir))
+    except (OSError, RuntimeError, ValueError):
+        return None
+    own_dir = resolved_root / relative
+    if not own_dir.is_relative_to(resolved_root / "jobs") or resolved_adir != own_dir:
+        return None
     paths = [Path(row["path"]) for role in ("raw-stream", "stdout") for row in artifacts
              if row.get("role") == role and row.get("path")]
     paths.extend((adir / "stream.jsonl", adir / "raw-stream", adir / "stdout"))
@@ -154,11 +166,16 @@ def _backfill(attempt: dict, root: Path, artifacts: list[dict], *, deadline: flo
                (isinstance(argv, list) and any(part in ("resume", "--resume") for part in argv)))
     seen: set[Path] = set()
     for path in paths:
-        if path in seen:
-            continue
-        seen.add(path)
         try:
+            resolved = Path(os.path.realpath(path))
+        except (OSError, ValueError):
+            continue
+        if not resolved.is_relative_to(own_dir) or resolved in seen:
+            continue
+        try:
+            # Keep the original spelling so open_state can refuse a final symlink.
             with open_state(path, "r", encoding="utf-8", errors="replace") as stream:
+                seen.add(resolved)
                 usage = parse_usage(stream, attempt["provider"], resumed=resumed, turn_id=turn.get("turn_id"),
                                     check=lambda: _out_of_time(deadline, clock_s))
         except OSError:
@@ -174,6 +191,7 @@ def build_report(store, root: Path, *, since: str = "24h", by: str = "lane", bac
     """C-18.6: finalized or live attempts in one window, never a store mutation.
 
     The attempt's finished clock (otherwise started/reserved clock) selects it.
+    Retention coverage describes the same snapshot as the selected attempts.
     Conversation groups include turn jobs only; session groups use provider and
     native session id, isolating an unbound attempt instead of merging strangers.
     """
@@ -186,11 +204,19 @@ def build_report(store, root: Path, *, since: str = "24h", by: str = "lane", bac
     now = (now or datetime.now(UTC)).astimezone(UTC)
     since_at = parse_since(since, now=now)
     clock = lambda value: value.isoformat(timespec="milliseconds").replace("+00:00", "Z")
-    rows = store.query(
-        "SELECT a.*, j.kind, l.provider FROM attempts a JOIN jobs j USING(job_id) JOIN lanes l USING(lane_id) "
-        "WHERE julianday(COALESCE(a.finished_at,a.started_at,a.reserved_at))>=julianday(?) "
-        "AND julianday(COALESCE(a.finished_at,a.started_at,a.reserved_at))<=julianday(?) "
-        "ORDER BY a.reserved_at,a.attempt_id", (clock(since_at), clock(now)))
+    window = clock(since_at), clock(now)
+    attempt_clock = "julianday(COALESCE(a.finished_at,a.started_at,a.reserved_at))"
+    # Read the attempts and their retention coverage from the same committed state.
+    with store.snapshot():
+        rows = store.query(
+            "SELECT a.*, j.kind, l.provider FROM attempts a JOIN jobs j USING(job_id) JOIN lanes l USING(lane_id) "
+            f"WHERE {attempt_clock} BETWEEN julianday(?) AND julianday(?) "
+            "ORDER BY a.reserved_at,a.attempt_id", window)
+        # MIN ignores attempt clocks SQLite cannot read.
+        coverage = store.one(
+            f"SELECT (SELECT strftime('%Y-%m-%dT%H:%M:%fZ', MIN({attempt_clock})) FROM attempts a) "
+            "AS oldest_retained_at, (SELECT COUNT(DISTINCT job_id) FROM events WHERE kind='retention.pruned' "
+            "AND julianday(ts) BETWEEN julianday(?) AND julianday(?)) AS jobs_retired", window)
     manifests: dict[str, dict] = {}
     attempts, grouped = [], {}
     unread = 0
@@ -233,6 +259,6 @@ def build_report(store, root: Path, *, since: str = "24h", by: str = "lane", bac
         attempts.append(attempt)
         grouped.setdefault(group_id, []).append(attempt)
     report = [{"group": group_id, **aggregate_usage(members)} for group_id, members in sorted(grouped.items())]
-    return {"since": clock(since_at), "until": clock(now), "by": by, "backfill": backfill,
+    return {"since": window[0], "until": window[1], "by": by, "backfill": backfill, **coverage,
             "backfill_unread": unread, "rows": report, "attempt_rows": attempts,
             "totals": aggregate_usage(attempts)}

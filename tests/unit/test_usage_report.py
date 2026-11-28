@@ -152,6 +152,35 @@ def test_c18_6_lane_window_filters_clock_and_tracks_old_attempts(usage_store, tm
     assert {row["job_id"] for row in report["attempt_rows"]} == {"measured", "missing"}
 
 
+def test_c18_6_the_report_counts_jobs_retired_in_the_window(usage_store, tmp_path):
+    now = datetime(2026, 10, 30, 12, tzinfo=UTC)
+    for day in range(1, 29):
+        at = (now - timedelta(days=day)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        _seed(usage_store, tmp_path, f"job-{day:02d}", usage=_usage(prompt=1000, cache_read=900), at=at)
+    before = build_report(usage_store, tmp_path, since="30d", now=now)
+
+    for day in range(9, 29):
+        job = f"job-{day:02d}"
+        with usage_store.transaction("retention.pruned", job_id=job) as conn:
+            attempts = "attempt_id IN (SELECT attempt_id FROM attempts WHERE job_id=?)"
+            conn.execute(f"DELETE FROM artifacts WHERE {attempts}", (job,))
+            conn.execute(f"DELETE FROM readings WHERE {attempts}", (job,))
+            for table in ("notices", "decisions", "attempts", "jobs"):
+                conn.execute(f"DELETE FROM {table} WHERE job_id=?", (job,))
+    # The store uses wall time for its transaction audit. Put those events in the synthetic window.
+    retired_at = (now - timedelta(days=1)).isoformat(timespec="seconds").replace("+00:00", "Z")
+    with usage_store.transaction() as conn:
+        conn.execute("UPDATE events SET ts=? WHERE kind='retention.pruned'", (retired_at,))
+    after = build_report(usage_store, tmp_path, since="30d", now=now)
+    assert before["totals"]["attempts"] == 28 and before["totals"]["prompt"] == 28_000
+    assert after["totals"]["attempts"] == 8 and after["totals"]["prompt"] == 8_000
+    assert before["since"] == after["since"]
+    assert before["jobs_retired"] == 0
+    assert after["jobs_retired"] == 20
+    assert before["oldest_retained_at"] == "2026-10-02T12:00:00.000Z"
+    assert after["oldest_retained_at"] == "2026-10-22T12:00:00.000Z"
+
+
 def test_c18_6_native_resume_sessions_and_turn_conversations_group_together(usage_store, tmp_path):
     """C-18.6: native ids group resume chains; conversation ids group only turn jobs."""
     _seed(usage_store, tmp_path, "dispatch", usage=_usage(), session="shared")
@@ -174,7 +203,8 @@ def test_c18_6_native_resume_sessions_and_turn_conversations_group_together(usag
 def test_c18_6_backfill_reads_retained_artifacts_and_does_not_write(usage_store, tmp_path):
     """C-18.6: artifact backfill uses the provider parser and labels rows without changing evidence or store."""
     aid = _seed(usage_store, tmp_path, "legacy")
-    path = tmp_path / "retained-stream"
+    path = tmp_path / "jobs" / "legacy" / "a1" / "stream.frozen-00000000000000000000000000000001.jsonl"
+    path.parent.mkdir(parents=True)
     data = json.dumps({"type": "turn.completed", "usage": {"input_tokens": 100, "cached_input_tokens": 80,
                                                           "output_tokens": 10}}).encode()
     path.write_bytes(data + b"\n")
@@ -206,6 +236,77 @@ def test_c18_6_backfill_ignores_fifo_and_symlink(usage_store, tmp_path):
     assert report["totals"]["attempts_without_usage"] == 1
 
 
+@pytest.fixture
+def backfill_paths(usage_store, tmp_path):
+    root = tmp_path / "root"
+    aid = _seed(usage_store, root, "legacy")
+    adir = root / "jobs" / "legacy" / "a1"
+    adir.mkdir(parents=True)
+    outside = tmp_path / "outside" / "stream.jsonl"
+    outside.parent.mkdir()
+    outside.write_text(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 777}}) + "\n")
+    return root, aid, adir, outside
+
+
+def _raw_stream_artifact(store, aid, path, data):
+    store.add_artifact(aid, "raw-stream", str(path), hashlib.sha256(data).hexdigest(), len(data))
+
+
+def _assert_backfill_missing(store, root):
+    before = store.connection.total_changes
+    report = build_report(store, root, backfill=True, now=NOW)
+    assert store.connection.total_changes == before
+    row, = report["attempt_rows"]
+    assert (row["source"], row["prompt"]) == ("missing", None)
+
+
+@pytest.mark.parametrize("location", ["absolute", "dotdot", "other-attempt"])
+def test_c18_6_backfill_reads_no_artifact_row_outside_the_attempt_folder(usage_store, backfill_paths, location):
+    root, aid, adir, outside = backfill_paths
+    data = outside.read_bytes()
+    if location == "absolute":
+        path = outside
+    elif location == "dotdot":
+        path = adir / ".." / ".." / ".." / ".." / "outside" / "stream.jsonl"
+    else:
+        _seed(usage_store, root, "other", at="2026-10-01T00:00:00Z")
+        path = root / "jobs" / "other" / "a1" / "stream.jsonl"
+        path.parent.mkdir(parents=True)
+        path.write_bytes(data)
+    _raw_stream_artifact(usage_store, aid, path, data)
+    _assert_backfill_missing(usage_store, root)
+
+
+@pytest.mark.parametrize("location", ["alias-inside", "attempt-folder-link"])
+def test_c18_6_backfill_follows_no_directory_link_out_of_the_attempt_folder(usage_store, backfill_paths, location):
+    root, aid, adir, outside = backfill_paths
+    if location == "alias-inside":
+        alias = adir / "alias"
+        alias.symlink_to(outside.parent, target_is_directory=True)
+        _raw_stream_artifact(usage_store, aid, alias / "stream.jsonl", outside.read_bytes())
+    else:
+        adir.rmdir()
+        adir.symlink_to(outside.parent, target_is_directory=True)
+    _assert_backfill_missing(usage_store, root)
+
+
+def test_c18_6_backfill_opens_no_last_part_link_outside_the_attempt_folder(usage_store, backfill_paths):
+    root, aid, adir, outside = backfill_paths
+    (adir / "stream.jsonl").symlink_to(outside)
+    link = adir / "raw-stream"
+    link.symlink_to(outside)
+    _raw_stream_artifact(usage_store, aid, link, outside.read_bytes())
+    _assert_backfill_missing(usage_store, root)
+
+
+def test_c18_6_backfill_opens_no_last_part_link_inside_the_attempt_folder(usage_store, backfill_paths):
+    root, _, adir, outside = backfill_paths
+    other = adir / "other.jsonl"
+    other.write_bytes(outside.read_bytes())
+    (adir / "stdout").symlink_to(other)
+    _assert_backfill_missing(usage_store, root)
+
+
 @pytest.mark.parametrize("by,backfill", [("wrong", False), ([], False), (None, False), ("lane", "yes")])
 def test_c18_6_daemon_arguments_are_validated(usage_store, tmp_path, by, backfill):
     """C-18.6: arbitrary socket callers cannot silently request an unsupported grouping or backfill flag."""
@@ -234,6 +335,38 @@ def test_c18_6_cli_human_labels_backfill_unknowns_and_cumulative(daemon, capsys)
     captured = capsys.readouterr()
     assert "backfilled" in captured.out and "cumulative thread total(s) excluded" in captured.out
     assert "?" in captured.out and "999" not in captured.out
+
+
+def test_c18_6_cli_says_when_retired_jobs_are_left_out(daemon, capsys):
+    since = "2026-10-03T00:00:00.000Z"
+    oldest = "2026-10-03T02:00:00.000Z"
+    totals = aggregate_usage([{"usage": _usage()}])
+    rows = [{"group": "codex-1", **totals}]
+    retired = {"jobs_retired": 3, "oldest_retained_at": oldest}
+    replies = iter([
+        {"since": since, "rows": rows, "totals": totals, **retired},
+        {"since": since, "rows": [], **retired},
+        {"since": since, "rows": [], "jobs_retired": 0, "oldest_retained_at": "2026-10-03T01:00:00.000+02:00"},
+        {"since": since, "rows": []},
+        {"rows": [], **retired},
+    ])
+    daemon({"usage": lambda request: next(replies), **CAPABLE})
+    lines = [
+        f"Retention retired 3 job(s) since {since}; their attempts are not counted.",
+        f"The oldest retained attempt is from {oldest}, after this window's start; earlier usage is not in the store.",
+    ]
+    for last_line in ("TOTAL", "No attempts in this usage window."):
+        assert cli.main(["usage", "--since", "24h"]) == 0
+        captured = capsys.readouterr()
+        actual = captured.out.splitlines()
+        assert actual[-len(lines):] == lines
+        assert actual[-len(lines) - 1].startswith(last_line)
+        assert captured.err == ""
+    for _ in range(3):
+        assert cli.main(["usage", "--since", "24h"]) == 0
+        captured = capsys.readouterr()
+        assert captured.out.splitlines() == ["No attempts in this usage window."]
+        assert captured.err == ""
 
 
 def test_c18_6_cli_rejects_bad_window_before_daemon(daemon, capsys):
@@ -295,7 +428,8 @@ def _legacy(usage_store, tmp_path, name, *, filler=0):
     """A finished attempt with no stored usage whose retained stream ends in a
     reported `turn.completed`, after `filler` ordinary events."""
     aid = _seed(usage_store, tmp_path, name)
-    path = tmp_path / f"{name}-stream"
+    path = tmp_path / "jobs" / name / "a1" / "stream.frozen-00000000000000000000000000000001.jsonl"
+    path.parent.mkdir(parents=True)
     event = json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": "x"}}).encode() + b"\n"
     path.write_bytes(event * filler + json.dumps({"type": "turn.completed", "usage": {
         "input_tokens": 100, "cached_input_tokens": 80, "output_tokens": 10}}).encode() + b"\n")

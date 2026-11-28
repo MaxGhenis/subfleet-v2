@@ -15,6 +15,140 @@ from test_daemon_settle import (ATTEMPT, EMPTY, JOB, StubAdapter, attempt,
 
 LINE = json.dumps({"type": "turn.completed", "usage": {
     "input_tokens": 100, "cached_input_tokens": 60, "output_tokens": 10}})
+NO_USAGE = '{"type":"turn.completed"}'
+
+
+def _usage_line(prompt):
+    return json.dumps({"type": "turn.completed", "usage": {
+        "input_tokens": prompt, "cached_input_tokens": 0, "output_tokens": 1}})
+
+
+def _finalize_with_frozen_stream(daemon, monkeypatch, *, stream=None, stdout=None, after_freeze=None):
+    with_launch(daemon, monkeypatch)
+    daemon._contain = lambda a: EMPTY
+    publish_receipt(daemon)
+    adir = attempt_dir(daemon.root, JOB, 1)
+    for name, line in (("stream.jsonl", stream), ("stdout", stdout)):
+        path = adir / name
+        if line is None:
+            path.unlink()
+        else:
+            path.write_text(line + "\n")
+    original_freeze = daemon._freeze_stream
+
+    def freeze(adir, launch):
+        copy = original_freeze(adir, launch)
+        if after_freeze is not None:
+            after_freeze(adir / "stdout")
+        return copy
+
+    monkeypatch.setattr(daemon, "_freeze_stream", freeze)
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")
+    daemon._finalize(attempt(daemon))
+    return (json.loads(attempt(daemon)["evidence_json"]),
+            json.loads((adir / "stream.freeze.json").read_text()))
+
+
+def test_c18_5_a_frozen_copy_with_usage_supplies_it(daemon, monkeypatch):
+    evidence, receipt = _finalize_with_frozen_stream(
+        daemon, monkeypatch, stream=_usage_line(111), stdout=_usage_line(222))
+    assert receipt["source"].endswith("stream.jsonl")
+    assert evidence["usage"]["normalized"]["prompt"] == 111
+
+
+def test_c18_5_a_frozen_copy_without_usage_reads_no_live_stdout(daemon, monkeypatch):
+    evidence, receipt = _finalize_with_frozen_stream(
+        daemon, monkeypatch, stream=NO_USAGE, stdout=_usage_line(222))
+    assert receipt["source"].endswith("stream.jsonl")
+    assert "usage" not in evidence
+
+
+def test_c18_5_stdout_written_after_the_freeze_is_not_read(daemon, monkeypatch):
+    def append_usage(stdout):
+        with stdout.open("a") as stream:
+            stream.write(_usage_line(333) + "\n")
+
+    evidence, receipt = _finalize_with_frozen_stream(
+        daemon, monkeypatch, stdout=NO_USAGE, after_freeze=append_usage)
+    assert receipt["source"].endswith("stdout")
+    assert "usage" not in evidence
+
+
+def test_c18_5_a_stdout_made_after_a_frozen_absence_is_not_read(daemon, monkeypatch):
+    evidence, receipt = _finalize_with_frozen_stream(
+        daemon, monkeypatch, after_freeze=lambda stdout: stdout.write_text(_usage_line(444) + "\n"))
+    assert receipt["events"] is False
+    assert "usage" not in evidence
+
+
+def test_c18_5_a_turn_reads_its_live_stdout(daemon, monkeypatch):
+    with_launch(daemon, monkeypatch)
+    daemon._contain = lambda a: EMPTY
+    publish_receipt(daemon)
+    adir = attempt_dir(daemon.root, JOB, 1)
+    (adir / "stdout").write_text(_usage_line(666) + "\n")
+    daemon.store.conn.execute("UPDATE jobs SET kind='turn' WHERE job_id=?", (JOB,))
+    daemon.conversations = SimpleNamespace(adapter=lambda provider: StubAdapter(),
+                                           release_socket=lambda aid: None)
+    daemon._turn_trees = lambda job, a: {}
+    daemon._finalize(attempt(daemon))
+    assert not list(adir.glob("stream.frozen-*.jsonl"))
+    assert json.loads(attempt(daemon)["evidence_json"])["usage"]["normalized"]["prompt"] == 666
+
+
+def _interrupt_after_verdict(daemon, monkeypatch, measured):
+    publish_receipt(daemon)
+
+    class InterruptedAdapter(StubAdapter):
+        def classify(self, adir, launch, exit_info):
+            return replace(super().classify(adir, launch, exit_info), usage=measured)
+
+        def deliverable(self, adir, launch, outcome):
+            raise RuntimeError("daemon stopped after the verdict was published")
+
+    monkeypatch.setattr(daemon_module, "get_adapter", lambda provider: InterruptedAdapter())
+    with pytest.raises(RuntimeError, match="stopped after the verdict was published"):
+        daemon._finalize(attempt(daemon))
+    assert attempt(daemon)["state"] == "finalizing"
+
+
+@pytest.mark.parametrize("site", ["verdict-measured", "verdict-unmeasured", "lost-capture-failure"])
+def test_c18_5_a_finalization_outcome_holds_only_release_217s_fields(daemon, monkeypatch, site):
+    with_launch(daemon, monkeypatch)
+    daemon._contain = lambda a: EMPTY
+    measured = parse_usage([LINE], "codex") if site == "verdict-measured" else None
+    if site == "lost-capture-failure":
+        def fail_freeze(*args):
+            raise OSError("capture I/O failed")
+
+        monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")
+        monkeypatch.setattr(daemon, "_freeze_stream", fail_freeze)
+        daemon._finalize(attempt(daemon))
+    else:
+        _interrupt_after_verdict(daemon, monkeypatch, measured)
+
+    adir = attempt_dir(daemon.root, JOB, 1)
+    record = json.loads((adir / "finalization.json").read_text())
+    # Release's Outcome fields at a4d21501e:subfleet/contracts.py:569-578.
+    assert set(record["outcome"]) <= {
+        "cls", "detail", "evidence", "readings", "closure",
+        "native_session_id", "transcript_path", "served_model",
+    }
+    if measured is not None:
+        assert record["usage"] == measured
+    else:
+        assert "usage" not in record
+
+
+def test_c18_5_a_replay_restores_usage_from_the_finalization_record(daemon, monkeypatch):
+    with_launch(daemon, monkeypatch)
+    daemon._contain = lambda a: EMPTY
+    measured = parse_usage([LINE], "codex")
+    _interrupt_after_verdict(daemon, monkeypatch, measured)
+
+    monkeypatch.setattr(daemon_module, "get_adapter", lambda provider: StubAdapter())
+    daemon._finalize(attempt(daemon))
+    assert json.loads(attempt(daemon)["evidence_json"])["usage"] == measured
 
 
 @pytest.mark.parametrize("kind", ["run", "turn"])
@@ -49,11 +183,11 @@ def test_c18_5_shared_finalization_stores_only_reported_usage(daemon, monkeypatc
 
 @pytest.mark.parametrize("lost", [False, True])
 def test_c18_5_finalization_reads_usage_even_without_a_new_receipt(daemon, monkeypatch, lost):
-    """C-18.5: lost guardians and old receipts cannot hide retained provider measurements."""
+    """C-18.5: the frozen stream supplies measurements with or without an exit receipt."""
     with_launch(daemon, monkeypatch)
     daemon._contain = lambda a: EMPTY
     adir = attempt_dir(daemon.root, JOB, 1)
-    (adir / "stdout").write_text(LINE + "\n")
+    (adir / "stream.jsonl").write_text(LINE + "\n")
     if not lost:
         publish_receipt(daemon)
     daemon._finalize(attempt(daemon))

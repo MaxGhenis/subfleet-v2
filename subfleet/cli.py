@@ -1675,24 +1675,38 @@ def cmd_usage(args: argparse.Namespace) -> int:
     rows = rows_of(result.get("rows"))
     if not rows:
         out("No attempts in this usage window.")
-        return int(Exit.OK)
-    labels = [str(row.get("group") or "?") for row in rows]
-    width = max(len(args.by), *(len(label) for label in labels), 5)
-    out(f"{args.by:<{width}}  attempts  missing       prompt   cache_read  cache_write       output   hit share  source")
-    for row in rows + [{"group": "TOTAL", **(result.get("totals") or {})}]:
-        number = lambda field: str(row[field]) if row.get(field) is not None else "?"
-        share = row.get("cache_hit_share")
-        source = "backfilled" if row.get("backfilled") else "stored" if row.get("attempts_with_usage") else "missing"
-        if row.get("cumulative_thread_attempts"):
-            source += f"; {row['cumulative_thread_attempts']} cumulative thread total(s) excluded"
-        out(f"{str(row.get('group') or '?'):<{width}}  {number('attempts'):>8}  "
-            f"{number('attempts_without_usage'):>7}  {number('prompt'):>11}  {number('cache_read'):>11}  "
-            f"{number('cache_write'):>11}  {number('output'):>11}  "
-            f"{f'{share:.1%}' if share is not None else '?':>10}  {source}")
-    unread = result.get("backfill_unread") or 0
-    if unread:
-        out(f"Backfill stopped at its {BACKFILL_BUDGET_S:g} s budget: {unread} attempt(s) without stored usage "
-            "were not read and count as missing. Narrow --since to read them.")
+    else:
+        labels = [str(row.get("group") or "?") for row in rows]
+        width = max(len(args.by), *(len(label) for label in labels), 5)
+        out(f"{args.by:<{width}}  attempts  missing       prompt   cache_read  cache_write       output   hit share  source")
+        for row in rows + [{"group": "TOTAL", **(result.get("totals") or {})}]:
+            number = lambda field: str(row[field]) if row.get(field) is not None else "?"
+            share = row.get("cache_hit_share")
+            source = "backfilled" if row.get("backfilled") else "stored" if row.get("attempts_with_usage") else "missing"
+            if row.get("cumulative_thread_attempts"):
+                source += f"; {row['cumulative_thread_attempts']} cumulative thread total(s) excluded"
+            out(f"{str(row.get('group') or '?'):<{width}}  {number('attempts'):>8}  "
+                f"{number('attempts_without_usage'):>7}  {number('prompt'):>11}  {number('cache_read'):>11}  "
+                f"{number('cache_write'):>11}  {number('output'):>11}  "
+                f"{f'{share:.1%}' if share is not None else '?':>10}  {source}")
+        unread = result.get("backfill_unread") or 0
+        if unread:
+            out(f"Backfill stopped at its {BACKFILL_BUDGET_S:g} s budget: {unread} attempt(s) without stored usage "
+                "were not read and count as missing. Narrow --since to read them.")
+    since = result.get("since")
+    jobs_retired = result.get("jobs_retired")
+    oldest = result.get("oldest_retained_at")
+    if isinstance(since, str) and since:
+        if type(jobs_retired) is int and jobs_retired > 0:
+            out(f"Retention retired {jobs_retired} job(s) since {since}; their attempts are not counted.")
+        if isinstance(oldest, str):
+            try:
+                after_start = render.instant(oldest) > render.instant(since)
+            except (ValueError, OverflowError):
+                after_start = False
+            if after_start:
+                out(f"The oldest retained attempt is from {oldest}, after this window's start; "
+                    "earlier usage is not in the store.")
     return int(Exit.OK)
 
 

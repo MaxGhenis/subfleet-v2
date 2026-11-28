@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from hypothesis import given, strategies as st
 
-from subfleet.scheduler import CACHE_TTL_S, cache_until, warm_reopen, warm_verdict
+from subfleet.scheduler import CACHE_TTL_S, cache_until, turn_route, warm_reopen, warm_verdict
 
 NOW = datetime(2026, 10, 4, 3, 0, tzinfo=timezone.utc)
 
@@ -188,3 +188,73 @@ def test_any_reason_without_an_end_leaves_the_reopen_unknown(ends, noise):
     reasons = [f"closed:{row['scope']}:{row['until_at']}" for row in rows]
     assert reopen(reasons, closures=rows) == iso(at(max(ends)))
     assert reopen([*reasons, noise], closures=rows) is None
+
+
+def test_c11_11_a_warm_lane_refused_under_an_earlier_model_keeps_its_refusal():
+    closure = limit(at(18))
+    reason = f"closed:account:{closure['until_at']}"
+    decision = {
+        "chosen_lane": "claude-9",
+        "chosen_model": "astra",
+        "evaluations": [
+            {
+                "model": "opus",
+                "model_id": "claude-opus-5-5",
+                "evaluated_at": iso(NOW),
+                "candidates": [],
+                "rejections": [{"lane_id": "claude-3", "reason": reason, "reasons": [reason]}],
+                "capacity_readings": [],
+                "closures": [closure],
+            },
+            {
+                "model": "astra",
+                "model_id": "astra-x",
+                "evaluated_at": iso(NOW),
+                "candidates": ["claude-9"],
+                "rejections": [],
+                "capacity_readings": [],
+                "closures": [],
+            },
+        ],
+    }
+    route = turn_route(decision, "claude-3", floor=.15, reading_ttl_s=900)
+    assert route["reasons"] == [reason]
+    assert route["reopens_at"] == iso(at(18))
+
+
+def test_c11_11_a_warm_lane_ranked_below_the_chosen_lane_reads_ranked_lower():
+    decision = {
+        "chosen_lane": "claude-9",
+        "chosen_model": "opus",
+        "evaluations": [{
+            "model": "opus",
+            "model_id": "claude-opus-5-5",
+            "evaluated_at": iso(NOW),
+            "candidates": ["claude-9", "claude-3"],
+            "rejections": [],
+            "capacity_readings": [],
+            "closures": [],
+        }],
+    }
+    route = turn_route(decision, "claude-3", floor=.15, reading_ttl_s=900)
+    assert route["reasons"] == ["ranked-lower"]
+    assert route["reopens_at"] is None
+
+
+def test_c11_11_a_warm_lane_no_evaluation_recorded_reads_not_walked():
+    decision = {
+        "chosen_lane": "claude-9",
+        "chosen_model": "opus",
+        "evaluations": [{
+            "model": "opus",
+            "model_id": "claude-opus-5-5",
+            "evaluated_at": iso(NOW),
+            "candidates": ["claude-9"],
+            "rejections": [],
+            "capacity_readings": [],
+            "closures": [],
+        }],
+    }
+    route = turn_route(decision, "claude-3", floor=.15, reading_ttl_s=900)
+    assert route["reasons"] == ["not-walked"]
+    assert route["reopens_at"] is None

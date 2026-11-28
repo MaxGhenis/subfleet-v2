@@ -19,7 +19,12 @@ def t(s):
 
 
 def stream_usage(path):
-    """First/last main-thread request usage and the result usage, or None."""
+    """First and last main-thread request usage and the last result with usage, or None.
+
+    The replay treats missing request counters as zero, and missing result input
+    or creation as zero when summing results with reported cache reads. C-18.5's
+    parse_usage sums disjoint result segments and preserves missing counters.
+    """
     try:
         f = open(path, errors="replace")
     except OSError:

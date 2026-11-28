@@ -12105,6 +12105,20 @@ class Daemon:
         return {"role": role, "path": str(path), **digest}
 
     @staticmethod
+    def _finalization_record(outcome: Outcome, attest: AttestationResult, stream: str | None,
+                             stream_failure: dict | None) -> dict:
+        outcome_data = dataclasses.asdict(outcome)
+        # Older daemons pass these outcome fields directly to Outcome.
+        usage = outcome_data.pop("usage")
+        result = {"outcome": outcome_data, "attestation": dataclasses.asdict(attest),
+                  "rule": FINALIZATION_RULE, "stream": stream}
+        if usage is not None:
+            result["usage"] = usage
+        if stream_failure:
+            result["stream_capture"] = {**stream_failure, "class": outcome.cls.value}
+        return result
+
+    @staticmethod
     def _restore_outcome(data: dict) -> Outcome:
         data = dict(data)
         data["cls"] = OutcomeClass(data["cls"])
@@ -12252,13 +12266,12 @@ class Daemon:
             attest_status, served_model = "unattested", None
             if stream_failure:
                 if result is None:
-                    result = {"outcome": dataclasses.asdict(outcome),
-                              "attestation": dataclasses.asdict(AttestationResult(
-                                  Attestation.UNATTESTED, None, "provider stream unreadable")),
-                              "rule": FINALIZATION_RULE, "stream": None,
-                              "stream_capture": {**stream_failure, "class": outcome.cls.value}}
+                    attest = AttestationResult(Attestation.UNATTESTED, None, "provider stream unreadable")
+                    result = self._finalization_record(outcome, attest, None, stream_failure)
                     self._publish("finalization", result_path, json_bytes(result))
                 outcome = self._restore_outcome(result["outcome"])
+                if "usage" in result:
+                    outcome = dataclasses.replace(outcome, usage=result.get("usage"))
         else:
             if result is None:
                 if stream_failure:
@@ -12277,39 +12290,36 @@ class Daemon:
                     if exit_info.spawn_error:
                         outcome = dataclasses.replace(outcome, detail=exit_info.spawn_error)
                     attest = adapter.attest(adir, launch, outcome, a["model_requested"])
-                result = {"outcome": dataclasses.asdict(outcome), "attestation": dataclasses.asdict(attest),
-                          "rule": FINALIZATION_RULE, "stream": stream_token}
-                if stream_failure:
-                    result["stream_capture"] = {**stream_failure, "class": outcome.cls.value}
+                result = self._finalization_record(outcome, attest, stream_token, stream_failure)
                 self._publish("finalization", result_path, json_bytes(result))
             # A replay of this daemon's own verdict must reach its first pass's
             # class (C-4.3): a transient attempt whose salvage timed out (C-13.1)
             # is finalized again and still retries.
             older_verdict = result.get("rule") != FINALIZATION_RULE
             outcome = self._restore_outcome(result["outcome"])
+            if "usage" in result:
+                outcome = dataclasses.replace(outcome, usage=result.get("usage"))
             attest_status = Attestation(result["attestation"]["status"]).value
             served_model = result["attestation"]["served_model"]
         if outcome.usage is None and not stream_failure:
-            # C-18.5: a lost guardian or an older finalization receipt can
-            # still leave measured usage. Read after containment, outside SQL;
-            # use the same parser as classification and read-only backfill.
-            # A failed capture reads no live candidate again (stream_failure,
-            # above), so neither does this.
+            # C-18.5: read missing usage after containment, outside SQL.
+            # The frozen copy is authoritative even when capture froze absence.
+            # Turns have no frozen copy and read their own stdout.
             from .usage import parse_usage
-            turn = self._read_json(adir / "turn.json") if job["kind"] == "turn" else None
-            for path in dict.fromkeys((launch.raw_stream_path, launch.stdout_path)):
-                if not path:
-                    continue
+            is_turn = job["kind"] == "turn"
+            path = launch.stdout_path if is_turn else launch.raw_stream_path
+            if path:
+                turn = self._read_json(adir / "turn.json") if is_turn else None
                 try:
                     with open_regular(path, "r", encoding="utf-8", errors="replace") as stream:
                         usage = parse_usage(stream, lane.provider,
                                             resumed="resume" in launch.argv or "--resume" in launch.argv,
                                             turn_id=(turn or {}).get("turn_id"))
                 except (OSError, NotRegularFile):
-                    continue
-                if usage is not None:
-                    outcome = dataclasses.replace(outcome, usage=usage)
-                    break
+                    pass
+                else:
+                    if usage is not None:
+                        outcome = dataclasses.replace(outcome, usage=usage)
 
         def artifact(path: Path, role: str) -> dict | None:
             try:

@@ -1385,33 +1385,49 @@ def turn_route(decision: Decision | Mapping[str, Any], affinity_lane: str | None
 
     None when the turn has no affinity lane, no lane was chosen, or it runs on
     its affinity lane. Otherwise the move: `from` (the warm lane), `to`, the warm
-    lane's `reasons` as the decision recorded them, `reopens_at` (`warm_reopen`;
-    None when not refused only by limits, or not walked), `cache_until` (the
+    lane's `reasons`, `reopens_at` (`warm_reopen` for the selected refusal, if
+    known), `cache_until` (the
     previous turn's last use plus its measured cache lifetime; None unmeasured),
     `context_tokens` (the previous turn's last request, as measured; None
     unmeasured), and `cold`: True when the cache was still alive at the decision
     (staying would have read it), False when it had expired (the move cost
     nothing more), None when the lifetime is unknown. A turn never waits for
-    this (C-26.2): the record only says what happened."""
+    this (C-26.2). Reasons come from the chosen model's refusal first, then
+    `ranked-lower` for a candidate under that model, then the first refusal in
+    evaluation order. With none of those, the reason is `not-walked`."""
     value = _row(decision)
     chosen = value.get("chosen_lane")
     if not affinity_lane or not chosen or chosen == affinity_lane:
         return None
-    evaluation = next((row for row in value.get("evaluations", ()) if row.get("model") == value.get("chosen_model")),
-                      None) or {}
+    evaluations = value.get("evaluations", ())
+    evaluation = next((row for row in evaluations if row.get("model") == value.get("chosen_model")), {})
     rejection = next((row for row in evaluation.get("rejections", ()) if row.get("lane_id") == affinity_lane), None)
+    rejection_evaluation = evaluation
+    reasons = ["not-walked"]
+    if rejection is None:
+        if affinity_lane in evaluation.get("candidates", ()):
+            reasons = ["ranked-lower"]
+        else:
+            rejection_evaluation, rejection = next(
+                ((row, item) for row in evaluations for item in row.get("rejections", ())
+                 if item.get("lane_id") == affinity_lane),
+                ({}, None),
+            )
     now = _time(evaluation.get("evaluated_at")) if evaluation.get("evaluated_at") else None
-    reasons = list((rejection or {}).get("reasons") or ([rejection["reason"]] if rejection else []))
     reopens = None
-    if rejection and now is not None:
-        reopens = warm_reopen(reasons, [row for row in evaluation.get("capacity_readings", ())
-                                        if row.get("lane_id") == affinity_lane
-                                        and row.get("scope") in ("account", evaluation.get("model_id"))],
-                              [row for row in evaluation.get("closures", ()) if row.get("lane_id") == affinity_lane],
-                              now=now, floor=floor, reading_ttl_s=reading_ttl_s)
+    if rejection is not None:
+        reasons = list(rejection.get("reasons") or [rejection["reason"]])
+        if rejected_at := rejection_evaluation.get("evaluated_at"):
+            reopens = warm_reopen(
+                reasons,
+                [row for row in rejection_evaluation.get("capacity_readings", ())
+                 if row.get("lane_id") == affinity_lane
+                 and row.get("scope") in ("account", rejection_evaluation.get("model_id"))],
+                [row for row in rejection_evaluation.get("closures", ()) if row.get("lane_id") == affinity_lane],
+                now=_time(rejected_at), floor=floor, reading_ttl_s=reading_ttl_s)
     until = cache_until(last_use, cache_ttl)
     cold = None if until is None or now is None else _time(until) > now
-    return {"from": affinity_lane, "to": chosen, "reasons": reasons if rejection else ["not-walked"],
+    return {"from": affinity_lane, "to": chosen, "reasons": reasons,
             "reopens_at": reopens, "cache_until": until, "context_tokens": context_tokens, "cold": cold,
             "decided_at": _iso(now) if now is not None else None}
 
