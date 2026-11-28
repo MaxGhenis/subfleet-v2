@@ -2971,9 +2971,12 @@ def _body_reaches(text: str, at: int, floor: int, ends: set[int], prefixes: _Pre
 def _data_uri_run_ons(text: str, spans: list[tuple[int, int, int]], layers: list[list[tuple[int, int, int]]],
                       runs: list[tuple[int, int, int]], removals: dict[int, int], kept: list[tuple[int, int]],
                       reader: _SplitReader) -> list[tuple[int, int]]:
-    """What the whole-text scrub's data URIs hide and release's text shows where a data URI's body
-    runs on past a reminder in one text and not in the other, in `text`'s positions (review r1 of
-    #331, P0-5; review r2 of #331). `spans` are release's reminder blocks in `text`, `layers` its
+    """At least what the whole-text scrub's data URIs hide and release's text shows where a data
+    URI's body runs on past a reminder in one text and not in the other, in `text`'s positions
+    (review r1 of #331, P0-5; review r2 of #331). A run of body characters that starts at an earlier
+    removed block's end, or is longer than a window, counts as a body even with no data URI before
+    it, so the masks can also cover text the whole-text scrub shows (review r3 of #331, P1); they
+    only add to the other masks. `spans` are release's reminder blocks in `text`, `layers` its
     private key and data URI blocks in the texts they read, `runs` each reminder block the
     whole-text scrub may remove (where it opens, the end of release's reminder it opens in, where it
     ends), `removals` the same by where each opens, and `kept` each release reminder whose opener the
@@ -3105,9 +3108,11 @@ def _split_masks(text: str, strip_reminders: bool, tally: _Tally) -> tuple[str, 
     the quoted values a block splits still hold (`_data_uri_splits`, `_closer_splits`), each
     block rule read over the text it is given, as `_resolve_blocks` gives it; with reminders
     stripped, also each private key release's removal of reminders changes, as the whole-text
-    scrub resolves it (`_erased_keys`, issue #325 and review r1 of #331), and what the whole-text
-    scrub's data URIs hide and release's text shows where a data URI's body runs on past a reminder
-    in one text and not in the other, down a chain of data URIs (`_data_uri_run_ons`, review r2)."""
+    scrub resolves it (`_erased_keys`, issue #325 and review r1 of #331), and at least what the
+    whole-text scrub's data URIs hide and release's text shows where a data URI's body runs on past
+    a reminder in one text and not in the other, down a chain of data URIs (`_data_uri_run_ons`,
+    review r2; a run of body characters after a removed block's end counts even with no data URI
+    before it, review r3)."""
     reader = _SplitReader()
     masks: list[tuple[int, int]] = []
     erased: tuple[str, list[tuple[int, int, int]], list, list[tuple[int, int]]] | None = None
