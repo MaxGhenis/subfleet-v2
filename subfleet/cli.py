@@ -1486,6 +1486,17 @@ def _retired_note(retired: set[str]) -> str:
             f"removed from the store while this wait ran: {names}")
 
 
+def _note_retired_before_error(retired: set[str], exc: Exception) -> None:
+    """C-15.9: a wait that ends on a daemon, transport or protocol error still says which
+    retired jobs it skipped, before the error's own line; the exit code stays the error's
+    (review r1 of #287, P2). A job the error itself calls unknown is left out: the daemon
+    named it a second time, so the first refusal was not its retirement either."""
+    named = _unknown_job(exc)
+    skipped = retired - {named} if named is not None else retired
+    if skipped:
+        note(_retired_note(skipped))
+
+
 def _wait_summary(job: dict[str, Any]) -> str:
     row = job_row(job)
     state = str(row["state"] or "unknown").upper()
@@ -1637,10 +1648,13 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
                     pause = min(pause, max(0.0, timeout - (time.monotonic() - started)))
                 time.sleep(pause)
     except DaemonUnavailable as exc:
+        _note_retired_before_error(retired, exc)
         return _daemon_down(exc)
     except DaemonError as exc:
+        _note_retired_before_error(retired, exc)
         return _daemon_error(exc)
     except ProtocolError as exc:
+        _note_retired_before_error(retired, exc)
         return _protocol_failure(exc)
 
     worst = int(Exit.OK)

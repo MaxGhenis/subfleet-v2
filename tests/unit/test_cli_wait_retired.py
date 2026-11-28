@@ -20,8 +20,9 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from subfleet import cli, protocol
-from subfleet.client import DaemonError
+from subfleet.client import DaemonError, DaemonUnavailable
 from subfleet.contracts import Exit
+from subfleet.protocol import ProtocolError
 
 OLD = "20261006-004417-pr127-review-r6"
 LIVE = "20261102-115300-live-review"
@@ -110,8 +111,76 @@ def test_c15_9_the_same_unknown_job_twice_is_not_a_retirement(daemon, session, c
     handler, polls = refusing(5, Exit.INVALID_INPUT, f"unknown job {OLD}")
     daemon({"wait": handler})
     assert run_cli(["wait", "--mine"]) == 2
-    assert f"unknown job {OLD}" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert f"unknown job {OLD}" in err
+    assert not skipped_lines(err), "the second refusal shows the first was no retirement"
     assert len(polls) == 2
+
+
+class Scripted:
+    """A client that plays its steps in order: a dict is a poll's answer, an exception is raised."""
+
+    def __init__(self, *steps):
+        self.steps = list(steps)
+
+    def call(self, op, args, timeout=None, retry_busy=True):
+        assert op == "wait" and self.steps, "the CLI kept polling"
+        step = self.steps.pop(0)
+        if isinstance(step, BaseException):
+            raise step
+        return step
+
+
+@pytest.fixture
+def scripted_cli(monkeypatch, session):
+    """`cli.main` against a `Scripted` client (no socket), with the CLI's backoff pauses skipped."""
+    holder: dict = {}
+    monkeypatch.setattr(cli, "_client", lambda args, timeout=None: holder["client"])
+    monkeypatch.setattr(cli, "time", types.SimpleNamespace(monotonic=cli.time.monotonic, time=cli.time.time,
+                                                           sleep=lambda seconds: None))
+    return holder
+
+
+SKIPS = {"retired-field": lambda: {"timeout": True, "retired": [OLD]},
+         "older-daemon": lambda: DaemonError(int(Exit.INVALID_INPUT), f"unknown job {OLD}")}
+ENDINGS = {"daemon-error": (lambda: DaemonError(int(Exit.OPERATIONAL), "store read failed"),
+                            int(Exit.OPERATIONAL), "subfleet: store read failed"),
+           "daemon-gone": (lambda: DaemonUnavailable("daemon not running"),
+                           int(Exit.DAEMON_UNAVAILABLE), "subfleet: daemon not running"),
+           "protocol": (lambda: ProtocolError("malformed answer", Exit.OPERATIONAL),
+                        int(Exit.OPERATIONAL), "subfleet: malformed answer")}
+
+
+@pytest.mark.parametrize("ending", sorted(ENDINGS))
+@pytest.mark.parametrize("skip", sorted(SKIPS))
+def test_c15_9_an_error_exit_still_says_what_it_skipped(scripted_cli, capsys, skip, ending):
+    """C-15.9, C-17.4 (review r1 of #287, P2) a wait that skipped a retired job and then ends on
+    an error keeps the error's exit code and stdout's form, and still prints the skipped line,
+    before the error's own line."""
+    make_error, code, line = ENDINGS[ending]
+    scripted_cli["client"] = Scripted(SKIPS[skip](), make_error())
+    assert run_cli(["wait", "--mine", "--json"]) == code
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    err = captured.err.splitlines()
+    (skipped,) = skipped_lines(captured.err)
+    assert skipped.endswith(OLD)
+    assert line in err and err.index(skipped) < err.index(line)
+
+
+def test_c15_9_an_error_exit_leaves_out_the_job_it_refuses(scripted_cli, capsys):
+    """C-15.9 a job refused as unknown twice was never retired, so the error exit's line leaves
+    it out and still names the jobs the wait did skip."""
+    other = "20261006-004418-pr127-review-r7"
+
+    def unknown():
+        return DaemonError(int(Exit.INVALID_INPUT), f"unknown job {OLD}")
+    scripted_cli["client"] = Scripted({"timeout": True, "retired": [other]}, unknown(), unknown())
+    assert run_cli(["wait", "--mine"]) == 2
+    err = capsys.readouterr().err
+    (skipped,) = skipped_lines(err)
+    assert skipped.startswith("subfleet wait: skipped 1 retired job,") and skipped.endswith(other)
+    assert f"subfleet: unknown job {OLD}" in err.splitlines()
 
 
 @pytest.mark.parametrize("message", ["unknown job", "unknown job two words", f"unknown job {OLD} "])
