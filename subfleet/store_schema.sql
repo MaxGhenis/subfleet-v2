@@ -1,4 +1,4 @@
--- subfleet v2 store schema, version 10 (a job's requested provider QoS).
+-- subfleet v2 store schema, version 12 (adopted remote jobs).
 -- See docs/acceptance-contract.md section 3.
 -- Applied by subfleet/store.py with journal_mode=WAL, synchronous=FULL, foreign_keys=ON.
 -- Version 2 (C-3.1, additive and numbered) adds identity, label, and
@@ -67,6 +67,23 @@ CREATE TABLE IF NOT EXISTS closures (
   released_at TEXT
 );
 CREATE INDEX IF NOT EXISTS closures_active ON closures(lane_id, scope, until_at) WHERE released_at IS NULL;
+
+-- C-17.10: cloud records have no local jobs, attempts or leases.
+CREATE TABLE IF NOT EXISTS remote_jobs (
+  remote_id TEXT PRIMARY KEY NOT NULL,
+  provider TEXT NOT NULL CHECK (provider IN ('claude-cloud','codex-cloud')),
+  provider_ref TEXT NOT NULL,
+  url TEXT NOT NULL,
+  repo TEXT,
+  branch TEXT,
+  name TEXT,
+  account TEXT CHECK (instr(account, '@') = 0),
+  state TEXT NOT NULL CHECK (state IN ('queued','running','waiting','succeeded','failed','cancelled','lost')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  last_polled_at TEXT,
+  UNIQUE (provider, provider_ref)
+);
 
 -- C-4.1, C-6, C-7
 CREATE TABLE IF NOT EXISTS jobs (

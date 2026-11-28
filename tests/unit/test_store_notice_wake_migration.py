@@ -35,7 +35,7 @@ def old_store(path: Path) -> Path:
 
 
 def test_d_wake_caller1_notice_delivery_is_a_numbered_additive_migration(tmp_path):
-    assert _migration_adding("wake_state") == NOTICE_WAKE_MIGRATION == SCHEMA_VERSION
+    assert _migration_adding("wake_state") == NOTICE_WAKE_MIGRATION <= SCHEMA_VERSION
     path = old_store(tmp_path / "old.sqlite3")
     with sqlite3.connect(path) as conn:
         before = conn.execute("SELECT * FROM notices ORDER BY notice_id").fetchall()
@@ -55,7 +55,7 @@ def test_d_wake_caller1_notice_delivery_is_a_numbered_additive_migration(tmp_pat
                                        (None, None), (None, None))]
         assert store.query("SELECT * FROM caller_wake_sessions") == []
         assert store.query("SELECT version FROM schema_version ORDER BY version") == [
-            {"version": NOTICE_WAKE_MIGRATION - 1}, {"version": NOTICE_WAKE_MIGRATION}]
+            {"version": version} for version in range(NOTICE_WAKE_MIGRATION - 1, SCHEMA_VERSION + 1)]
 
 
 def test_d_wake_caller1_reopening_preserves_retry_delivery_and_activity_records(tmp_path):
@@ -69,13 +69,14 @@ def test_d_wake_caller1_reopening_preserves_retry_delivery_and_activity_records(
         notices = store.query("SELECT * FROM notices ORDER BY notice_id")
         sessions = store.query("SELECT * FROM caller_wake_sessions")
         versions = store.query("SELECT * FROM schema_version ORDER BY version")
-        migrated = store.query("SELECT * FROM events WHERE kind='schema.migrated'")
+        migrated = store.query("SELECT * FROM events WHERE kind='schema.migrated' ORDER BY event_id")
     with Store(path) as store:
         assert store.query("SELECT * FROM notices ORDER BY notice_id") == notices
         assert store.query("SELECT * FROM caller_wake_sessions") == sessions
         assert store.query("SELECT * FROM schema_version ORDER BY version") == versions
-        assert store.query("SELECT * FROM events WHERE kind='schema.migrated'") == migrated
-        assert len(migrated) == 1
+        assert store.query("SELECT * FROM events WHERE kind='schema.migrated' ORDER BY event_id") == migrated
+        assert [row["data_json"] for row in migrated] == [
+            f'{{"version":{version}}}' for version in range(NOTICE_WAKE_MIGRATION, SCHEMA_VERSION + 1)]
 
 
 def test_d_wake_caller1_fresh_and_migrated_stores_have_the_same_delivery_schema(tmp_path):

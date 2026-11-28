@@ -4407,6 +4407,14 @@ class Daemon:
             return retention_delete.handle(self._retention_delete,
                                            protocol.coerce_args(protocol.RetentionDeleteArgs, args),
                                            dormant=os.environ.get(RETENTION_DORMANT_ENV) == "1")
+        if op == "remote.adopt":
+            from . import remote_jobs
+            return remote_jobs.adopt(self.store, protocol.coerce_args(protocol.RemoteAdoptArgs, args))
+        if op == "remote.forget":
+            from . import remote_jobs
+            return remote_jobs.forget(self.store, protocol.coerce_args(protocol.RemoteForgetArgs, args))
+        if op == "remote.list":
+            return {"remote_jobs": self.store.list_remote_jobs()}
         if op in ("gate.start", "gate.poll", "gate.continue"):
             from .gate.service import dispatch
             return dispatch(self, op, args)
@@ -4621,6 +4629,7 @@ class Daemon:
         if op == "daemon.status":
             # D-STATUS-SRC1: each closure says what it is (`kind`) and, for a hold, why (`note`).
             view = closure_rows(self._capacity_view(self._desktop_identity()))
+            remote = self.store.list_remote_jobs()
             view["disk"] = self._disk_status()
             from .store import RESTRICTED_RUNS_SQL, restricted_window
             view["restricted_runs_24h"] = [row["job_id"] for row in self.store.query(
@@ -4643,7 +4652,8 @@ class Daemon:
                     "environment": environment_report(references=self._lane_credential_references()),
                     "descriptors": self._descriptor_status(),       # C-16.6, C-16.7
                     "read_pool": self.store.read_pool(),             # C-3.7
-                    "wait_hub": self.wait_hub.status()}              # C-15.5
+                    "wait_hub": self.wait_hub.status(),             # C-15.5
+                    **({"remote_jobs": remote} if remote else {})}
         raise protocol.request_error("unknown-op")
 
     def _machine_signals_enabled(self) -> bool:

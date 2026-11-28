@@ -37,14 +37,17 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .contracts import Closure, Credential, Decision, IdentityStatus, Lane, LaneOwner, Reading
+from . import ids
+from .contracts import Closure, Credential, Decision, IdentityStatus, JobState, Lane, LaneOwner, Reading
 from .lockwatch import WatchedLock, thread_name
 
 SHELL_REQUIREMENT_MIGRATION = 8
 LAUNCH_CAPABILITY_MIGRATION = 9
 PROVIDER_QOS_MIGRATION = 10
 NOTICE_WAKE_MIGRATION = 11
-SCHEMA_VERSION = NOTICE_WAKE_MIGRATION
+REMOTE_JOBS_MIGRATION = 12
+SCHEMA_VERSION = REMOTE_JOBS_MIGRATION
+REMOTE_JOBS_SQL = "SELECT * FROM remote_jobs ORDER BY created_at DESC, remote_id DESC"
 #: C-15.9: `wake_reason` of a notice already unread when the store migrated.
 NOTICE_WAKE_PREDATES = "before-migration"
 #: C-12.4: jobs whose attempts in the last 24 h had no shell or no writes. A
@@ -147,6 +150,17 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         "CREATE TABLE IF NOT EXISTS caller_wake_sessions ("
         "session_id TEXT PRIMARY KEY, active_at REAL NOT NULL DEFAULT 0, source TEXT, "
         "wake_streak INTEGER NOT NULL DEFAULT 0, last_wake_at REAL)",
+    ),
+    # C-17.10: adopted cloud work has no relation to local jobs or attempts.
+    REMOTE_JOBS_MIGRATION: (
+        "CREATE TABLE IF NOT EXISTS remote_jobs ("
+        "remote_id TEXT PRIMARY KEY NOT NULL, "
+        "provider TEXT NOT NULL CHECK (provider IN ('claude-cloud','codex-cloud')), "
+        "provider_ref TEXT NOT NULL, url TEXT NOT NULL, repo TEXT, branch TEXT, name TEXT, "
+        "account TEXT CHECK (instr(account, '@') = 0), "
+        "state TEXT NOT NULL CHECK (state IN ('queued','running','waiting','succeeded','failed','cancelled','lost')), "
+        "created_at TEXT NOT NULL, updated_at TEXT NOT NULL, last_polled_at TEXT, "
+        "UNIQUE (provider, provider_ref))",
     ),
 }
 
@@ -1026,6 +1040,41 @@ class Store:
 
     def update_job(self, job_id: str, **values: Any) -> None:
         self._update("jobs", "job_id", job_id, values)
+
+    def list_remote_jobs(self) -> list[Row]:
+        return self.query(REMOTE_JOBS_SQL)
+
+    def adopt_remote_job(self, *, provider: str, provider_ref: str, url: str, repo: str | None,
+                         branch: str | None, name: str | None, account: str | None) -> Row | None:
+        with self.transaction("remote.adopted") as conn:
+            if self.one("SELECT remote_id FROM remote_jobs WHERE provider=? AND provider_ref=?",
+                        (provider, provider_ref)):
+                return None
+            remote_id = ids.job_id(name or provider, existing={
+                row["remote_id"] for row in self.query("SELECT remote_id FROM remote_jobs")
+            })
+            stamp = utc_now()
+            event = {"remote_id": remote_id, "provider": provider, "provider_ref": provider_ref}
+            row = {**event, "url": url, "repo": repo, "branch": branch, "name": name, "account": account,
+                   "state": JobState.RUNNING.value, "created_at": stamp, "updated_at": stamp,
+                   "last_polled_at": None}
+            conn.execute(
+                "INSERT INTO remote_jobs (remote_id, provider, provider_ref, url, repo, branch, name, account, "
+                "state, created_at, updated_at, last_polled_at) "
+                "VALUES (:remote_id, :provider, :provider_ref, :url, :repo, :branch, :name, :account, "
+                ":state, :created_at, :updated_at, :last_polled_at)", row)
+            self.audit_as("remote.adopted", event)
+            return row
+
+    def forget_remote_job(self, remote_id: str) -> bool:
+        with self.transaction("remote.forgotten") as conn:
+            row = self.one("SELECT remote_id, provider, provider_ref FROM remote_jobs WHERE remote_id=?",
+                           (remote_id,))
+            if row is None:
+                return False
+            conn.execute("DELETE FROM remote_jobs WHERE remote_id=?", (remote_id,))
+            self.audit_as("remote.forgotten", row)
+            return True
 
     def add_attempt(self, values: Mapping[str, Any] | None = None, **fields: Any) -> str:
         data = {"state": "reserved", "reserved_at": utc_now(), **(values or {}), **fields}

@@ -71,6 +71,14 @@ CLAUDE_REFUSAL_CAUSES = (
 
 # reason -> (message, fix), the most specific form. `{name}` is a checked value.
 HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
+    # Remote records.
+    "remote-url": ("remote adopt: expected a Claude Code cloud session or Codex cloud task URL", None),
+    "remote-account": ("remote adopt: --account must be a label without an email address", None),
+    "remote-repo": ("remote adopt: --repo must be OWNER/NAME", None),
+    "remote-metadata": ("remote adopt: metadata must be printable, at most 512 characters per field, "
+                        "and free of email addresses and credentials", None),
+    "remote-duplicate": ("remote adopt: remote job is already adopted", "see subfleet remote list"),
+    "remote-unknown": ("remote forget: unknown remote job", "see subfleet remote list"),
     # Jobs, requests and lists.
     "unknown-job": ("unknown job {job_id}", None),
     "different-payload": ("request id already used with a different payload by job {job_id}", None),
