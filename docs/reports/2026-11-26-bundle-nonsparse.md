@@ -352,3 +352,18 @@ Round 1's list of other stale sentences, above, still applies.
 - Two extra runs (probe-base, probe-head) loaded a rollback-recording pytest plugin from the scratch folder. probe-base briefly replaced `subfleet/retention_git.py` with the base's bytes from `git show 944a68b27:subfleet/retention_git.py`, then restored it (clean `git diff`, same SHA-256).
 - Two tests go beyond the brief's list: `test_guarded_anchor_bundle_omits_admin_objects_in_prerequisite`, a walk discriminator under the guard, and `test_the_guard_allowlist_names_no_hardening_key`. The rewritten guard test wraps `Popen` with a recorder rather than failing it, so it can read the admitted pair back and show no launch for the refused key.
 - Small mutation and probe scripts ran with the system `python3`; they edit or read only files in the worktree.
+- Disk churn was not measured. An estimate goes above the brief's guide of about 1 GB: the hub's full-set basetemp at the base was 279,912 KiB, the set ran about twice here, and the other runs' basetemps totalled about 110 MB. That gives roughly 1.3 GB written plus deleted. Measured at cleanup, the largest basetemp was 21,292 KiB. Peaks during a run were not measured.
+
+### Cleanup
+
+Every run reported 0 skipped and 0 deselected.
+
+Inside the worktree, the job created and deleted `build/sf-bsp-fix2/`, which held:
+- `runtime/`, the `TMPDIR`. It held the 14 `pytest-*` basetemps, each removed after its run by a guarded `shutil.rmtree` after owner modes were restored inside it (one folder each in full-rest and full-rest2). It also held what tests made through `TMPDIR`: `retention-salvage-hwwcwzf5` (888 KiB), six `sf-test-homes-*` folders (8 KiB each) and a uv lock file.
+- `logs/` (96 KiB), `probe/` (4 KiB), `hypothesis/` (472 KiB), the run, cleanup, mutation and probe scripts, a saved copy of `retention_git.py`, and the two listings.
+
+The folder was 1,596 KiB when it was removed, by a guarded `shutil.rmtree` that checked its realpath was inside the worktree and its last part was `sf-bsp-fix2`. The job then removed the empty `build/`, and `subfleet/__pycache__/__init__.cpython-315.pyc` with its folder. The first import check wrote that file at 06:02:40Z, before `PYTHONDONTWRITEBYTECODE` was set. `git status --porcelain --ignored --untracked-files=all` is now empty.
+
+Outside the worktree, the job's commands created nothing. The Bash tool wrote its own four task-output files (16 KiB) under `/private/tmp/claude-501/-Users-maxghenis--subfleet-worktrees-20261128-010135-bsp-fix-r2/`, and they were left in place.
+
+The `/private/tmp/sf-*` listing at 06:14:28Z had 34 entries. At 07:41Z, `sf-8qhn530s` and `sf-cutover-property-e1ifqzmn` were gone, and `sf-e2e-fq2jsz2z`, `sf-e2e-oodcxoy0`, `sf-e2e-px3ttr8i` and `sf-e2e-v2n62y3o` were new. Within a minute, those four had given way to other `sf-e2e-*` names, created at 07:41Z. `tests/e2e/conftest.py:372` makes `sf-e2e-*` roots. This job never ran an e2e test, and its last run ended at 07:35:30Z, so they belong to another lane and were left in place. `/private/tmp/sf-failed` was empty both times.
