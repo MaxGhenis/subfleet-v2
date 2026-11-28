@@ -2064,7 +2064,7 @@
   "acceptance_owner": "unit",
   "v2_module": "subfleet/sessions/mirror.py",
   "test_name": "test_mirror_heartbeat_reads_per_pass_sidecar_with_thirty_minute_cutoff",
-  "notes": "2026-08-19 07:08: a quiet log produced a false \"stalled\"; an 8.5-minute pass was observed 2026-08-18. GAP, milestone 6. 2026-09-24: health is not reach. The app reads a session folder only when it loads it, so C-23.28 also requires the 2 s hot pass and the load-gap report (tests/unit/test_sessions_mirror_load_gap.py). 2026-09-25: the flag protocol is specified (docs/formal/MirrorFlags.tla), model-checked over every reachable state (tests/unit/test_mirror_flags_model.py), and the mirror is held to the model on random interleavings (tests/unit/test_mirror_flags_stateful.py)."
+  "notes": "2026-08-19 07:08: a quiet log produced a false \"stalled\"; an 8.5-minute pass was observed 2026-08-18. GAP, milestone 6. 2026-09-24: health is not reach. The app reads a session folder only when it loads it, so C-23.28 also requires the 2 s hot pass and the load-gap report (tests/unit/test_sessions_mirror_load_gap.py). 2026-09-25: the flag protocol is specified (docs/formal/MirrorFlags.tla), model-checked over every reachable state (tests/unit/test_mirror_flags_model.py), and the mirror is held to the model on random interleavings (tests/unit/test_mirror_flags_stateful.py). 2026-10-10: the flag publish also raises a copy's `lastActivityAt` when it trails its session's newest by more than `sessions.mirror_activity_lag_s`, and a full pass reports session ids that open two conversations (docs/formal/MirrorActivity.tla, tests/unit/test_mirror_activity_model.py, tests/unit/test_mirror_activity_stateful.py, tests/unit/test_sessions_mirror_activity.py)."
  },
  {
   "id": 160,
