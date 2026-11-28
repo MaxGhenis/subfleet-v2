@@ -172,6 +172,9 @@ def test_daemon_reads_the_token_immediately_after_accept(tmp_path, monkeypatch):
     daemon.stopping = threading.Event()
     daemon._control = lambda: None
     daemon.lock_watch = SimpleNamespace(start=lambda: None)
+    # C-4.7: serve_forever starts the stop mark's thread, which stamps daemon.lock once
+    # `stopping` is set. What __init__ sets for it; this core holds no daemon.lock.
+    daemon._lock_writes, daemon._stopping_at, daemon._lock_released = threading.Lock(), None, True
     daemon.close = lambda: daemon._control_thread.join(5)
     def hold(connection, peer):
         events.append("hold")

@@ -52,6 +52,13 @@ class FakeAdapter(Adapter):
                 except ValueError:
                     pass
             offset += len(line)
+        # `by_attempt` maps an attempt's seq to the settings that attempt runs
+        # with, so one job can fail, be cut off and succeed in turn (C-4.7).
+        by_attempt = settings.get("by_attempt")
+        if isinstance(by_attempt, dict):
+            chosen = by_attempt.get(attempt_id.rpartition("/a")[2])
+            if isinstance(chosen, dict):
+                settings = {**settings, **chosen}
         env_add = {**credential_env, "SUBFLEET_LANE": lane.lane_id,
                    "SUBFLEET_FAKE_STREAM": str(attempt_dir / "stream.jsonl")}
         for key, variable in (("scenario", "SUBFLEET_FAKE_SCENARIO"),

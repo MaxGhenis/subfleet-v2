@@ -45,7 +45,7 @@ if TYPE_CHECKING:
     from .conversations.turn import Frame
 
 from . import __version__
-from . import capacity, dependencies, descriptors, disk, folders, host_push, ids, lanes_transfer, machine, procs, protocol, ramp, render, route_check, scheduler
+from . import capacity, dependencies, descriptors, disk, folders, host_push, host_shutdown, ids, lanes_transfer, machine, procs, protocol, ramp, render, route_check, scheduler
 from . import daemon_log, refusals, resource_leases, task_holds
 from .actions import demand_verdict
 from . import attempt_tmp
@@ -53,6 +53,7 @@ from .attempt_tmp import AttemptTemp, env_value, probe_tmpdir_rows
 from .conversations.store import canonical_native, native_any_case
 from .conversations.peers import peer_token
 from .adapters import claude_mcp
+from .boot_identity import session_uuid
 from .descriptors import busy_answer, send_reply  # noqa: F401 - busy_answer: the tests' busy line
 from .adapters.base import AdapterError, open_stream
 from .adapters.registry import get_adapter
@@ -691,6 +692,24 @@ def _unrun_scope(job: dict) -> bool:
             and job["push_branch"] is None and job["kind"] != "turn")
 
 
+def _lock_record(fd: int) -> dict | None:
+    """C-4.7: what `daemon.lock` says before this daemon writes it, which is the last
+    daemon's record, or None when it holds none."""
+    try:
+        record = json.loads(os.pread(fd, 1 << 16, 0).decode() or "null")
+    except (OSError, ValueError):
+        return None
+    return record if isinstance(record, dict) else None
+
+
+def _boot_at() -> str | None:
+    """C-4.7: when this boot began (`kern.boottime`), or None when it cannot be read."""
+    try:
+        return host_shutdown.boot_stamp(procs.boot_time())
+    except procs.InspectionError:
+        return None
+
+
 def _later(stamp: str, seconds: float) -> str:
     """`stamp` plus `seconds`, retaining fractional precision (C-11.8, C-9.5)."""
     return (datetime.fromisoformat(stamp.replace("Z", "+00:00")) + timedelta(seconds=seconds)).isoformat().replace("+00:00", "Z")
@@ -898,6 +917,7 @@ class Daemon:
                  inspect_interval_s: float = INSPECT_INTERVAL_S,
                  guardian_start_delay_s: float = 0,
                  stop_grace_s: float = STOP_GRACE_S,
+                 signal_hold_s: float = host_shutdown.SAME_BOOT_HOLD_S,
                  crash_hook: Callable[[str, str, str | None], None] | None = None,
                  publish_hook: Callable[[str, Path], None] | None = None,
                  desktop_prober: Callable[[], Any] | None = None,
@@ -930,6 +950,12 @@ class Daemon:
         # `close()` calls first, on its own thread, to start that bound. Only
         # `main` sets it: a daemon built in a test process ends nothing.
         self.stop_grace_s = stop_grace_s
+        # C-4.7: how long finalization holds, in its own boot, an attempt a signal
+        # from outside Subfleet ended (the fake daemon shortens it, as its graces).
+        if not 0 <= signal_hold_s < host_shutdown.BEFORE_STOP_S:
+            raise ValueError(f"signal_hold_s must be under {host_shutdown.BEFORE_STOP_S} s: an attempt held "
+                             "and then left to the next boot must fit the stop's window (C-4.7)")
+        self.signal_hold_s = signal_hold_s
         self.on_stop: Callable[[], bool | None] | None = None
         self.crash_hook, self.publish_hook = crash_hook, publish_hook
         # C-12.4, #221 review r2 P3-7: publish-hook self-tests that denied, for
@@ -1012,6 +1038,8 @@ class Daemon:
             os.close(self._lock_fd)
             raise DaemonUnavailable("another daemon holds daemon.lock") from None
         self._lock_finalizer = weakref.finalize(self, os.close, self._lock_fd)
+        # C-4.7: the last daemon's record, read before this one replaces it.
+        previous = _lock_record(self._lock_fd)
         # C-8.5, review r4 P3-2: no live daemon can be using an intake now that
         # this startup owns daemon.lock. Remove crash leftovers before the
         # first admission pass or any worker or push thread can create one.
@@ -1025,6 +1053,18 @@ class Daemon:
             self._lock_finalizer()
             raise
         self._ident = ident
+        # C-4.7: the last daemon of the boot before this one (that record, or the one
+        # a daemon that started since carried forward), when this boot began, and
+        # when this daemon began to stop. All three ride in `daemon.lock`.
+        self._previous_boot = host_shutdown.previous_boot(previous, ident["boot_id"])
+        self._boot_at = _boot_at()
+        self._stopping_at: str | None = None
+        self._lock_stack_dumps = False
+        # The stop's mark and close() can both write daemon.lock; one at a time,
+        # and none once close() has let the descriptor go (its number may be
+        # another file's by then).
+        self._lock_writes = threading.Lock()
+        self._lock_released = False
         self.log = logging.getLogger(f"subfleet.daemon.{id(self)}")
         # A daemon collected with its close cut short left its handler on this
         # logger, whose `id()`-based name this one now has: its lines would go to
@@ -1067,6 +1107,7 @@ class Daemon:
                                                          references=self._withheld_references)
         # C-3.7: reads outside a transaction take a read connection, not the store lock.
         self.store = Store(self.root / "state.sqlite3", readers=READ_CONNECTIONS)
+        self._record_start()                                    # C-4.7
         self.store.watch_admission(self._wake_admission)
         # C-8.7 (d2660): the operator's delete path; its request and journals
         # are read back here, and it steps on the retention worker.
@@ -2985,13 +3026,18 @@ class Daemon:
         lane_of = {a["lane_id"]: scheduler.current_lane_id(roster, a["lane_id"], follow=follow) for a in previous}
         exclusions = tuple(dict.fromkeys(lane for a in previous if a["outcome_class"] == "limited"
                                          for lane in (a["lane_id"], lane_of[a["lane_id"]])))
+        # C-4.7: a host shutdown is no lane's transient, so it neither pins the
+        # retry to its lane nor counts toward excluding it.
         transient: dict[str, int] = {}
         for a in previous:
-            if a["outcome_class"] == "transient":
+            if a["outcome_class"] == "transient" and host_shutdown.marked(a) is None:
                 transient[lane_of[a["lane_id"]]] = transient.get(lane_of[a["lane_id"]], 0) + 1
         exclusions += tuple(dict.fromkeys(lane for a in previous if transient.get(lane_of[a["lane_id"]], 0) >= 2
                                           for lane in (a["lane_id"], lane_of[a["lane_id"]])))
-        last = previous[-1] if previous else None
+        # C-4.7: transparent to the pin as well. A same-lane retry the host's
+        # shutdown cut off is still owed, and one never started is not used up.
+        ordinary = [a for a in previous if host_shutdown.marked(a) is None]
+        last = ordinary[-1] if ordinary else None
         pin = ({**job, "pinned_lane": last["lane_id"], "pinned_model": last["model_requested"]}
                if last and last["outcome_class"] == "transient" and transient[lane_of[last["lane_id"]]] == 1
                and not _capacity_steer_of(last["evidence_json"]) and self._retry_pair_routable(last) else None)
@@ -3045,13 +3091,15 @@ class Daemon:
         """C-4.5: the job's earlier transient attempts on this attempt's lane.
 
         A lane and its re-enrolled successor are one lane here (C-11.2), so a
-        retry that followed a re-enrolment is not a first transient again.
+        retry that followed a re-enrolment is not a first transient again. A host
+        shutdown is no lane's transient (C-4.7).
         """
         roster = self._pin_roster()
         here = scheduler.current_lane_id(roster, attempt["lane_id"])
-        return sum(1 for (lane_id,) in conn.execute(
-            "SELECT lane_id FROM attempts WHERE job_id=? AND outcome_class='transient' AND attempt_id!=?",
-            (job_id, attempt["attempt_id"])) if scheduler.current_lane_id(roster, lane_id) == here)
+        return sum(1 for (lane_id, evidence) in conn.execute(
+            "SELECT lane_id,evidence_json FROM attempts WHERE job_id=? AND outcome_class='transient' AND attempt_id!=?",
+            (job_id, attempt["attempt_id"]))
+            if host_shutdown.marked(evidence) is None and scheduler.current_lane_id(roster, lane_id) == here)
 
     def _retry_pair_routable(self, attempt: dict) -> bool:
         """C-4.5, C-6.12: could a transient attempt's lane and model be tried once more at all?
@@ -5601,7 +5649,16 @@ class Daemon:
                                "ORDER BY event_id LIMIT 1", (row["job_id"],)).fetchone()
         notice_job = {**dict(row), "attempt": dict(latest) if latest else None,
                       "uncommitted": json.loads(submitted[0] or "{}").get("uncommitted") if submitted else None}
-        text = render.notice_text(notice_job, self.root, summary + self._moved_on(tx, row["job_id"]))
+        lines = summary + self._moved_on(tx, row["job_id"])
+        if not again:
+            # C-4.7, C-15.1: so nobody reads a host shutdown as the work's failure.
+            shutdowns = host_shutdown.notice_line(
+                [dict(attempt) for attempt in tx.execute(
+                    "SELECT seq,evidence_json FROM attempts WHERE job_id=? ORDER BY seq", (row["job_id"],))],
+                job.get("max_attempts"))
+            if shutdowns:
+                lines += "\n" + shutdowns
+        text = render.notice_text(notice_job, self.root, lines)
         tx.execute("INSERT INTO notices(job_id,session_id,text,state,created_at) VALUES(?,?,?,'pending',?)",
                    (row["job_id"], row["caller_session"], text, utcnow()))
         # C-11.8: a pin notice nobody was shown says the job waits and how to fix it;
@@ -12140,6 +12197,29 @@ class Daemon:
                                          "clock_source": ClockSource(closure["clock_source"])})
         return Outcome(**data)
 
+    def _host_shutdown(self, job: dict, attempt: dict, receipt: dict | None) -> dict | None:
+        """C-4.7: the evidence that the host's shutdown ended this attempt, or None.
+
+        The current boot and when it began are this daemon's own, read at its start,
+        since a daemon never outlives its boot. The stop time is that of the last
+        daemon of the attempt's boot, which `daemon.lock` carried to this one, and
+        only when the attempt ran in that boot."""
+        previous = self._previous_boot or {}
+        ours = session_uuid(str(attempt.get("boot_id") or ""))
+        stopping = (previous.get("stopping_at")
+                    if ours and session_uuid(str(previous.get("boot_id") or "")) == ours else None)
+        return host_shutdown.verdict(kind=job["kind"], killed_by=self._killed_by(attempt),
+                                     attempt_boot=attempt.get("boot_id"), current_boot=self._ident["boot_id"],
+                                     boot_at=self._boot_at, receipt=receipt, daemon_stopping_at=stopping)
+
+    def _killed_by(self, attempt: dict) -> str | None:
+        """Who signalled the attempt: the row's `killed_by`, or else an offline
+        `subfleet kill` by the marker it left (C-17.5, C-4.7)."""
+        if attempt.get("killed_by"):
+            return attempt["killed_by"]
+        marker = self._read_json(attempt_dir(self.root, attempt["job_id"], attempt["seq"]) / host_shutdown.KILL_MARKER)
+        return "offline-kill" if marker else None
+
     def _freeze_stream(self, adir: Path, launch: Launch) -> Path:
         """C-4.3/C-9.2: copy once; replay the recorded daemon-owned inode."""
         return freeze_stream(adir, launch, self._publish, self.publish_hook, open_stream)
@@ -12155,6 +12235,16 @@ class Daemon:
             return
         adir = attempt_dir(self.root, a["job_id"], a["seq"])
         adir.mkdir(mode=0o700, exist_ok=True)
+        if not job["cancel_requested_at"] and not (adir / "finalization.json").exists() and host_shutdown.held_in_boot(
+                kind=job["kind"], killed_by=self._killed_by(actual), attempt_boot=actual.get("boot_id"),
+                current_boot=self._ident["boot_id"], receipt=self._read_json(adir / "exit.json"),
+                now=datetime.now(timezone.utc), stopping=self.stopping.is_set(), hold_s=self.signal_hold_s):
+            # C-4.7: a signal from outside Subfleet may be the host going down
+            # before it has stopped this daemon, and an attempt judged in the boot
+            # it ended in is never a host shutdown. It waits, before any census,
+            # and a stopping daemon leaves it to the next boot. A cancelled job
+            # is never retried, whatever ended its attempt, so it does not wait.
+            return
         if census is None:
             began = time.monotonic()
             census = self._contain(a)
@@ -12270,6 +12360,7 @@ class Daemon:
             actual = self.store.get_attempt(a["attempt_id"])
             job = self._job(a["job_id"])
         older_verdict = False
+        shutdown = None
         if lost:
             outcome = Outcome(OutcomeClass.UNKNOWN, "guardian lost without exit receipt" if receipt is None
                               else "guardian exit receipt has no return code",
@@ -12302,8 +12393,12 @@ class Daemon:
                     if exit_info.spawn_error:
                         outcome = dataclasses.replace(outcome, detail=exit_info.spawn_error)
                     attest = adapter.attest(adir, launch, outcome, a["model_requested"])
+                # C-4.7: the host-shutdown verdict is pinned beside the adapter's,
+                # since it rests on this boot and on what daemon.lock said at this
+                # daemon's start, which a replay after another restart would not see.
                 result = {"outcome": dataclasses.asdict(outcome), "attestation": dataclasses.asdict(attest),
-                          "rule": FINALIZATION_RULE, "stream": stream_token}
+                          "rule": FINALIZATION_RULE, "stream": stream_token,
+                          host_shutdown.EVIDENCE_KEY: self._host_shutdown(job, actual, receipt)}
                 if stream_failure:
                     result["stream_capture"] = {**stream_failure, "class": outcome.cls.value}
                 self._publish("finalization", result_path, json_bytes(result))
@@ -12314,6 +12409,9 @@ class Daemon:
             outcome = self._restore_outcome(result["outcome"])
             attest_status = Attestation(result["attestation"]["status"]).value
             served_model = result["attestation"]["served_model"]
+            # A receipt finalized before C-4.7 has no pinned verdict: judged now.
+            shutdown = (result[host_shutdown.EVIDENCE_KEY] if host_shutdown.EVIDENCE_KEY in result
+                        else self._host_shutdown(job, actual, receipt))
 
         def artifact(path: Path, role: str) -> dict | None:
             try:
@@ -12375,6 +12473,15 @@ class Daemon:
                                               detail="Codex exited before its turn completed")
         if outcome.cls == OutcomeClass.OK and job["kind"] != "turn" and not nonblank_deliverable:
             outcome = dataclasses.replace(outcome, cls=OutcomeClass.UNKNOWN, detail="empty deliverable with rc 0")
+        if shutdown is not None:
+            # C-4.7: the host's shutdown ended it, whatever the adapter made of the
+            # provider's last words (on 2026-09-30 one was `limited` and two were
+            # `transient` from the agent's own prose). Never `killed_by` (the rule
+            # requires it null), never rc 0, so neither override above applies;
+            # a transient writes no closure (C-9.5), and the readings stand. The
+            # detail says whether it is charged, which the transaction decides.
+            outcome = dataclasses.replace(outcome, cls=OutcomeClass.TRANSIENT,
+                                          detail=host_shutdown.detail(shutdown), closure=None)
         if not lost and self._answered(outcome, provider_verdict["class"]):
             # C-6.14: before the attempt leaves flight, so a pilot that answered and
             # ended at once frees its lane rather than handing the hold to another.
@@ -12419,6 +12526,7 @@ class Daemon:
                 self._supersede_wall_cancel(actual, receipt)
                 job = self._job(a["job_id"])
                 actual = self.store.get_attempt(a["attempt_id"])
+            killed = self._killed_by(actual)   # C-17.5: an offline kill's marker too
             turn_exit_proven = (job["kind"] == "turn" and actual.get("killed_by")
                                 and self._receipt_precedes_signal(actual, receipt or {}))
             if actual.get("killed_by") and (stopped_ok and not turn_exit_proven or actual["killed_by"] == "max_wall_s"):
@@ -12437,6 +12545,10 @@ class Daemon:
                     outcome, cls=OutcomeClass.UNKNOWN,
                     detail=f"stopped by {actual['killed_by']}: exit {rc} after the daemon's signal "
                            f"is not a finished deliverable")
+            elif killed and stopped_ok and job["kind"] != "turn":
+                outcome = dataclasses.replace(
+                    outcome, cls=OutcomeClass.UNKNOWN,
+                    detail=f"stopped by {killed}: exit {rc} after the operator's offline kill is not a finished deliverable")
             request = self._cancel_info(job["job_id"]) or {}
             if actual.get("killed_by") == "max_wall_s" and request.get("parent_job_id"):
                 outcome = dataclasses.replace(outcome, detail=f"stopped by max_wall_s from parent {request['parent_job_id']}: {outcome.detail}")
@@ -12459,10 +12571,21 @@ class Daemon:
             # another is itself the common factor. It ends, and this lane stays
             # enabled for the next attempt there to judge.
             again = not lost and outcome.cls == OutcomeClass.AUTH_DEAD and moved > 0
-            retry = (not cancel and (fault is not None or self._attempts_left(tx, job, a) and
-                     ((lost and job["sandbox"] == "read-only") or
-                      (outcome.cls == OutcomeClass.LIMITED and not job["pinned_lane"]) or
-                      (outcome.cls == OutcomeClass.TRANSIENT and not (job["pinned_lane"] and previous_transient)))))
+            earlier = tx.execute("SELECT seq,evidence_json FROM attempts WHERE job_id=? AND seq<?",
+                                 (job["job_id"], a["seq"])).fetchall()
+            if shutdown is not None and host_shutdown.charged_now(earlier):
+                # C-4.7: past `RETRIES` uncharged host shutdowns, one is charged.
+                shutdown = {**shutdown, "charged": True}
+                outcome = dataclasses.replace(outcome, detail=host_shutdown.detail(shutdown))
+            # C-4.5, C-4.7: a lane fault moves on; a host shutdown is retried uncharged for the
+            # job's first `RETRIES`, and charged after them while attempts are left, whatever its class.
+            retry = (not cancel and (fault is not None or
+                     (shutdown is not None and not shutdown.get("charged")) or
+                     self._attempts_left(tx, job, a) and (
+                         shutdown is not None or
+                         (lost and job["sandbox"] == "read-only") or
+                         (outcome.cls == OutcomeClass.LIMITED and not job["pinned_lane"]) or
+                         (outcome.cls == OutcomeClass.TRANSIENT and not (job["pinned_lane"] and previous_transient)))))
             attempt_state = "interrupted" if cancel else "lost" if lost else "succeeded" if ok else "failed"
             job_state = "cancelled" if cancel else "waiting" if retry else "lost" if lost else "succeeded" if ok else "failed"
             accepted = a["attempt_id"] if ok and not cancel else None
@@ -12479,8 +12602,13 @@ class Daemon:
             if trees is not None:
                 evidence["turn_trees"] = {k: trees.get(k) for k in ("head_before", "head_after", "start_tree",
                                                                      "end_tree", "skipped", "error")}
-            if provider_verdict["class"] != outcome.cls.value:
-                evidence["provider_verdict"] = {**provider_verdict, "killed_by": actual.get("killed_by")}
+            if shutdown is not None:
+                evidence[host_shutdown.EVIDENCE_KEY] = shutdown
+            offline_kill = self._read_json(adir / host_shutdown.KILL_MARKER)
+            if offline_kill:
+                evidence["offline_kill"] = offline_kill       # C-17.5: who signalled it, with no daemon up
+            if provider_verdict["class"] != outcome.cls.value or shutdown is not None:
+                evidence["provider_verdict"] = {**provider_verdict, "killed_by": killed}
             if fault is not None:
                 evidence["lane_fault"] = fault
             if again:
@@ -12500,7 +12628,7 @@ class Daemon:
             # attempt, so a task hold keeps exactly it, not the exit plus 60 s (C-11.10, review r3
             # of #260, R3-2).
             next_check = after(TRANSIENT_RETRY_DELAY_S if outcome.cls == OutcomeClass.TRANSIENT and not steered
-                               else 0) if retry else None
+                               and shutdown is None else 0) if retry else None
             if retry and outcome.cls == OutcomeClass.TRANSIENT and not steered:
                 evidence["retry_due_at"] = next_check
             tx.execute("UPDATE attempts SET state=?,rc=?,outcome_class=?,outcome_detail=?,evidence_json=?,attestation=?,model_served=?,native_session_id=COALESCE(?,native_session_id),transcript_path=?,finished_at=? WHERE attempt_id=?",
@@ -12637,10 +12765,14 @@ class Daemon:
             (job_id, before)) if _lane_fault_of(data))
 
     def _attempts_left(self, conn, job: dict, a: dict) -> bool:
-        """C-4.5: may the job have an attempt after `a`, which is no lane fault?
+        """C-4.5, C-4.7: may the job have an attempt after `a`, which is no lane fault?
         `max_attempts` counts every attempt but the one lane fault a job may have
-        had before it: that attempt ran nothing (a writable job's), or only read."""
-        return a["seq"] - self._uncharged(conn, job["job_id"], before=a["seq"]) < job["max_attempts"]
+        had before it (that attempt ran nothing, a writable job's, or only read)
+        and its uncharged host shutdowns (`host_shutdown.exempt`)."""
+        free = sum(1 for (data,) in conn.execute(
+            "SELECT evidence_json FROM attempts WHERE job_id=? AND seq<?", (job["job_id"], a["seq"]))
+            if host_shutdown.exempt(data))
+        return a["seq"] - self._uncharged(conn, job["job_id"], before=a["seq"]) - free < job["max_attempts"]
 
     @staticmethod
     def _moved_on(conn, job_id: str) -> str:
@@ -13177,6 +13309,9 @@ class Daemon:
         self._socket.settimeout(.2)
         self._control_thread = threading.Thread(target=self._control, name="subfleet-control", daemon=True)
         self._control_thread.start()
+        # C-4.7: the stop is stamped in daemon.lock as soon as it begins, not when
+        # the accept loop next looks (or never, for a main thread C-5.8a ends).
+        threading.Thread(target=self._watch_stopping, name="subfleet-stop-mark", daemon=True).start()
         self.lock_watch.start()
         failures, failing_since = 0, 0.0
         try:
@@ -13227,13 +13362,65 @@ class Daemon:
         finally:
             self.close()
 
+    def _watch_stopping(self) -> None:
+        """C-4.7: stamp `stopping_at` once `stopping` is set. The stop was armed
+        before the event was set (C-5.8a), so its bound holds whatever this does."""
+        self.stopping.wait()
+        self._mark_stopping()
+
     def _write_lock(self, *, stack_dumps: bool) -> None:
         """Write this daemon's identity to `daemon.lock` (C-5.3), and whether
-        SIGUSR1 dumps its stacks now (C-3.6). Only `daemon stacks` reads the flag."""
-        record = {**self._ident, **({"stack_dumps": True} if stack_dumps else {})}
+        SIGUSR1 dumps its stacks now (C-3.6). Only `daemon stacks` reads the flag.
+
+        C-4.7: it also carries the last daemon of the previous boot forward, and
+        says when this daemon began to stop once it has."""
+        with self._lock_writes:
+            self._lock_stack_dumps = stack_dumps
+            self._write_lock_held()
+
+    def _write_lock_held(self) -> None:
+        """`_write_lock`'s write, for a caller that holds `_lock_writes`."""
+        if self._lock_released:
+            return
+        record = {**self._ident, **({"stack_dumps": True} if self._lock_stack_dumps else {})}
+        if self._previous_boot:
+            record[host_shutdown.PREVIOUS_BOOT_KEY] = self._previous_boot
+        if self._stopping_at:
+            record["stopping_at"] = self._stopping_at
         os.ftruncate(self._lock_fd, 0)
         os.pwrite(self._lock_fd, json_bytes(record), 0)
         os.fsync(self._lock_fd)
+
+    def _record_start(self) -> None:
+        """C-4.7: one `daemon.started` event per start, naming this boot, when it began,
+        and the last daemon of the boot before it as `daemon.lock` told this daemon.
+        A host-shutdown attempt's evidence cites the same facts; this event keeps
+        them for whoever asks later why the daemon judged so. Advisory: a store
+        that refuses it costs that record, never the start."""
+        data = {"pid": self._ident["pid"], "boot_id": self._ident["boot_id"], "boot_at": self._boot_at,
+                "version": __version__, "previous_boot": self._previous_boot}
+        try:
+            self.store.add_event("daemon.started", data=data)
+        except sqlite3.Error as exc:
+            self.log.warning("daemon.started was not recorded: %s", type(exc).__name__)
+
+    def _mark_stopping(self) -> None:
+        """C-4.7: `daemon.lock` says when this daemon began to stop, so the first daemon
+        of the next boot can tell a provider that ended as the host went down from
+        one that ended while this daemon still watched it. A truncate, a write and
+        an fsync of the descriptor held open since the start; it never waits on the
+        store. The first call stamps; a later one (close() after the stop's own
+        thread, `_watch_stopping`) changes nothing. The stamp and its write are
+        one hold of the lock, so the write carries the `stack_dumps` flag of that
+        moment and lands before `close()` can release the file."""
+        try:
+            with self._lock_writes:
+                if self._stopping_at:
+                    return
+                self._stopping_at = utcnow()
+                self._write_lock_held()
+        except OSError as exc:
+            self.log.warning("daemon.lock could not record the stop: %s", exc)
 
     def _enable_stack_dumps(self) -> bool:
         """C-3.6: SIGUSR1 writes every thread's Python stack to daemon.log.
@@ -13379,6 +13566,7 @@ class Daemon:
         store_close_by = time.monotonic() + STORE_CLOSE_WAIT_S
         self.conversations.begin_close()
         self.lock_watch.begin_stop()
+        self._mark_stopping()
         self.stopping.set()
         self.timers.cancel.set()
         self._notify()
@@ -13420,8 +13608,10 @@ class Daemon:
         (self.root / "daemon.sock").unlink(missing_ok=True)
         # While the lock is still this daemon's: the flag goes, then the handler.
         self._disable_stack_dumps()
-        fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
-        self._lock_finalizer()
+        with self._lock_writes:
+            self._lock_released = True          # C-4.7: the stop's mark writes nothing after this
+            fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
+            self._lock_finalizer()
         self.log.removeHandler(self._log_handler)
         if self._may_close_log():
             self._log_handler.stream.close()   # else faulthandler may hold it, or a hand-off pick it

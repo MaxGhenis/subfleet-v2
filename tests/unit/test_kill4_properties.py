@@ -89,6 +89,7 @@ def build_core(root: Path) -> Daemon:
     core._record_identity = lambda *args: None
     core._export = lambda job_id: None
     core.timers = SimpleNamespace(record_auth_dead=lambda *args: None, metadata={})
+    core._ident, core._boot_at, core._previous_boot, core.signal_hold_s = {"boot_id": "boot"}, None, None, 0
     core._notify = lambda: None
     core._boundary = lambda *args: None
     core._publish = lambda role, path, contents: atomic_publish(path, contents)

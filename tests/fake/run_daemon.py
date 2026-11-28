@@ -199,7 +199,7 @@ def main() -> int:
         ("connection_idle_s", args.connection_idle_s)) if value is not None}
     try:
         daemon = Daemon(root, tick_s=.02, start_grace_s=args.start_grace_s, term_grace_s=args.term_grace_s,
-                        kill_settle_s=1.0, exit_settle_s=1.0,
+                        kill_settle_s=1.0, exit_settle_s=1.0, signal_hold_s=1.0,
                         guardian_start_delay_s=args.start_delay, crash_hook=hook,
                         inspect_interval_s=args.inspect_interval_s,
                         **connections)
