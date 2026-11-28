@@ -755,6 +755,16 @@ def attached_runner(command: str) -> str | None:
     return None
 
 
+def attached_denial(offender: str) -> str:
+    """The reason an attached runner launch is denied. The task and tier lists come from the
+    CLI's own choices, so a task the CLI gains is named here too (guard sync, 2026-11-11)."""
+    from .cli import TASK_CHOICES, TIER_CHOICES
+    return (f"{offender} runs attached to this session and can die when it restarts. "
+            f"Use subfleet run --task {'|'.join(TASK_CHOICES)} --tier {'|'.join(TIER_CHOICES)} "
+            "-C <dir> -p prompt.md -o out.md, then arm subfleet wait <job-id> as a background task. "
+            "For an intentional short attached call, prefix that command with SUBFLEET_ATTACHED_OK=1.")
+
+
 def pre_tool_use(payload: dict[str, Any], *, stdout=None, env: Any = None) -> int:
     """Deny attached runner launches; in a review launch, deny publishing too.
 
@@ -772,10 +782,7 @@ def pre_tool_use(payload: dict[str, Any], *, stdout=None, env: Any = None) -> in
         return 0
     offender = attached_runner(tool_command(payload))
     if offender:
-        reason = (f"{offender} runs attached to this session and can die when it restarts. "
-                  "Use subfleet run --task build|review|research --tier trivial|easy|standard|hard "
-                  "-C <dir> -p prompt.md -o out.md, then subfleet wait <job-id>. "
-                  "For an intentional short attached call, prefix that command with SUBFLEET_ATTACHED_OK=1.")
+        reason = attached_denial(offender)
         print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse',
                                                 'permissionDecision': 'deny',
                                                 'permissionDecisionReason': reason}}), file=stdout or sys.stdout)
