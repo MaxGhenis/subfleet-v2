@@ -89,9 +89,9 @@ def test_c15_5_a_wait_reads_once_more_when_its_deadline_passes(daemon, with_clie
     job = add_job(daemon, "20261004-000001-ended-unseen")
     first_read, real = threading.Event(), daemon._wait_answer
 
-    def reading(job_ids):
+    def reading(job_ids, **kwargs):
         try:
-            return real(job_ids)
+            return real(job_ids, **kwargs)
         finally:
             first_read.set()
     daemon._wait_answer = reading
@@ -387,16 +387,16 @@ def test_c15_5_a_wake_during_the_last_read_asks_for_one_more(daemon):
     job = add_job(daemon, "20261004-000004-ended-mid-read")
     real, calls = daemon._wait_answer, []
 
-    def stale_then_real(job_ids):
+    def stale_then_real(job_ids, **kwargs):
         calls.append(time.monotonic())
         if len(calls) == 1:
-            answer = real(job_ids)                          # the snapshot: still running
+            answer = real(job_ids, **kwargs)                          # the snapshot: still running
             time.sleep(.4)                                  # past the 0.3 s deadline
             commit_elsewhere(daemon, job)
             for waiter in list(daemon.wait_hub._waiters.values()):
                 waiter.event.set()                          # the hub's wake, during this read
             return answer
-        return real(job_ids)
+        return real(job_ids, **kwargs)
     daemon._wait_answer = stale_then_real
     result = daemon.wait(protocol.WaitArgs(job_ids=[job], deadline_s=.3), client_gone=lambda: False)
     assert result["timeout"] is False and result["jobs"][0]["state"] == "succeeded" and len(calls) == 2
@@ -547,14 +547,14 @@ def test_c15_5_the_deadline_read_does_not_wait_for_the_hubs_wake(daemon):
     job = add_job(daemon, "20261004-000008-ended-unannounced")
     real, calls = daemon._wait_answer, []
 
-    def stale_then_real(job_ids):
+    def stale_then_real(job_ids, **kwargs):
         calls.append(time.monotonic())
         if len(calls) == 1:
-            answer = real(job_ids)                          # the snapshot: still running
+            answer = real(job_ids, **kwargs)                          # the snapshot: still running
             time.sleep(.4)                                  # past the 0.3 s deadline
             commit_elsewhere(daemon, job)                   # no wake: the hub has not read it yet
             return answer
-        return real(job_ids)
+        return real(job_ids, **kwargs)
     daemon._wait_answer = stale_then_real
     result = daemon.wait(protocol.WaitArgs(job_ids=[job], deadline_s=.3), client_gone=lambda: False)
     assert result["timeout"] is False and result["jobs"][0]["state"] == "succeeded" and len(calls) == 2
