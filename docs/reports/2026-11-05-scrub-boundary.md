@@ -971,7 +971,10 @@ All in `subfleet/sessions/handoff.py`, `_data_uri_run_ons` unless named.
   a body under 32 characters) or whose body ends anywhere but at another `data:`, after which both
   read on alike. A body's run goes on past each block its side removes that opens where it stops. So
   the masks cover only bodies the whole-text scrub's data URIs hide, never the rest of the text unless
-  such a body runs there.
+  such a body runs there. *(Corrected in "Reminder-erased openers, fix round 3 (review r3)": the masks
+  cover at least those bodies, since a run of body characters after a removed block's end, even an
+  empty one, counts with no data URI before it, and on 25 of the fuzz's 13,000 texts they cover a
+  value the whole-text scrub shows; see "Claims corrected" there.)*
 - **Beyond the brief: release's data URI in a run-on.** This round's fuzz (below, seed 5011) found one
   more shape of the class: a data URI in a whole-text block's run-on text, which the whole-text scrub
   removes and release keeps, whose body runs past the block's end in release's text (through
@@ -984,10 +987,10 @@ All in `subfleet/sessions/handoff.py`, `_data_uri_run_ons` unless named.
   pattern when made), so every closer search `_split_masks` makes is counted, direct or not.
 - **P3 and the P1 claims:** below, under "Claims corrected".
 
-Seed 2075 (`handoff.py:2556`) and famA (#300's design, `:3064`) are not this round's: their code is
-unchanged and neither has a test. Both still show: seed 2075's value at 22 (on this head in both
-reminder modes at limits None, 40 and 2,048; on 4890f0d60 at None and 2,048 with reminders stripped),
-and famA's at 29 on both (`probe.py`).
+Issue #345's leak (fix round 1's seed 2075; `handoff.py:2556`) and famA (#300's design, `:3064`) are
+not this round's: their code is unchanged and neither has a test. Both still show: #345's value at 22
+(on this head in both reminder modes at limits None, 40 and 2,048; on 4890f0d60 at None and 2,048
+with reminders stripped), and famA's at 29 on both (`probe.py`).
 
 ### Rows before and after
 
@@ -1087,7 +1090,10 @@ To regenerate a seed (the scripts went with the scratch folder): with `R`, `C` a
 becomes `"Zq7x%06d\n" % (seed * 100 + k)`, and `"Zq7x%06d\n" % (seed * 100 + 99)` is appended. A leak is
 a value in neither `scrub_secrets(text, strip_reminders=True, whole=True)` nor
 `within_line_scrub(text, True)` that `scrub_bounded(text, limit, strip_reminders=True)` shows at limit
-None or 2,048 (Python 3.15.2).
+None or 2,048 (Python 3.15.2). Seed numbers here are this recipe's: fix round 1's seed 2075 is another
+text (fix round 1 recorded neither its recipe nor its text); #345 names the leak by review r2's row,
+rebuilt from that description, `'password = "' + U + "\n" + U + "\nZq6x200001\n"`; under this recipe
+the one leak in 0–2,999 is seed 2695.
 
 | Run | texts | 4890f0d60 | this head (final code) |
 |---|---|---|---|
@@ -1095,7 +1101,7 @@ None or 2,048 (Python 3.15.2).
 | `fuzz.py` seeds 3,000–22,999 | 20,000 | 14 | 10 (a subset) |
 | `fuzz2.py` seeds 100,000–139,999 | 40,000 | 22 | 11 (a subset) |
 
-No text leaks on this head that doesn't on 4890f0d60. Every remaining leak (22) is seed 2075's class:
+No text leaks on this head that doesn't on 4890f0d60. Every remaining leak (22) is #345's class:
 each holds a quoted value with a data URI inside its quotes; 18 (`fuzz.py`'s 1 and 10, `fuzz2.py`'s 7)
 show the value with every reminder opener removed (`fuzz.py`'s 10 in both reminder modes too); the other
 four stop showing once each value is closed before its data URI. In `fuzz.py`'s 20,000, the walk alone
@@ -1162,11 +1168,11 @@ Collect: 362 tests in `tests/unit/test_sessions_handoff_excerpts.py`, the only t
 - **C-23.14's data URI sentence** now covers what the step does: a prefix of any length, release's data
   URI past a block's end, reminders whose opener the whole-text scrub may keep, and the shift down a
   chain of data URIs until the two pairings agree.
-- **C-23.14's open-leak sentence** states seed 2075's leak plainly, in one sentence: no reminder, both
+- **C-23.14's open-leak sentence** states #345's leak plainly, in one sentence: no reminder, both
   modes, limits None, 40 and 2,048, on a4aded885 and 289f15a5c too. Its issue number is the hub's.
-- **C-23.14's "never shows a value the whole block's hides"** now names the two open leaks there:
-  seed 2075's, and famA's, with its row. This section's fuzz and rows claim no more than that either:
-  the rows hide their values, and every remaining fuzz leak is seed 2075's class.
+- **C-23.14's "never shows a value the whole block's hides"** now names the two open leaks there: #345's,
+  and famA's, with its row. This section's fuzz and rows claim no more than that either:
+  the rows hide their values, and every remaining fuzz leak is #345's class.
 - **The P3 wording.** "The windows read for it are bounded" is now "The windows the split step reads
   are bounded", and the linear claim is its own sentence with three named parts, each with its test:
   the split step's scans (the growth test), the erased-key walk's closer searches (the closer-once
@@ -1197,5 +1203,315 @@ Besides those fix round 1's section lists (its "Data URIs get no new mask" sente
 - "The contract, invariant-index and module-name tests passed on the hub (63)": this round ran four
   guard files, 437 tests.
 - "Report: … section "Reminder-erased openers (issue #325)"": the fix rounds' two sections follow it.
+
+Built head: see the final answer.
+
+## Reminder-erased openers, fix round 3 (review r3)
+
+Fix job 20261128-000326-scrubop-fix-r3, run from 2026-11-28 05:03 UTC on f9672a3a5 (fix round 2's
+head with the hub's issue numbers, which review r3 read), in a detached job checkout. No code
+behaviour changes: `handoff.py` changes in two docstrings only. Host load (1 min) ran 15–55 on 18
+cores; free disk stayed at 68.4–69.9 GiB. Commits: `1147a1784` (the read test), `1efb1a646` and
+`7563f648b` (the docstrings), `bd5ef9f86` (C-23.14), then this report.
+
+### Each finding's cause and change
+
+- **P1, two sentences said more than the code does.** This section's predecessor said the masks
+  "cover only bodies the whole-text scrub's data URIs hide", and `_data_uri_run_ons`' summary said it
+  returns "what the whole-text scrub's data URIs hide and release's text shows". But `_body_reaches`
+  counts a run of body characters that starts at an earlier removed block's end (`run in ends`)
+  whether or not a data URI comes before it, and the run may be empty. `fuzz.py`'s seed 542 holds no
+  `data:` at all: `R R "x = 1\n" C R "-" 'password = "</system-reminder>\n' "\n" C` and then its value
+  (137 characters; `R`, `C` and `U` as in `REVIEW_R2`). The whole-text scrub's second block opens at
+  58, exactly where its first ends, so `_body_reaches(text, 58, …)` finds an empty run at 58, in
+  `ends`; release's data URI doesn't run past the block, so the whole-text side goes on from the
+  block's end (126) and the step masks `Zq7x054299\n` (126–137), which the whole-text scrub shows
+  (traced with `why542.py`). Change: `_data_uri_run_ons`' summary and `_split_masks`' clause now say
+  "at least", and that such a run, even an empty one, counts with no data URI before it.
+  `_data_uri_run_ons`' bullets ("may reach") and the rest of `_split_masks`' docstring stay, and the
+  trigger is unchanged (the hub's ruling). Fix round 2's sentence keeps its words with a correction
+  marker.
+- **P2, no test counted what the data URI step reads.** The body-match test counts calls to
+  `_DATA_BODY_RE.match`, not the characters each reads, and no test measured `_PrefixEnds`' pass.
+  `test_the_data_uri_step_s_reads_are_linear_in_the_text` is new:
+  - **The meter.** It patches `handoff._DATA_URI_PREFIX_RE` and `handoff._DATA_BODY_RE` with
+    stand-ins that count what each `finditer` and `match` reads with `tests.regex_reads`
+    (`emulated(pattern).scan`, each call's spans checked against `real_spans`).
+  - **One budget per call.** The two stand-ins share one budget for the whole
+    `_split_masks(text, True, _Tally())` call, 16 reads per character of the text; each `scan` gets
+    what is left, so a quadratic mutant stops by count (`regex_reads.OverBudget`, turned into a
+    failure that names the shape, k and the reads so far). The budget is the per-character bound;
+    I added no separate one. On these shapes the base reads at most 2.92 per character.
+  - **No read escapes.** Every other reading method raises (`search`, `fullmatch`, `findall`,
+    `sub`, `subn`, `split`, `scanner`). Each read is keyed by pattern, call and caller, and the test
+    asserts the only keys are `_PrefixEnds.__contains__`'s `finditer`, `shift`'s prefix `match` and
+    `chain`'s body `match`, so no other call reaches the stand-ins.
+  - **Shapes and sizes.** Review r3's two shapes (chained blocks; a chain of data URIs after one
+    block, with its own value `Zq8x005884`) and a third, a data URI per block, each at k = 250, 1,000
+    and 4,000. On the third the test asserts that `_PrefixEnds` is asked at least k times, so the
+    cache is what keeps the pass to one.
+  - **The assertion.** For each shape, the prefix reads (the pass and `shift`'s matches), the body
+    reads and their sum at 4k are each at most `COUNT_GROWTH_MAX` (5) times those at k, checked as
+    soon as each size is measured, smallest first.
+
+  The body-match test is unchanged.
+- **P3, #345's leak was named by fix round 1's seed number.** Fix round 1's fuzz found the leak under a
+  seed number of its own and recorded neither its recipe nor its text. Fix round 2's section recorded another
+  recipe, under which that seed doesn't leak; its one leak in 0–2,999 is seed 2695. Changes:
+  - C-23.14 names the leak by #345 and review r2's row (the clause already describes the row in
+    words) and keeps no seed number.
+  - Fix round 2's recipe paragraph says its seed numbers are its own and gives the row.
+  - Fix round 2's section names the class "#345's", with fix round 1's seed number in brackets at its
+    first mention.
+  - Fix round 1's own paragraph keeps its numbering.
+
+### Finding 1's count
+
+`count_f1.py` regenerated the 13,000 fuzz texts by fix round 2's recipe: `fuzz.py` 0–2,999 and `fuzz2.py`
+100,000–109,999, with `R`, `C`, `B`, `E` and `within_line_scrub` from the test module.
+- **The masks.** It wrapped `handoff._data_uri_run_ons` to keep what it returns during one
+  `_split_masks(text, True, handoff._Tally())` call, and asserted one call per text.
+- **The values.** It took the `Zq7x…` values that `scrub_secrets(text, strip_reminders=True,
+  whole=True)` still shows.
+- **Positions** are the original text's.
+
+| | f9672a3a5 (this round's base) | 4890f0d60 (`git archive`) |
+|---|---|---|
+| a mask overlaps a value the whole-text scrub shows | 25 (`fuzz.py` 2, `fuzz2.py` 23) | 21 (1, 20) |
+| the masks cover all of such a value | 25 (2, 23) | 21 (1, 20) |
+
+The two counts agree on both trees, and the base's 25 match review r3's count and the seeds it names.
+- **4890f0d60.** Its 21 are among the base's 25. The four it lacks are review r3's four: 369,
+  101284, 108385 and 109337.
+- **Which value.** In every text the value shown is the appended one (`seed * 100 + 99`), on the
+  text's last line, and one mask covers it to the text's end.
+- **Value lengths.** `fuzz2.py`'s values have 12 characters, not ten (`seed * 100 + k` has eight
+  digits there), so the full-cover test reads each value's own length.
+
+The 25, as seed (text length): value, mask. All are in the original text's positions.
+
+| Seed | Value / mask | Seed | Value / mask |
+|---|---|---|---|
+| `fuzz.py` 369 (891) | 880–890 / 880–891 | 105172 (1,516) | 1,503–1,515 / 1,503–1,516 |
+| `fuzz.py` 542 (137) | 126–136 / 126–137 | 105267 (378) | 365–377 / 324–378 |
+| 100062 (254) | 241–253 / 241–254 | 105322 (356) | 343–355 / 343–356 |
+| 100763 (289) | 276–288 / 276–289 | 105531 (307) | 294–306 / 294–307 |
+| 101284 (1,351) | 1,338–1,350 / 1,338–1,351 | 105988 (205) | 192–204 / 192–205 |
+| 101743 (228) | 215–227 / 173–228 | 106721 (320) | 307–319 / 307–320 |
+| 102182 (920) | 907–919 / 907–920 | 107698 (225) | 212–224 / 210–225 |
+| 103247 (212) | 199–211 / 199–212 | 107897 (823) | 810–822 / 810–823 |
+| 103469 (131) | 118–130 / 118–131 | 108319 (228) | 215–227 / 215–228 |
+| 104701 (282) | 269–281 / 269–282 | 108385 (988) | 975–987 / 356–988 |
+| 105088 (918) | 905–917 / 905–918 | 108911 (148) | 135–147 / 131–148 |
+| | | 108990 (161) | 148–160 / 148–161 |
+| | | 109337 (414) | 401–413 / 343–414 |
+| | | 109803 (1,276) | 1,263–1,275 / 1,263–1,276 |
+
+Seeds from 100062 on are `fuzz2.py`'s.
+
+**Not a leak.** The step's masks are added to the other layers' over release's resolved text, which
+it leaves unchanged (`test_the_erased_key_step_only_adds_masks`), and C-23.14 lets an excerpt hide more
+than the whole-text scrub. So on these texts the step hides a value the whole-text scrub shows; it
+exposes nothing.
+
+**The corrected sentence.** In place of fix round 2's "So the masks cover only bodies the whole-text
+scrub's data URIs hide, never the rest of the text unless such a body runs there": the masks cover at
+least the bodies the whole-text scrub's data URIs hide. A run of body characters that starts at an
+earlier removed block's end counts with no data URI before it, even an empty run, so the masks can
+also cover text the whole-text scrub shows. They did on 25 of the 13,000 fuzz texts.
+
+**Seed 2695.** The same run checked the leak test on `fuzz.py` 0–2,999. Seed 2695 (736 characters) is
+the one text where `scrub_bounded(text, limit, strip_reminders=True)` shows a value that both the
+whole-text and within-line scrubs hide: at 725 in the text, and at output offset 50 at limits None and
+2,048. Under this recipe, the number fix round 1 gave its leak names a text that doesn't leak.
+
+### The read test's counts
+
+These come from `probe_reads.py`, which uses the test's meter and patches and counts the queries
+`_PrefixEnds` answers. It ran on `1147a1784`'s code, whose `handoff.py` is the base's, with reminders
+stripped, in one `_split_masks` call.
+- **"Pass"** is `_PrefixEnds`' `finditer`.
+- **"Shift"** is `shift`'s prefix matches, with the number of calls in brackets.
+- **"Body"** is `chain`'s body matches, with the number of calls in brackets.
+
+| Shape | k | text | pass | shift | body | sum | per character | queries |
+|---|---|---|---|---|---|---|---|---|
+| chained blocks | 250 | 16,062 | 16,843 | 0 | 749 (250) | 17,592 | 1.10 | 1 |
+| | 1,000 | 64,062 | 67,093 | 0 | 2,999 (1,000) | 70,092 | 1.09 | 1 |
+| | 4,000 | 256,062 | 268,093 | 0 | 11,999 (4,000) | 280,092 | 1.09 | 1 |
+| a chain of data URIs | 250 | 15,634 | 23,419 | 10,750 (250) | 11,260 (251) | 45,429 | 2.91 | 1 |
+| | 1,000 | 62,134 | 93,169 | 43,000 (1,000) | 45,010 (1,001) | 181,179 | 2.92 | 1 |
+| | 4,000 | 248,134 | 372,169 | 172,000 (4,000) | 180,010 (4,001) | 724,179 | 2.92 | 1 |
+| a data URI per block | 250 | 31,500 | 40,000 | 10,707 (249) | 12,203 (748) | 62,910 | 2.00 | 250 |
+| | 1,000 | 126,000 | 160,000 | 42,957 (999) | 48,953 (2,998) | 251,910 | 2.00 | 1,000 |
+| | 4,000 | 504,000 | 640,000 | 171,957 (3,999) | 195,953 (11,998) | 1,007,910 | 2.00 | 4,000 |
+
+- **Growth.** Every ratio the test checks (prefix, body and sum, 1,000 against 250 and 4,000 against
+  1,000) is between 3.98 and 4.01.
+- **Against review r3's proxy.** Review r3's span proxy measured 500 / 2,000 / 8,000 and 11,010 /
+  44,010 / 176,010 body characters. The meter also counts the test of the character that ends each
+  run, about one more read per call.
+- **Queries.** On chained blocks `_PrefixEnds` is asked once: each later block's run starts at the
+  previous block's end, and `run in ends` decides it before the query. The chain of data URIs has
+  one block. So on those two shapes a pass run on every query would read the text once and pass. On
+  the third shape it is asked once per block.
+- **Time.** The new test and the body-match test took 18.8 s together, then 6.1 s, serially at load
+  15–19. That is under 60 s, so the sizes stay 250, 1,000 and 4,000.
+
+### Mutants
+
+- **The copies.** Each mutant ran in a `git archive HEAD` copy of `1147a1784`, under the scratch
+  folder, one copy at a time. The copy's test module held the new test, and each substitution hit
+  once (both asserted).
+- **Where they ran.** A `test_where_mut.py` in the copy asserted that `handoff.__file__` was the
+  copy's, and passed each time. The worktree's `git status` was clean after each run.
+- **The command.** From the copy: `<worktree>/.venv/bin/python -m pytest -p no:cacheprovider --basetemp
+  "$S/pytest-mut-<name>" -q tests/unit/test_where_mut.py tests/unit/test_sessions_handoff_excerpts.py
+  -k "data_uri_step_s or where_mut"`.
+- **Line numbers** are the base's, as at `1147a1784`.
+- **"At the stop"** counts are the reads before the call that went over the budget, not totals.
+
+| Mutant | Change | New test | Old body-match test |
+|---|---|---|---|
+| m-memo | `:3027`, `memo, hops = chains[whole], …` becomes `memo, hops = {}, …` | k = 250 stays within the budget on chained blocks. It fails by the budget at k = 1,000 (text 64,062, budget 1,024,992; at the stop: pass 67,093, body 957,898) | fails at :1006 with `('chained-blocks', 250, 31375)` |
+| m-pass | `:2957`, a `finditer` from the text's start for each prefix found | passes chained blocks (one prefix), then fails by the budget on the chain of data URIs at k = 250 (text 15,634, budget 250,144; at the stop: pass 249,052) | passes |
+| m-cache | `:2956–2957`, the pass on every query | passes the first two shapes at every size, then fails by the budget on a data URI per block at k = 250 (text 31,500, budget 504,000; at the stop: pass 480,000, shift 516, body 588) | passes |
+
+No mutant hit a timeout; each stopped by count. The runs:
+- m-memo: 2 failed and 1 passed in 43.3 s; a second run of the old test alone, for its line, gave 1
+  failed and 1 passed in 6.3 s.
+- m-pass: 1 failed and 2 passed in 27.3 s.
+- m-cache: 1 failed and 2 passed in 17.5 s.
+
+**4890f0d60 (optional).** I put this head's test module in a `git archive` of 4890f0d60, after the
+location test confirmed which `handoff.py` it imports.
+- **The new test** fails there at :1051 with `AttributeError: … no attribute '_PrefixEnds'`, not by
+  count. It reads `handoff._PrefixEnds.__contains__` to count queries, and 4890f0d60 looked back
+  within 512 characters for a prefix instead.
+- **The body-match test** fails at :1006 with `('chained-blocks', 250, 31375)`, as in review r3.
+- **Not run:** a variant without the query count.
+
+### Invariants and their tests
+
+1. **No masked run shows:** `test_every_data_uri_run_on_past_a_reminder_keeps_only_what_the_whole_scrub_keeps`
+   (`REVIEW_R2`, 22 ids) and `test_every_reminder_outcome_the_step_reads_keeps_only_what_the_whole_scrub_keeps`
+   (`REVIEW_R1`, 36 ids), through `assert_keeps_only_what_the_whole_scrub_keeps`.
+2. **Within the budget,** `scrub_bounded(text, limit) == truncate(scrub_secrets(text), limit)`: the
+   same helper.
+3. **The step only adds masks:** `test_the_erased_key_step_only_adds_masks`.
+4. **Linear work:**
+   - the growth test, `test_the_split_step_s_work_is_linear_in_the_blocks`;
+   - the closer-once count, `test_the_erased_key_walk_reads_each_closer_once`;
+   - the body-match count, `test_the_data_uri_step_s_body_matches_are_linear_in_the_blocks`;
+   - the new read count, `test_the_data_uri_step_s_reads_are_linear_in_the_text`.
+5. **The round changes no code:** the AST check below.
+
+The final runs below hold each test's result.
+
+### AST check
+
+`ast_check.py` parses `subfleet/sessions/handoff.py` at f9672a3a5 and at this head. It removes each
+module, class and function docstring (137 in each) and compares `ast.dump`: the two are identical.
+- **A check of the check:** the same comparison against a copy with m-memo's change reports a
+  difference.
+- **When it ran:** after `1efb1a646`, after `7563f648b` and at this report's head; each time
+  identical.
+- **Layout.** The two docstrings' word changes are the summary and the clause. The sentence after
+  `_data_uri_run_ons`' summary (`spans` are …) is reflowed, with its words unchanged.
+
+### Commands and results
+
+- **Environment.** All runs used `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"`, `UV_CACHE_DIR=$TMPDIR/uv-cache`
+  and `unset PYTHONPATH`, with the scratch folder `$TMPDIR/sf-scrub-fix3` and a new `--basetemp` under it
+  for each run, deleted after.
+- **pytest** ran as `uv run --no-sync python -m pytest -p no:cacheprovider` (`-n 4` where shown), and
+  mutant and archive runs as above.
+- **Free disk** is `df -k /System/Volumes/Data`'s Available, in GiB. Load is the 1-minute average.
+
+| When (UTC) | Run | Free; load | Result |
+|---|---|---|---|
+| 05:04 | `uv sync --group dev`, then `uv pip install --python .venv/bin/python 'pytest-xdist>=3.6'` | 69.9; 21.2 | ok (pytest-xdist 3.8.0, Python 3.15.2) |
+| 05:06 | `probe_reads.py`, the base | 69.9 at 05:04; 30.3 | the counts above |
+| 05:08 | the new and body-match tests, base code (`-k data_uri_step_s`, serial) | 69.4; 18.8 | **2 passed** in 18.8 s |
+| 05:13 | the same, after the new test's docstring edit | 68.9; 15.4 | **2 passed** in 6.1 s |
+| 05:14 | m-memo | 68.8; 27.2 | 2 failed, 1 passed in 43.3 s |
+| 05:15 | m-memo, the old test alone (`--tb=line`) | 68.7; 42.6 | 1 failed, 1 passed in 6.3 s |
+| 05:17 | m-pass | 69.0; 54.8 | 1 failed, 2 passed in 27.3 s |
+| 05:18 | m-cache | 68.8; 31.9 | 1 failed, 2 passed in 17.5 s |
+| 05:21 | `count_f1.py`, the base | 68.7; 16.5 | 25 / 25; leak 2695 |
+| 05:23 | `count_f1.py`, a 4890f0d60 archive | 68.5; 40.9 | 21 / 21; leak 2695 |
+| 05:24 | this head's test module on 4890f0d60 | 68.4; 37.9 | 2 failed (:1006, :1051), 1 passed in 5.2 s |
+| 05:26 | the four guard modules, after the C-23.14 edit (`-n 4`) | 68.5; 30.1 | **437 passed** in 103.4 s |
+| final | final runs | see the final answer | see the final answer |
+
+### What didn't run, and deviations
+
+- **Not run:**
+  - the rest of the suite (CI runs it);
+  - a variant of the new test on 4890f0d60 without the query count.
+- **The run can be empty.** The docstrings and the marker add "even an empty one" to the reviewer's
+  wording, since seed 542's run is empty (the trace above). That is a second docstring commit, made
+  after the trace.
+- **Beyond the brief's counts.** The new test also asserts the callers and that the third shape asks
+  at least k times. It counts `shift`'s prefix matches with the pass.
+- **No separate per-character assertion.** The shared budget is the per-character bound.
+- **Serial runs.** The new test's first two runs and the mutant runs were serial (two or three tests
+  each), not `-n 4`.
+- **An extra guard run.** The four guard modules also ran once after the contract edit, before the
+  final runs.
+- **No seed number in C-23.14.** It keeps none for #345. The brief allowed one, qualified as fix round
+  1's.
+- **Value lengths.** `fuzz2.py`'s values have 12 characters, so the full-cover count reads each value's
+  own length, not ten.
+
+### Claims corrected
+
+- **Fix round 2's "So the masks cover only bodies …"** (above): the masks cover at least those
+  bodies. The corrected sentence is under "Finding 1's count", and the sentence carries a marker.
+- **`_data_uri_run_ons`' summary and `_split_masks`' clause** now say "at least", and name the run
+  that counts with no data URI before it, even an empty one.
+- **C-23.14's linear sentence.** Its data URI part rested on a count of body-match calls. It now also
+  names the read test, which counts the characters the prefix pass, `shift`'s prefix matches and the
+  body matches read.
+- **Fix round 1's seed number.** C-23.14 and the 2026-11-25 change-log line named #345's leak by fix
+  round 1's numbering, which the recorded recipe gives to another text.
+  - C-23.14 now names the leak by #345 and its row.
+  - The change-log line keeps its words with a correction marker, and a 2026-11-28 line records this
+    round.
+- **Fix round 2's section** named the class by fix round 1's seed number in five places (at the base,
+  :987–988, :1098, :1165 and :1168–1169). They now say "#345's", with fix round 1's number in brackets
+  at the first, and its
+  recipe paragraph says whose seed numbers they are.
+
+### PR #331 body sentences this round makes false or imprecise
+
+These are in the hub's draft (`body-r3-draft.md`), by its line; the body on the PR predates it.
+- **:8.** "`_data_uri_run_ons` masks what the whole-text scrub's data URIs hide and release's text
+  shows where …" becomes "`_data_uri_run_ons` masks at least what …". Add after the list: "A run of
+  body characters after a removed block's end counts even with no data URI before it, and even when
+  it is empty, so on 25 of the report's 13,000 fuzz texts the step also hides a value the whole-text
+  scrub shows. That over-redacts and exposes nothing."
+- **:18.** "Change-log entries dated 2026-11-15, 2026-11-17 and 2026-11-25 record the change, and the
+  2026-11-13, 2026-11-15 and 2026-11-17 entries each carry a correction marker." Add the 2026-11-28
+  entry, and the 2026-11-25 entry's marker.
+- **:23.** "C-23.14 names three parts of the split step's work, each with the test that measures it"
+  becomes "… each with the tests that measure it": the third part now names two.
+- **:27.** "No test measures the prefix pass; …" is false now. In its place:
+  "`test_the_data_uri_step_s_reads_are_linear_in_the_text` counts, with the repository's read meter
+  and one budget per call, the characters the prefix pass, `shift`'s prefix matches and the body
+  matches read, on three shapes at k = 250, 1,000 and 4,000. Each count grows at most fivefold per
+  fourfold size; the base reads at most 2.92 characters per character. Three mutants fail it by
+  count: one that drops the body memo, one that rereads the text from its start for each prefix, and
+  one that runs the pass on every query."
+- **:57.** "the excerpts module passed whole: 362 tests" is now 363, with the final runs' figures. The
+  four guard modules' 437 passed at this head.
+- **:65.** The sentence that names #345's leak by fix round 1's fuzz seed number becomes "The leak
+  in #345 (review r2's row) needs no reminder": under the report's recipe that number names another text.
+- **:68.** "Each holds a quoted value with a data URI inside its quotes, as …" ends "as #345's row
+  does", not with fix round 1's seed number.
+- **The Tests list (:31–55)** has no bullet for the new read test. Add one with the shapes, the
+  budget and the three mutants.
+- **On the PR now,** "Each of four mutants failed a test" leaves out this round's three (m-memo,
+  m-pass and m-cache), each killed by the read test.
 
 Built head: see the final answer.
