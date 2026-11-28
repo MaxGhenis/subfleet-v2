@@ -878,9 +878,9 @@ class Client:
                      on_lost: Callable[[ResponseLost], None] | None = None) -> dict[str, Any]:
         """`call` for an idempotent op whose answer must not be guessed (C-16.3).
 
-        `submit` is idempotent per request id (C-6.2) and `kill` per job
-        (C-7.1), so when the first answer is lost the identical request (same
-        op, same arguments, same request id) is sent once more with the longer
+        `submit` is idempotent per request id (C-6.2), `kill` per job (C-7.1),
+        and `retention.retire` per standing request (C-8.6). When the first
+        answer is lost the identical request is sent once more with the longer
         `REQUERY_TIMEOUT_S` deadline, and its answer is the outcome. The result
         then carries `requeried: True`; for `submit`, `created: false` there
         means the first, unanswered request (or, for a caller-supplied id, an
@@ -890,9 +890,8 @@ class Client:
         Three edges of the re-send:
 
         * The daemon is gone (`DaemonUnavailable`). The first request may have
-          committed, so a `submit` is `OutcomeUnknown`. Anything else (`kill`)
-          re-raises, and the CLI falls back to offline mode (C-17.5), which is
-          what the operator asked for.
+          committed, so `submit` and `retention.retire` raise `OutcomeUnknown`.
+          `kill` re-raises so the CLI can fall back to offline mode (C-17.5).
         * The daemon answers the re-send "busy" (C-16.7). It read nothing, so
           that says nothing about the first request: `call` sends it again,
           with `busy_pause` between tries, until the re-send's deadline, and a
@@ -923,7 +922,7 @@ class Client:
         except (ResponseLost, RequestTimeout) as exc:
             raise OutcomeUnknown(op, request_id, (str(first), str(exc))) from exc
         except DaemonUnavailable as exc:
-            if op != "submit":
+            if op not in ("submit", "retention.retire"):
                 raise
             raise OutcomeUnknown(op, request_id, (
                 str(first), f"the daemon went away before the re-sent request: {exc}")) from exc

@@ -61,7 +61,7 @@ OPS = (
     "submit", "list", "show", "wait", "kill", "lanes", "readings", "why",
     "notice.pending", "notice.ack", "notice.mark", "notice.list", "notice.withdraw", "ping", "daemon.status",
     "gate.start", "gate.poll", "gate.continue",
-    "sessions", "pick", "operations", "tasks", "retention.delete",
+    "sessions", "pick", "operations", "tasks", "retention.delete", "retention.retire",
     *CONVERSATION_OPS,
 )
 
@@ -405,6 +405,24 @@ class RetentionDeleteArgs:
     action: str
     request: dict[str, Any] | None = None
     limit: int | None = None
+
+
+#: C-8.6: the most jobs one request names, and the longest reason it records.
+RETIRE_MAX_JOBS = 500
+RETIRE_REASON_MAX = 500
+
+
+@dataclass
+class RetireArgs:
+    """C-8.6: ask retention to retire finished jobs ahead of their pool's budget.
+
+    `withdraw` takes the request back. `dry_run` answers without recording it.
+    """
+    job_ids: list[str] = field(default_factory=list)
+    withdraw: bool = False
+    dry_run: bool = False
+    reason: str | None = None
+    session_id: str | None = None
 
 
 @dataclass
